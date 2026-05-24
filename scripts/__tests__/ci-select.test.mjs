@@ -360,6 +360,38 @@ test('buildSelection routes settings persistence to settings state only', () => 
   );
 });
 
+test('buildSelection keeps palette tooltip plus destructive reset proof out of full web regression', () => {
+  const selection = buildSelection({
+    files: [
+      '.jules/palette.md',
+      'apps/web/e2e/factory-reset-recovery.test.ts',
+      'packages/preferences/src/components/global-download-indicator.tsx',
+      'packages/preferences/src/settings/models/__tests__/model-registry-settings-section.test.tsx',
+      'packages/preferences/src/settings/models/model-registry-settings-section.tsx',
+      'packages/ui/src/collection-picker/__tests__/collection-picker.test.tsx',
+      'packages/ui/src/prompt-management/components/__tests__/prompt-card.test.tsx',
+      'packages/ui/src/prompt-management/components/prompt-card.tsx',
+      'packages/ui/src/prompt-management/components/prompt-list.tsx',
+    ],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, [
+    'ci:web-destructive-reset',
+    'ci:unit',
+    'ci:coverage-db',
+  ]);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'web-destructive-reset-tests', 'ui-tests']
+  );
+  assert.equal(selection.labels.includes('ci:web-e2e'), false);
+  assert.equal(
+    selection.commands.some((command) => command.name === 'web-full-regression-tests'),
+    false
+  );
+});
+
 test('buildSelection routes broad app shell to full web regression', () => {
   const selection = buildSelection({
     files: ['apps/web/src/App.tsx'],

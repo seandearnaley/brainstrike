@@ -300,6 +300,13 @@ export const LOCAL_PROOF_COMMANDS = {
     owner: 'workspace-experience',
     requiredFor: ['web-ui-file-explorer'],
   },
+  'ui-tests': {
+    name: 'ui-tests',
+    command: 'pnpm --filter @brainstrike/ui test',
+    budgetMs: 180_000,
+    owner: 'shared-foundation',
+    requiredFor: ['shared-foundation'],
+  },
   'web-smoke-tests': {
     name: 'web-smoke-tests',
     command: 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke',

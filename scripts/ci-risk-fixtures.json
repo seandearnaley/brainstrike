@@ -28,7 +28,12 @@
         "category": "assistant-contract-runtime",
         "cloudLabels": ["ci:web-assistant-state", "ci:unit"],
         "e2eLanes": ["web-assistant-state"],
-        "proofCommands": ["diff-check", "assistant-contract-tests", "app-shell-tests"]
+        "proofCommands": [
+          "diff-check",
+          "assistant-contract-tests",
+          "app-shell-tests",
+          "web-assistant-state-tests"
+        ]
       }
     },
     {
@@ -36,7 +41,7 @@
       "files": ["packages/embeddings/src/worker/embedding-worker.ts"],
       "expected": {
         "category": "indexing-import-embedding",
-        "cloudLabels": ["ci:desktop", "ci:embedding", "ci:unit"],
+        "cloudLabels": ["ci:embedding", "ci:unit"],
         "e2eLanes": ["desktop-embedding-diagnostics"],
         "proofCommands": ["diff-check", "indexing-tests", "embedding-tests"]
       }
@@ -47,9 +52,9 @@
       "expected": {
         "category": "db-migrations-storage",
         "cloudLabels": [
+          "ci:browser",
           "ci:web-db-startup",
           "ci:web-destructive-reset",
-          "ci:browser",
           "ci:unit",
           "ci:coverage-db"
         ],
@@ -124,7 +129,12 @@
         "category": "assistant-contract-runtime",
         "cloudLabels": ["ci:web-assistant-state", "ci:unit"],
         "e2eLanes": ["web-assistant-state"],
-        "proofCommands": ["diff-check", "assistant-contract-tests", "app-shell-tests"]
+        "proofCommands": [
+          "diff-check",
+          "assistant-contract-tests",
+          "app-shell-tests",
+          "web-assistant-state-tests"
+        ]
       }
     },
     {
@@ -155,6 +165,36 @@
         "cloudLabels": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["web-destructive-reset"],
         "proofCommands": ["diff-check", "web-destructive-reset-tests"]
+      }
+    },
+    {
+      "name": "shared ui component",
+      "files": ["packages/ui/src/prompt-management/components/prompt-card.tsx"],
+      "expected": {
+        "category": "shared-foundation",
+        "cloudLabels": ["ci:browser", "ci:unit"],
+        "e2eLanes": ["critical-smoke"],
+        "proofCommands": ["diff-check", "ui-tests"]
+      }
+    },
+    {
+      "name": "palette tooltip and destructive reset",
+      "files": [
+        ".jules/palette.md",
+        "apps/web/e2e/factory-reset-recovery.test.ts",
+        "packages/preferences/src/components/global-download-indicator.tsx",
+        "packages/preferences/src/settings/models/__tests__/model-registry-settings-section.test.tsx",
+        "packages/preferences/src/settings/models/model-registry-settings-section.tsx",
+        "packages/ui/src/collection-picker/__tests__/collection-picker.test.tsx",
+        "packages/ui/src/prompt-management/components/__tests__/prompt-card.test.tsx",
+        "packages/ui/src/prompt-management/components/prompt-card.tsx",
+        "packages/ui/src/prompt-management/components/prompt-list.tsx"
+      ],
+      "expected": {
+        "category": "web-destructive-reset",
+        "cloudLabels": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
+        "e2eLanes": ["web-destructive-reset"],
+        "proofCommands": ["diff-check", "web-destructive-reset-tests", "ui-tests"]
       }
     },
     {
