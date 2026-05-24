@@ -104,5 +104,11 @@ export function runRequiredPrGate(env = process.env) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  process.exitCode = runRequiredPrGate();
+  try {
+    process.exitCode = runRequiredPrGate();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Required PR gate crashed: ${message}`);
+    process.exitCode = 1;
+  }
 }

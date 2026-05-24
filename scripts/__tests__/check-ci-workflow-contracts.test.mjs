@@ -574,6 +574,21 @@ test('workflow contract requires Required PR Gate to checkout the repo', () => {
   );
 });
 
+test('workflow contract fails when a mapped web lane is missing from required gate needs', () => {
+  const requiredPrGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(requiredPrGate);
+
+  const source = workflowSource.replace(
+    requiredPrGate,
+    requiredPrGate.replace('\n      - web-e2e-smoke-pr', '')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must depend on web-e2e-smoke-pr/
+  );
+});
+
 test('workflow contract keeps full release matrix available outside pull requests', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   assert.ok(e2e);

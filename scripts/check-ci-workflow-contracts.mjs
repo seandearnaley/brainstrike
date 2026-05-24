@@ -2,6 +2,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { JOBS_BY_LANE } from './ci-required-pr-gate.mjs';
+
 const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
 const claudeReviewWorkflowPath = path.join(rootDir, '.github/workflows/claude-code-review.yml');
@@ -1740,13 +1742,8 @@ export function validateWorkflowContracts(source) {
       'e2e',
       'e2e-stateful',
       'e2e-destructive',
-      'desktop-e2e-pr',
-      'desktop-e2e-smoke-pr',
-      'desktop-e2e-ipc-reset-pr',
-      'desktop-e2e-runtime-hosts-pr',
-      'desktop-e2e-db-storage-pr',
-      'desktop-e2e-embedding-pr',
       'merge-reports',
+      ...new Set([...JOBS_BY_LANE.values()].flat()),
     ]) {
       requireYamlListItem(
         requiredPrGate,
