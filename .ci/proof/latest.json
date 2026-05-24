@@ -1,27 +1,26 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T21:57:25.185Z",
+  "generatedAt": "2026-05-24T23:29:54.169Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "bc0ac25ee3212f7c61c8f3447e4cc5ac281eb4ce",
+  "testedHeadSha": "1cdc35f66542464461bfc2329804f08745265bd1",
   "selection": {
     "base": "origin/main",
-    "baseSha": "2b046142af674612b945866a6d143de08a0961c3",
+    "baseSha": "590cd43adfe3e687b20061b300f00b2254aab741",
     "head": "HEAD",
-    "headSha": "bc0ac25ee3212f7c61c8f3447e4cc5ac281eb4ce",
-    "mergeBase": "2b046142af674612b945866a6d143de08a0961c3",
+    "headSha": "1cdc35f66542464461bfc2329804f08745265bd1",
+    "mergeBase": "590cd43adfe3e687b20061b300f00b2254aab741",
     "files": [
       ".ci/proof/latest.json",
       ".github/workflows/test.yml",
-      "AGENTS.md",
-      "docs/architecture-reset/main-smoke-nightly-matrix-2026-05-24.html",
-      "docs/architecture-reset/release-proof-runbook-2026-05-24.html",
       "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs"
+      "scripts/__tests__/ci-required-pr-gate.test.mjs",
+      "scripts/check-ci-workflow-contracts.mjs",
+      "scripts/ci-required-pr-gate.mjs"
     ],
     "riskProfile": {
       "category": "config-tooling",
@@ -99,7 +98,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 10
     },
     {
       "name": "ci-script-tests",
@@ -108,7 +107,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 435
+      "durationMs": 430
     },
     {
       "name": "workflow-contracts",
@@ -117,7 +116,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 404
+      "durationMs": 409
     }
   ]
 }
