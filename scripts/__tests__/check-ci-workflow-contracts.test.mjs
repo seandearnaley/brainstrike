@@ -527,7 +527,7 @@ test('workflow contract requires selected risk labels to gate matching cloud job
   );
 });
 
-test('workflow contract keeps full matrix available outside pull requests', () => {
+test('workflow contract keeps full release matrix available outside pull requests', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   assert.ok(e2e);
 
@@ -535,8 +535,50 @@ test('workflow contract keeps full matrix available outside pull requests', () =
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Functional E2E must remain available for schedule full-matrix runs/
+    /Functional E2E must remain available for schedule release-matrix runs/
   );
+});
+
+test('workflow contract fails when release matrix runs on every main push', () => {
+  const e2e = extractJob(workflowSource, 'e2e');
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(e2e);
+  assert.ok(unitCoverage);
+
+  const source = workflowSource
+    .replace(
+      e2e,
+      e2e.replace(
+        "github.event_name == 'schedule' ||",
+        "github.event_name == 'push' ||\n      github.event_name == 'schedule' ||"
+      )
+    )
+    .replace(
+      unitCoverage,
+      unitCoverage.replace(
+        "github.event_name == 'schedule' ||",
+        "github.event_name == 'push' ||\n      github.event_name == 'schedule' ||"
+      )
+    );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Functional E2E must not run the release matrix on plain main pushes/);
+  assert.match(failures, /Checks \(coverage-db\/full\) must not run the release matrix on plain main pushes/);
+});
+
+test('workflow contract fails when main smoke jobs do not run on push', () => {
+  const webSmoke = extractJob(workflowSource, 'web-e2e-smoke-pr');
+  const desktopSmoke = extractJob(workflowSource, 'desktop-e2e-smoke-pr');
+  assert.ok(webSmoke);
+  assert.ok(desktopSmoke);
+
+  const source = workflowSource
+    .replace(webSmoke, webSmoke.replace("github.event_name == 'push' ||\n      ", ''))
+    .replace(desktopSmoke, desktopSmoke.replace("github.event_name == 'push' ||\n      ", ''));
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Web E2E Smoke must remain available for the main push smoke gate/);
+  assert.match(failures, /Desktop E2E Smoke must remain available for the main push smoke gate/);
 });
 
 test('workflow contract fails when PR heavy jobs run without risk labels', () => {
@@ -562,6 +604,50 @@ test('workflow contract fails when the aggregate PR gate requires skipped jobs',
   assert.match(
     validateWorkflowContracts(source).join('\n'),
     /Required PR Gate must depend on e2e/
+  );
+});
+
+test('workflow contract fails when main gate requires release-only jobs', () => {
+  const mainGate = extractJob(workflowSource, 'required-main-gate');
+  assert.ok(mainGate);
+
+  const source = workflowSource.replace(
+    mainGate,
+    mainGate.replace('\n      - web-e2e-smoke-pr\n', '\n      - web-e2e-smoke-pr\n      - unit_coverage\n      - e2e\n')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Required Main Gate must not depend on release-only job unit_coverage/);
+  assert.match(failures, /Required Main Gate must not depend on release-only job e2e/);
+});
+
+test('workflow contract requires a full scheduled/manual release gate', () => {
+  const releaseGate = extractJob(workflowSource, 'required-release-gate');
+  assert.ok(releaseGate);
+
+  const source = workflowSource.replace(releaseGate, releaseGate.replace('\n      - unit_coverage\n', '\n'));
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required Release Gate must depend on unit_coverage/
+  );
+});
+
+test('workflow contract fails when optional code quality runs on every main push', () => {
+  const codeQuality = extractJob(workflowSource, 'code-quality');
+  assert.ok(codeQuality);
+
+  const source = workflowSource.replace(
+    codeQuality,
+    codeQuality.replace(
+      "if: github.event_name == 'pull_request' || github.event_name == 'schedule'",
+      "if: github.event_name != 'workflow_dispatch'"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Code Quality must not run on every main push/
   );
 });
 

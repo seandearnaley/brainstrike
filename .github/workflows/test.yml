@@ -292,7 +292,6 @@ jobs:
   unit_coverage:
     name: Checks (coverage-db/full)
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -573,16 +572,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
 
-  # Dynamic matrix: web E2E uses the same functional project and shard count on
-  # PRs and main so the merge gate proves the suite that runs after merge.
-  # Five web shards and four desktop shards keep PR and main coverage equivalent
-  # while keeping workers above one. The extra runner setup is a deliberate
-  # wall-time tradeoff for PR throughput; do not replace desktop regression with
-  # PR-only smoke coverage.
+  # Dynamic matrix: release/full-risk E2E uses five web shards and four desktop
+  # shards. Plain pushes to main intentionally do not enter this matrix; they
+  # run smoke gates below, while scheduled/manual runs own full release proof.
   determine-matrix:
     name: Determine E2E Matrix
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -680,7 +675,6 @@ jobs:
   browser-tests:
     name: Browser Tests (Vitest 4)
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -734,7 +728,6 @@ jobs:
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -814,7 +807,6 @@ jobs:
   e2e-stateful:
     name: E2E Stateful Tests (${{ matrix.group }})
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -905,7 +897,6 @@ jobs:
   e2e-destructive:
     name: E2E Destructive Tests
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -980,6 +971,7 @@ jobs:
   web-e2e-smoke-pr:
     name: Web E2E Smoke
     if: >-
+      github.event_name == 'push' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke')
     needs: [checks, prepare-web]
@@ -1411,6 +1403,7 @@ jobs:
   desktop-e2e-smoke-pr:
     name: Desktop E2E Smoke
     if: >-
+      github.event_name == 'push' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke')
     needs: [prepare-desktop]
@@ -1739,7 +1732,7 @@ jobs:
   # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
   desktop-e2e-main:
     name: Desktop E2E Regression
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
     runs-on: ubuntu-latest
     container:
@@ -1836,7 +1829,7 @@ jobs:
 
   desktop-e2e-embedding-main:
     name: Desktop E2E Embedding Regression (${{ matrix.group }})
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: [prepare-desktop, e2e]
     runs-on: ubuntu-latest
     container:
@@ -2243,15 +2236,10 @@ jobs:
     if: always() && github.event_name == 'push'
     needs:
       - checks
-      - unit_coverage
-      - browser-tests
       - prepare-web
       - prepare-desktop
-      - e2e
-      - e2e-stateful
-      - e2e-destructive
-      - desktop-e2e-main
-      - desktop-e2e-embedding-main
+      - web-e2e-smoke-pr
+      - desktop-e2e-smoke-pr
       - merge-reports
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2274,10 +2262,46 @@ jobs:
           console.log('Required main gate passed.');
           NODE
 
+  required-release-gate:
+    name: Required Release Gate
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs:
+      - checks
+      - unit_coverage
+      - browser-tests
+      - prepare-web
+      - prepare-desktop
+      - e2e
+      - e2e-stateful
+      - e2e-destructive
+      - desktop-e2e-main
+      - desktop-e2e-embedding-main
+      - merge-reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required release jobs
+        env:
+          REQUIRED_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const needs = JSON.parse(process.env.REQUIRED_NEEDS);
+          // Strict by design: scheduled/manual release proof must run the full matrix.
+          const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
+          if (failed.length > 0) {
+            console.error('Required release gate failed:');
+            for (const [name, job] of failed) {
+              console.error(`- ${name}: ${job.result}`);
+            }
+            process.exit(1);
+          }
+          console.log('Required release gate passed.');
+          NODE
+
   # Optional checks that don't block merging
   code-quality:
     name: Code Quality Checks
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
