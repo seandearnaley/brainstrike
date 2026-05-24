@@ -89,6 +89,7 @@
     "ci:risk-audit": "node scripts/ci-risk-audit.mjs",
     "ci:risk-fixtures": "node scripts/check-ci-risk-fixtures.mjs",
     "ci:run-changed-unit-tests": "node scripts/run-changed-unit-tests.mjs",
+    "ci:selector-guard": "node scripts/ci-selector-guard.mjs",
     "ci:select": "node scripts/ci-select.mjs",
     "ci:timing-summary": "node scripts/ci-timing-summary.mjs",
     "ci:turbo-diagnostics": "node scripts/turbo-run-diagnostics.mjs",

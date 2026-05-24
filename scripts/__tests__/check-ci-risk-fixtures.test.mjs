@@ -49,19 +49,24 @@ test('verifyRiskFixtures reports deterministic lane mismatches', () => {
 });
 
 test('verifyRiskFixtures rejects unregistered expected E2E lane names', () => {
+  const assistantFixtureIndex = riskFixtures.cases.findIndex(
+    (fixture) => fixture.name === 'assistant contract'
+  );
+  assert.notEqual(assistantFixtureIndex, -1);
+  const fixtureCases = riskFixtures.cases.map((fixture, index) =>
+    index === assistantFixtureIndex
+      ? {
+          ...fixture,
+          expected: {
+            ...fixture.expected,
+            e2eLanes: ['web-functional-stateful'],
+          },
+        }
+      : fixture
+  );
   const fixtureDocument = {
     schemaVersion: 1,
-    cases: [
-      {
-        ...riskFixtures.cases[2],
-        expected: {
-          ...riskFixtures.cases[2].expected,
-          e2eLanes: ['web-functional-stateful'],
-        },
-      },
-      ...riskFixtures.cases.slice(0, 2),
-      ...riskFixtures.cases.slice(3),
-    ],
+    cases: fixtureCases,
   };
 
   assert.deepEqual(verifyRiskFixtures(fixtureDocument), [
@@ -93,7 +98,7 @@ test('runCli checks the committed fixture file successfully', async () => {
     const exitCode = await runCli([]);
 
     assert.equal(exitCode, 0);
-    assert.match(logs.join('\n'), /CI risk fixture check passed: 27 representative cases\./);
+    assert.match(logs.join('\n'), /CI risk fixture check passed: 29 representative cases\./);
   } finally {
     console.log = originalConsoleLog;
   }

@@ -12,6 +12,39 @@
       }
     },
     {
+      "name": "docs-only package readmes",
+      "files": [
+        "AGENTS.md",
+        "README.md",
+        "apps/desktop/README.md",
+        "apps/web/README.md",
+        "packages/agent/README.md",
+        "packages/app-shell/README.md"
+      ],
+      "expected": {
+        "category": "docs-only",
+        "cloudLabels": [],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "docs-static"]
+      }
+    },
+    {
+      "name": "docs plus selector tooling",
+      "files": [
+        "AGENTS.md",
+        "README.md",
+        "packages/agent/README.md",
+        "packages/app-shell/README.md",
+        "scripts/ci-risk-rules.mjs"
+      ],
+      "expected": {
+        "category": "config-tooling",
+        "cloudLabels": ["ci:unit"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts"]
+      }
+    },
+    {
       "name": "tooling script",
       "files": ["scripts/ci-select.mjs"],
       "expected": {

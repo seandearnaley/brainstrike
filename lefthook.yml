@@ -42,6 +42,11 @@ pre-commit:
       # filter does the package resolution via turbo's --filter flag).
       run: pnpm turbo run type-check --filter="[HEAD]"
 
+pre-push:
+  jobs:
+    - name: ci-selector-guard
+      run: pnpm ci:selector-guard --base origin/main --head HEAD
+
 commit-msg:
   jobs:
     - name: lint-msg

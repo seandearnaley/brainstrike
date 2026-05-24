@@ -8,12 +8,98 @@ import {
   selectRiskLanesForFiles,
   toRiskLabels,
 } from '../ci-risk-rules.mjs';
+import riskFixtures from '../ci-risk-fixtures.json' with { type: 'json' };
+
+const E2E_PROOF_COMMAND_LABELS = new Map([
+  ['web-smoke-tests', 'ci:web-smoke'],
+  ['web-file-explorer-persistence-tests', 'ci:web-file-explorer-persistence'],
+  ['web-import-indexing-tests', 'ci:web-import-indexing'],
+  ['web-assistant-state-tests', 'ci:web-assistant-state'],
+  ['web-settings-state-tests', 'ci:web-settings-state'],
+  ['web-db-startup-tests', 'ci:web-db-startup'],
+  ['web-destructive-reset-tests', 'ci:web-destructive-reset'],
+  ['web-full-regression-tests', 'ci:web-e2e'],
+  ['desktop-smoke-tests', 'ci:desktop-smoke'],
+  ['desktop-ipc-reset-tests', 'ci:desktop-ipc-reset'],
+  ['desktop-runtime-host-tests', 'ci:desktop-runtime-hosts'],
+  ['desktop-db-storage-tests', 'ci:desktop-db-storage'],
+  ['desktop-full-regression-tests', 'ci:desktop'],
+]);
+
+test('fixture profiles, labels, and proof commands cannot drift apart', () => {
+  for (const fixture of riskFixtures.cases) {
+    const profile = selectRiskProfileForFiles(fixture.files);
+    const lanes = selectRiskLanesForFiles(fixture.files);
+    const proofCommands = selectProofCommandsForFiles(fixture.files);
+
+    assert.deepEqual(lanes, profile.cloudLabels, `${fixture.name}: profile/lanes disagree`);
+    for (const commandName of proofCommands) {
+      const requiredLabel = E2E_PROOF_COMMAND_LABELS.get(commandName);
+      if (!requiredLabel) {
+        continue;
+      }
+      assert.ok(
+        lanes.includes(requiredLabel) || lanes.includes('ci:full'),
+        `${fixture.name}: ${commandName} requires ${requiredLabel}, got ${lanes.join(',') || '<none>'}`
+      );
+    }
+  }
+});
 
 test('docs-only changes select no cloud risk lanes', () => {
   assert.deepEqual(
     selectRiskLanesForFiles(['apps/docs/docs/development/local-ci.md']),
     []
   );
+});
+
+test('docs-only package READMEs do not select package runtime lanes', () => {
+  const files = [
+    'AGENTS.md',
+    'README.md',
+    'apps/desktop/README.md',
+    'apps/web/README.md',
+    'packages/agent/README.md',
+    'packages/app-shell/README.md',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'docs-only',
+    domains: ['documentation'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'docs-static'],
+    riskLevel: 'low',
+    cloudLabels: [],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), []);
+  assert.deepEqual(selectProofCommandsForFiles(files), ['diff-check', 'docs-static']);
+  assert.deepEqual(toRiskLabels(selectRiskLanesForFiles(files)), []);
+});
+
+test('documentation files do not escalate mixed tooling changes into runtime lanes', () => {
+  const files = [
+    'AGENTS.md',
+    'README.md',
+    'packages/agent/README.md',
+    'packages/app-shell/README.md',
+    'scripts/ci-risk-rules.mjs',
+    'scripts/__tests__/ci-risk-rules.test.mjs',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'config-tooling',
+    domains: ['tooling'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:unit'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), ['ci:unit']);
+  assert.deepEqual(selectProofCommandsForFiles(files), [
+    'diff-check',
+    'ci-script-tests',
+    'workflow-contracts',
+  ]);
 });
 
 test('docs-only changes select a docs-only local proof profile without expensive e2e lanes', () => {
@@ -102,9 +188,9 @@ test('db migrations select db proof without full web functional e2e', () => {
       ],
       riskLevel: 'high',
       cloudLabels: [
+        'ci:browser',
         'ci:web-db-startup',
         'ci:web-destructive-reset',
-        'ci:browser',
         'ci:unit',
         'ci:coverage-db',
       ],
