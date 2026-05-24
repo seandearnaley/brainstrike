@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Brainstrike Release Proof Runbook</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #151b23;
+    --panel-2: #1b2330;
+    --line: #303947;
+    --text: #edf2f7;
+    --muted: #a7b1c2;
+    --green: #43d19e;
+    --yellow: #f1c65b;
+    --red: #ff6b7a;
+    --blue: #7ca7ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 42px 22px 64px; }
+  header {
+    border: 1px solid var(--line);
+    background: linear-gradient(135deg, rgba(124,167,255,.14), rgba(67,209,158,.08));
+    border-radius: 10px;
+    padding: 30px;
+  }
+  h1 { margin: 0 0 10px; font-size: 34px; letter-spacing: -.4px; }
+  h2 { margin: 34px 0 12px; font-size: 22px; }
+  p { color: var(--muted); max-width: 850px; }
+  code { font-family: var(--mono); color: var(--green); }
+  .label { font-family: var(--mono); color: var(--blue); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  .card {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .value { font-size: 27px; font-weight: 760; margin: 6px 0; }
+  .good { color: var(--green); }
+  .warn { color: var(--yellow); }
+  .bad { color: var(--red); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  tr:last-child td { border-bottom: 0; }
+  .callout {
+    border-left: 4px solid var(--yellow);
+    background: rgba(241,198,91,.08);
+    padding: 14px 16px;
+    margin: 18px 0;
+    color: var(--muted);
+  }
+  .steps { counter-reset: step; display: grid; gap: 10px; }
+  .step { counter-increment: step; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; background: var(--panel); }
+  .step::before { content: counter(step, decimal-leading-zero); font-family: var(--mono); color: var(--blue); margin-right: 10px; }
+  footer { color: var(--muted); margin-top: 34px; font-family: var(--mono); font-size: 12px; }
+  @media (max-width: 850px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 28px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="label">Actions budget policy - 2026-05-24</div>
+    <h1>Release proof is explicit. Accidental manual runs are cheap.</h1>
+    <p>
+      Brainstrike now treats the full release matrix as an intentional proof, not a default side effect.
+      Nightly still runs the matrix automatically. Manual runs must opt in with
+      <code>release_proof=full-release</code>. A plain manual dispatch defaults to
+      <code>release_proof=skip</code> and does not run static checks, builds, coverage, or E2E.
+    </p>
+  </header>
+
+  <section class="grid" aria-label="Policy summary">
+    <div class="card">
+      <div class="label">Default manual dispatch</div>
+      <div class="value good">Skip</div>
+      <p>Records the selected policy and exits cheaply. This is deliberate protection against accidental matrix spend.</p>
+    </div>
+    <div class="card">
+      <div class="label">Nightly release proof</div>
+      <div class="value warn">Full</div>
+      <p>Runs the complete release matrix on the scheduled workflow. No human input required.</p>
+    </div>
+    <div class="card">
+      <div class="label">Manual full proof</div>
+      <div class="value bad">Opt-in</div>
+      <p>Requires <code>release_proof=full-release</code> and should include a reason.</p>
+    </div>
+  </section>
+
+  <h2>When To Run What</h2>
+  <table>
+    <thead>
+      <tr><th>Situation</th><th>Run</th><th>Expected Cost</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Normal small PR</td>
+        <td>PR selected lanes only</td>
+        <td>Low to medium</td>
+        <td><code>ci:select</code> and the proof manifest choose the risk-owned cloud lanes.</td>
+      </tr>
+      <tr>
+        <td>Merge to <code>main</code></td>
+        <td>Main push smoke gate</td>
+        <td>Bounded</td>
+        <td>Static checks plus web and desktop smoke prove the branch did not immediately break app startup.</td>
+      </tr>
+      <tr>
+        <td>Routine release confidence</td>
+        <td>Nightly schedule</td>
+        <td>High, planned</td>
+        <td>The full matrix runs once per day instead of after every merge.</td>
+      </tr>
+      <tr>
+        <td>Release-risk merge before the next nightly</td>
+        <td>Manual <code>release_proof=full-release</code></td>
+        <td>High, intentional</td>
+        <td>Use only when waiting for nightly would create unacceptable release risk.</td>
+      </tr>
+      <tr>
+        <td>Desktop backgrounding investigation</td>
+        <td>Manual <code>release_proof=desktop-backgrounding</code></td>
+        <td>Medium</td>
+        <td>Runs the targeted manual diagnostic without paying for the full release matrix.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Manual Full Release Proof Steps</h2>
+  <div class="steps">
+    <div class="step">Open the <code>Test</code> workflow in GitHub Actions.</div>
+    <div class="step">Choose <code>Run workflow</code> on the target branch.</div>
+    <div class="step">Set <code>release_proof</code> to <code>full-release</code>.</div>
+    <div class="step">Enter a concrete <code>reason</code>, such as <code>release candidate before tag</code> or <code>high-risk desktop runtime merge</code>.</div>
+    <div class="step">Wait for <code>Required Release Gate</code>. It is the release proof verdict.</div>
+  </div>
+
+  <div class="callout">
+    Do not use manual full release proof as a normal PR feedback loop. If a PR needs a lane, fix
+    <code>ci:select</code> or the PR labels. If a PR needs the whole matrix, label it <code>ci:full</code>
+    and treat it as high-risk.
+  </div>
+
+  <h2>Executable Guardrails</h2>
+  <table>
+    <thead>
+      <tr><th>Contract</th><th>Prevents</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>workflow_dispatch</code> exposes <code>release_proof</code></td><td>Manual proof intent cannot be implicit.</td></tr>
+      <tr><td><code>release_proof</code> defaults to <code>skip</code></td><td>Accidental manual runs do not burn the matrix.</td></tr>
+      <tr><td>Release jobs require <code>release_proof=full-release</code> on manual dispatch</td><td>Broad manual dispatch cannot run coverage/E2E by accident.</td></tr>
+      <tr><td>Static checks skip unconfirmed manual dispatch</td><td>Manual no-op runs stay cheap.</td></tr>
+      <tr><td>Desktop backgrounding requires <code>release_proof=desktop-backgrounding</code></td><td>Diagnostic work does not run on every manual dispatch.</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    Source files: .github/workflows/test.yml, scripts/check-ci-workflow-contracts.mjs,
+    scripts/__tests__/check-ci-workflow-contracts.test.mjs, AGENTS.md.
+  </footer>
+</main>
+</body>
+</html>
