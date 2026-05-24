@@ -1168,8 +1168,20 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       unitAffected,
+      '- name: Detect selected unit proof mode',
+      'Affected unit job must detect changed-unit-test proof mode before expanding Turbo affected tests.',
+      failures
+    );
+    requireIncludes(
+      unitAffected,
+      'scripts/run-changed-unit-tests.mjs',
+      'Affected unit job must run changed unit test files directly for isolated unit-test-only proof.',
+      failures
+    );
+    requireIncludes(
+      unitAffected,
       'turbo run test --filter="...[origin/${GITHUB_BASE_REF}]"',
-      'Affected unit job must use Turbo affected filtering against the PR base.',
+      'Affected unit job must still support Turbo affected filtering against the PR base.',
       failures
     );
     requireStepTimeoutAtMost(

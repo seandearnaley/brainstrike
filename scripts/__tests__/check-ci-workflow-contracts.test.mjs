@@ -139,6 +139,25 @@ test('workflow contract fails when affected unit timeout cannot cover cold cache
   assert.match(failures, /Affected unit test step timeout must cover cold cache runs/);
 });
 
+test('workflow contract fails when isolated changed unit tests expand to Turbo affected tests only', () => {
+  const unitAffected = extractJob(workflowSource, 'unit_affected');
+  assert.ok(unitAffected);
+
+  const source = workflowSource.replace(
+    unitAffected,
+    unitAffected
+      .replace(/      - name: Detect selected unit proof mode[\s\S]*?\n\n      - name: Run affected unit tests/, '      - name: Run affected unit tests')
+      .replace(
+        '            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD',
+        '            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo'
+      )
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must detect changed-unit-test proof mode/);
+  assert.match(failures, /must run changed unit test files directly/);
+});
+
 test('workflow contract fails when split unit coverage step timeouts are widened', () => {
   const unitCoverage = extractJob(workflowSource, 'unit_coverage');
   assert.ok(unitCoverage);

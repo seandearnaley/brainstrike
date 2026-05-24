@@ -234,6 +234,25 @@ jobs:
           echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
 
+      - name: Detect selected unit proof mode
+        id: unit-proof-mode
+        run: |
+          set -euo pipefail
+          if node - <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const manifest = JSON.parse(readFileSync('.ci/proof/latest.json', 'utf8'));
+          const commands = manifest?.selection?.commands;
+          if (!Array.isArray(commands)) {
+            process.exit(1);
+          }
+          process.exit(commands.some((command) => command?.name === 'changed-unit-tests') ? 0 : 1);
+          NODE
+          then
+            echo "mode=changed-unit-tests" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=affected-workspaces" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run affected unit tests
         # Kept below the job timeout so timing diagnostics and footer reporting still run.
         timeout-minutes: 20
@@ -242,8 +261,13 @@ jobs:
           TURBO_TEST_MODE: unit
         run: |
           START=$SECONDS
-          echo "Running affected unit tests for PR against origin/${GITHUB_BASE_REF}"
-          pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+          if [ "${{ steps.unit-proof-mode.outputs.mode }}" = "changed-unit-tests" ]; then
+            echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
+            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
+          else
+            echo "Running affected unit test workspaces for PR against origin/${GITHUB_BASE_REF}"
+            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+          fi
           echo "| Affected unit tests | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Report Turbo unit diagnostics
