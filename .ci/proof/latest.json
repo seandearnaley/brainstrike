@@ -1,73 +1,57 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T08:00:00.624Z",
+  "generatedAt": "2026-05-24T08:24:14.207Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "b8092162a6cb39c4068310a470f6bcd9d0aa8690",
+  "testedHeadSha": "c82ea80a7d8fa18e00b35dad9234474486ca7519",
   "selection": {
     "base": "origin/main",
-    "baseSha": "4a2a720fe4795cca4d1538e50bdec5bc56da582a",
+    "baseSha": "dba33f356f207d6aa6d257f061ab5a99b6e0e722",
     "head": "HEAD",
-    "headSha": "b8092162a6cb39c4068310a470f6bcd9d0aa8690",
-    "mergeBase": "4a2a720fe4795cca4d1538e50bdec5bc56da582a",
+    "headSha": "c82ea80a7d8fa18e00b35dad9234474486ca7519",
+    "mergeBase": "dba33f356f207d6aa6d257f061ab5a99b6e0e722",
     "files": [
-      ".ci/proof/latest.json",
-      ".jules/palette.md",
-      "apps/web/e2e/factory-reset-recovery.test.ts",
-      "packages/preferences/src/components/global-download-indicator.tsx",
-      "packages/preferences/src/settings/models/__tests__/model-registry-settings-section.test.tsx",
-      "packages/preferences/src/settings/models/model-registry-settings-section.tsx",
-      "packages/ui/src/collection-picker/__tests__/collection-picker.test.tsx",
-      "packages/ui/src/prompt-management/components/__tests__/prompt-card.test.tsx",
-      "packages/ui/src/prompt-management/components/prompt-card.tsx",
-      "packages/ui/src/prompt-management/components/prompt-list.tsx"
+      "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
+      "scripts/__tests__/ci-risk-rules.test.mjs",
+      "scripts/__tests__/ci-select.test.mjs",
+      "scripts/check-ci-risk-fixtures.mjs",
+      "scripts/ci-risk-fixtures.json",
+      "scripts/ci-risk-rules.mjs",
+      "scripts/ci-select.mjs"
     ],
     "riskProfile": {
-      "category": "web-destructive-reset",
+      "category": "config-tooling",
       "domains": [
-        "applications",
-        "data-platform"
+        "tooling"
       ],
-      "e2eLanes": [
-        "web-destructive-reset"
-      ],
+      "e2eLanes": [],
       "proofCommands": [
         "diff-check",
-        "web-destructive-reset-tests"
+        "ci-script-tests",
+        "workflow-contracts"
       ],
-      "riskLevel": "high",
+      "riskLevel": "medium",
       "cloudLabels": [
-        "ci:web-destructive-reset",
-        "ci:unit",
-        "ci:coverage-db"
+        "ci:unit"
       ]
     },
     "proofCommands": [
       "diff-check",
-      "web-destructive-reset-tests",
-      "web-full-regression-tests"
+      "ci-script-tests",
+      "workflow-contracts"
     ],
     "lanes": [
-      "ci:web-destructive-reset",
-      "ci:web-e2e",
-      "ci:unit",
-      "ci:coverage-db"
+      "ci:unit"
     ],
     "expandedLanes": [
-      "ci:web-destructive-reset",
-      "ci:web-e2e",
-      "ci:unit",
-      "ci:coverage-db"
+      "ci:unit"
     ],
     "labels": [
-      "ci:web-destructive-reset",
-      "ci:web-e2e",
-      "ci:unit",
-      "ci:coverage-db"
+      "ci:unit"
     ],
     "commands": [
       {
@@ -80,29 +64,31 @@
         ]
       },
       {
-        "name": "web-destructive-reset-tests",
-        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset",
-        "budgetMs": 360000,
-        "owner": "data-platform",
+        "name": "ci-script-tests",
+        "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
+        "budgetMs": 120000,
+        "owner": "tooling",
         "requiredFor": [
-          "web-destructive-reset"
+          "config-tooling",
+          "full-release-high-risk"
         ]
       },
       {
-        "name": "web-full-regression-tests",
-        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
-        "budgetMs": 900000,
-        "owner": "applications",
+        "name": "workflow-contracts",
+        "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
+        "budgetMs": 180000,
+        "owner": "ci-platform",
         "requiredFor": [
-          "web-full-regression"
+          "config-tooling",
+          "full-release-high-risk"
         ]
       }
     ],
     "budget": {
-      "target": "normal-pr-risk",
-      "targetMs": 900000,
-      "totalMs": 1290000,
-      "status": "over-target"
+      "target": "local-pr-risk",
+      "targetMs": 480000,
+      "totalMs": 330000,
+      "status": "within-target"
     }
   },
   "commandResults": [
@@ -113,25 +99,25 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 18
+      "durationMs": 11
     },
     {
-      "name": "web-destructive-reset-tests",
-      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset",
-      "owner": "data-platform",
-      "budgetMs": 360000,
+      "name": "ci-script-tests",
+      "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
+      "owner": "tooling",
+      "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 8997
+      "durationMs": 357
     },
     {
-      "name": "web-full-regression-tests",
-      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
-      "owner": "applications",
-      "budgetMs": 900000,
+      "name": "workflow-contracts",
+      "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
+      "owner": "ci-platform",
+      "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 208677
+      "durationMs": 342
     }
   ]
 }
