@@ -43,7 +43,7 @@ export const EXPANDED_FULL_LANES = [
 ];
 
 const FULL_PATTERNS = [
-  /^\.github\//,
+  /^\.github\/(?!workflows\/test\.yml$)/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
   /^turbo\.jsonc$/,
@@ -69,6 +69,7 @@ const CONFIG_TOOLING_PATTERNS = [
   /^package\.json$/,
   /^scripts\//,
   /^\.github\/actions\//,
+  /^\.github\/workflows\/test\.yml$/,
   /^\.lefthook\.yml$/,
   /^lefthook\.yml$/,
   /^knip\.json$/,

@@ -543,31 +543,14 @@ test('desktop main process changes still select full desktop regression', () => 
   ]);
 });
 
-test('release workflow changes select full release proof explicitly', () => {
+test('test workflow changes select CI contract proof without product release lanes', () => {
   assert.deepEqual(selectRiskProfileForFiles(['.github/workflows/test.yml']), {
-    category: 'full-release-high-risk',
-    domains: ['ci-platform'],
-    e2eLanes: [
-      'critical-smoke',
-      'web-file-explorer-persistence',
-      'web-import-indexing',
-      'web-assistant-state',
-      'web-settings-state',
-      'web-db-startup',
-      'web-destructive-reset',
-      'web-full-regression',
-      'desktop-smoke',
-      'desktop-ipc-reset',
-      'desktop-runtime-hosts',
-      'desktop-db-storage',
-      'desktop-full-regression',
-      'desktop-embedding-diagnostics',
-      'desktop-llm-host-recovery',
-      'long-soak-release-only',
-    ],
-    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
-    riskLevel: 'full',
-    cloudLabels: ['ci:full'],
+    category: 'config-tooling',
+    domains: ['tooling'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:unit'],
   });
 });
 
@@ -599,34 +582,15 @@ test('e2e test-only changes stay in their product lane', () => {
   });
 });
 
-test('workflow and CI script changes select the full lane', () => {
+test('test workflow and CI script changes select tooling lanes without full product matrix', () => {
   assert.deepEqual(
     selectRiskLanesForFiles([
       '.github/workflows/test.yml',
       'scripts/check-ci-workflow-contracts.mjs',
     ]),
-    ['ci:full']
+    ['ci:unit']
   );
-  assert.deepEqual(expandRiskLanes(['ci:full']), [
-    'ci:browser',
-    'ci:web-smoke',
-    'ci:web-file-explorer-persistence',
-    'ci:web-import-indexing',
-    'ci:web-assistant-state',
-    'ci:web-settings-state',
-    'ci:web-db-startup',
-    'ci:web-destructive-reset',
-    'ci:web-e2e',
-    'ci:desktop-smoke',
-    'ci:desktop-ipc-reset',
-    'ci:desktop-runtime-hosts',
-    'ci:desktop-db-storage',
-    'ci:desktop',
-    'ci:embedding',
-    'ci:unit',
-    'ci:coverage-db',
-    'ci:coverage-full',
-  ]);
+  assert.deepEqual(expandRiskLanes(['ci:unit']), ['ci:unit']);
 });
 
 test('browser storage changes select browser and coverage lanes without full db tests', () => {
