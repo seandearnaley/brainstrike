@@ -66,7 +66,7 @@ pnpm build:main      # TypeScript compilation
 #### Package & Distribute
 ```bash
 # Create unpacked app in release/ directory
-pnpm pack
+pnpm run pack
 
 # Create distributable packages (DMG, NSIS, AppImage)
 pnpm dist
@@ -97,6 +97,7 @@ apps/desktop/
 │   ├── *-host-manager.ts    # Hidden-host (embedding/llm/chunking) window lifecycle
 │   └── renderer/            # React renderer app
 │       ├── main.tsx         # Renderer entry point
+│       ├── styles.css       # Renderer global styles
 │       └── components/      # Renderer components and hidden-host shells
 │           ├── root-layout-content.tsx
 │           ├── embedding-host-app.tsx / embedding-host-runtime.tsx

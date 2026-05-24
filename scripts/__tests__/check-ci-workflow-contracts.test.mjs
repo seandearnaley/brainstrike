@@ -155,6 +155,7 @@ test('workflow contract fails when isolated changed unit tests expand to Turbo a
 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /must detect changed-unit-test proof mode/);
+  assert.match(failures, /must use the tested unit proof mode detector/);
   assert.match(failures, /must run changed unit test files directly/);
 });
 

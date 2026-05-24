@@ -1174,7 +1174,13 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       unitAffected,
-      'scripts/run-changed-unit-tests.mjs',
+      'scripts/ci-unit-proof-mode.mjs',
+      'Affected unit job must use the tested unit proof mode detector.',
+      failures
+    );
+    requireIncludes(
+      unitAffected,
+      'node scripts/run-changed-unit-tests.mjs',
       'Affected unit job must run changed unit test files directly for isolated unit-test-only proof.',
       failures
     );

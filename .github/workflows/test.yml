@@ -238,20 +238,7 @@ jobs:
         id: unit-proof-mode
         run: |
           set -euo pipefail
-          if node - <<'NODE'
-          const { readFileSync } = require('node:fs');
-          const manifest = JSON.parse(readFileSync('.ci/proof/latest.json', 'utf8'));
-          const commands = manifest?.selection?.commands;
-          if (!Array.isArray(commands)) {
-            process.exit(1);
-          }
-          process.exit(commands.some((command) => command?.name === 'changed-unit-tests') ? 0 : 1);
-          NODE
-          then
-            echo "mode=changed-unit-tests" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=affected-workspaces" >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/ci-unit-proof-mode.mjs --proof .ci/proof/latest.json --github-output "$GITHUB_OUTPUT"
 
       - name: Run affected unit tests
         # Kept below the job timeout so timing diagnostics and footer reporting still run.

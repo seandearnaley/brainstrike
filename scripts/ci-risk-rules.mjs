@@ -42,7 +42,26 @@ export const EXPANDED_FULL_LANES = [
   'ci:coverage-full',
 ];
 
+export const E2E_PROOF_COMMAND_LABELS = new Map([
+  ['web-smoke-tests', 'ci:web-smoke'],
+  ['web-file-explorer-persistence-tests', 'ci:web-file-explorer-persistence'],
+  ['web-import-indexing-tests', 'ci:web-import-indexing'],
+  ['web-assistant-state-tests', 'ci:web-assistant-state'],
+  ['web-settings-state-tests', 'ci:web-settings-state'],
+  ['web-db-startup-tests', 'ci:web-db-startup'],
+  ['web-destructive-reset-tests', 'ci:web-destructive-reset'],
+  ['web-full-regression-tests', 'ci:web-e2e'],
+  ['desktop-smoke-tests', 'ci:desktop-smoke'],
+  ['desktop-ipc-reset-tests', 'ci:desktop-ipc-reset'],
+  ['desktop-runtime-host-tests', 'ci:desktop-runtime-hosts'],
+  ['desktop-db-storage-tests', 'ci:desktop-db-storage'],
+  ['desktop-full-regression-tests', 'ci:desktop'],
+]);
+
 const FULL_PATTERNS = [
+  // test.yml routing is guarded by workflow-contract tests. Running product E2E does not prove
+  // label/proof wiring changes, so keep this on the CI tooling proof lane unless product files
+  // in the same diff select product lanes themselves.
   /^\.github\/(?!workflows\/test\.yml$)/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,

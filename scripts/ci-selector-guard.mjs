@@ -1,29 +1,17 @@
 #!/usr/bin/env node
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
   collectGitSelection,
   parseSelectArgs,
 } from './ci-select.mjs';
 import { verifyRiskFixtures } from './check-ci-risk-fixtures.mjs';
+import { E2E_PROOF_COMMAND_LABELS } from './ci-risk-rules.mjs';
 import riskFixtures from './ci-risk-fixtures.json' with { type: 'json' };
 
-const E2E_PROOF_COMMAND_LABELS = new Map([
-  ['web-smoke-tests', 'ci:web-smoke'],
-  ['web-file-explorer-persistence-tests', 'ci:web-file-explorer-persistence'],
-  ['web-import-indexing-tests', 'ci:web-import-indexing'],
-  ['web-assistant-state-tests', 'ci:web-assistant-state'],
-  ['web-settings-state-tests', 'ci:web-settings-state'],
-  ['web-db-startup-tests', 'ci:web-db-startup'],
-  ['web-destructive-reset-tests', 'ci:web-destructive-reset'],
-  ['web-full-regression-tests', 'ci:web-e2e'],
-  ['desktop-smoke-tests', 'ci:desktop-smoke'],
-  ['desktop-ipc-reset-tests', 'ci:desktop-ipc-reset'],
-  ['desktop-runtime-host-tests', 'ci:desktop-runtime-hosts'],
-  ['desktop-db-storage-tests', 'ci:desktop-db-storage'],
-  ['desktop-full-regression-tests', 'ci:desktop'],
-]);
-
-function sameArray(left, right) {
+function sameStringArray(left, right) {
   return (
     Array.isArray(left) &&
     Array.isArray(right) &&
@@ -42,12 +30,12 @@ export function verifySelectorSelection(selection) {
   const lanes = selection.lanes ?? [];
   const profileLabels = selection.riskProfile?.cloudLabels ?? [];
 
-  if (!sameArray(labels, lanes)) {
+  if (!sameStringArray(labels, lanes)) {
     failures.push(
       `selection labels and lanes disagree: labels=${formatLabels(labels)} lanes=${formatLabels(lanes)}`
     );
   }
-  if (!sameArray(profileLabels, labels)) {
+  if (!sameStringArray(profileLabels, labels)) {
     failures.push(
       `risk profile and selected labels disagree: profile=${formatLabels(
         profileLabels
@@ -60,7 +48,7 @@ export function verifySelectorSelection(selection) {
       failures.push(`docs-only selection must not request cloud labels: ${formatLabels(labels)}`);
     }
     const commandNames = selection.commands.map((command) => command.name);
-    if (!sameArray(commandNames, ['diff-check', 'docs-static'])) {
+    if (!sameStringArray(commandNames, ['diff-check', 'docs-static'])) {
       failures.push(`docs-only proof must stay diff-check/docs-static: ${commandNames.join(',')}`);
     }
   }
@@ -122,7 +110,9 @@ export async function runCli(args = process.argv.slice(2)) {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+const modulePath = fileURLToPath(import.meta.url);
+if (invokedPath === modulePath) {
   const exitCode = await runCli();
   process.exit(exitCode);
 }

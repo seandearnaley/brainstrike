@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  E2E_PROOF_COMMAND_LABELS,
   expandRiskLanes,
   selectProofCommandsForFiles,
   selectRiskProfileForFiles,
@@ -9,22 +10,6 @@ import {
   toRiskLabels,
 } from '../ci-risk-rules.mjs';
 import riskFixtures from '../ci-risk-fixtures.json' with { type: 'json' };
-
-const E2E_PROOF_COMMAND_LABELS = new Map([
-  ['web-smoke-tests', 'ci:web-smoke'],
-  ['web-file-explorer-persistence-tests', 'ci:web-file-explorer-persistence'],
-  ['web-import-indexing-tests', 'ci:web-import-indexing'],
-  ['web-assistant-state-tests', 'ci:web-assistant-state'],
-  ['web-settings-state-tests', 'ci:web-settings-state'],
-  ['web-db-startup-tests', 'ci:web-db-startup'],
-  ['web-destructive-reset-tests', 'ci:web-destructive-reset'],
-  ['web-full-regression-tests', 'ci:web-e2e'],
-  ['desktop-smoke-tests', 'ci:desktop-smoke'],
-  ['desktop-ipc-reset-tests', 'ci:desktop-ipc-reset'],
-  ['desktop-runtime-host-tests', 'ci:desktop-runtime-hosts'],
-  ['desktop-db-storage-tests', 'ci:desktop-db-storage'],
-  ['desktop-full-regression-tests', 'ci:desktop'],
-]);
 
 test('fixture profiles, labels, and proof commands cannot drift apart', () => {
   for (const fixture of riskFixtures.cases) {
