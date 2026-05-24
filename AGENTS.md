@@ -122,7 +122,9 @@ after the proof commit invalidates the proof unless the only changed file is
 
 Post-merge Actions budget policy:
 - Pushes to `main` run the cheap health gate only: static checks, web smoke, and desktop smoke.
-- Full coverage, browser, web E2E matrix, desktop regression, and embedding regression run on nightly `schedule` or manual `workflow_dispatch` release proof.
+- Full coverage, browser, web E2E matrix, desktop regression, and embedding regression run on nightly `schedule` or manual `workflow_dispatch` with `release_proof=full-release`.
+- Manual `workflow_dispatch` defaults to `release_proof=skip`; do not change that default. It exists to prevent accidental full-matrix spend.
+- Manual desktop backgrounding diagnostics require `release_proof=desktop-backgrounding`; they are not part of the default manual release proof.
 - Do not re-expand `main` push back to full matrix without an explicit budget/quality decision and workflow-contract test updates.
 
 ---

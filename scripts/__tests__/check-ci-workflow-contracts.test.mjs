@@ -539,6 +539,93 @@ test('workflow contract keeps full release matrix available outside pull request
   );
 });
 
+test('workflow contract requires explicit manual release proof inputs', () => {
+  const source = workflowSource
+    .replace('release_proof:', 'release_proof_removed:')
+    .replace('default: skip', 'default: full-release')
+    .replace('          - full-release\n', '')
+    .replace('          - desktop-backgrounding\n', '')
+    .replace('release-proof-dispatch-policy:', 'release-proof-dispatch-policy-removed:');
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Manual workflow_dispatch must expose an explicit release_proof input/);
+  assert.match(failures, /Manual workflow_dispatch release_proof input must default to skip/);
+  assert.match(failures, /Manual workflow_dispatch release_proof input must offer full-release explicitly/);
+  assert.match(failures, /Manual workflow_dispatch release_proof input must keep desktop backgrounding explicit/);
+  assert.match(failures, /Manual workflow_dispatch must include a cheap release proof policy summary job/);
+});
+
+test('workflow contract fails when manual release proof inputs are interpolated into shell', () => {
+  const policy = extractJob(workflowSource, 'release-proof-dispatch-policy');
+  assert.ok(policy);
+
+  const source = workflowSource.replace(
+    policy,
+    policy
+      .replace('RELEASE_PROOF_MODE: ${{ inputs.release_proof }}\n', '')
+      .replace('RELEASE_PROOF_REASON: ${{ inputs.reason }}\n', '')
+      .replace("printf 'Selected mode: `%s`\\n\\n' \"$RELEASE_PROOF_MODE\"", 'echo \'Selected mode: `${{ inputs.release_proof }}`\'')
+      .replace("printf '\\nReason: `%s`\\n' \"$RELEASE_PROOF_REASON\"", 'echo \'Reason: `${{ inputs.reason }}`\'')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Manual release proof policy must pass release_proof through env/);
+  assert.match(failures, /Manual release proof policy must pass reason through env/);
+  assert.match(failures, /Manual release proof policy must not interpolate release_proof directly into the run script/);
+  assert.match(failures, /Manual release proof policy must not interpolate free-text reason directly into the run script/);
+});
+
+test('workflow contract fails when release matrix runs on unconfirmed manual dispatch', () => {
+  const e2e = extractJob(workflowSource, 'e2e');
+  assert.ok(e2e);
+
+  const source = workflowSource.replace(
+    e2e,
+    e2e.replace(
+      "(github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')",
+      "github.event_name == 'workflow_dispatch'"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Functional E2E must require release_proof=full-release for manual release-matrix runs/
+  );
+});
+
+test('workflow contract fails when static checks run on unconfirmed manual dispatch', () => {
+  const checks = extractJob(workflowSource, 'checks');
+  assert.ok(checks);
+
+  const source = workflowSource.replace(
+    checks,
+    checks.replace("github.event_name != 'workflow_dispatch'", "github.event_name == 'workflow_dispatch'")
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Checks \(static\) must not run on unconfirmed manual workflow_dispatch events/
+  );
+});
+
+test('workflow contract fails when desktop backgrounding runs on every manual dispatch', () => {
+  const backgrounding = extractJob(workflowSource, 'desktop-e2e-backgrounding');
+  assert.ok(backgrounding);
+
+  const source = workflowSource.replace(
+    backgrounding,
+    backgrounding.replace(
+      "if: github.event_name == 'workflow_dispatch' && inputs.release_proof == 'desktop-backgrounding'",
+      "if: github.event_name == 'workflow_dispatch'"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Desktop backgrounding diagnostic must require release_proof=desktop-backgrounding/
+  );
+});
+
 test('workflow contract fails when release matrix runs on every main push', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   const unitCoverage = extractJob(workflowSource, 'unit_coverage');

@@ -10,6 +10,10 @@ const setupDesktopE2EActionPath = path.join(rootDir, '.github/actions/setup-desk
 const turboConfigPath = path.join(rootDir, 'turbo.jsonc');
 const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
 const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
+const MANUAL_FULL_RELEASE_EXPR =
+  "github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release'";
+const MANUAL_BACKGROUNDING_EXPR =
+  "github.event_name == 'workflow_dispatch' && inputs.release_proof == 'desktop-backgrounding'";
 
 function extractBlock(source, startPattern, nextPattern) {
   const start = source.search(startPattern);
@@ -243,14 +247,24 @@ function requireYamlListItem(source, item, message, failures) {
 }
 
 function requireReleaseMatrixEvents(job, jobName, failures) {
-  for (const eventName of ['schedule', 'workflow_dispatch']) {
-    requireIncludes(
-      job,
-      `github.event_name == '${eventName}'`,
-      `${jobName} must remain available for ${eventName} release-matrix runs.`,
-      failures
-    );
-  }
+  requireIncludes(
+    job,
+    "github.event_name == 'schedule'",
+    `${jobName} must remain available for schedule release-matrix runs.`,
+    failures
+  );
+  requireIncludes(
+    job,
+    MANUAL_FULL_RELEASE_EXPR,
+    `${jobName} must require release_proof=full-release for manual release-matrix runs.`,
+    failures
+  );
+  requireNotIncludes(
+    job,
+    "github.event_name == 'workflow_dispatch' ||",
+    `${jobName} must not run on unconfirmed manual workflow_dispatch events.`,
+    failures
+  );
 }
 
 function requireNoMainPushEvent(job, jobName, failures) {
@@ -751,6 +765,65 @@ export function validateWorkflowContracts(source) {
     'Test workflow must keep scheduled full-matrix validation.',
     failures
   );
+  requireIncludes(
+    source,
+    'release_proof:',
+    'Manual workflow_dispatch must expose an explicit release_proof input.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'default: skip',
+    'Manual workflow_dispatch release_proof input must default to skip.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '- full-release',
+    'Manual workflow_dispatch release_proof input must offer full-release explicitly.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '- desktop-backgrounding',
+    'Manual workflow_dispatch release_proof input must keep desktop backgrounding explicit.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'release-proof-dispatch-policy:',
+    'Manual workflow_dispatch must include a cheap release proof policy summary job.',
+    failures
+  );
+  const releaseProofPolicy = extractJob(source, 'release-proof-dispatch-policy');
+  if (!releaseProofPolicy) {
+    failures.push('Missing release-proof-dispatch-policy job.');
+  } else {
+    requireIncludes(
+      releaseProofPolicy,
+      'RELEASE_PROOF_MODE: ${{ inputs.release_proof }}',
+      'Manual release proof policy must pass release_proof through env, not direct shell interpolation.',
+      failures
+    );
+    requireIncludes(
+      releaseProofPolicy,
+      'RELEASE_PROOF_REASON: ${{ inputs.reason }}',
+      'Manual release proof policy must pass reason through env, not direct shell interpolation.',
+      failures
+    );
+    requireNotIncludes(
+      releaseProofPolicy,
+      'Selected mode: `${{ inputs.release_proof }}`',
+      'Manual release proof policy must not interpolate release_proof directly into the run script.',
+      failures
+    );
+    requireNotIncludes(
+      releaseProofPolicy,
+      'Reason: `${{ inputs.reason }}`',
+      'Manual release proof policy must not interpolate free-text reason directly into the run script.',
+      failures
+    );
+  }
   requireEveryTurboCommandHas(
     source,
     '--cache-dir=.turbo',
@@ -1152,8 +1225,8 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopMain,
-      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
-      'Release desktop regression job must run only for scheduled/manual release proof.',
+      MANUAL_FULL_RELEASE_EXPR,
+      'Release desktop regression job must require release_proof=full-release for manual release proof.',
       failures
     );
     requireIncludes(
@@ -1189,8 +1262,8 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopEmbeddingMain,
-      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
-      'Release desktop embedding regression job must run only for scheduled/manual release proof.',
+      MANUAL_FULL_RELEASE_EXPR,
+      'Release desktop embedding regression job must require release_proof=full-release for manual release proof.',
       failures
     );
     for (const group of [
@@ -1209,6 +1282,24 @@ export function validateWorkflowContracts(source) {
       );
     }
     requireDesktopEmbeddingJobContracts(desktopEmbeddingMain, 'Main', failures);
+  }
+
+  const desktopBackgrounding = extractJob(source, 'desktop-e2e-backgrounding');
+  if (!desktopBackgrounding) {
+    failures.push('Missing desktop-e2e-backgrounding job.');
+  } else {
+    requireIncludes(
+      desktopBackgrounding,
+      MANUAL_BACKGROUNDING_EXPR,
+      'Desktop backgrounding diagnostic must require release_proof=desktop-backgrounding.',
+      failures
+    );
+    requireNotIncludes(
+      desktopBackgrounding,
+      "if: github.event_name == 'workflow_dispatch'\n",
+      'Desktop backgrounding diagnostic must not run on every manual workflow_dispatch event.',
+      failures
+    );
   }
 
   const prepareWeb = extractJob(source, 'prepare-web');
@@ -1494,6 +1585,24 @@ export function validateWorkflowContracts(source) {
     );
   }
 
+  const checks = extractJob(source, 'checks');
+  if (!checks) {
+    failures.push('Missing checks job.');
+  } else {
+    requireIncludes(
+      checks,
+      "github.event_name != 'workflow_dispatch'",
+      'Checks (static) must not run on unconfirmed manual workflow_dispatch events.',
+      failures
+    );
+    requireIncludes(
+      checks,
+      MANUAL_FULL_RELEASE_EXPR,
+      'Checks (static) must run when manual release_proof=full-release is selected.',
+      failures
+    );
+  }
+
   const browserTests = extractJob(source, 'browser-tests');
   if (!browserTests) {
     failures.push('Missing browser-tests job.');
@@ -1763,8 +1872,14 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       requiredReleaseGate,
-      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
-      'Required Release Gate must run only for scheduled/manual release proof.',
+      "github.event_name == 'schedule'",
+      'Required Release Gate must run for scheduled release proof.',
+      failures
+    );
+    requireIncludes(
+      requiredReleaseGate,
+      MANUAL_FULL_RELEASE_EXPR,
+      'Required Release Gate must require release_proof=full-release for manual release proof.',
       failures
     );
     for (const jobName of [

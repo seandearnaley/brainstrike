@@ -10,6 +10,20 @@ on:
   schedule:
     - cron: '23 7 * * *'
   workflow_dispatch:
+    inputs:
+      release_proof:
+        description: "Manual release proof mode. Use full-release only when the full matrix is intentionally required."
+        required: true
+        type: choice
+        default: skip
+        options:
+          - skip
+          - full-release
+          - desktop-backgrounding
+      reason:
+        description: "Why this manual proof is being run."
+        required: false
+        type: string
 
 # Cancel in-progress runs when new commits are pushed to the same PR
 # Uses head repo + head_ref for PRs to avoid fork collisions (different forks can use the same branch name)
@@ -31,6 +45,31 @@ env:
 # CI environment variable is already set by GitHub Actions
 
 jobs:
+  release-proof-dispatch-policy:
+    name: Manual Release Proof Policy
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Explain selected manual proof mode
+        env:
+          RELEASE_PROOF_MODE: ${{ inputs.release_proof }}
+          RELEASE_PROOF_REASON: ${{ inputs.reason }}
+        run: |
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## Manual release proof policy
+
+          EOF
+          printf 'Selected mode: `%s`\n\n' "$RELEASE_PROOF_MODE" >> "$GITHUB_STEP_SUMMARY"
+
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          - `skip`: do not run the expensive matrix.
+          - `full-release`: run the scheduled release matrix now.
+          - `desktop-backgrounding`: run only the manual desktop backgrounding diagnostic.
+
+          EOF
+          printf '\nReason: `%s`\n' "$RELEASE_PROOF_REASON" >> "$GITHUB_STEP_SUMMARY"
+
   pr-sentinel:
     name: PR Sentinel
     if: github.event_name == 'pull_request'
@@ -74,6 +113,9 @@ jobs:
   # preparation can start as soon as lint/type/build validation passes.
   checks:
     name: Checks (static)
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -293,7 +335,7 @@ jobs:
     name: Checks (coverage-db/full)
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage-db') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage-full')
@@ -579,7 +621,7 @@ jobs:
     name: Determine E2E Matrix
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop')
@@ -606,7 +648,7 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-file-explorer-persistence') ||
@@ -637,7 +679,7 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset') ||
@@ -676,7 +718,7 @@ jobs:
     name: Browser Tests (Vitest 4)
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:browser')
     needs: checks # Only run if checks pass
@@ -729,7 +771,7 @@ jobs:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
     needs: [checks, determine-matrix]
@@ -808,7 +850,7 @@ jobs:
     name: E2E Stateful Tests (${{ matrix.group }})
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
     needs: [checks]
@@ -898,7 +940,7 @@ jobs:
     name: E2E Destructive Tests
     if: >-
       github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
     needs: [checks]
@@ -1732,7 +1774,7 @@ jobs:
   # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
   desktop-e2e-main:
     name: Desktop E2E Regression
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential in release proof - wait for web E2E
     runs-on: ubuntu-latest
     container:
@@ -1829,7 +1871,7 @@ jobs:
 
   desktop-e2e-embedding-main:
     name: Desktop E2E Embedding Regression (${{ matrix.group }})
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [prepare-desktop, e2e]
     runs-on: ubuntu-latest
     container:
@@ -1928,7 +1970,7 @@ jobs:
 
   desktop-e2e-backgrounding:
     name: Desktop E2E Backgrounding Regression
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.release_proof == 'desktop-backgrounding'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -2031,7 +2073,7 @@ jobs:
       always() &&
       (
         github.event_name == 'schedule' ||
-        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke') ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-file-explorer-persistence') ||
@@ -2262,7 +2304,12 @@ jobs:
 
   required-release-gate:
     name: Required Release Gate
-    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    if: >-
+      always() &&
+      (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
+      )
     needs:
       - checks
       - unit_coverage

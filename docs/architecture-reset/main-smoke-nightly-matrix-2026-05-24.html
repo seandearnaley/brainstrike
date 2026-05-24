@@ -112,10 +112,28 @@
         <td><code>Required Main Gate</code></td>
       </tr>
       <tr>
-        <td><code>schedule</code> / <code>workflow_dispatch</code></td>
+        <td><code>schedule</code></td>
         <td>The full release matrix.</td>
-        <td>Nothing from release proof.</td>
+        <td>Main-push smoke-only routing.</td>
         <td><code>Required Release Gate</code></td>
+      </tr>
+      <tr>
+        <td><code>workflow_dispatch</code> + <code>release_proof=full-release</code></td>
+        <td>The full release matrix, intentionally requested.</td>
+        <td>Main-push smoke-only routing.</td>
+        <td><code>Required Release Gate</code></td>
+      </tr>
+      <tr>
+        <td><code>workflow_dispatch</code> + <code>release_proof=skip</code></td>
+        <td>A cheap policy summary only.</td>
+        <td>Static checks, builds, coverage, browser, web E2E, desktop E2E, embedding E2E.</td>
+        <td>None; this is explicitly not release proof.</td>
+      </tr>
+      <tr>
+        <td><code>workflow_dispatch</code> + <code>release_proof=desktop-backgrounding</code></td>
+        <td>Manual desktop backgrounding diagnostic only.</td>
+        <td>The full release matrix.</td>
+        <td>Diagnostic job result.</td>
       </tr>
     </tbody>
   </table>
@@ -148,6 +166,8 @@
       <tr><td>Smoke jobs must include <code>push</code></td><td>Ensures main still has a real health gate.</td></tr>
       <tr><td>Main gate may not depend on release-only jobs</td><td>Prevents accidental budget expansion through gate dependencies.</td></tr>
       <tr><td>Release gate requires full matrix jobs</td><td>Keeps nightly/manual proof meaningful.</td></tr>
+      <tr><td>Manual full release requires <code>release_proof=full-release</code></td><td>Prevents accidental workflow-dispatch clicks from burning the matrix.</td></tr>
+      <tr><td>Manual dispatch defaults to <code>release_proof=skip</code></td><td>Makes no-op manual runs cheap by default.</td></tr>
     </tbody>
   </table>
 
