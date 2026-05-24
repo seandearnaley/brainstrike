@@ -52,6 +52,25 @@ test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
 });
 
+test('workflow contract fails when test workflow permissions are widened', () => {
+  const source = workflowSource.replace('  contents: read', '  contents: write');
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must keep contents: read permission/);
+  assert.match(failures, /must not widen permissions with contents: write/);
+});
+
+test('workflow contract fails when test workflow inherits all secrets', () => {
+  const checks = extractJob(workflowSource, 'checks');
+  assert.ok(checks);
+  const source = workflowSource.replace(checks, checks.replace('    runs-on:', '    secrets: inherit\n    runs-on:'));
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must not inherit all secrets/
+  );
+});
+
 test('Claude auto-review workflow keeps large PR review budget fail-closed', () => {
   assert.deepEqual(validateClaudeReviewWorkflowContracts(claudeReviewWorkflowSource), []);
 });
@@ -137,6 +156,26 @@ test('workflow contract fails when affected unit timeout cannot cover cold cache
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /Affected unit job timeout must cover setup plus the test step/);
   assert.match(failures, /Affected unit test step timeout must cover cold cache runs/);
+});
+
+test('workflow contract fails when isolated changed unit tests expand to Turbo affected tests only', () => {
+  const unitAffected = extractJob(workflowSource, 'unit_affected');
+  assert.ok(unitAffected);
+
+  const source = workflowSource.replace(
+    unitAffected,
+    unitAffected
+      .replace(/      - name: Detect selected unit proof mode[\s\S]*?\n\n      - name: Run affected unit tests/, '      - name: Run affected unit tests')
+      .replace(
+        '            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD',
+        '            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo'
+      )
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must detect changed-unit-test proof mode/);
+  assert.match(failures, /must use the tested unit proof mode detector/);
+  assert.match(failures, /must run changed unit test files directly/);
 });
 
 test('workflow contract fails when split unit coverage step timeouts are widened', () => {

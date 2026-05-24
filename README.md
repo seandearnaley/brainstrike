@@ -54,8 +54,12 @@ packages/
   embedding-worker/   # Worker runtime (renderer)
   queue/              # Job queue infrastructure
   queue-telemetry-collector/ # Queue telemetry collector service
+  assistant-contract/        # Assistant provider/runtime contracts
+  indexing-contract/         # Indexing pipeline contracts
+  text-splitter/             # Text chunking utilities
+  worker-runtime/            # Shared worker runtime helpers
   build-utils/, chunking-worker/, file-tree-worker/, platform-utils/,
-  token-cache/, workers/, file-import/, storage adapters, styles, fonts
+  token-cache/, workers/, file-import/
 ```
 
 See also: [`apps/docs/docs/getting-started/onboarding.md`](apps/docs/docs/getting-started/onboarding.md) and [`apps/docs/docs/development/monorepo-workflow.md`](apps/docs/docs/development/monorepo-workflow.md) for deep dives into architecture and workflow.

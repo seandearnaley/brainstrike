@@ -37,10 +37,10 @@ cd apps/desktop
 #### Start Development Mode
 ```bash
 # Start both renderer dev server and Electron app
-npm run dev
+pnpm dev
 
 # This will:
-# 1. Start Vite dev server on port 3001
+# 1. Start Vite dev server on port 38181
 # 2. Compile main process
 # 3. Wait for dev server to be ready
 # 4. Launch Electron app
@@ -48,43 +48,43 @@ npm run dev
 
 #### Individual Commands
 ```bash
-npm run dev:renderer  # Vite dev server on port 3001
-npm run dev:main      # Compile main process only
-npm run dev:electron  # Compile main + start Electron (requires dev server)
+pnpm dev:renderer  # Vite dev server on port 38181
+pnpm dev:main      # Compile main process only
+pnpm dev:electron  # Compile main + start Electron (requires dev server)
 ```
 
 #### Build for Production
 ```bash
 # Build both renderer and main process
-npm run build
+pnpm build
 
 # Or build individually:
-npm run build:renderer  # Vite production build
-npm run build:main      # TypeScript compilation
+pnpm build:renderer  # Vite production build
+pnpm build:main      # TypeScript compilation
 ```
 
 #### Package & Distribute
 ```bash
 # Create unpacked app in release/ directory
-npm run pack
+pnpm run pack
 
 # Create distributable packages (DMG, NSIS, AppImage)
-npm run dist
+pnpm dist
 ```
 
 ### Development Workflow
 
-1. **Start Development**: `npm run dev`
-   - Renderer runs on `http://localhost:3001` with hot reload
+1. **Start Development**: `pnpm dev`
+   - Renderer runs on `http://localhost:38181` with hot reload
    - Main process compiles automatically
    - Electron launches when dev server is ready
    - DevTools open automatically in development
 
-2. **Making Changes**: 
+2. **Making Changes**:
    - **Renderer changes**: Reload automatically via Vite hot reload
-   - **Main process changes**: Restart Electron (Ctrl+C and `npm run dev` again)
+   - **Main process changes**: Restart Electron (Ctrl+C and `pnpm dev` again)
 
-3. **Testing Production Build**: `npm run build && npm start`
+3. **Testing Production Build**: `pnpm build && pnpm start`
 
 ## Project Structure
 
@@ -93,24 +93,28 @@ apps/desktop/
 ├── src/
 │   ├── main.ts              # Electron main process
 │   ├── preload.ts           # Preload script (IPC bridge)
+│   ├── ipc-*.ts             # Per-domain main-process IPC handlers
+│   ├── *-host-manager.ts    # Hidden-host (embedding/llm/chunking) window lifecycle
 │   └── renderer/            # React renderer app
 │       ├── main.tsx         # Renderer entry point
-│       ├── styles.css       # Global styles (matches web app)
-│       └── components/      # React components
+│       ├── styles.css       # Renderer global styles
+│       └── components/      # Renderer components and hidden-host shells
 │           ├── root-layout-content.tsx
-│           ├── home-page-content.tsx
-│           └── settings/
-├── public/                  # Static assets
-│   └── fonts/inter/         # Inter font files
+│           ├── embedding-host-app.tsx / embedding-host-runtime.tsx
+│           ├── llm-host-app.tsx / llm-host-runtime.tsx
+│           └── chunking-host-app.tsx / chunking-host-runtime.tsx
+├── e2e/                     # Playwright E2E specs
+├── scripts/                 # Local helper scripts (agent devtools, etc.)
 ├── dist/                    # Build output
-│   ├── main.js             # Compiled main process
-│   ├── preload.js          # Compiled preload script
-│   └── renderer/           # Built renderer app
+│   ├── main.js              # Compiled main process
+│   ├── preload.js           # Compiled preload script
+│   └── renderer/            # Built renderer app
 ├── release/                 # Packaged applications
-├── package.json            # Dependencies & scripts
-├── vite.config.mts         # Vite configuration
-├── tsconfig.json           # TypeScript configuration
-└── tailwind.config.js      # TailwindCSS configuration
+├── package.json             # Dependencies & scripts
+├── vite.config.mts          # Vite configuration
+├── tsconfig.json            # TypeScript configuration (renderer)
+├── tsconfig.main.json       # TypeScript configuration (main process)
+└── tailwind.config.js       # TailwindCSS configuration
 ```
 
 ## Adapters & Platform Integration
@@ -200,29 +204,28 @@ Configured for cross-platform distribution:
 
 ### Common Issues
 
-1. **Port Conflicts**: Desktop dev server uses port 3001 (web app uses 3000)
-2. **Font Loading**: Ensure Inter fonts are in `public/fonts/inter/`
-3. **Module Resolution**: Electron adapters require Node.js modules (handled by IPC)
-4. **Hot Reload**: Only renderer supports hot reload; main process requires restart
-5. **ES Module Issues**: Fixed with proper `import.meta.url` usage for `__dirname`
+1. **Port Conflicts**: Desktop dev server uses port 38181 (web app uses 8080)
+2. **Module Resolution**: Electron adapters require Node.js modules (handled by IPC)
+3. **Hot Reload**: Only renderer supports hot reload; main process requires restart
+4. **ES Module Issues**: Fixed with proper `import.meta.url` usage for `__dirname`
 
 ### Development Issues
 
-**Problem**: `npm run dev` doesn't start Electron
+**Problem**: `pnpm dev` doesn't start Electron
 **Solution**: Make sure both processes start:
 ```bash
 # Check if dev server starts
-npm run dev:renderer
+pnpm dev:renderer
 
 # In another terminal, check if main compiles
-npm run dev:main
+pnpm dev:main
 
 # Then try full dev mode
-npm run dev
+pnpm dev
 ```
 
 **Problem**: "ERR_CONNECTION_REFUSED" when starting Electron
-**Solution**: This is normal if dev server isn't running. Use `npm run dev` instead of `npm start` for development.
+**Solution**: This is normal if dev server isn't running. Use `pnpm dev` instead of `pnpm start` for development.
 
 **Problem**: "__dirname is not defined" error
 **Solution**: Fixed in current version using `import.meta.url`
@@ -230,7 +233,7 @@ npm run dev
 ### Debug Mode
 ```bash
 # Start with DevTools open
-npm run dev
+pnpm dev
 
 # Or manually open DevTools in running app
 # View > Toggle Developer Tools
@@ -242,7 +245,7 @@ electron . --inspect=9229
 ### Performance Issues
 ```bash
 # If Electron is slow to start
-npm run dev:electron  # Skip renderer and start Electron directly
+pnpm dev:electron  # Skip renderer and start Electron directly
 
 # If hot reload is slow
 # Check if any large files are being watched by Vite
@@ -258,10 +261,9 @@ npm run dev:electron  # Skip renderer and start Electron directly
 
 ## Performance
 
-- **Bundle Size**: ~1.5MB compressed (includes React, Monaco Editor)
-- **Memory Usage**: ~100-200MB typical
-- **Startup Time**: ~2-3 seconds cold start
+- **Memory Usage**: ~100-200MB typical (varies with embedding/LLM hosts active)
 - **File Operations**: Native performance (no browser limitations)
+- Renderer execution is split across the visible window and dedicated hidden-host renderers for embeddings, the local LLM, and chunking — see the host-architecture sections in `../../AGENTS.md`.
 
 ## Future Enhancements
 

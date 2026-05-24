@@ -42,8 +42,27 @@ export const EXPANDED_FULL_LANES = [
   'ci:coverage-full',
 ];
 
+export const E2E_PROOF_COMMAND_LABELS = new Map([
+  ['web-smoke-tests', 'ci:web-smoke'],
+  ['web-file-explorer-persistence-tests', 'ci:web-file-explorer-persistence'],
+  ['web-import-indexing-tests', 'ci:web-import-indexing'],
+  ['web-assistant-state-tests', 'ci:web-assistant-state'],
+  ['web-settings-state-tests', 'ci:web-settings-state'],
+  ['web-db-startup-tests', 'ci:web-db-startup'],
+  ['web-destructive-reset-tests', 'ci:web-destructive-reset'],
+  ['web-full-regression-tests', 'ci:web-e2e'],
+  ['desktop-smoke-tests', 'ci:desktop-smoke'],
+  ['desktop-ipc-reset-tests', 'ci:desktop-ipc-reset'],
+  ['desktop-runtime-host-tests', 'ci:desktop-runtime-hosts'],
+  ['desktop-db-storage-tests', 'ci:desktop-db-storage'],
+  ['desktop-full-regression-tests', 'ci:desktop'],
+]);
+
 const FULL_PATTERNS = [
-  /^\.github\//,
+  // test.yml routing is guarded by workflow-contract tests. Running product E2E does not prove
+  // label/proof wiring changes, so keep this on the CI tooling proof lane unless product files
+  // in the same diff select product lanes themselves.
+  /^\.github\/(?!workflows\/test\.yml$)/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
   /^turbo\.jsonc$/,
@@ -63,10 +82,13 @@ const DOCS_ONLY_PATTERNS = [
   /\.html$/,
 ];
 
+const PROOF_ARTIFACT_PATTERNS = [/^\.ci\/proof\/latest\.json$/];
+
 const CONFIG_TOOLING_PATTERNS = [
   /^package\.json$/,
   /^scripts\//,
   /^\.github\/actions\//,
+  /^\.github\/workflows\/test\.yml$/,
   /^\.lefthook\.yml$/,
   /^lefthook\.yml$/,
   /^knip\.json$/,
@@ -391,6 +413,23 @@ const LANE_PATTERNS = new Map([
   ['ci:coverage-full', COVERAGE_FULL_PATTERNS],
 ]);
 
+const E2E_LANES_BY_RISK_LABEL = new Map([
+  ['ci:web-smoke', ['web-smoke']],
+  ['ci:web-file-explorer-persistence', ['web-file-explorer-persistence']],
+  ['ci:web-import-indexing', ['web-import-indexing']],
+  ['ci:web-assistant-state', ['web-assistant-state']],
+  ['ci:web-settings-state', ['web-settings-state']],
+  ['ci:web-db-startup', ['web-db-startup']],
+  ['ci:web-destructive-reset', ['web-destructive-reset']],
+  ['ci:web-e2e', ['web-full-regression']],
+  ['ci:desktop-smoke', ['desktop-smoke']],
+  ['ci:desktop-ipc-reset', ['desktop-ipc-reset']],
+  ['ci:desktop-runtime-hosts', ['desktop-runtime-hosts']],
+  ['ci:desktop-db-storage', ['desktop-db-storage']],
+  ['ci:desktop', ['desktop-full-regression']],
+  ['ci:embedding', ['desktop-embedding-diagnostics']],
+]);
+
 const LOCAL_PROOF_COMMANDS_BY_LANE = new Map([
   ['ci:web-smoke', ['web-smoke-tests']],
   [
@@ -443,6 +482,54 @@ function allFilesAreUnitTests(normalizedFiles) {
 
 function hasAny(normalizedFiles, patterns) {
   return normalizedFiles.some((filePath) => matchesAny(filePath, patterns));
+}
+
+function docsNeutralRuntimeFiles(files) {
+  return [...files]
+    .map((filePath) => normalizePath(filePath))
+    .filter((filePath) => !matchesAny(filePath, PROOF_ARTIFACT_PATTERNS))
+    .filter((filePath) => !matchesAny(filePath, DOCS_ONLY_PATTERNS));
+}
+
+function proofNeutralRiskFiles(files) {
+  return [...files]
+    .map((filePath) => normalizePath(filePath))
+    .filter((filePath) => !matchesAny(filePath, PROOF_ARTIFACT_PATTERNS));
+}
+
+function orderRiskLabels(labels) {
+  const selected = new Set(labels);
+  return RISK_LANES.filter((lane) => selected.has(lane));
+}
+
+function selectPatternMatchedCloudLabels(normalizedFiles, initialLabels) {
+  const selected = new Set(initialLabels);
+  for (const filePath of normalizedFiles) {
+    for (const [lane, patterns] of LANE_PATTERNS) {
+      if (matchesAny(filePath, patterns)) {
+        selected.add(lane);
+      }
+    }
+    if (
+      !selected.has('ci:unit') &&
+      matchesAny(filePath, RUNTIME_FALLBACK_UNIT_PATTERNS)
+    ) {
+      selected.add('ci:unit');
+    }
+  }
+
+  return orderRiskLabels(selected);
+}
+
+function mergeE2eLanes(e2eLanes, cloudLabels) {
+  const selected = new Set(e2eLanes);
+  for (const label of cloudLabels) {
+    for (const lane of E2E_LANES_BY_RISK_LABEL.get(label) ?? []) {
+      selected.add(lane);
+    }
+  }
+
+  return [...selected];
 }
 
 function dataPlatformPackageCommands(normalizedFiles) {
@@ -551,8 +638,8 @@ function profile({
   };
 }
 
-export function selectRiskProfileForFiles(files) {
-  const normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
+function selectBaseRiskProfileForFiles(files) {
+  let normalizedFiles = proofNeutralRiskFiles(files);
 
   if (normalizedFiles.length === 0 || allFilesMatch(normalizedFiles, DOCS_ONLY_PATTERNS)) {
     return profile({
@@ -564,6 +651,10 @@ export function selectRiskProfileForFiles(files) {
       cloudLabels: [],
     });
   }
+
+  normalizedFiles = normalizedFiles.filter(
+    (filePath) => !matchesAny(filePath, DOCS_ONLY_PATTERNS)
+  );
 
   if (hasAny(normalizedFiles, FULL_PATTERNS)) {
     return profile({
@@ -850,33 +941,34 @@ export function selectRiskProfileForFiles(files) {
   });
 }
 
+export function selectRiskProfileForFiles(files) {
+  const baseProfile = selectBaseRiskProfileForFiles(files);
+
+  if (
+    ['docs-only', 'full-release-high-risk', 'isolated-unit-test-only'].includes(
+      baseProfile.category
+    )
+  ) {
+    return {
+      ...baseProfile,
+      cloudLabels: orderRiskLabels(baseProfile.cloudLabels),
+    };
+  }
+
+  const cloudLabels = selectPatternMatchedCloudLabels(
+    docsNeutralRuntimeFiles(files),
+    baseProfile.cloudLabels
+  );
+
+  return {
+    ...baseProfile,
+    e2eLanes: mergeE2eLanes(baseProfile.e2eLanes, cloudLabels),
+    cloudLabels,
+  };
+}
+
 export function selectRiskLanesForFiles(files) {
-  const profileForFiles = selectRiskProfileForFiles(files);
-
-  if (profileForFiles.cloudLabels.includes('ci:full')) {
-    return ['ci:full'];
-  }
-
-  const normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
-  const selected = new Set();
-  for (const label of profileForFiles.cloudLabels) {
-    selected.add(label);
-  }
-  for (const filePath of normalizedFiles) {
-    for (const [lane, patterns] of LANE_PATTERNS) {
-      if (matchesAny(filePath, patterns)) {
-        selected.add(lane);
-      }
-    }
-    if (
-      !selected.has('ci:unit') &&
-      matchesAny(filePath, RUNTIME_FALLBACK_UNIT_PATTERNS)
-    ) {
-      selected.add('ci:unit');
-    }
-  }
-
-  return RISK_LANES.filter((lane) => selected.has(lane));
+  return selectRiskProfileForFiles(files).cloudLabels;
 }
 
 export function selectProofCommandsForFiles(files) {

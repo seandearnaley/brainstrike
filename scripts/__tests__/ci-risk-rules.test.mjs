@@ -2,18 +2,127 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  E2E_PROOF_COMMAND_LABELS,
   expandRiskLanes,
   selectProofCommandsForFiles,
   selectRiskProfileForFiles,
   selectRiskLanesForFiles,
   toRiskLabels,
 } from '../ci-risk-rules.mjs';
+import riskFixtures from '../ci-risk-fixtures.json' with { type: 'json' };
+
+test('fixture profiles, labels, and proof commands cannot drift apart', () => {
+  for (const fixture of riskFixtures.cases) {
+    const profile = selectRiskProfileForFiles(fixture.files);
+    const lanes = selectRiskLanesForFiles(fixture.files);
+    const proofCommands = selectProofCommandsForFiles(fixture.files);
+
+    assert.deepEqual(lanes, profile.cloudLabels, `${fixture.name}: profile/lanes disagree`);
+    for (const commandName of proofCommands) {
+      const requiredLabel = E2E_PROOF_COMMAND_LABELS.get(commandName);
+      if (!requiredLabel) {
+        continue;
+      }
+      assert.ok(
+        lanes.includes(requiredLabel) || lanes.includes('ci:full'),
+        `${fixture.name}: ${commandName} requires ${requiredLabel}, got ${lanes.join(',') || '<none>'}`
+      );
+    }
+  }
+});
 
 test('docs-only changes select no cloud risk lanes', () => {
   assert.deepEqual(
     selectRiskLanesForFiles(['apps/docs/docs/development/local-ci.md']),
     []
   );
+});
+
+test('docs-only package READMEs do not select package runtime lanes', () => {
+  const files = [
+    'AGENTS.md',
+    'README.md',
+    'apps/desktop/README.md',
+    'apps/web/README.md',
+    'packages/agent/README.md',
+    'packages/app-shell/README.md',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'docs-only',
+    domains: ['documentation'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'docs-static'],
+    riskLevel: 'low',
+    cloudLabels: [],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), []);
+  assert.deepEqual(selectProofCommandsForFiles(files), ['diff-check', 'docs-static']);
+  assert.deepEqual(toRiskLabels(selectRiskLanesForFiles(files)), []);
+});
+
+test('documentation files do not escalate mixed tooling changes into runtime lanes', () => {
+  const files = [
+    'AGENTS.md',
+    'README.md',
+    'packages/agent/README.md',
+    'packages/app-shell/README.md',
+    'scripts/ci-risk-rules.mjs',
+    'scripts/__tests__/ci-risk-rules.test.mjs',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'config-tooling',
+    domains: ['tooling'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:unit'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), ['ci:unit']);
+  assert.deepEqual(selectProofCommandsForFiles(files), [
+    'diff-check',
+    'ci-script-tests',
+    'workflow-contracts',
+  ]);
+});
+
+test('proof artifact does not escalate docs-only changes', () => {
+  const files = [
+    '.ci/proof/latest.json',
+    'docs/architecture-reset/selector-smoke-docs-only.md',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'docs-only',
+    domains: ['documentation'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'docs-static'],
+    riskLevel: 'low',
+    cloudLabels: [],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), []);
+});
+
+test('proof artifact does not escalate isolated unit-test-only changes', () => {
+  const files = [
+    '.ci/proof/latest.json',
+    'packages/utils/src/__tests__/token-counting-boundary.test.ts',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'isolated-unit-test-only',
+    domains: ['test-only'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'changed-unit-tests'],
+    riskLevel: 'low',
+    cloudLabels: ['ci:unit'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), ['ci:unit']);
+  assert.deepEqual(selectProofCommandsForFiles(files), [
+    'diff-check',
+    'changed-unit-tests',
+  ]);
 });
 
 test('docs-only changes select a docs-only local proof profile without expensive e2e lanes', () => {
@@ -102,9 +211,9 @@ test('db migrations select db proof without full web functional e2e', () => {
       ],
       riskLevel: 'high',
       cloudLabels: [
+        'ci:browser',
         'ci:web-db-startup',
         'ci:web-destructive-reset',
-        'ci:browser',
         'ci:unit',
         'ci:coverage-db',
       ],
@@ -419,31 +528,14 @@ test('desktop main process changes still select full desktop regression', () => 
   ]);
 });
 
-test('release workflow changes select full release proof explicitly', () => {
+test('test workflow changes select CI contract proof without product release lanes', () => {
   assert.deepEqual(selectRiskProfileForFiles(['.github/workflows/test.yml']), {
-    category: 'full-release-high-risk',
-    domains: ['ci-platform'],
-    e2eLanes: [
-      'critical-smoke',
-      'web-file-explorer-persistence',
-      'web-import-indexing',
-      'web-assistant-state',
-      'web-settings-state',
-      'web-db-startup',
-      'web-destructive-reset',
-      'web-full-regression',
-      'desktop-smoke',
-      'desktop-ipc-reset',
-      'desktop-runtime-hosts',
-      'desktop-db-storage',
-      'desktop-full-regression',
-      'desktop-embedding-diagnostics',
-      'desktop-llm-host-recovery',
-      'long-soak-release-only',
-    ],
-    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
-    riskLevel: 'full',
-    cloudLabels: ['ci:full'],
+    category: 'config-tooling',
+    domains: ['tooling'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:unit'],
   });
 });
 
@@ -475,34 +567,15 @@ test('e2e test-only changes stay in their product lane', () => {
   });
 });
 
-test('workflow and CI script changes select the full lane', () => {
+test('test workflow and CI script changes select tooling lanes without full product matrix', () => {
   assert.deepEqual(
     selectRiskLanesForFiles([
       '.github/workflows/test.yml',
       'scripts/check-ci-workflow-contracts.mjs',
     ]),
-    ['ci:full']
+    ['ci:unit']
   );
-  assert.deepEqual(expandRiskLanes(['ci:full']), [
-    'ci:browser',
-    'ci:web-smoke',
-    'ci:web-file-explorer-persistence',
-    'ci:web-import-indexing',
-    'ci:web-assistant-state',
-    'ci:web-settings-state',
-    'ci:web-db-startup',
-    'ci:web-destructive-reset',
-    'ci:web-e2e',
-    'ci:desktop-smoke',
-    'ci:desktop-ipc-reset',
-    'ci:desktop-runtime-hosts',
-    'ci:desktop-db-storage',
-    'ci:desktop',
-    'ci:embedding',
-    'ci:unit',
-    'ci:coverage-db',
-    'ci:coverage-full',
-  ]);
+  assert.deepEqual(expandRiskLanes(['ci:unit']), ['ci:unit']);
 });
 
 test('browser storage changes select browser and coverage lanes without full db tests', () => {
