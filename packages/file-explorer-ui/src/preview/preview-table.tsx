@@ -406,11 +406,12 @@ interface GroupedColumnBuilderArgs {
   sortField: keyof TableRowData;
 }
 
-function resolveGroupedHeaderClassName(isTreeColumn: boolean, widthClassName?: string): string {
-  return cn(
-    isTreeColumn ? PREVIEW_TREE_HEADER_CLASS : PREVIEW_STANDARD_HEADER_CLASS,
-    widthClassName
-  );
+// Column widths are owned by TreeTable's <colgroup> + table-fixed layout
+// (see packages/ui/src/tree-table/tree-table.tsx). The widthClassName
+// parameter that used to live here was dead weight under table-fixed and
+// confused readers — removed in BST-549.
+function resolveGroupedHeaderClassName(isTreeColumn: boolean): string {
+  return cn(isTreeColumn ? PREVIEW_TREE_HEADER_CLASS : PREVIEW_STANDARD_HEADER_CLASS);
 }
 
 function createGroupedCheckboxColumn({
@@ -546,7 +547,7 @@ function createGroupedRootFolderColumn({
       node.data.kind === 'group' && primaryGroupColumn === 'rootFolderId' && columnVisibility.path
         ? 2
         : 1,
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-44'),
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         return renderGroupHeaderIfPrimary(node.data.group, 'rootFolderId');
@@ -668,8 +669,8 @@ function createGroupedTypeColumn({
     defaultWidth: 96,
     minWidth: 72,
     maxWidth: 180,
-    className: isTreeColumn ? 'w-24 pr-4 pl-0 py-2' : 'w-24 px-4 py-2',
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
+    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         return renderGroupHeaderIfPrimary(node.data.group, 'type');
@@ -713,9 +714,9 @@ function createGroupedTokensColumn({
     minWidth: 72,
     maxWidth: 180,
     className: isTreeColumn
-      ? 'w-24 whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
-      : 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
+      ? 'whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
+      : 'whitespace-nowrap px-4 py-2 text-right tabular-nums',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         if (primaryGroupColumn === 'tokens') {
@@ -778,9 +779,9 @@ function createGroupedSizeColumn({
     minWidth: 72,
     maxWidth: 180,
     className: isTreeColumn
-      ? 'w-24 whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
-      : 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
+      ? 'whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
+      : 'whitespace-nowrap px-4 py-2 text-right tabular-nums',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         if (primaryGroupColumn === 'size') {
