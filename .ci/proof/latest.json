@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T21:02:13.649Z",
+  "generatedAt": "2026-05-24T21:06:20.292Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "93c45f9db39ba481e8051ab3a56a285b6220f6ab",
+  "testedHeadSha": "2804f01c43cc042f1ede65c377d7b2dc7c13a0d4",
   "selection": {
     "base": "origin/main",
     "baseSha": "f1d72cfa70a8cf3f08fd3e6797263f4f04065149",
     "head": "HEAD",
-    "headSha": "93c45f9db39ba481e8051ab3a56a285b6220f6ab",
+    "headSha": "2804f01c43cc042f1ede65c377d7b2dc7c13a0d4",
     "mergeBase": "f1d72cfa70a8cf3f08fd3e6797263f4f04065149",
     "files": [
+      ".ci/proof/latest.json",
       ".github/workflows/test.yml",
       "AGENTS.md",
       "docs/architecture-reset/main-smoke-nightly-matrix-2026-05-24.html",
@@ -97,7 +98,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 13
+      "durationMs": 10
     },
     {
       "name": "ci-script-tests",
@@ -106,7 +107,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 429
+      "durationMs": 385
     },
     {
       "name": "workflow-contracts",
@@ -115,7 +116,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 394
+      "durationMs": 363
     }
   ]
 }
