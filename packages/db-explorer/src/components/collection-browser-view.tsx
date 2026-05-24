@@ -13,6 +13,7 @@
  */
 
 import type { FileChunk } from '@brainstrike/db';
+import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import {
   type BrowserNodeData,
   type BulkAction,
@@ -347,6 +348,15 @@ export function CollectionBrowserView({
     toggleExpanded,
     expandIds,
   } = useCollectionBrowserStore();
+
+  // Column widths are persisted independently from the rest of the collection
+  // browser state so factory-reset + schema migration stays scoped per-surface.
+  const columnSizes = useCollectionBrowserColumnSizesStore(
+    (state: { sizes: Record<string, number> }) => state.sizes
+  );
+  const setColumnSizes = useCollectionBrowserColumnSizesStore(
+    (state: { setAll: (next: Record<string, number>) => void }) => state.setAll
+  );
 
   // Convert store filter state to CollectionBrowserFilters format
   const filters = useMemo(
@@ -1117,6 +1127,7 @@ export function CollectionBrowserView({
             <CollectionBrowser
               bulkActions={bulkActions}
               className="h-full"
+              columnSizes={columnSizes}
               data={treeData}
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}
@@ -1126,6 +1137,7 @@ export function CollectionBrowserView({
               isLoading={isLoading}
               isSearching={isSearching}
               multiSelectEnabled={multiSelectEnabled}
+              onColumnSizesChange={setColumnSizes}
               onContextMenu={handleContextMenu}
               onDoubleClick={handleDoubleClick}
               onExpandedIdsChange={handleExpandedIdsChange}

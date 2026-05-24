@@ -1,4 +1,8 @@
 import { useEventCallback } from '@brainstrike/hooks';
+// Subpath import avoids pulling the full @brainstrike/preferences barrel
+// (and its transitive log-viewer / Select dependency tree) into render-time
+// graphs that other test files mock at the package boundary.
+import { useContextPreviewColumnSizesStore } from '@brainstrike/preferences/stores/context-preview-column-sizes-store';
 import {
   Checkbox,
   cn,
@@ -438,6 +442,12 @@ function createGroupedCheckboxColumn({
   return {
     id: 'checkbox',
     isTreeColumn: false,
+    // Pinned width=min=max so TreeTable treats this as non-resizable and
+    // suppresses the handle. The checkbox is a fixed utility column.
+    width: PREVIEW_CHECKBOX_COLUMN_WIDTH,
+    minWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
+    maxWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
+    resizable: false,
     header: (
       <div className="flex h-full items-center justify-center">
         <Checkbox
@@ -450,7 +460,6 @@ function createGroupedCheckboxColumn({
         />
       </div>
     ),
-    width: PREVIEW_CHECKBOX_COLUMN_WIDTH,
     className: PREVIEW_CHECKBOX_CELL_CLASS,
     headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
     headerContentClassName: 'w-full justify-center',
@@ -529,7 +538,9 @@ function createGroupedRootFolderColumn({
         title="Folder"
       />
     ),
-    width: 176,
+    defaultWidth: 176,
+    minWidth: 100,
+    maxWidth: 360,
     className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
     colSpan: ({ node }) =>
       node.data.kind === 'group' && primaryGroupColumn === 'rootFolderId' && columnVisibility.path
@@ -585,6 +596,9 @@ function createGroupedPathColumn({
         title="File Path"
       />
     ),
+    defaultWidth: 360,
+    minWidth: 160,
+    maxWidth: 900,
     className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
     headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
@@ -651,7 +665,9 @@ function createGroupedTypeColumn({
         title="Type"
       />
     ),
-    width: 96,
+    defaultWidth: 96,
+    minWidth: 72,
+    maxWidth: 180,
     className: isTreeColumn ? 'w-24 pr-4 pl-0 py-2' : 'w-24 px-4 py-2',
     headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
     cell: ({ node }) => {
@@ -693,7 +709,9 @@ function createGroupedTokensColumn({
         title="Tokens"
       />
     ),
-    width: 96,
+    defaultWidth: 96,
+    minWidth: 72,
+    maxWidth: 180,
     className: isTreeColumn
       ? 'w-24 whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
       : 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
@@ -756,7 +774,9 @@ function createGroupedSizeColumn({
         title="Size"
       />
     ),
-    width: 96,
+    defaultWidth: 96,
+    minWidth: 72,
+    maxWidth: 180,
     className: isTreeColumn
       ? 'w-24 whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
       : 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
@@ -1008,9 +1028,22 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     return '';
   }, []);
 
+  // Subscribe to persisted column widths for the grouped TreeTable path.
+  // Subscribed at the component level so resizes during a paint cycle are
+  // applied to the next render via TreeTable's controlled-sizing prop.
+  const columnSizes = useContextPreviewColumnSizesStore(
+    (state: { sizes: Record<string, number> }) => state.sizes
+  );
+  const setColumnSizes = useContextPreviewColumnSizesStore(
+    (state: { setAll: (next: Record<string, number>) => void }) => state.setAll
+  );
+
   if (groupingConfig === 'none') {
-    // TODO(BST-312): converge the ungrouped path onto TreeTable once parity and
-    // migration-risk constraints for ungrouped headers/rows are fully closed.
+    // TODO(BST-312): converge the ungrouped path onto TreeTable so this surface
+    // picks up resizable columns + persistence the way the grouped path now
+    // does. The hand-rolled <table>/<thead>/<tbody> here predates TreeTable's
+    // colgroup + controlled sizing API; rewriting it requires PreviewTableRow
+    // parity tests (selection, rowsReady gating, sort header semantics).
     return (
       <div
         className={cn('flex-1 overflow-auto', scrollAreaClassName)}
@@ -1115,10 +1148,12 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       <TreeTable
         ariaLabel="Context explorer table"
         className="w-full"
+        columnSizes={columnSizes}
         columns={groupedColumns}
         expandedIds={stableExpandedGroupNodeIds}
         maxHeight="none"
         nodes={groupedTree.nodes}
+        onColumnSizesChange={setColumnSizes}
         onToggleExpand={onGroupedTreeToggleExpand}
         rowClassName={rowClassName}
         selectionMode="none"

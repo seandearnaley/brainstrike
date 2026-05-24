@@ -822,7 +822,7 @@ jobs:
       matrix:
         include:
           - group: import
-            testFiles: e2e/database-import-backfill.test.ts
+            testFiles: e2e/database-import-backfill.test.ts e2e/tree-table-resize.test.ts
           - group: file-explorer-persistence
             testFiles: e2e/file-explorer-persistence.test.ts
           - group: assistant-ui

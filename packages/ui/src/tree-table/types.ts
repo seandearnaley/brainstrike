@@ -81,6 +81,11 @@ export interface TreeTableColumn<T> {
   className?: string;
   /** Optional cell colSpan for a given row. Use sparingly for structural rows that should span adjacent columns. */
   colSpan?: (props: TreeTableCellProps<T>) => number | undefined;
+  /**
+   * Default pixel width applied when no controlled `columnSizes` value and no
+   * persisted width exist. Used by the uncontrolled sizing path.
+   */
+  defaultWidth?: number;
   /** Header content (string or React element) */
   header?: React.ReactNode;
   /** Additional CSS class for the header */
@@ -104,6 +109,13 @@ export interface TreeTableColumn<T> {
   minWidth?: number;
   /** When false, leaf rows do not reserve empty expand-toggle space in the tree column. */
   reserveToggleSpace?: boolean;
+  /**
+   * Whether this column can be resized. Defaults to `true` for any column that
+   * is not pinned (i.e. when `width === minWidth === maxWidth` the column is
+   * inherently non-resizable and the handle is suppressed regardless of this
+   * flag). Set to `false` to explicitly opt out for resizable-width columns.
+   */
+  resizable?: boolean;
   /** Whether this column is sortable */
   sortable?: boolean;
   /** Fixed width in pixels or CSS string */
@@ -213,6 +225,14 @@ export interface TreeTableProps<T> {
   // Styling
   /** Additional CSS class for the container */
   className?: string;
+  /**
+   * Controlled map of column id → pixel width.
+   *
+   * When present, TreeTable renders the supplied widths and routes user
+   * resizing through `onColumnSizesChange`. When absent, sizing is
+   * uncontrolled and falls back to `column.defaultWidth` / `column.width`.
+   */
+  columnSizes?: Record<string, number>;
   /** Column definitions */
   columns: TreeTableColumn<T>[];
 
@@ -249,6 +269,11 @@ export interface TreeTableProps<T> {
   nodesArePreFlattened?: boolean;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
+  /**
+   * Called with the next full sizes map after every pointer or keyboard
+   * resize. Values are pre-clamped to each column's `[minWidth, maxWidth]`.
+   */
+  onColumnSizesChange?: (next: Record<string, number>) => void;
   /** Callback to expand all nodes */
   onExpandAll?: () => void;
 
