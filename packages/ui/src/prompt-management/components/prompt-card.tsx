@@ -27,6 +27,8 @@ function useTooltipDropdownCoordination() {
   const [isTooltipOpen, setIsTooltipOpen] = useState(false);
   const [isPointerOverTrigger, setIsPointerOverTrigger] = useState(false);
   const [isTooltipSuppressed, setIsTooltipSuppressed] = useState(false);
+  // Suppression follows pointer ownership: menu open/close keeps hover quiet while the
+  // pointer stays on the trigger, then pointer leave or keyboard focus restores hints.
   const showTooltip = isTooltipOpen && !isDropdownOpen && !isTooltipSuppressed;
 
   const handleDropdownOpenChange = (open: boolean) => {
