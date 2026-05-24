@@ -45,6 +45,32 @@
       }
     },
     {
+      "name": "docs plus proof artifact",
+      "files": [
+        ".ci/proof/latest.json",
+        "docs/architecture-reset/selector-smoke-docs-only.md"
+      ],
+      "expected": {
+        "category": "docs-only",
+        "cloudLabels": [],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "docs-static"]
+      }
+    },
+    {
+      "name": "unit test plus proof artifact",
+      "files": [
+        ".ci/proof/latest.json",
+        "packages/utils/src/__tests__/token-counting-boundary.test.ts"
+      ],
+      "expected": {
+        "category": "isolated-unit-test-only",
+        "cloudLabels": ["ci:unit"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "changed-unit-tests"]
+      }
+    },
+    {
       "name": "tooling script",
       "files": ["scripts/ci-select.mjs"],
       "expected": {

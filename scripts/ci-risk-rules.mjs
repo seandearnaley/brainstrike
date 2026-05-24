@@ -63,6 +63,8 @@ const DOCS_ONLY_PATTERNS = [
   /\.html$/,
 ];
 
+const PROOF_ARTIFACT_PATTERNS = [/^\.ci\/proof\/latest\.json$/];
+
 const CONFIG_TOOLING_PATTERNS = [
   /^package\.json$/,
   /^scripts\//,
@@ -465,7 +467,14 @@ function hasAny(normalizedFiles, patterns) {
 function docsNeutralRuntimeFiles(files) {
   return [...files]
     .map((filePath) => normalizePath(filePath))
+    .filter((filePath) => !matchesAny(filePath, PROOF_ARTIFACT_PATTERNS))
     .filter((filePath) => !matchesAny(filePath, DOCS_ONLY_PATTERNS));
+}
+
+function proofNeutralRiskFiles(files) {
+  return [...files]
+    .map((filePath) => normalizePath(filePath))
+    .filter((filePath) => !matchesAny(filePath, PROOF_ARTIFACT_PATTERNS));
 }
 
 function orderRiskLabels(labels) {
@@ -610,7 +619,7 @@ function profile({
 }
 
 function selectBaseRiskProfileForFiles(files) {
-  let normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
+  let normalizedFiles = proofNeutralRiskFiles(files);
 
   if (normalizedFiles.length === 0 || allFilesMatch(normalizedFiles, DOCS_ONLY_PATTERNS)) {
     return profile({

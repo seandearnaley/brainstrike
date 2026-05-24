@@ -102,6 +102,44 @@ test('documentation files do not escalate mixed tooling changes into runtime lan
   ]);
 });
 
+test('proof artifact does not escalate docs-only changes', () => {
+  const files = [
+    '.ci/proof/latest.json',
+    'docs/architecture-reset/selector-smoke-docs-only.md',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'docs-only',
+    domains: ['documentation'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'docs-static'],
+    riskLevel: 'low',
+    cloudLabels: [],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), []);
+});
+
+test('proof artifact does not escalate isolated unit-test-only changes', () => {
+  const files = [
+    '.ci/proof/latest.json',
+    'packages/utils/src/__tests__/token-counting-boundary.test.ts',
+  ];
+
+  assert.deepEqual(selectRiskProfileForFiles(files), {
+    category: 'isolated-unit-test-only',
+    domains: ['test-only'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'changed-unit-tests'],
+    riskLevel: 'low',
+    cloudLabels: ['ci:unit'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(files), ['ci:unit']);
+  assert.deepEqual(selectProofCommandsForFiles(files), [
+    'diff-check',
+    'changed-unit-tests',
+  ]);
+});
+
 test('docs-only changes select a docs-only local proof profile without expensive e2e lanes', () => {
   assert.deepEqual(selectRiskProfileForFiles(['docs/architecture-reset/report.html']), {
     category: 'docs-only',
