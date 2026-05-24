@@ -1,0 +1,1417 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike Architecture Rewrite - ELI15 Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f7f4ee;
+      --paper-strong: #fffaf1;
+      --ink: #151617;
+      --muted: #60636a;
+      --line: #d8d0c2;
+      --line-strong: #a99f8d;
+      --charcoal: #202326;
+      --blue: #2458a6;
+      --green: #177d62;
+      --red: #b33b33;
+      --amber: #b16b00;
+      --violet: #6d4da3;
+      --cyan: #0d7180;
+      --shadow: 0 18px 50px rgba(28, 25, 19, 0.12);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --serif: Georgia, "Times New Roman", serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(32, 35, 38, 0.035) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(rgba(32, 35, 38, 0.035) 1px, transparent 1px) 0 0 / 28px 28px,
+        var(--paper);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      background: rgba(32, 35, 38, 0.07);
+      border: 1px solid rgba(32, 35, 38, 0.1);
+      border-radius: 4px;
+      padding: 0.05rem 0.28rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 250, 241, 0.86);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      padding-bottom: 22px;
+      border-bottom: 2px solid var(--charcoal);
+      margin-bottom: 22px;
+    }
+
+    .brand-mark {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 3px;
+      width: 42px;
+      margin-bottom: 14px;
+    }
+
+    .brand-mark span {
+      height: 10px;
+      border-radius: 2px;
+      background: var(--charcoal);
+    }
+
+    .brand-mark span:nth-child(2) { background: var(--blue); }
+    .brand-mark span:nth-child(5) { background: var(--green); }
+    .brand-mark span:nth-child(8) { background: var(--amber); }
+    .brand-mark span:nth-child(11) { background: var(--red); }
+
+    .brand h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+
+    nav {
+      display: grid;
+      gap: 7px;
+    }
+
+    nav a {
+      display: block;
+      color: var(--charcoal);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 7px 9px;
+      font-size: 13px;
+    }
+
+    nav a:hover {
+      background: rgba(32, 35, 38, 0.06);
+      border-color: rgba(32, 35, 38, 0.12);
+      text-decoration: none;
+    }
+
+    .side-note {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    main {
+      min-width: 0;
+      padding: 44px 54px 90px;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 420px;
+      padding: 44px;
+      overflow: hidden;
+      color: #f7f4ee;
+      background:
+        linear-gradient(135deg, rgba(21, 22, 23, 0.92), rgba(32, 35, 38, 0.86)),
+        repeating-linear-gradient(45deg, rgba(255, 250, 241, 0.08) 0 1px, transparent 1px 14px);
+      border: 1px solid #111;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -120px;
+      width: 420px;
+      height: 420px;
+      border: 1px solid rgba(247, 244, 238, 0.3);
+      transform: rotate(18deg);
+    }
+
+    .hero .kicker {
+      position: relative;
+      z-index: 1;
+      display: inline-block;
+      margin-bottom: 28px;
+      color: #f1c15b;
+      font-family: var(--mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .hero h2 {
+      position: relative;
+      z-index: 1;
+      max-width: 940px;
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 58px;
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      position: relative;
+      z-index: 1;
+      max-width: 790px;
+      margin: 24px 0 0;
+      color: #d9d3c8;
+      font-size: 18px;
+    }
+
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 34px;
+    }
+
+    .hero-stat {
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid rgba(247, 244, 238, 0.22);
+      background: rgba(247, 244, 238, 0.07);
+      border-radius: 6px;
+    }
+
+    .hero-stat strong {
+      display: block;
+      font-family: var(--mono);
+      font-size: 24px;
+      color: #fffaf1;
+    }
+
+    .hero-stat span {
+      display: block;
+      margin-top: 6px;
+      color: #c9c0b2;
+      font-size: 12px;
+    }
+
+    section {
+      margin-top: 56px;
+      scroll-margin-top: 24px;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+      margin-bottom: 22px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid var(--charcoal);
+    }
+
+    .section-num {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 36px;
+      line-height: 1.06;
+      letter-spacing: 0;
+    }
+
+    .section-lead {
+      max-width: 860px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .plain-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-strong);
+      padding: 18px;
+      box-shadow: 0 8px 22px rgba(28, 25, 19, 0.06);
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .panel p,
+    .panel li {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .panel p:last-child,
+    .panel ul:last-child {
+      margin-bottom: 0;
+    }
+
+    .tagline {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 12px 0 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 4px 9px;
+      color: var(--charcoal);
+      background: rgba(255, 250, 241, 0.82);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .tag.green { border-color: rgba(23, 125, 98, 0.55); color: var(--green); }
+    .tag.blue { border-color: rgba(36, 88, 166, 0.55); color: var(--blue); }
+    .tag.red { border-color: rgba(179, 59, 51, 0.55); color: var(--red); }
+    .tag.amber { border-color: rgba(177, 107, 0, 0.55); color: var(--amber); }
+    .tag.violet { border-color: rgba(109, 77, 163, 0.55); color: var(--violet); }
+
+    .explain {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .before,
+    .after {
+      border-radius: 8px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      background: var(--paper-strong);
+    }
+
+    .before {
+      border-top: 6px solid var(--red);
+    }
+
+    .after {
+      border-top: 6px solid var(--green);
+    }
+
+    .before h3,
+    .after h3 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+
+    .big-list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .big-list li {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-strong);
+    }
+
+    .big-list b {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .big-list span:first-child {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--charcoal);
+      color: #fffaf1;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .big-list p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: var(--paper-strong);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--charcoal);
+      background: rgba(32, 35, 38, 0.07);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    td {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    td strong {
+      color: var(--ink);
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-strong);
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .flow-label {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .flow-track {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .box {
+      padding: 7px 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: #fffdf8;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--charcoal);
+      white-space: nowrap;
+    }
+
+    .arrow {
+      color: var(--line-strong);
+      font-family: var(--mono);
+    }
+
+    .callout {
+      border-left: 6px solid var(--blue);
+      background: var(--paper-strong);
+      padding: 18px 20px;
+      border-radius: 8px;
+      box-shadow: 0 8px 22px rgba(28, 25, 19, 0.06);
+    }
+
+    .callout h3 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .callout p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      min-height: 118px;
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--paper-strong);
+    }
+
+    .metric strong {
+      display: block;
+      color: var(--charcoal);
+      font-family: var(--mono);
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 160px minmax(0, 1fr);
+      gap: 18px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .timeline-item:last-child {
+      border-bottom: none;
+    }
+
+    .timeline-date {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .timeline-body h3 {
+      margin: 0 0 6px;
+      font-size: 17px;
+    }
+
+    .timeline-body p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .traffic {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .traffic-card {
+      min-height: 180px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-strong);
+    }
+
+    .traffic-card .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      margin-bottom: 12px;
+      background: var(--muted);
+    }
+
+    .traffic-card:nth-child(1) .dot { background: var(--green); }
+    .traffic-card:nth-child(2) .dot { background: var(--blue); }
+    .traffic-card:nth-child(3) .dot { background: var(--amber); }
+    .traffic-card:nth-child(4) .dot { background: var(--red); }
+
+    .traffic-card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .traffic-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 68px;
+      padding-top: 22px;
+      border-top: 2px solid var(--charcoal);
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: relative;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+
+      main {
+        padding: 28px 18px 64px;
+      }
+
+      .hero h2 {
+        font-size: 42px;
+      }
+
+      .hero-grid,
+      .metrics,
+      .traffic,
+      .plain-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .hero {
+        padding: 28px 20px;
+      }
+
+      .hero h2 {
+        font-size: 34px;
+      }
+
+      .hero-grid,
+      .metrics,
+      .traffic,
+      .plain-grid,
+      .explain {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head,
+      .timeline-item,
+      .flow-row {
+        grid-template-columns: 1fr;
+      }
+
+      th,
+      td {
+        padding: 10px;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      aside {
+        display: none;
+      }
+
+      .layout {
+        display: block;
+      }
+
+      main {
+        padding: 20px;
+      }
+
+      .hero,
+      .panel,
+      .metric,
+      .traffic-card,
+      .before,
+      .after,
+      .callout {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <h1>Brainstrike Architecture Rewrite</h1>
+        <p>ELI15 report - 2026-05-23</p>
+      </div>
+      <nav aria-label="Report sections">
+        <a href="#summary">1. Plain-English Summary</a>
+        <a href="#why">2. Why This Was Needed</a>
+        <a href="#what-changed">3. What Changed</a>
+        <a href="#domains">4. Domain Ownership</a>
+        <a href="#desktop">5. Desktop Platform</a>
+        <a href="#pipeline">6. Proof Pipeline</a>
+        <a href="#examples">7. Change Examples</a>
+        <a href="#ci-proof">8. .ci Proof System</a>
+        <a href="#evidence">9. Evidence</a>
+        <a href="#cost">10. Cost And Tradeoffs</a>
+        <a href="#next">11. Next Moves</a>
+      </nav>
+      <div class="side-note">
+        Source: current <code>main</code> at <code>06280a0b8</code>, merged PR #1032, local proof manifest, architecture reports under <code>docs/architecture-reset/</code>, and post-merge GitHub run <code>26321788476</code>.
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <span class="kicker">Architecture reset, explained like you are technical but new to this repo</span>
+        <h2>The rewrite turned Brainstrike from a big tangled workshop into owned rooms, typed doors, and measured test lanes.</h2>
+        <p>
+          The main win is not one flashy feature. The win is that future work should be easier to assign, safer to test, and cheaper to prove. Domains now have public contracts, desktop runtime work has typed registries, and CI can prove the risk of a change instead of reflexively running everything.
+        </p>
+        <div class="hero-grid">
+          <div class="hero-stat"><strong>0/0</strong><span>approved domain-boundary exceptions in the architecture checks during the reset evidence</span></div>
+          <div class="hero-stat"><strong>69 LOC</strong><span><code>apps/desktop/src/ipc-handlers.ts</code> is now a thin registry/composition file</span></div>
+          <div class="hero-stat"><strong>18</strong><span>expanded full-risk cloud lanes registered after the coverage split</span></div>
+          <div class="hero-stat"><strong>success</strong><span>post-merge <code>main</code> run <code>26321788476</code> completed green</span></div>
+        </div>
+      </header>
+
+      <section id="summary">
+        <div class="section-head">
+          <div class="section-num">01 / Summary</div>
+          <div>
+            <h2>The ELI15 Version</h2>
+            <p class="section-lead">
+              Before the reset, Brainstrike had grown the way real apps grow: features worked, but many important changes touched too many files, tests were expensive, and desktop runtime behavior lived in several places at once. The reset made ownership explicit.
+            </p>
+          </div>
+        </div>
+
+        <div class="explain">
+          <div class="before">
+            <h3>Before: everyone walked through everyone else's room</h3>
+            <p>
+              A file explorer change could touch UI, context, indexing hooks, and app shell. A desktop IPC change could require manually keeping main, preload, renderer, and tests in sync. A normal PR could end up paying for broad coverage or broad E2E because the pipeline did not know the difference between small risk and release risk.
+            </p>
+          </div>
+          <div class="after">
+            <h3>After: each room has a front desk</h3>
+            <p>
+              Assistant, indexing, file explorer, DB, desktop platform, and proof lanes now have clearer public surfaces. Code should talk through contracts and barrels instead of deep internal imports. The pipeline classifies the changed files, picks lanes, records proof, and makes failures point at an owner.
+            </p>
+          </div>
+        </div>
+
+        <div class="plain-grid" style="margin-top: 16px;">
+          <div class="panel">
+            <h3>Think of domains as school departments</h3>
+            <p>Math, science, and history can share a building, but each department owns its curriculum. In Brainstrike, packages like <code>assistant-contract</code> and <code>indexing-contract</code> define the curriculum.</p>
+          </div>
+          <div class="panel">
+            <h3>Think of IPC as a switchboard</h3>
+            <p>Desktop calls now go through named domain registries instead of one giant pile of handlers. Adding a channel should mean contract, handler, and focused test.</p>
+          </div>
+          <div class="panel">
+            <h3>Think of CI as airport security</h3>
+            <p>A backpack should not go through cargo inspection. The new lane system routes small changes through smaller checks and keeps full release proof explicit.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="why">
+        <div class="section-head">
+          <div class="section-num">02 / Why</div>
+          <div>
+            <h2>What Problem The Rewrite Solved</h2>
+            <p class="section-lead">
+              The old architecture was not "bad"; it was overloaded. The app had accumulated local AI, Electron hidden hosts, file indexing, PGlite storage, assistant UI, and large E2E coverage. Those systems need strong ownership because timing and state bugs are expensive.
+            </p>
+          </div>
+        </div>
+
+        <ul class="big-list">
+          <li>
+            <span>1</span>
+            <div>
+              <b>Parallel work was risky.</b>
+              <p>Hot files and deep imports meant two agents could easily edit the same composition points or rely on internals from another domain.</p>
+            </div>
+          </li>
+          <li>
+            <span>2</span>
+            <div>
+              <b>Desktop runtime behavior was too implicit.</b>
+              <p>Electron main, preload, renderer, hidden embedding host, hidden LLM host, DB host, reset, and diagnostics all need clear contracts because ordering failures can look like random flakes.</p>
+            </div>
+          </li>
+          <li>
+            <span>3</span>
+            <div>
+              <b>Proof cost was not proportional to risk.</b>
+              <p>The goal became: do not use full E2E or full coverage as the default loop. Pick the lane that matches the changed files, and make the full suite a deliberate release action.</p>
+            </div>
+          </li>
+          <li>
+            <span>4</span>
+            <div>
+              <b>CI failures needed ownership.</b>
+              <p>A failure should say "desktop IPC reset lane failed" or "web import indexing failed", not just "the whole pipeline failed".</p>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section id="what-changed">
+        <div class="section-head">
+          <div class="section-num">03 / Map</div>
+          <div>
+            <h2>The Rewrite In Five Moves</h2>
+            <p class="section-lead">
+              These are the big structural changes, listed in the order they matter for future work.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow">
+          <div class="flow-row">
+            <div class="flow-label">1. Guardrails</div>
+            <div class="flow-track">
+              <span class="box">domain map</span><span class="arrow">-></span><span class="box">boundary checker</span><span class="arrow">-></span><span class="box">0/0 exceptions</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-label">2. Contracts</div>
+            <div class="flow-track">
+              <span class="box">assistant-contract</span><span class="arrow">+</span><span class="box">indexing-contract</span><span class="arrow">+</span><span class="box">pipeline ownership</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-label">3. Slices</div>
+            <div class="flow-track">
+              <span class="box">file explorer tree</span><span class="box">preview</span><span class="box">indexing</span><span class="box">shell</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-label">4. Desktop platform</div>
+            <div class="flow-track">
+              <span class="box">IPC registry</span><span class="box">domain handlers</span><span class="box">hidden host lifecycle</span><span class="box">diagnostics</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-label">5. Proof economy</div>
+            <div class="flow-track">
+              <span class="box">ci:select</span><span class="box">risk lanes</span><span class="box">timing budgets</span><span class="box">proof manifest</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics" style="margin-top: 16px;">
+          <div class="metric"><strong>PR #1021</strong><span>architecture reset release candidate integrated</span></div>
+          <div class="metric"><strong>#1022</strong><span>desktop reset and DB IPC hardening follow-up</span></div>
+          <div class="metric"><strong>#1027</strong><span>right-side explorer layout merge and follow-up repair</span></div>
+          <div class="metric"><strong>#1032</strong><span>affected unit vs coverage gate split merged</span></div>
+          <div class="metric"><strong>06280a0b8</strong><span>current main after the final merge in this report</span></div>
+        </div>
+      </section>
+
+      <section id="domains">
+        <div class="section-head">
+          <div class="section-num">04 / Domains</div>
+          <div>
+            <h2>Domain Ownership: Fewer Secret Hallways</h2>
+            <p class="section-lead">
+              The ownership reset made "legal import" and "good architecture" closer to the same thing. The important pattern is public surfaces first, internals second.
+            </p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>What Changed</th>
+              <th>Why It Matters</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Assistant</strong></td>
+              <td>Extracted stable surfaces into <code>packages/assistant-contract</code>, including runtime data, local LLM contracts, provider metadata, memory settings, context packing, and tool metadata.</td>
+              <td>UI and app shell can consume assistant contracts without reaching into agent runtime internals.</td>
+            </tr>
+            <tr>
+              <td><strong>Indexing</strong></td>
+              <td>Introduced <code>packages/indexing-contract</code> and moved queue/job/provider metadata toward indexing-owned surfaces. <code>@brainstrike/pipeline</code> became a real production owner instead of an unused package.</td>
+              <td>File import, embeddings, queue, preferences, DB, and app-shell indexing work now have a clearer coordination layer.</td>
+            </tr>
+            <tr>
+              <td><strong>File Explorer</strong></td>
+              <td>Promoted internal slices in <code>packages/file-explorer-ui/src/tree</code>, <code>preview</code>, <code>indexing</code>, and <code>shell</code>, with enforced barrels.</td>
+              <td>New work can land in a smaller write set instead of modifying one giant UI package surface directly.</td>
+            </tr>
+            <tr>
+              <td><strong>DB</strong></td>
+              <td>Added package-local architecture ownership tests and split DB concerns around queues, migrations, repositories, search, and schema-facing surfaces.</td>
+              <td>DB remains central, but callers should not casually pierce through implementation layers.</td>
+            </tr>
+            <tr>
+              <td><strong>Embedding Worker</strong></td>
+              <td>Split support modules for provider runtime, DB IO, cache IO, scheduling, failures, job payloads, chunk filtering, and stats refresh.</td>
+              <td>The main worker file is now a composition point under the 1,500 LOC threshold, not the only place every embedding concern lives.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout" style="margin-top: 16px;">
+          <h3>ELI15 rule</h3>
+          <p>If another domain wants your data, give it a front door. Do not let it climb through your bedroom window. In code, the front door is a public contract, barrel, registry, or typed API.</p>
+        </div>
+      </section>
+
+      <section id="desktop">
+        <div class="section-head">
+          <div class="section-num">05 / Desktop</div>
+          <div>
+            <h2>Desktop Runtime Became A Platform</h2>
+            <p class="section-lead">
+              Brainstrike is local-first and AI-native, so the desktop runtime is not just a wrapper. It owns local execution, hidden renderers, reset/recovery, DB host lifecycle, and IPC.
+            </p>
+          </div>
+        </div>
+
+        <div class="plain-grid">
+          <div class="panel">
+            <h3>Typed IPC registry</h3>
+            <p><code>apps/desktop/src/ipc-handlers.ts</code> is now 69 lines and delegates to domain registries instead of collecting everything in one file.</p>
+            <div class="tagline"><span class="tag green">db</span><span class="tag blue">files</span><span class="tag amber">embeddings</span><span class="tag violet">preferences</span><span class="tag red">diagnostics</span></div>
+          </div>
+          <div class="panel">
+            <h3>Renderer-only local AI</h3>
+            <p>Embedding workers and built-in local LLM execution stay in renderer contexts. Main owns lifecycle and IPC; it does not execute the models.</p>
+          </div>
+          <div class="panel">
+            <h3>Hidden host lifecycle</h3>
+            <p>Embedding and LLM host renderers are modeled as lifecycle surfaces: startup, ready, active, idle, failed, reset, restart, disposed.</p>
+          </div>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Desktop Surface</th>
+              <th>New Shape</th>
+              <th>Confidence Mechanism</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>IPC channels</strong></td>
+              <td>Domain modules under <code>apps/desktop/src/ipc-domains</code>.</td>
+              <td>Named contracts, handler wiring, preload catalog checks, focused domain tests.</td>
+            </tr>
+            <tr>
+              <td><strong>Factory reset</strong></td>
+              <td>Reset covers DB, UI persistence, IndexedDB, CacheStorage, and host runtime state.</td>
+              <td>Reset lanes and destructive tests are explicit, not accidentally selected for every product change.</td>
+            </tr>
+            <tr>
+              <td><strong>Diagnostics</strong></td>
+              <td>Desktop exposes platform health surfaces for reset, migration, DB state, indexing state, embedding host, LLM host, and recovery.</td>
+              <td>Failures can be investigated through one owned platform surface.</td>
+            </tr>
+            <tr>
+              <td><strong>Desktop E2E</strong></td>
+              <td>Split into smoke, IPC reset, runtime hosts, DB storage, full regression, and embedding diagnostics.</td>
+              <td>Small desktop changes no longer need to pay for every desktop regression by default.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="pipeline">
+        <div class="section-head">
+          <div class="section-num">06 / Pipeline</div>
+          <div>
+            <h2>The Proof Pipeline Became Risk-Based</h2>
+            <p class="section-lead">
+              The pipeline now behaves more like a router than a giant on/off switch. It looks at changed files, chooses lanes, checks labels, records proof, and makes full release proof explicit.
+            </p>
+          </div>
+        </div>
+
+        <div class="traffic">
+          <div class="traffic-card">
+            <div class="dot"></div>
+            <h3>Cheap lanes</h3>
+            <p>Docs-only and isolated unit-test changes should stay cheap. They do not select broad web, desktop, embedding, or destructive lanes.</p>
+          </div>
+          <div class="traffic-card">
+            <div class="dot"></div>
+            <h3>Product lanes</h3>
+            <p>Web work is split into smoke, file explorer persistence, import/indexing, assistant state, settings state, DB startup, destructive reset, and full regression.</p>
+          </div>
+          <div class="traffic-card">
+            <div class="dot"></div>
+            <h3>Desktop lanes</h3>
+            <p>Desktop work is split into smoke, IPC reset, runtime hosts, DB storage, full regression, and embedding diagnostics.</p>
+          </div>
+          <div class="traffic-card">
+            <div class="dot"></div>
+            <h3>Full release lane</h3>
+            <p>Workflow, risk-routing, and release-risk changes expand to full proof. That is intentional, visible, and label-routed through <code>ci:full</code>.</p>
+          </div>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Command / Mechanism</th>
+              <th>What It Does</th>
+              <th>Why It Exists</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>pnpm ci:select</code></td>
+              <td>Classifies a diff into risk profile, labels, commands, E2E lanes, and timing budget.</td>
+              <td>Deterministic lane selection before spending CI minutes.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm ci:prove</code></td>
+              <td>Runs the selected proof commands locally and writes machine-readable evidence.</td>
+              <td>CI should double-check; it should not be the first real test.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm ci:verify-proof</code></td>
+              <td>Checks that the proof manifest matches the current head and required labels.</td>
+              <td>Prevents stale proof from looking authoritative.</td>
+            </tr>
+            <tr>
+              <td><code>ci:unit</code></td>
+              <td>Runs affected unit tests without coverage on PRs.</td>
+              <td>Fast feedback for routine app/package changes.</td>
+            </tr>
+            <tr>
+              <td><code>ci:coverage-db</code> / <code>ci:coverage-full</code></td>
+              <td>Runs the heavier coverage gate only when DB/storage/file-system/full-risk surfaces require it.</td>
+              <td>Stops broad coverage from being the default PR tax.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout" style="margin-top: 16px; border-left-color: var(--green);">
+          <h3>The key pipeline correction from PR #1032</h3>
+          <p>
+            The old unit coverage gate was too broad. The merged coverage split added <code>ci:unit</code>, <code>ci:coverage-db</code>, and <code>ci:coverage-full</code>. Routine source changes can now run affected unit tests without dragging the expensive coverage job along, while DB and full-risk changes still get coverage.
+          </p>
+        </div>
+      </section>
+
+      <section id="examples">
+        <div class="section-head">
+          <div class="section-num">07 / Examples</div>
+          <div>
+            <h2>What Happens When Someone Changes A File</h2>
+            <p class="section-lead">
+              This is the practical part. The architecture reset only matters if everyday work gets more predictable.
+            </p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Change</th>
+              <th>Expected Proof Shape</th>
+              <th>What Should Not Happen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Docs-only edit</strong></td>
+              <td>Diff/static docs checks.</td>
+              <td>No desktop E2E, no web functional E2E, no embedding diagnostics.</td>
+            </tr>
+            <tr>
+              <td><strong>File explorer persistence UI</strong></td>
+              <td>File explorer unit coverage plus <code>web-file-explorer-persistence</code> when relevant.</td>
+              <td>No assistant state, import indexing, settings state, or destructive reset lanes by default.</td>
+            </tr>
+            <tr>
+              <td><strong>Import/indexing UI</strong></td>
+              <td>Import/indexing product lane plus required indexing proof.</td>
+              <td>No full web regression unless the changed files are broad app shell/router/bootstrap risk.</td>
+            </tr>
+            <tr>
+              <td><strong>Desktop factory reset</strong></td>
+              <td><code>desktop-ipc-reset</code> and reset-focused proof.</td>
+              <td>No unrelated embedding diagnostics unless embedding/runtime code is touched.</td>
+            </tr>
+            <tr>
+              <td><strong>Desktop hidden host lifecycle</strong></td>
+              <td><code>desktop-runtime-hosts</code>, with renderer-only architecture guards.</td>
+              <td>No silent movement of model execution into Electron main.</td>
+            </tr>
+            <tr>
+              <td><strong>Workflow / risk-routing code</strong></td>
+              <td><code>ci:full</code>, script tests, workflow contracts, full local proof, full cloud fan-out.</td>
+              <td>No pretending a CI-platform change is cheap. It is full release risk.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="ci-proof">
+        <div class="section-head">
+          <div class="section-num">08 / .ci Proof</div>
+          <div>
+            <h2>The .ci Proof System, In Plain English</h2>
+            <p class="section-lead">
+              The proof system is a receipt. It records exactly what local commands were run, against exactly which git commit, with exactly which risk lanes selected. The point is to stop PRs from saying "trust me, I ran it" when the code has moved since then.
+            </p>
+          </div>
+        </div>
+
+        <div class="explain">
+          <div class="before">
+            <h3>Without proof</h3>
+            <p>
+              Someone can run tests locally, then change code, push again, and the PR still sounds like it was tested. CI eventually catches this, but the expensive cloud loop becomes the first reliable source of truth.
+            </p>
+          </div>
+          <div class="after">
+            <h3>With proof</h3>
+            <p>
+              The repo writes a machine-readable file at <code>.ci/proof/latest.json</code>. That file says: "I tested commit X, compared to base Y, selected labels Z, and these commands passed in this much time."
+            </p>
+          </div>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Command / Artifact</th>
+              <th>What It Means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Select risk</strong></td>
+              <td><code>pnpm ci:select --base origin/main --head HEAD</code></td>
+              <td>Looks at the git diff and decides what risk lanes apply: docs-only, web, desktop, DB, indexing, full release, and so on.</td>
+            </tr>
+            <tr>
+              <td><strong>2. Add labels</strong></td>
+              <td><code>ci:unit</code>, <code>ci:desktop</code>, <code>ci:full</code>, etc.</td>
+              <td>The selected labels tell GitHub which cloud lanes to run. If the selector says <code>ci:full</code>, the PR must carry <code>ci:full</code>.</td>
+            </tr>
+            <tr>
+              <td><strong>3. Run proof</strong></td>
+              <td><code>pnpm ci:prove --base origin/main --head HEAD</code></td>
+              <td>Runs the local proof commands selected for the diff, measures duration, records owners/budgets, and writes <code>.ci/proof/latest.json</code>.</td>
+            </tr>
+            <tr>
+              <td><strong>4. Commit proof last</strong></td>
+              <td><code>.ci/proof/latest.json</code> final proof-only commit</td>
+              <td>This is important: source/config/test/doc changes are committed first. The proof file is committed after the successful proof so it points at the already-tested code commit.</td>
+            </tr>
+            <tr>
+              <td><strong>5. Verify proof</strong></td>
+              <td><code>pnpm ci:verify-proof --base origin/main --head HEAD --labels "..."</code></td>
+              <td>Checks the manifest is structurally valid, the required labels are present, the tested commit matches the current code state, and no source change happened after proof.</td>
+            </tr>
+            <tr>
+              <td><strong>6. PR Sentinel checks again</strong></td>
+              <td>GitHub job: <code>PR Sentinel</code></td>
+              <td>Recomputes the selected lanes in CI and rejects stale/missing proof or missing labels. This prevents local proof from being a decorative file.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="flow" style="margin-top: 16px;">
+          <div class="flow-row">
+            <div class="flow-label">Happy path</div>
+            <div class="flow-track">
+              <span class="box">commit code</span><span class="arrow">-></span>
+              <span class="box">ci:select</span><span class="arrow">-></span>
+              <span class="box">add labels</span><span class="arrow">-></span>
+              <span class="box">ci:prove</span><span class="arrow">-></span>
+              <span class="box">commit proof</span><span class="arrow">-></span>
+              <span class="box">ci:verify-proof</span><span class="arrow">-></span>
+              <span class="box">push PR</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-label">Invalid path</div>
+            <div class="flow-track">
+              <span class="box">commit proof</span><span class="arrow">-></span>
+              <span class="box">edit source</span><span class="arrow">-></span>
+              <span class="box">push</span><span class="arrow">-></span>
+              <span class="box">PR Sentinel fails</span>
+            </div>
+          </div>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Manifest Field</th>
+              <th>Why It Exists</th>
+              <th>Example Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>testedHeadSha</code></td>
+              <td>Locks proof to the exact commit that was tested.</td>
+              <td>If the PR head changes after proof, the proof is stale.</td>
+            </tr>
+            <tr>
+              <td><code>selection.files</code></td>
+              <td>Records which changed files caused the risk selection.</td>
+              <td>Workflow files usually select full release risk.</td>
+            </tr>
+            <tr>
+              <td><code>selection.labels</code></td>
+              <td>Lists required PR labels.</td>
+              <td>A <code>ci:full</code> selection requires the PR to have the <code>ci:full</code> label.</td>
+            </tr>
+            <tr>
+              <td><code>selection.commands</code></td>
+              <td>Records what local commands were required.</td>
+              <td>Docs-only may require only diff checks; full-risk includes full local suite.</td>
+            </tr>
+            <tr>
+              <td><code>commandResults</code></td>
+              <td>Records pass/fail, duration, budget, and owner per command.</td>
+              <td>Useful for proving not just green/red, but also cost.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout" style="margin-top: 16px; border-left-color: var(--violet);">
+          <h3>The subtle bit: proof is intentionally a separate commit</h3>
+          <p>
+            That feels odd at first, but it is the core invariant. The source commit says "this is the code." The proof commit says "the previous code commit was tested." If another source commit appears after that, the proof no longer proves the current PR head.
+          </p>
+        </div>
+      </section>
+
+      <section id="evidence">
+        <div class="section-head">
+          <div class="section-num">09 / Evidence</div>
+          <div>
+            <h2>What Was Proven</h2>
+            <p class="section-lead">
+              The latest reportable evidence is from the merged coverage-gate branch and the post-merge main run.
+            </p>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><strong>17m 33s</strong><span>local full suite duration recorded in proof manifest as <code>full-local-suite</code></span></div>
+          <div class="metric"><strong>50m 30s</strong><span>selected full-risk budget total in proof manifest</span></div>
+          <div class="metric"><strong>within</strong><span>release full-risk target of 60 minutes</span></div>
+          <div class="metric"><strong>success</strong><span>PR #1032 valid run <code>26321282107</code></span></div>
+          <div class="metric"><strong>success</strong><span>post-merge main run <code>26321788476</code></span></div>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Evidence</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Local proof manifest</strong></td>
+              <td><code>.ci/proof/latest.json</code> generated at <code>2026-05-23T02:36:06Z</code>.</td>
+              <td>Selected <code>ci:full</code> because workflow/risk-routing files changed.</td>
+            </tr>
+            <tr>
+              <td><strong>Local proof commands</strong></td>
+              <td><code>diff-check</code>, <code>ci-script-tests</code>, <code>workflow-contracts</code>, and <code>full-local-suite</code> passed.</td>
+              <td>Full suite was recorded as 1,053 seconds, inside the 2,700 second command budget.</td>
+            </tr>
+            <tr>
+              <td><strong>PR #1032 cloud proof</strong></td>
+              <td>Corrected run <code>26321282107</code> completed successfully.</td>
+              <td>Initial run was cancelled/reopened because the PR was created before <code>ci:full</code> was attached. The valid run saw the label.</td>
+            </tr>
+            <tr>
+              <td><strong>Post-merge main</strong></td>
+              <td>Run <code>26321788476</code> completed successfully at merge commit <code>06280a0b8</code>.</td>
+              <td>Required Main Gate passed. PR-only jobs skipped as expected on push.</td>
+            </tr>
+            <tr>
+              <td><strong>Current selector sanity</strong></td>
+              <td><code>pnpm ci:select --base origin/main --head HEAD</code> returns docs-only/no lanes on clean main.</td>
+              <td>This is expected because <code>HEAD</code> equals <code>origin/main</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="cost">
+        <div class="section-head">
+          <div class="section-num">10 / Cost</div>
+          <div>
+            <h2>What This Did Not Magically Solve</h2>
+            <p class="section-lead">
+              The reset creates a better system, but it does not erase the cost of a full release-risk change. It makes that cost visible and less frequent.
+            </p>
+          </div>
+        </div>
+
+        <div class="plain-grid">
+          <div class="panel">
+            <h3>Full release proof is still expensive</h3>
+            <p>When workflow or risk-selection code changes, the correct answer is still <code>ci:full</code>. That is why PR #1032 ran the broad fan-out.</p>
+          </div>
+          <div class="panel">
+            <h3>Risk rules are manual policy</h3>
+            <p>Turbo can run affected tasks, but it does not know product risk by itself. The repo still needs explicit mappings for reset, indexing, desktop hosts, and destructive lanes.</p>
+          </div>
+          <div class="panel">
+            <h3>Some compatibility cleanup remains</h3>
+            <p>The legacy <code>ci:coverage</code> token still exists as a compatibility/deprecation surface. Active routing now uses <code>ci:coverage-db</code> and <code>ci:coverage-full</code>.</p>
+          </div>
+        </div>
+
+        <div class="callout" style="margin-top: 16px; border-left-color: var(--amber);">
+          <h3>Honest tradeoff</h3>
+          <p>
+            This system is more precise, but precision has maintenance cost. The way to keep it from becoming brittle is fixture coverage: each new product risk must have selector tests proving both positive selection and negative non-selection.
+          </p>
+        </div>
+      </section>
+
+      <section id="next">
+        <div class="section-head">
+          <div class="section-num">11 / Next</div>
+          <div>
+            <h2>Next Practical Moves</h2>
+            <p class="section-lead">
+              These are not big rewrites. They are the next small things that keep the new architecture honest.
+            </p>
+          </div>
+        </div>
+
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-date">Next 1-2 PRs</div>
+            <div class="timeline-body">
+              <h3>Measure routine PRs against the new lane system</h3>
+              <p>Collect actual wall time for normal docs, UI, DB, desktop IPC, and file explorer PRs. The system should prove savings on routine work, not only on synthetic reports.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-date">Small cleanup</div>
+            <div class="timeline-body">
+              <h3>Deprecate or document legacy <code>ci:coverage</code></h3>
+              <p>Either remove it after updating docs/agent instructions, or document it as a compatibility alias that is intentionally not emitted by current risk profiles.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-date">Ongoing rule</div>
+            <div class="timeline-body">
+              <h3>Require selector fixtures for every new lane-relevant surface</h3>
+              <p>Whenever a new product area appears, add risk fixtures that prove it selects the right lane and does not select unrelated expensive lanes.</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-date">Architecture hygiene</div>
+            <div class="timeline-body">
+              <h3>Keep composition files thin</h3>
+              <p><code>ipc-handlers.ts</code>, embedding worker composition, file explorer shell, and assistant wrappers should stay orchestration points. If they start growing again, split earlier.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>Brainstrike architecture rewrite ELI15 report</span>
+        <span>Generated from repo state on 2026-05-23</span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

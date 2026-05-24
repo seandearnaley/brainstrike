@@ -1,0 +1,1204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike .ci Proof System - Developer Onboarding</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f1e8;
+      --sheet: #fffaf0;
+      --ink: #17191c;
+      --muted: #626873;
+      --line: #d9cfbd;
+      --strong-line: #292d32;
+      --blue: #1f5faa;
+      --green: #15765b;
+      --red: #b23b31;
+      --amber: #a96700;
+      --violet: #6846a2;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --serif: Georgia, "Times New Roman", serif;
+      --shadow: 0 20px 55px rgba(25, 20, 12, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(23, 25, 28, 0.04) 1px, transparent 1px) 0 0 / 30px 30px,
+        linear-gradient(rgba(23, 25, 28, 0.04) 1px, transparent 1px) 0 0 / 30px 30px,
+        var(--bg);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.58;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      padding: 0.08rem 0.3rem;
+      border: 1px solid rgba(23, 25, 28, 0.12);
+      border-radius: 4px;
+      background: rgba(23, 25, 28, 0.06);
+    }
+
+    pre {
+      margin: 0;
+      padding: 16px;
+      overflow-x: auto;
+      color: #f6efe2;
+      background: #1b1f24;
+      border-radius: 7px;
+      border: 1px solid #0d0f12;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.52;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      background: rgba(255, 250, 240, 0.88);
+      border-right: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      padding-bottom: 22px;
+      margin-bottom: 22px;
+      border-bottom: 3px solid var(--strong-line);
+    }
+
+    .brand-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 10px);
+      grid-auto-rows: 10px;
+      gap: 3px;
+      margin-bottom: 16px;
+    }
+
+    .brand-grid span {
+      border-radius: 2px;
+      background: var(--strong-line);
+    }
+
+    .brand-grid span:nth-child(3),
+    .brand-grid span:nth-child(8) {
+      background: var(--blue);
+    }
+
+    .brand-grid span:nth-child(11),
+    .brand-grid span:nth-child(15) {
+      background: var(--green);
+    }
+
+    .brand-grid span:nth-child(17) {
+      background: var(--amber);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    nav {
+      display: grid;
+      gap: 7px;
+    }
+
+    nav a {
+      display: block;
+      padding: 7px 9px;
+      color: var(--ink);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    nav a:hover {
+      background: rgba(23, 25, 28, 0.06);
+      border-color: rgba(23, 25, 28, 0.12);
+      text-decoration: none;
+    }
+
+    .side-note {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    main {
+      min-width: 0;
+      padding: 44px 54px 90px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 420px;
+      padding: 44px;
+      border: 1px solid #0f1114;
+      border-radius: 8px;
+      color: #fff7e8;
+      background:
+        linear-gradient(135deg, rgba(18, 20, 23, 0.96), rgba(39, 43, 49, 0.9)),
+        repeating-linear-gradient(135deg, rgba(255, 250, 240, 0.09) 0 1px, transparent 1px 15px);
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -70px;
+      bottom: -130px;
+      width: 420px;
+      height: 420px;
+      border: 1px solid rgba(255, 250, 240, 0.25);
+      transform: rotate(-12deg);
+    }
+
+    .kicker {
+      position: relative;
+      z-index: 1;
+      display: inline-block;
+      margin-bottom: 24px;
+      color: #f0c45a;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .hero h2 {
+      position: relative;
+      z-index: 1;
+      max-width: 960px;
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 58px;
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      position: relative;
+      z-index: 1;
+      max-width: 820px;
+      margin: 24px 0 0;
+      color: #d9d1c3;
+      font-size: 18px;
+    }
+
+    .hero-strip {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 34px;
+    }
+
+    .hero-stat {
+      min-height: 95px;
+      padding: 14px;
+      border: 1px solid rgba(255, 250, 240, 0.22);
+      border-radius: 6px;
+      background: rgba(255, 250, 240, 0.07);
+    }
+
+    .hero-stat strong {
+      display: block;
+      color: #fffaf0;
+      font-family: var(--mono);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .hero-stat span {
+      display: block;
+      margin-top: 8px;
+      color: #cfc5b4;
+      font-size: 12px;
+    }
+
+    section {
+      margin-top: 56px;
+      scroll-margin-top: 24px;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+      margin-bottom: 22px;
+      padding-bottom: 16px;
+      border-bottom: 3px solid var(--strong-line);
+    }
+
+    .section-num {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 36px;
+      line-height: 1.06;
+      letter-spacing: 0;
+    }
+
+    .section-lead {
+      max-width: 880px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--sheet);
+      box-shadow: 0 10px 26px rgba(25, 20, 12, 0.06);
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    .card p,
+    .card li {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .card p:last-child,
+    .card ul:last-child {
+      margin-bottom: 0;
+    }
+
+    .callout {
+      padding: 18px 20px;
+      border-left: 6px solid var(--blue);
+      border-radius: 8px;
+      background: var(--sheet);
+      box-shadow: 0 10px 26px rgba(25, 20, 12, 0.06);
+    }
+
+    .callout h3 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .callout p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--sheet);
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      color: var(--ink);
+      background: rgba(23, 25, 28, 0.07);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    td {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    td strong {
+      color: var(--ink);
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--sheet);
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .flow-label {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .flow-track {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .box {
+      padding: 7px 10px;
+      border: 1px solid #ada18e;
+      border-radius: 6px;
+      background: #fffdf7;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .arrow {
+      color: #9c907d;
+      font-family: var(--mono);
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .list li {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--sheet);
+    }
+
+    .list li > span:first-child {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      color: #fffaf0;
+      background: var(--strong-line);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .list b {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .list p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 9px;
+      border: 1px solid #ada18e;
+      border-radius: 999px;
+      background: rgba(255, 250, 240, 0.85);
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .tag.green { border-color: rgba(21, 118, 91, 0.55); color: var(--green); }
+    .tag.blue { border-color: rgba(31, 95, 170, 0.55); color: var(--blue); }
+    .tag.red { border-color: rgba(178, 59, 49, 0.55); color: var(--red); }
+    .tag.amber { border-color: rgba(169, 103, 0, 0.55); color: var(--amber); }
+    .tag.violet { border-color: rgba(104, 70, 162, 0.55); color: var(--violet); }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .do {
+      border-top: 6px solid var(--green);
+    }
+
+    .dont {
+      border-top: 6px solid var(--red);
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 68px;
+      padding-top: 22px;
+      border-top: 3px solid var(--strong-line);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: relative;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+
+      main {
+        padding: 28px 18px 64px;
+      }
+
+      .hero h2 {
+        font-size: 42px;
+      }
+
+      .hero-strip,
+      .grid-3 {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .hero {
+        padding: 28px 20px;
+      }
+
+      .hero h2 {
+        font-size: 34px;
+      }
+
+      .hero-strip,
+      .grid-2,
+      .grid-3,
+      .split,
+      .section-head,
+      .flow-row {
+        grid-template-columns: 1fr;
+      }
+
+      th,
+      td {
+        padding: 10px;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      aside {
+        display: none;
+      }
+
+      .layout {
+        display: block;
+      }
+
+      main {
+        padding: 20px;
+      }
+
+      .hero,
+      .card,
+      .callout {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">
+        <div class="brand-grid" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <h1>.ci Proof System</h1>
+        <p>Brainstrike PR onboarding - 2026-05-23</p>
+      </div>
+      <nav aria-label="Report sections">
+        <a href="#summary">1. Summary</a>
+        <a href="#mental-model">2. Mental Model</a>
+        <a href="#workflow">3. PR Workflow</a>
+        <a href="#manifest">4. Manifest Fields</a>
+        <a href="#labels">5. Labels And Lanes</a>
+        <a href="#sentinel">6. PR Sentinel</a>
+        <a href="#failure-modes">7. Failure Modes</a>
+        <a href="#onboarding">8. Developer Onboarding</a>
+        <a href="#examples">9. Examples</a>
+        <a href="#policy">10. Team Policy</a>
+      </nav>
+      <div class="side-note">
+        Source checked against current <code>scripts/ci-proof.mjs</code>, <code>scripts/ci-select.mjs</code>, <code>scripts/ci-risk-rules.mjs</code>, <code>.github/workflows/test.yml</code>, and <code>AGENTS.md</code>.
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <span class="kicker">What this means for PRs going forward</span>
+        <h2>The proof file is a test receipt tied to one exact commit.</h2>
+        <p>
+          Brainstrike now treats a PR as two linked claims: the code changed, and the right local proof was run for that exact code. The `.ci/proof/latest.json` file is the machine-readable receipt that makes that claim checkable by GitHub.
+        </p>
+        <div class="hero-strip">
+          <div class="hero-stat"><strong>select</strong><span>classify the diff into risk lanes</span></div>
+          <div class="hero-stat"><strong>prove</strong><span>run the selected local commands</span></div>
+          <div class="hero-stat"><strong>commit</strong><span>record the proof file as final commit</span></div>
+          <div class="hero-stat"><strong>sentinel</strong><span>CI rejects stale proof or missing labels</span></div>
+        </div>
+      </header>
+
+      <section id="summary">
+        <div class="section-head">
+          <div class="section-num">01 / Summary</div>
+          <div>
+            <h2>What Is The .ci Proof System?</h2>
+            <p class="section-lead">
+              It is a local-first PR gate. Before a branch goes to GitHub, the repo decides what risk the diff introduced, runs the matching local proof commands, writes a JSON receipt, and then GitHub verifies that receipt against the live PR.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h3>It is not a cache</h3>
+            <p>The proof file does not make tests pass. It records that specific commands already passed for a specific commit.</p>
+          </div>
+          <div class="card">
+            <h3>It is not optional decoration</h3>
+            <p>PR Sentinel recomputes the risk selection and fails when proof is missing, stale, structurally invalid, or missing labels.</p>
+          </div>
+          <div class="card">
+            <h3>It is not a replacement for CI</h3>
+            <p>CI still runs cloud lanes. Proof makes cloud CI a verification loop instead of the first time the branch is tested honestly.</p>
+          </div>
+        </div>
+
+        <div class="callout" style="margin-top: 16px;">
+          <h3>The core invariant</h3>
+          <p>
+            Source/config/test/doc changes must be committed first. Then proof is generated. Then <code>.ci/proof/latest.json</code> is committed by itself as the final proof-only commit. Any later source change invalidates the proof.
+          </p>
+        </div>
+      </section>
+
+      <section id="mental-model">
+        <div class="section-head">
+          <div class="section-num">02 / Model</div>
+          <div>
+            <h2>The Mental Model</h2>
+            <p class="section-lead">
+              Think of a PR like a science experiment. The code commit is the sample. The proof file is the lab report. If you change the sample after writing the report, the report is no longer valid.
+            </p>
+          </div>
+        </div>
+
+        <div class="flow">
+          <div class="flow-row">
+            <div class="flow-label">Old habit</div>
+            <div class="flow-track">
+              <span class="box">change code</span>
+              <span class="arrow">-></span>
+              <span class="box">maybe run tests</span>
+              <span class="arrow">-></span>
+              <span class="box">push</span>
+              <span class="arrow">-></span>
+              <span class="box">wait for CI to explain risk</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-label">New habit</div>
+            <div class="flow-track">
+              <span class="box">change code</span>
+              <span class="arrow">-></span>
+              <span class="box">select risk</span>
+              <span class="arrow">-></span>
+              <span class="box">prove locally</span>
+              <span class="arrow">-></span>
+              <span class="box">commit proof</span>
+              <span class="arrow">-></span>
+              <span class="box">CI verifies</span>
+            </div>
+          </div>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Answer</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Why have a proof file at all?</strong></td>
+              <td>Because chat, PR descriptions, and memory are not reliable evidence. A JSON file tied to a git SHA is checkable.</td>
+            </tr>
+            <tr>
+              <td><strong>Why commit proof separately?</strong></td>
+              <td>So the repo can detect whether any real code changed after the tested commit. Only the proof file is allowed to change after <code>testedHeadSha</code>.</td>
+            </tr>
+            <tr>
+              <td><strong>Why labels?</strong></td>
+              <td>GitHub workflow jobs are label-routed. The selector says which labels are required; PR Sentinel verifies they are present.</td>
+            </tr>
+            <tr>
+              <td><strong>Why still run CI?</strong></td>
+              <td>Local proof catches errors early and records intent. CI proves the same branch in the cloud environment and gates merge.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="workflow">
+        <div class="section-head">
+          <div class="section-num">03 / Workflow</div>
+          <div>
+            <h2>The Required PR Workflow</h2>
+            <p class="section-lead">
+              This is the operating procedure for every PR targeting <code>main</code>. For another target branch, replace <code>origin/main</code> with that target ref.
+            </p>
+          </div>
+        </div>
+
+        <ol class="list">
+          <li>
+            <span>1</span>
+            <div>
+              <b>Commit all real changes except proof.</b>
+              <p>Source, config, workflow, tests, and docs go into normal commits. Do not include <code>.ci/proof/latest.json</code> yet.</p>
+            </div>
+          </li>
+          <li>
+            <span>2</span>
+            <div>
+              <b>Select the risk lanes.</b>
+              <p>Run <code>pnpm ci:select --base origin/main --head HEAD</code>. Read the selected labels and commands before doing anything expensive.</p>
+            </div>
+          </li>
+          <li>
+            <span>3</span>
+            <div>
+              <b>Create or update the PR with the selected labels.</b>
+              <p>When creating a PR, prefer passing labels at creation time if possible. If labels are added after the PR opens, the first workflow run may not see them.</p>
+            </div>
+          </li>
+          <li>
+            <span>4</span>
+            <div>
+              <b>Run local proof on a clean worktree.</b>
+              <p><code>pnpm ci:prove --base origin/main --head HEAD</code> refuses to run with dirty files. That is intentional: proof must correspond to committed code.</p>
+            </div>
+          </li>
+          <li>
+            <span>5</span>
+            <div>
+              <b>Commit proof by itself.</b>
+              <p>Add and commit only <code>.ci/proof/latest.json</code>. The commit message should make clear this is proof-only.</p>
+            </div>
+          </li>
+          <li>
+            <span>6</span>
+            <div>
+              <b>Verify before push.</b>
+              <p>Run <code>pnpm ci:verify-proof --base origin/main --head HEAD --labels "ci:..."</code>. This catches stale proof locally before GitHub does.</p>
+            </div>
+          </li>
+          <li>
+            <span>7</span>
+            <div>
+              <b>Push and monitor the latest-head run.</b>
+              <p>If you push another source change, repeat selection, proof, proof-only commit, and verification. Cancel superseded cloud runs when appropriate.</p>
+            </div>
+          </li>
+        </ol>
+
+        <div style="margin-top: 16px;">
+          <pre><code># Typical PR path targeting main
+git status --short
+pnpm ci:select --base origin/main --head HEAD
+
+# Add selected ci:* labels to the PR.
+# Then run local proof:
+pnpm ci:prove --base origin/main --head HEAD
+
+git add .ci/proof/latest.json
+git commit -m "Record local proof for &lt;change&gt;"
+
+pnpm ci:verify-proof --base origin/main --head HEAD --labels "ci:full"
+git push</code></pre>
+        </div>
+      </section>
+
+      <section id="manifest">
+        <div class="section-head">
+          <div class="section-num">04 / Manifest</div>
+          <div>
+            <h2>What Is In <code>.ci/proof/latest.json</code>?</h2>
+            <p class="section-lead">
+              The manifest is deliberately boring. It records environment, selected risk, selected commands, command results, timings, budgets, and the git SHA that was tested.
+            </p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Meaning</th>
+              <th>Why PRs Care</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>testedHeadSha</code></td>
+              <td>The exact 40-character commit SHA that was tested.</td>
+              <td>Verification ensures this SHA is an ancestor of the PR head and that only the proof file changed after it.</td>
+            </tr>
+            <tr>
+              <td><code>selection.files</code></td>
+              <td>The changed files used for risk selection.</td>
+              <td>Explains why a PR selected cheap, desktop, web, DB, embedding, or full lanes.</td>
+            </tr>
+            <tr>
+              <td><code>selection.riskProfile</code></td>
+              <td>The named risk category, owning domains, E2E lanes, proof commands, and cloud labels.</td>
+              <td>Prevents "why did this run?" confusion during review.</td>
+            </tr>
+            <tr>
+              <td><code>selection.labels</code></td>
+              <td>The exact <code>ci:*</code> labels required on the PR.</td>
+              <td>PR Sentinel fails if any required label is missing. Extra labels are allowed.</td>
+            </tr>
+            <tr>
+              <td><code>selection.commands</code></td>
+              <td>The local commands that were supposed to run for the selected risk.</td>
+              <td>Verification recomputes this selection and fails if the manifest no longer matches.</td>
+            </tr>
+            <tr>
+              <td><code>commandResults</code></td>
+              <td>Each command's exit code, duration, budget, owner, and budget status.</td>
+              <td>Shows both correctness and cost. A command result with nonzero exit code invalidates proof.</td>
+            </tr>
+            <tr>
+              <td><code>packageManager</code> / <code>pnpmVersion</code></td>
+              <td>The package manager version used for proof.</td>
+              <td>Prevents proof produced with the wrong toolchain from passing as official evidence.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="labels">
+        <div class="section-head">
+          <div class="section-num">05 / Labels</div>
+          <div>
+            <h2>Labels And Risk Lanes</h2>
+            <p class="section-lead">
+              The selector maps changed files to risk lanes. Labels are the bridge between local selection and cloud jobs.
+            </p>
+          </div>
+        </div>
+
+        <div class="tag-row">
+          <span class="tag blue">ci:browser</span>
+          <span class="tag blue">ci:web-smoke</span>
+          <span class="tag blue">ci:web-file-explorer-persistence</span>
+          <span class="tag blue">ci:web-import-indexing</span>
+          <span class="tag blue">ci:web-assistant-state</span>
+          <span class="tag blue">ci:web-settings-state</span>
+          <span class="tag blue">ci:web-db-startup</span>
+          <span class="tag blue">ci:web-destructive-reset</span>
+          <span class="tag blue">ci:web-e2e</span>
+          <span class="tag violet">ci:desktop-smoke</span>
+          <span class="tag violet">ci:desktop-ipc-reset</span>
+          <span class="tag violet">ci:desktop-runtime-hosts</span>
+          <span class="tag violet">ci:desktop-db-storage</span>
+          <span class="tag violet">ci:desktop</span>
+          <span class="tag amber">ci:embedding</span>
+          <span class="tag green">ci:unit</span>
+          <span class="tag green">ci:coverage-db</span>
+          <span class="tag green">ci:coverage-full</span>
+          <span class="tag red">ci:full</span>
+        </div>
+
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr>
+              <th>Lane Family</th>
+              <th>What It Covers</th>
+              <th>PR Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Unit / coverage</strong></td>
+              <td><code>ci:unit</code>, <code>ci:coverage-db</code>, <code>ci:coverage-full</code></td>
+              <td>Routine app/package changes can run affected unit tests without dragging full coverage. DB/storage/file-system and full-risk changes still get coverage.</td>
+            </tr>
+            <tr>
+              <td><strong>Web/product</strong></td>
+              <td>Smoke, file explorer persistence, import/indexing, assistant state, settings state, DB startup, destructive reset, full regression.</td>
+              <td>Product changes should select the exact web behavior they risk, not every web E2E by default.</td>
+            </tr>
+            <tr>
+              <td><strong>Desktop</strong></td>
+              <td>Smoke, IPC reset, runtime hosts, DB storage, full regression, embedding diagnostics.</td>
+              <td>Small desktop IPC/reset/host changes should avoid unrelated desktop diagnostics unless risk requires them.</td>
+            </tr>
+            <tr>
+              <td><strong>Full release</strong></td>
+              <td><code>ci:full</code></td>
+              <td>Workflow, package manager, risk-routing, or broad release-risk changes expand to every relevant lane. This is expensive by design.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout" style="margin-top: 16px; border-left-color: var(--amber);">
+          <h3>Important label timing detail</h3>
+          <p>
+            GitHub evaluates label-gated jobs from the labels present when the workflow starts. If a PR is opened without the selected labels and labels are added seconds later, the initial run may skip the wrong jobs. Prefer creating the PR with labels already attached, or deliberately refresh the PR run after labels are present.
+          </p>
+        </div>
+      </section>
+
+      <section id="sentinel">
+        <div class="section-head">
+          <div class="section-num">06 / Sentinel</div>
+          <div>
+            <h2>What PR Sentinel Checks</h2>
+            <p class="section-lead">
+              PR Sentinel is the cloud-side auditor. It runs on pull requests, checks out the PR head with enough history, fetches live PR labels, then runs <code>pnpm ci:verify-proof</code> against the actual PR head SHA.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h3>Manifest validity</h3>
+            <p>Schema version, package manager, pnpm version, command results, command durations, owners, budgets, labels, and command coverage must be structurally valid.</p>
+          </div>
+          <div class="card">
+            <h3>Selection consistency</h3>
+            <p>It recomputes risk selection from the base and <code>testedHeadSha</code>, then compares files, risk profile, budget, lanes, labels, and commands.</p>
+          </div>
+          <div class="card">
+            <h3>Tip freshness</h3>
+            <p>It verifies <code>testedHeadSha</code> is an ancestor of PR head and rejects any changed file after proof except the proof file itself.</p>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <pre><code># What Sentinel effectively does on a PR
+pnpm ci:verify-proof \
+  --head "$PR_HEAD_SHA" \
+  --base "origin/${GITHUB_BASE_REF}" \
+  --labels "$PR_LABELS" \
+  --github-output "$GITHUB_OUTPUT"</code></pre>
+        </div>
+      </section>
+
+      <section id="failure-modes">
+        <div class="section-head">
+          <div class="section-num">07 / Failures</div>
+          <div>
+            <h2>Common Failure Modes And Fixes</h2>
+            <p class="section-lead">
+              These are the failures new developers are most likely to hit.
+            </p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Failure Text / Symptom</th>
+              <th>Cause</th>
+              <th>Correct Fix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>missing required PR label ci:...</code></td>
+              <td>The selector required a label that the PR does not have.</td>
+              <td>Add the missing label. If the current run already started without it, refresh the PR run deliberately.</td>
+            </tr>
+            <tr>
+              <td><code>proof is stale: &lt;file&gt; changed after testedHeadSha</code></td>
+              <td>A source/config/test/doc file changed after the proofed commit.</td>
+              <td>Commit the real change, rerun <code>ci:prove</code>, commit proof-only again, and rerun <code>ci:verify-proof</code>.</td>
+            </tr>
+            <tr>
+              <td><code>testedHeadSha is not an ancestor of head</code></td>
+              <td>The proof points at a commit that is not in the PR branch history.</td>
+              <td>Regenerate proof from the current branch head.</td>
+            </tr>
+            <tr>
+              <td><code>proof selection does not match recomputed risk selection</code></td>
+              <td>The risk rules, base branch, files, or selected commands changed since proof was generated.</td>
+              <td>Rerun <code>ci:select</code>, then <code>ci:prove</code>, then commit a new proof-only manifest.</td>
+            </tr>
+            <tr>
+              <td><code>pnpm ci:prove requires a clean worktree</code></td>
+              <td>You have unstaged or uncommitted files.</td>
+              <td>Commit or intentionally discard the work first. Do not generate proof from a dirty tree.</td>
+            </tr>
+            <tr>
+              <td>Label-gated jobs skipped unexpectedly</td>
+              <td>The workflow started before labels were attached, or the selected labels were wrong.</td>
+              <td>Confirm selector output, labels, and latest run. Cancel stale runs and refresh only once labels are correct.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="onboarding">
+        <div class="section-head">
+          <div class="section-num">08 / Onboarding</div>
+          <div>
+            <h2>Developer Onboarding Checklist</h2>
+            <p class="section-lead">
+              This is the checklist a new developer should follow before their first Brainstrike PR.
+            </p>
+          </div>
+        </div>
+
+        <div class="split">
+          <div class="card do">
+            <h3>Do</h3>
+            <ul>
+              <li>Run <code>pnpm ci:select --base origin/main --head HEAD</code> before opening/updating a PR.</li>
+              <li>Read the selected labels and understand why they were selected.</li>
+              <li>Use the selected labels on the PR.</li>
+              <li>Run <code>pnpm ci:prove</code> only from a clean worktree.</li>
+              <li>Commit <code>.ci/proof/latest.json</code> by itself as the final proof-only commit.</li>
+              <li>Run <code>pnpm ci:verify-proof</code> before pushing.</li>
+              <li>Cancel superseded cloud runs after pushing a newer head.</li>
+            </ul>
+          </div>
+          <div class="card dont">
+            <h3>Do Not</h3>
+            <ul>
+              <li>Do not hand-edit <code>.ci/proof/latest.json</code>.</li>
+              <li>Do not commit source changes after the proof commit and expect it to pass.</li>
+              <li>Do not use full E2E as the default loop just because it feels safer.</li>
+              <li>Do not add broad <code>ci:full</code> labels to avoid thinking about risk.</li>
+              <li>Do not treat stale proof as "close enough".</li>
+              <li>Do not leave failed superseded runs confusing the PR status.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout" style="margin-top: 16px; border-left-color: var(--green);">
+          <h3>New contributor rule of thumb</h3>
+          <p>
+            If the selector surprises you, stop and inspect the changed files and risk rules. Do not override the lane casually. The selector may be wrong, but the fix is usually a rule/test update, not ignoring it.
+          </p>
+        </div>
+      </section>
+
+      <section id="examples">
+        <div class="section-head">
+          <div class="section-num">09 / Examples</div>
+          <div>
+            <h2>PR Examples Going Forward</h2>
+            <p class="section-lead">
+              The proof system is easiest to understand through examples.
+            </p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>PR Type</th>
+              <th>Likely Selection</th>
+              <th>What The Proof Proves</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Documentation-only change</strong></td>
+              <td>No cloud labels, docs/static proof.</td>
+              <td>The diff is clean and does not require expensive product validation.</td>
+            </tr>
+            <tr>
+              <td><strong>Regular app/package source change</strong></td>
+              <td><code>ci:unit</code>, plus product-specific lanes if selectors match.</td>
+              <td>Affected unit tests run without requiring broad coverage by default.</td>
+            </tr>
+            <tr>
+              <td><strong>DB/storage/file-system change</strong></td>
+              <td><code>ci:coverage-db</code>, DB-specific proof commands, possibly browser/data lanes.</td>
+              <td>Data-platform changes still get stronger coverage where regressions are expensive.</td>
+            </tr>
+            <tr>
+              <td><strong>Desktop IPC reset change</strong></td>
+              <td><code>ci:desktop-ipc-reset</code>, desktop unit proof, focused reset/IPC E2E.</td>
+              <td>The reset/IPC surface works without paying for unrelated embedding diagnostics.</td>
+            </tr>
+            <tr>
+              <td><strong>Risk-routing or workflow change</strong></td>
+              <td><code>ci:full</code>.</td>
+              <td>The pipeline itself changed, so the branch must prove every lane contract still works.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="policy">
+        <div class="section-head">
+          <div class="section-num">10 / Policy</div>
+          <div>
+            <h2>Team Policy Going Forward</h2>
+            <p class="section-lead">
+              The proof system only saves time if the team treats it as operating policy, not a suggestion.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Policy for PR authors</h3>
+            <p>
+              Every PR should arrive with selected labels, fresh local proof, a final proof-only commit, and passing <code>ci:verify-proof</code>. If you make any real change after proof, regenerate proof.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Policy for reviewers</h3>
+            <p>
+              Reviewers should treat missing/stale proof as a process failure, not a nit. Also check that the selected lanes make sense for the touched files.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Policy for CI debugging</h3>
+            <p>
+              Always debug the latest head SHA. Cancel superseded runs. Do not rerun old failed jobs unless they are still attached to the current head and still relevant.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Policy for lane evolution</h3>
+            <p>
+              New product surfaces need risk fixture tests. A lane is not real until positive and negative selector cases prove it selects the right work and avoids unrelated expensive work.
+            </p>
+          </div>
+        </div>
+
+        <div class="callout" style="margin-top: 16px; border-left-color: var(--red);">
+          <h3>The expensive mistake this prevents</h3>
+          <p>
+            The bad loop is: push vague changes, wait for broad CI, fix one failure, rerun everything, repeat. The proof system forces the branch to state its risk, prove that risk locally, and let CI verify the same claim.
+          </p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>Brainstrike .ci proof onboarding</span>
+        <span>Generated 2026-05-23</span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
