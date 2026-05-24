@@ -38,6 +38,18 @@ test('config and tooling changes select script contract proof without full e2e b
   });
 });
 
+test('root package script changes select tooling proof without full release proof', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['package.json']), {
+    category: 'config-tooling',
+    domains: ['tooling'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:unit'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['package.json']), ['ci:unit']);
+});
+
 test('assistant contract changes select assistant proof and assistant-state lane', () => {
   assert.deepEqual(
     selectRiskProfileForFiles(['packages/assistant-contract/src/runtime-data.ts']),

@@ -1,25 +1,29 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T08:24:14.207Z",
+  "generatedAt": "2026-05-24T08:44:09.816Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "c82ea80a7d8fa18e00b35dad9234474486ca7519",
+  "testedHeadSha": "e0e272d2662acce83ca8afa7ce3a893882b23d37",
   "selection": {
     "base": "origin/main",
-    "baseSha": "dba33f356f207d6aa6d257f061ab5a99b6e0e722",
+    "baseSha": "9b2b63bee9e48d5fae4a4120836b40ee6cc779c5",
     "head": "HEAD",
-    "headSha": "c82ea80a7d8fa18e00b35dad9234474486ca7519",
-    "mergeBase": "dba33f356f207d6aa6d257f061ab5a99b6e0e722",
+    "headSha": "e0e272d2662acce83ca8afa7ce3a893882b23d37",
+    "mergeBase": "9b2b63bee9e48d5fae4a4120836b40ee6cc779c5",
     "files": [
-      "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
+      "AGENTS.md",
+      "package.json",
+      "scripts/__tests__/ci-calibrate-proof-commands.test.mjs",
+      "scripts/__tests__/ci-calibration-summary.test.mjs",
+      "scripts/__tests__/ci-doctor.test.mjs",
+      "scripts/__tests__/ci-proof.test.mjs",
       "scripts/__tests__/ci-risk-rules.test.mjs",
-      "scripts/__tests__/ci-select.test.mjs",
-      "scripts/check-ci-risk-fixtures.mjs",
-      "scripts/ci-risk-fixtures.json",
+      "scripts/ci-doctor.mjs",
+      "scripts/ci-proof.mjs",
       "scripts/ci-risk-rules.mjs",
       "scripts/ci-select.mjs"
     ],
@@ -65,7 +69,7 @@
       },
       {
         "name": "ci-script-tests",
-        "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
+        "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
         "budgetMs": 120000,
         "owner": "tooling",
         "requiredFor": [
@@ -99,16 +103,16 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 12
     },
     {
       "name": "ci-script-tests",
-      "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
+      "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
       "owner": "tooling",
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 357
+      "durationMs": 366
     },
     {
       "name": "workflow-contracts",
@@ -117,7 +121,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 342
+      "durationMs": 358
     }
   ]
 }

@@ -90,8 +90,8 @@ Pull requests are gated by a local proof manifest plus label-routed cloud lanes.
 
 Before opening or updating a PR:
 1. Commit all source, config, workflow, test, and doc changes except the proof manifest.
-2. Run `pnpm ci:select --base origin/main --head HEAD`.
-3. Add every listed `ci:*` label to the PR.
+2. Run `pnpm ci:doctor --base origin/main --head HEAD` and follow the printed labels/commands.
+3. Add exactly the listed `ci:*` labels to the PR. Do not add extra `ci:*` labels.
 4. Run `pnpm ci:prove --base origin/main --head HEAD`.
 5. Commit `.ci/proof/latest.json` by itself as the final proof-only commit.
 6. Run `pnpm ci:verify-proof --base origin/main --head HEAD --labels '<ci:labels>'`.
@@ -99,17 +99,26 @@ Before opening or updating a PR:
 Use `origin/main` for PRs targeting `main`. If the PR targets another branch,
 replace `origin/main` with that target branch ref in all proof commands.
 
+Agent rules:
+- `ci:doctor` / `ci:select` is the source of truth. Do not decide lanes manually.
+- Never run full E2E, desktop, embedding, or `ci:full` for a small change unless the selector prints that lane.
+- If a selected command fails, fix that command first. Do not rerun broader proof to "check everything."
+- PR Sentinel fails extra `ci:*` labels because extra labels spend CI budget.
+- Non-`ci:*` labels are allowed; `ci:*` labels must exactly match the selector.
+- If the selector output looks too broad for the diff, stop and fix the selector/tests before opening or updating the PR.
+
 Label meanings:
 - `ci:browser` runs browser Vitest lanes.
 - `ci:web-e2e` runs web functional, stateful, and destructive E2E lanes.
 - `ci:desktop` runs desktop regression E2E.
 - `ci:embedding` runs desktop embedding E2E groups.
-- `ci:coverage` runs cloud unit coverage.
+- `ci:coverage-db` / `ci:coverage-full` run cloud unit coverage lanes.
 - `ci:full` expands to all cloud risk lanes.
 
 The PR Sentinel recomputes the selected lanes and fails when the proof is
-missing, stale, or missing required labels. Any commit after the proof commit
-invalidates the proof unless the only changed file is `.ci/proof/latest.json`.
+missing, stale, missing required labels, or has extra `ci:*` labels. Any commit
+after the proof commit invalidates the proof unless the only changed file is
+`.ci/proof/latest.json`.
 
 ---
 

@@ -83,6 +83,7 @@
     "ci:local": "./scripts/local-ci.sh",
     "ci:calibrate-proof-commands": "node scripts/ci-calibrate-proof-commands.mjs",
     "ci:calibration-summary": "node scripts/ci-calibration-summary.mjs",
+    "ci:doctor": "node scripts/ci-doctor.mjs",
     "ci:prove": "node scripts/ci-proof.mjs prove",
     "ci:proof-timing-summary": "node scripts/ci-proof-timing-summary.mjs",
     "ci:risk-audit": "node scripts/ci-risk-audit.mjs",
