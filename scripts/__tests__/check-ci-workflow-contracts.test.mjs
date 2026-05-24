@@ -556,6 +556,24 @@ test('workflow contract requires Required PR Gate to use expanded lanes', () => 
   assert.match(failures, /must use the tested gate script/);
 });
 
+test('workflow contract requires Required PR Gate to checkout the repo', () => {
+  const requiredPrGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(requiredPrGate);
+
+  const source = workflowSource.replace(
+    requiredPrGate,
+    requiredPrGate.replace(
+      '      - name: Checkout\n        uses: actions/checkout@v6\n\n',
+      ''
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must checkout the repo/
+  );
+});
+
 test('workflow contract keeps full release matrix available outside pull requests', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   assert.ok(e2e);

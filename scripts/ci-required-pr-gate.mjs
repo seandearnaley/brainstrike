@@ -63,6 +63,9 @@ export function verifyRequiredPrGate({ needs, requiredLabels, requiredLanes }) {
     }
   }
 
+  // Labels are the human-facing contract, but expanded lanes are the actual
+  // job contract. A selected label with no lanes means Sentinel failed to
+  // expand the risk selection, which must never become a green no-op gate.
   if (requiredLabels.length > 0 && requiredLanes.length === 0) {
     failures.push(
       `PR Sentinel selected labels ${requiredLabels.join(',')} but produced no expanded lanes`

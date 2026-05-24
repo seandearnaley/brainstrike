@@ -91,6 +91,26 @@ test('verifyRequiredPrGate fails closed when labels have no expanded lanes', () 
   );
 });
 
+test('verifyRequiredPrGate fails when an always-required job is not successful', () => {
+  const failures = verifyRequiredPrGate({
+    needs: needsWith({ checks: { result: 'failure' } }),
+    requiredLabels: [],
+    requiredLanes: [],
+  });
+
+  assert.match(failures.join('\n'), /checks: failure/);
+});
+
+test('verifyRequiredPrGate catches failed unselected jobs', () => {
+  const failures = verifyRequiredPrGate({
+    needs: needsWith({ 'prepare-web': { result: 'failure' } }),
+    requiredLabels: [],
+    requiredLanes: [],
+  });
+
+  assert.match(failures.join('\n'), /prepare-web: failure/);
+});
+
 test('verifyRequiredPrGate fails closed on unmapped expanded lanes', () => {
   assert.deepEqual(
     verifyRequiredPrGate({

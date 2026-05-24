@@ -1723,6 +1723,12 @@ export function validateWorkflowContracts(source) {
       'Required PR Gate status name must stay stable for branch rulesets.',
       failures
     );
+    requireIncludes(
+      requiredPrGate,
+      'uses: actions/checkout@v6',
+      'Required PR Gate must checkout the repo before running the gate script.',
+      failures
+    );
     for (const jobName of [
       'pr-sentinel',
       'checks',

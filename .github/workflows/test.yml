@@ -2216,6 +2216,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Verify required PR jobs
         env:
           REQUIRED_NEEDS: ${{ toJSON(needs) }}
