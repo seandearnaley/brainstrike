@@ -1,57 +1,96 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T21:57:25.185Z",
+  "generatedAt": "2026-05-24T22:33:56.584Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
-  "nodeVersion": "v22.19.0",
+  "nodeVersion": "v24.14.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "bc0ac25ee3212f7c61c8f3447e4cc5ac281eb4ce",
+  "testedHeadSha": "d583bd0e8ad1dfde047e086d78fed0e69f5ca445",
   "selection": {
     "base": "origin/main",
-    "baseSha": "2b046142af674612b945866a6d143de08a0961c3",
+    "baseSha": "590cd43adfe3e687b20061b300f00b2254aab741",
     "head": "HEAD",
-    "headSha": "bc0ac25ee3212f7c61c8f3447e4cc5ac281eb4ce",
-    "mergeBase": "2b046142af674612b945866a6d143de08a0961c3",
+    "headSha": "d583bd0e8ad1dfde047e086d78fed0e69f5ca445",
+    "mergeBase": "590cd43adfe3e687b20061b300f00b2254aab741",
     "files": [
-      ".ci/proof/latest.json",
-      ".github/workflows/test.yml",
-      "AGENTS.md",
-      "docs/architecture-reset/main-smoke-nightly-matrix-2026-05-24.html",
-      "docs/architecture-reset/release-proof-runbook-2026-05-24.html",
-      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs"
+      "packages/file-explorer-ui/src/__tests__/workspace-tab-host.test.tsx",
+      "packages/file-explorer-ui/src/shell/workspace-tab-host.tsx",
+      "packages/ui/package.json",
+      "packages/ui/src/__tests__/code-surface-language.test.ts",
+      "packages/ui/src/__tests__/code-surface.test.tsx",
+      "packages/ui/src/code-surface/code-surface.tsx",
+      "packages/ui/src/code-surface/index.ts",
+      "packages/ui/src/code-surface/language.ts",
+      "packages/ui/src/index.ts",
+      "pnpm-lock.yaml"
     ],
     "riskProfile": {
-      "category": "config-tooling",
+      "category": "full-release-high-risk",
       "domains": [
-        "tooling"
+        "ci-platform"
       ],
-      "e2eLanes": [],
+      "e2eLanes": [
+        "critical-smoke",
+        "web-file-explorer-persistence",
+        "web-import-indexing",
+        "web-assistant-state",
+        "web-settings-state",
+        "web-db-startup",
+        "web-destructive-reset",
+        "web-full-regression",
+        "desktop-smoke",
+        "desktop-ipc-reset",
+        "desktop-runtime-hosts",
+        "desktop-db-storage",
+        "desktop-full-regression",
+        "desktop-embedding-diagnostics",
+        "desktop-llm-host-recovery",
+        "long-soak-release-only"
+      ],
       "proofCommands": [
         "diff-check",
         "ci-script-tests",
-        "workflow-contracts"
+        "workflow-contracts",
+        "full-local-suite"
       ],
-      "riskLevel": "medium",
+      "riskLevel": "full",
       "cloudLabels": [
-        "ci:unit"
+        "ci:full"
       ]
     },
     "proofCommands": [
       "diff-check",
       "ci-script-tests",
-      "workflow-contracts"
+      "workflow-contracts",
+      "full-local-suite"
     ],
     "lanes": [
-      "ci:unit"
+      "ci:full"
     ],
     "expandedLanes": [
-      "ci:unit"
+      "ci:browser",
+      "ci:web-smoke",
+      "ci:web-file-explorer-persistence",
+      "ci:web-import-indexing",
+      "ci:web-assistant-state",
+      "ci:web-settings-state",
+      "ci:web-db-startup",
+      "ci:web-destructive-reset",
+      "ci:web-e2e",
+      "ci:desktop-smoke",
+      "ci:desktop-ipc-reset",
+      "ci:desktop-runtime-hosts",
+      "ci:desktop-db-storage",
+      "ci:desktop",
+      "ci:embedding",
+      "ci:unit",
+      "ci:coverage-db",
+      "ci:coverage-full"
     ],
     "labels": [
-      "ci:unit"
+      "ci:full"
     ],
     "commands": [
       {
@@ -82,12 +121,21 @@
           "config-tooling",
           "full-release-high-risk"
         ]
+      },
+      {
+        "name": "full-local-suite",
+        "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
+        "budgetMs": 2700000,
+        "owner": "release",
+        "requiredFor": [
+          "full-release-high-risk"
+        ]
       }
     ],
     "budget": {
-      "target": "local-pr-risk",
-      "targetMs": 480000,
-      "totalMs": 330000,
+      "target": "release-full-risk",
+      "targetMs": 3600000,
+      "totalMs": 3030000,
       "status": "within-target"
     }
   },
@@ -99,7 +147,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 23
     },
     {
       "name": "ci-script-tests",
@@ -108,7 +156,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 435
+      "durationMs": 624
     },
     {
       "name": "workflow-contracts",
@@ -117,7 +165,16 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 404
+      "durationMs": 658
+    },
+    {
+      "name": "full-local-suite",
+      "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
+      "owner": "release",
+      "budgetMs": 2700000,
+      "budgetStatus": "ok",
+      "exitCode": 0,
+      "durationMs": 1227315
     }
   ]
 }
