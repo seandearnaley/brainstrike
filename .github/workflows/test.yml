@@ -1726,14 +1726,14 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests (main) - runs AFTER web E2E to prevent Electron flakiness
-  # WARNING: Do NOT change to parallel execution on main. See docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
+  # Desktop E2E tests (release proof) - runs AFTER web E2E to prevent Electron flakiness.
+  # WARNING: Do NOT change to parallel execution in release proof. See docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
   # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
   # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
   desktop-e2e-main:
     name: Desktop E2E Regression
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
+    needs: [prepare-desktop, e2e, determine-matrix] # Sequential in release proof - wait for web E2E
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
