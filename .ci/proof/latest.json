@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T20:04:57.714Z",
+  "generatedAt": "2026-05-24T20:15:57.906Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "d539c77d51afbad10441893f24478774c9e07e07",
+  "testedHeadSha": "6a755bc013e53bd1857b349afa1b1c6687ebd0f3",
   "selection": {
     "base": "origin/main",
     "baseSha": "e57209e2d43d08069b96874d582efcbf6c3f2654",
     "head": "HEAD",
-    "headSha": "d539c77d51afbad10441893f24478774c9e07e07",
+    "headSha": "6a755bc013e53bd1857b349afa1b1c6687ebd0f3",
     "mergeBase": "e57209e2d43d08069b96874d582efcbf6c3f2654",
     "files": [
       ".ci/proof/latest.json",
@@ -124,7 +124,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 377
+      "durationMs": 413
     },
     {
       "name": "workflow-contracts",
@@ -133,7 +133,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 345
+      "durationMs": 375
     }
   ]
 }
