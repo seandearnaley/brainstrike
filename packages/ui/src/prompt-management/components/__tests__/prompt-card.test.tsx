@@ -244,5 +244,8 @@ describe('PromptCard', () => {
     expect(screen.queryByRole('img', { name: 'Coding' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Coding' })).not.toBeInTheDocument();
     expect(screen.getByText('11/14/2023')).not.toHaveAttribute('tabindex');
+    expect(screen.getByRole('button', { name: 'More options' }).parentElement).not.toHaveAttribute(
+      'tabindex'
+    );
   });
 });
