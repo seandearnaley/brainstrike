@@ -246,9 +246,10 @@ jobs:
         env:
           NODE_ENV: test
           TURBO_TEST_MODE: unit
+          UNIT_PROOF_MODE: ${{ steps.unit-proof-mode.outputs.mode }}
         run: |
           START=$SECONDS
-          if [ "${{ steps.unit-proof-mode.outputs.mode }}" = "changed-unit-tests" ]; then
+          if [ "$UNIT_PROOF_MODE" = "changed-unit-tests" ]; then
             echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
             node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
           else

@@ -58,6 +58,38 @@ test('verifySelectorSelection rejects e2e proof commands without their cloud lab
   );
 });
 
+test('verifySelectorSelection accepts ci:full as the sole selected label', () => {
+  assert.deepEqual(
+    verifySelectorSelection(
+      selection({
+        riskProfile: {
+          category: 'full-release-high-risk',
+          cloudLabels: ['ci:full'],
+        },
+        labels: ['ci:full'],
+        lanes: ['ci:full'],
+      })
+    ),
+    []
+  );
+});
+
+test('verifySelectorSelection rejects ci:full alongside other labels', () => {
+  assert.deepEqual(
+    verifySelectorSelection(
+      selection({
+        riskProfile: {
+          category: 'full-release-high-risk',
+          cloudLabels: ['ci:full', 'ci:unit'],
+        },
+        labels: ['ci:full', 'ci:unit'],
+        lanes: ['ci:full', 'ci:unit'],
+      })
+    ),
+    ['ci:full must be the only selected label: ci:full,ci:unit']
+  );
+});
+
 test('verifySelectorSelection reports malformed command lists without throwing', () => {
   assert.deepEqual(
     verifySelectorSelection(
