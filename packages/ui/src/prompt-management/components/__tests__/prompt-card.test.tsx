@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '../../../tooltip';
 import type { Category, Prompt } from '../../types';
 import { PromptCard } from '../prompt-card';
 
@@ -30,13 +32,16 @@ const prompt: Prompt = {
 };
 
 describe('PromptCard', () => {
+  const renderPromptCard = (ui: React.ReactElement) =>
+    render(<TooltipProvider delayDuration={300}>{ui}</TooltipProvider>);
+
   it('renders prompt metadata and forwards actions', () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     const onToggleFavorite = vi.fn();
     const onCopy = vi.fn();
 
-    render(
+    renderPromptCard(
       <PromptCard
         category={category}
         onCopy={onCopy}
@@ -75,7 +80,7 @@ describe('PromptCard', () => {
   it('renders uncategorized fallback when category is missing', () => {
     const { site: _site, ...promptWithoutSite } = prompt;
 
-    render(
+    renderPromptCard(
       <PromptCard
         onCopy={() => {}}
         onDelete={() => {}}
@@ -86,5 +91,161 @@ describe('PromptCard', () => {
     );
 
     expect(screen.getByText('Uncategorized')).toBeInTheDocument();
+  });
+
+  it('shows a hover hint for the more options control', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'More options' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+  });
+
+  it('closes the more options hover hint while the menu is open', async () => {
+    const user = userEvent.setup();
+    const onCopy = vi.fn();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={onCopy}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+
+    await user.click(moreOptions);
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('menuitem', { name: 'Copy Content' }));
+
+    expect(onCopy).toHaveBeenCalledWith(prompt.content);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+  });
+
+  it('restores the more options hover hint after keyboard menu close', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    moreOptions.focus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+  });
+
+  it('restores the more options hover hint after keyboard menu click-away close', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <>
+        <button type="button">Outside target</button>
+        <PromptCard
+          category={category}
+          onCopy={() => {}}
+          onDelete={() => {}}
+          onEdit={() => {}}
+          onToggleFavorite={() => {}}
+          prompt={prompt}
+        />
+      </>
+    );
+
+    const outsideTarget = screen.getByRole('button', { name: 'Outside target' });
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    moreOptions.focus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.pointerDown(outsideTarget);
+    outsideTarget.focus();
+    fireEvent.click(outsideTarget);
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+  });
+
+  it('keeps the more options hover hint suppressed after pointer-over keyboard menu close', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+
+    moreOptions.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+  });
+
+  it('does not add focusable controls for decorative metadata', () => {
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    expect(screen.queryByRole('img', { name: 'Coding' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Coding' })).not.toBeInTheDocument();
+    expect(screen.getByText('11/14/2023')).not.toHaveAttribute('tabindex');
+    expect(screen.getByRole('button', { name: 'More options' }).parentElement).not.toHaveAttribute(
+      'tabindex'
+    );
   });
 });

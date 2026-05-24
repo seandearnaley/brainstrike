@@ -25,7 +25,11 @@ export function GlobalDownloadIndicator() {
     <div className="flex min-w-[150px] items-center gap-2 text-muted-foreground text-xs">
       <Download className="h-3 w-3 animate-pulse" />
       <span className="max-w-[100px] truncate">Downloading model...</span>
-      <Progress className="h-1.5 w-16" value={progress} />
+      <Progress
+        aria-label="Global model download progress"
+        className="h-1.5 w-16"
+        value={progress}
+      />
       <span className="w-8 text-right">{progress}%</span>
     </div>
   );

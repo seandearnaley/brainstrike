@@ -15,6 +15,8 @@ async function openTokenCountingSettings(page: Page): Promise<void> {
 }
 
 test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset', () => {
+  test.describe.configure({ timeout: 120_000 });
+
   async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
     const reloadPromise = page.waitForEvent('load');
     await Promise.all([

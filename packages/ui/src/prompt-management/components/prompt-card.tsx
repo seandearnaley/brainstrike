@@ -1,4 +1,5 @@
 import { Calendar, Copy, Edit2, Globe, MoreVertical, Star, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader } from '../..';
 import { Badge } from '../../badge';
 import { Button } from '../../button';
@@ -9,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '../../dropdown-menu';
 import { cn } from '../../lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../tooltip';
 import type { Category, Prompt } from '../types';
 
 interface PromptCardProps {
@@ -20,6 +22,52 @@ interface PromptCardProps {
   prompt: Prompt;
 }
 
+function useTooltipDropdownCoordination() {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const [isPointerOverTrigger, setIsPointerOverTrigger] = useState(false);
+  const [isTooltipSuppressed, setIsTooltipSuppressed] = useState(false);
+  // Suppression follows pointer ownership: menu open/close keeps hover quiet while the
+  // pointer stays on the trigger, then pointer leave or keyboard focus restores hints.
+  const showTooltip = isTooltipOpen && !isDropdownOpen && !isTooltipSuppressed;
+
+  const handleDropdownOpenChange = (open: boolean) => {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+      // Keep pointer-close and pointer-over Escape close quiet until the pointer leaves.
+      setIsTooltipSuppressed(true);
+    } else if (!isPointerOverTrigger) {
+      setIsTooltipSuppressed(false);
+    }
+  };
+
+  const handlePointerEnter = () => {
+    setIsPointerOverTrigger(true);
+  };
+
+  const handlePointerLeave = () => {
+    setIsPointerOverTrigger(false);
+    setIsTooltipSuppressed(false);
+  };
+
+  const handleTriggerFocus = () => {
+    if (!isPointerOverTrigger) {
+      setIsTooltipSuppressed(false);
+    }
+  };
+
+  return {
+    handleDropdownOpenChange,
+    handlePointerEnter,
+    handlePointerLeave,
+    handleTriggerFocus,
+    isDropdownOpen,
+    setIsTooltipOpen,
+    showTooltip,
+  };
+}
+
 export function PromptCard({
   prompt,
   category,
@@ -28,6 +76,9 @@ export function PromptCard({
   onToggleFavorite,
   onCopy,
 }: PromptCardProps) {
+  const updatedAt = new Date(prompt.updatedAt);
+  const moreOptions = useTooltipDropdownCoordination();
+
   return (
     <Card className="group relative overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
       <div
@@ -41,10 +92,10 @@ export function PromptCard({
             <h3 className="mb-1 truncate font-semibold text-lg leading-tight">{prompt.title}</h3>
             <div className="mb-2 flex items-center gap-2 text-muted-foreground text-xs">
               {category && (
-                <div
+                <span
+                  aria-hidden="true"
                   className="h-2 w-2 rounded-full"
                   style={{ backgroundColor: category.color }}
-                  title={category.name}
                 />
               )}
               <span className="font-medium">{category?.name || 'Uncategorized'}</span>
@@ -65,58 +116,79 @@ export function PromptCard({
           </div>
 
           <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            <Button
-              aria-label={prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-              className={cn(
-                'h-8 w-8 transition-colors',
-                prompt.isFavorite
-                  ? 'text-yellow-400 opacity-100'
-                  : 'text-muted-foreground hover:text-yellow-400'
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleFavorite(prompt.id);
-              }}
-              size="icon"
-              title={prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-              variant="ghost"
-            >
-              <Star
-                aria-hidden="true"
-                className={cn('h-4 w-4', prompt.isFavorite && 'fill-current')}
-              />
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
-                  aria-label="More options"
-                  className="h-8 w-8"
+                  aria-label={prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                  className={cn(
+                    'h-8 w-8 transition-colors',
+                    prompt.isFavorite
+                      ? 'text-yellow-400 opacity-100'
+                      : 'text-muted-foreground hover:text-yellow-400'
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(prompt.id);
+                  }}
                   size="icon"
-                  title="More options"
                   variant="ghost"
                 >
-                  <MoreVertical aria-hidden="true" className="h-4 w-4" />
+                  <Star
+                    aria-hidden="true"
+                    className={cn('h-4 w-4', prompt.isFavorite && 'fill-current')}
+                  />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onCopy(prompt.content)}>
-                  <Copy aria-hidden="true" className="mr-2 h-4 w-4" />
-                  Copy Content
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onEdit(prompt.id)}>
-                  <Edit2 aria-hidden="true" className="mr-2 h-4 w-4" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={() => onDelete(prompt.id)}
+              </TooltipTrigger>
+              <TooltipContent>
+                {prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip onOpenChange={moreOptions.setIsTooltipOpen} open={moreOptions.showTooltip}>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex"
+                  onPointerEnter={moreOptions.handlePointerEnter}
+                  onPointerLeave={moreOptions.handlePointerLeave}
                 >
-                  <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {/* Keep this wrapper tight to the button so pointer state matches the tooltip trigger. */}
+                  <DropdownMenu
+                    onOpenChange={moreOptions.handleDropdownOpenChange}
+                    open={moreOptions.isDropdownOpen}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        aria-label="More options"
+                        className="h-8 w-8"
+                        onFocus={moreOptions.handleTriggerFocus}
+                        size="icon"
+                        variant="ghost"
+                      >
+                        <MoreVertical aria-hidden="true" className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => onCopy(prompt.content)}>
+                        <Copy aria-hidden="true" className="mr-2 h-4 w-4" />
+                        Copy Content
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onEdit(prompt.id)}>
+                        <Edit2 aria-hidden="true" className="mr-2 h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onDelete(prompt.id)}
+                      >
+                        <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>More options</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </CardHeader>
@@ -142,13 +214,14 @@ export function PromptCard({
           )}
         </div>
 
-        <div
-          className="ml-2 flex shrink-0 items-center gap-1"
-          title={`Updated ${new Date(prompt.updatedAt).toLocaleString()}`}
+        <time
+          className="ml-2 flex shrink-0 cursor-help items-center gap-1"
+          dateTime={updatedAt.toISOString()}
+          title={`Updated ${updatedAt.toLocaleString()}`}
         >
           <Calendar aria-hidden="true" className="h-3 w-3" />
-          {new Date(prompt.updatedAt).toLocaleDateString()}
-        </div>
+          {updatedAt.toLocaleDateString()}
+        </time>
       </CardFooter>
     </Card>
   );

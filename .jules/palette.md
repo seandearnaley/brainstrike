@@ -53,3 +53,6 @@
 ## 2026-05-18 - Missing aria-expanded on collapsible sections
 **Learning:** Collapsible sections built manually with a button and conditionally rendered content often forget to explicitly wire up the `aria-controls` and `aria-expanded` properties for screen reader accessibility. I found instances where `<button>` toggled the visibility of `expanded` UI details (like parameters) but missed these attributes.
 **Action:** When inspecting manual disclosure widgets or accordions, ensure the toggle button always has `aria-expanded={isExpanded}` and `aria-controls={contentId}` mapping to a unique `id` (e.g. via React `useId()`) on the expanded section container.
+## 2026-05-23 - Providing aria-labels for Progress components
+**Learning:** When using `<Progress />` components to display metrics (like similarity scores) or loading states (like model downloads or import progress), screen readers announce them as a "progress bar" but without context, users won't know *what* is progressing. The primitive component manages the `role` and value attributes, but the accessible name is often missing.
+**Action:** Always provide a descriptive `aria-label` (e.g., `aria-label="Model download progress"` or `aria-label="Import progress"`) to `<Progress />` components to ensure the context of the value is accessible to assistive technologies.

@@ -1,6 +1,7 @@
 import { Inbox } from 'lucide-react';
 import { useMemo } from 'react';
 import { ScrollArea } from '../../scroll-area';
+import { TooltipProvider } from '../../tooltip';
 import type { Category, Prompt, PromptFilter } from '../types';
 import { PromptCard } from './prompt-card';
 
@@ -38,19 +39,21 @@ export function PromptList({
 
   return (
     <ScrollArea className="h-full">
-      <div className="grid grid-cols-1 gap-6 p-6 pb-20 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {filteredPrompts.map((prompt) => (
-          <PromptCard
-            category={categories.find((c) => c.id === prompt.categoryId) ?? categories[0]}
-            key={prompt.id}
-            onCopy={onCopy} // Fallback to first category (General)
-            onDelete={onDelete}
-            onEdit={onEdit}
-            onToggleFavorite={onToggleFavorite}
-            prompt={prompt}
-          />
-        ))}
-      </div>
+      <TooltipProvider delayDuration={300}>
+        <div className="grid grid-cols-1 gap-6 p-6 pb-20 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filteredPrompts.map((prompt) => (
+            <PromptCard
+              category={categories.find((c) => c.id === prompt.categoryId) ?? categories[0]}
+              key={prompt.id}
+              onCopy={onCopy}
+              onDelete={onDelete}
+              onEdit={onEdit}
+              onToggleFavorite={onToggleFavorite}
+              prompt={prompt}
+            />
+          ))}
+        </div>
+      </TooltipProvider>
     </ScrollArea>
   );
 }

@@ -144,7 +144,7 @@ describe('CollectionPicker', () => {
     );
   });
 
-  it('includes embedding progress in the option label without nesting an extra button', () => {
+  it('includes embedding progress in the option label without nesting an extra tab stop', () => {
     renderWithProvider(<CollectionPicker {...defaultProps} />);
 
     expect(
@@ -159,5 +159,6 @@ describe('CollectionPicker', () => {
     }
 
     expect(embeddedLabel.closest('button')).toBeNull();
+    expect(embeddedLabel.parentElement).not.toHaveAttribute('tabindex');
   });
 });
