@@ -242,15 +242,33 @@ function requireYamlListItem(source, item, message, failures) {
   requireMatch(source, new RegExp(`^\\s+- ${escapeRegExp(item)}\\s*$`, 'm'), message, failures);
 }
 
-function requireFullMatrixEvents(job, jobName, failures) {
-  for (const eventName of ['push', 'schedule', 'workflow_dispatch']) {
+function requireReleaseMatrixEvents(job, jobName, failures) {
+  for (const eventName of ['schedule', 'workflow_dispatch']) {
     requireIncludes(
       job,
       `github.event_name == '${eventName}'`,
-      `${jobName} must remain available for ${eventName} full-matrix runs.`,
+      `${jobName} must remain available for ${eventName} release-matrix runs.`,
       failures
     );
   }
+}
+
+function requireNoMainPushEvent(job, jobName, failures) {
+  requireNotIncludes(
+    job,
+    "github.event_name == 'push'",
+    `${jobName} must not run the release matrix on plain main pushes.`,
+    failures
+  );
+}
+
+function requireMainPushEvent(job, jobName, failures) {
+  requireIncludes(
+    job,
+    "github.event_name == 'push'",
+    `${jobName} must remain available for the main push smoke gate.`,
+    failures
+  );
 }
 
 function requireRiskLabelIncludes(job, jobName, labels, failures) {
@@ -271,8 +289,13 @@ function requireRiskLabelIncludes(job, jobName, labels, failures) {
 }
 
 function requireRiskLabelGate(job, jobName, labels, failures) {
-  requireFullMatrixEvents(job, jobName, failures);
+  requireReleaseMatrixEvents(job, jobName, failures);
   requireRiskLabelIncludes(job, jobName, labels, failures);
+}
+
+function requireMainPushAndRiskLabelGate(job, jobName, labels, failures) {
+  requireMainPushEvent(job, jobName, failures);
+  requireRiskLabelGate(job, jobName, labels, failures);
 }
 
 function requirePrRiskLabelGate(job, jobName, labels, failures) {
@@ -760,6 +783,7 @@ export function validateWorkflowContracts(source) {
       ['ci:web-e2e', 'ci:desktop'],
       failures
     );
+    requireNoMainPushEvent(determineMatrix, 'Determine E2E Matrix', failures);
     requireIncludes(
       determineMatrix,
       'web-shards=["1","2","3","4","5"]',
@@ -775,13 +799,13 @@ export function validateWorkflowContracts(source) {
     requireIncludes(
       determineMatrix,
       'desktop-shards=["1","2","3","4"]',
-      'Desktop regression matrix must stay at four shards on PRs and main.',
+      'Desktop regression matrix must stay at four shards on PRs and release matrix.',
       failures
     );
     requireIncludes(
       determineMatrix,
       'desktop-shard-total=["4"]',
-      'Desktop regression shard total must stay at four on PRs and main.',
+      'Desktop regression shard total must stay at four on PRs and release matrix.',
       failures
     );
   }
@@ -791,6 +815,7 @@ export function validateWorkflowContracts(source) {
     failures.push('Missing e2e job.');
   } else {
     requireRiskLabelGate(e2e, 'Functional E2E', ['ci:web-e2e'], failures);
+    requireNoMainPushEvent(e2e, 'Functional E2E', failures);
     requirePreprovisionedPlaywrightJobContracts(e2e, 'Functional E2E', failures);
     requireIncludes(
       e2e,
@@ -823,6 +848,7 @@ export function validateWorkflowContracts(source) {
     failures.push('Missing e2e-stateful job.');
   } else {
     requireRiskLabelGate(stateful, 'Stateful E2E', ['ci:web-e2e'], failures);
+    requireNoMainPushEvent(stateful, 'Stateful E2E', failures);
     requirePreprovisionedPlaywrightJobContracts(stateful, 'Stateful E2E', failures);
     requireIncludes(
       stateful,
@@ -843,6 +869,7 @@ export function validateWorkflowContracts(source) {
     failures.push('Missing e2e-destructive job.');
   } else {
     requireRiskLabelGate(destructive, 'Destructive E2E', ['ci:web-e2e'], failures);
+    requireNoMainPushEvent(destructive, 'Destructive E2E', failures);
     requirePreprovisionedPlaywrightJobContracts(destructive, 'Destructive E2E', failures);
     requireIncludes(
       destructive,
@@ -907,6 +934,7 @@ export function validateWorkflowContracts(source) {
       ],
       failures
     );
+    requireNoMainPushEvent(mergeReports, 'Merge Test Reports', failures);
     requireIncludes(
       mergeReports,
       'find all-blob-reports -type f -name "*.tar" -print0',
@@ -997,6 +1025,9 @@ export function validateWorkflowContracts(source) {
       continue;
     }
     requireWebNarrowJobContracts(job, narrowLane, failures);
+    if (narrowLane.jobName === 'web-e2e-smoke-pr') {
+      requireMainPushEvent(job, 'Web E2E Smoke', failures);
+    }
   }
 
   const desktopPr = extractJob(source, 'desktop-e2e-pr');
@@ -1070,6 +1101,9 @@ export function validateWorkflowContracts(source) {
       continue;
     }
     requireDesktopNarrowJobContracts(job, narrowLane, failures);
+    if (narrowLane.jobName === 'desktop-e2e-smoke-pr') {
+      requireMainPushEvent(job, 'Desktop E2E Smoke', failures);
+    }
   }
 
   const desktopEmbeddingPr = extractJob(source, 'desktop-e2e-embedding-pr');
@@ -1118,8 +1152,8 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopMain,
-      "if: github.event_name != 'pull_request'",
-      'Main desktop regression job must run after merge/push.',
+      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+      'Release desktop regression job must run only for scheduled/manual release proof.',
       failures
     );
     requireIncludes(
@@ -1155,8 +1189,8 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopEmbeddingMain,
-      "if: github.event_name != 'pull_request'",
-      'Main desktop embedding regression job must run after merge/push.',
+      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+      'Release desktop embedding regression job must run only for scheduled/manual release proof.',
       failures
     );
     for (const group of [
@@ -1181,7 +1215,7 @@ export function validateWorkflowContracts(source) {
   if (!prepareWeb) {
     failures.push('Missing prepare-web job.');
   } else {
-    requireRiskLabelGate(
+    requireMainPushAndRiskLabelGate(
       prepareWeb,
       'Build Web App',
       [
@@ -1202,7 +1236,7 @@ export function validateWorkflowContracts(source) {
   if (!prepareDesktop) {
     failures.push('Missing prepare-desktop job.');
   } else {
-    requireRiskLabelGate(
+    requireMainPushAndRiskLabelGate(
       prepareDesktop,
       'Build Desktop App',
       [
@@ -1301,6 +1335,7 @@ export function validateWorkflowContracts(source) {
       ['ci:coverage-db', 'ci:coverage-full'],
       failures
     );
+    requireNoMainPushEvent(unitCoverage, 'Checks (coverage-db/full)', failures);
     requireNumericMatchAtLeast(
       extractJobHeader(unitCoverage),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -1464,6 +1499,7 @@ export function validateWorkflowContracts(source) {
     failures.push('Missing browser-tests job.');
   } else {
     requireRiskLabelGate(browserTests, 'Browser Vitest', ['ci:browser'], failures);
+    requireNoMainPushEvent(browserTests, 'Browser Vitest', failures);
     requirePreprovisionedPlaywrightJobContracts(browserTests, 'Browser Vitest', failures);
   }
 
@@ -1678,6 +1714,61 @@ export function validateWorkflowContracts(source) {
     );
     for (const jobName of [
       'checks',
+      'prepare-web',
+      'prepare-desktop',
+      'web-e2e-smoke-pr',
+      'desktop-e2e-smoke-pr',
+    ]) {
+      requireYamlListItem(
+        requiredMainGate,
+        jobName,
+        `Required Main Gate must depend on ${jobName}.`,
+        failures
+      );
+    }
+    for (const jobName of [
+      'unit_coverage',
+      'browser-tests',
+      'e2e',
+      'e2e-stateful',
+      'e2e-destructive',
+      'desktop-e2e-main',
+      'desktop-e2e-embedding-main',
+      'merge-reports',
+    ]) {
+      requireNotIncludes(
+        requiredMainGate,
+        `\n      - ${jobName}`,
+        `Required Main Gate must not depend on release-only job ${jobName}.`,
+        failures
+      );
+    }
+    requireIncludes(
+      requiredMainGate,
+      "job.result !== 'success'",
+      'Required Main Gate must fail unless every dependency succeeds.',
+      failures
+    );
+  }
+
+  const requiredReleaseGate = extractJob(source, 'required-release-gate');
+  if (!requiredReleaseGate) {
+    failures.push('Missing required-release-gate job.');
+  } else {
+    requireIncludes(
+      requiredReleaseGate,
+      'name: Required Release Gate',
+      'Required Release Gate status name must stay stable for release proof.',
+      failures
+    );
+    requireIncludes(
+      requiredReleaseGate,
+      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+      'Required Release Gate must run only for scheduled/manual release proof.',
+      failures
+    );
+    for (const jobName of [
+      'checks',
       'unit_coverage',
       'browser-tests',
       'prepare-web',
@@ -1690,16 +1781,40 @@ export function validateWorkflowContracts(source) {
       'merge-reports',
     ]) {
       requireYamlListItem(
-        requiredMainGate,
+        requiredReleaseGate,
         jobName,
-        `Required Main Gate must depend on ${jobName}.`,
+        `Required Release Gate must depend on ${jobName}.`,
         failures
       );
     }
     requireIncludes(
-      requiredMainGate,
+      requiredReleaseGate,
       "job.result !== 'success'",
-      'Required Main Gate must fail unless every dependency succeeds.',
+      'Required Release Gate must fail unless every release dependency succeeds.',
+      failures
+    );
+  }
+
+  const codeQuality = extractJob(source, 'code-quality');
+  if (!codeQuality) {
+    failures.push('Missing code-quality job.');
+  } else {
+    requireIncludes(
+      codeQuality,
+      "if: github.event_name == 'pull_request' || github.event_name == 'schedule'",
+      'Code Quality must not run on every main push.',
+      failures
+    );
+    requireNotIncludes(
+      codeQuality,
+      "github.event_name != 'workflow_dispatch'",
+      'Code Quality must not use a broad non-workflow_dispatch gate.',
+      failures
+    );
+    requireNotIncludes(
+      extractJobHeader(codeQuality),
+      "github.event_name == 'push'",
+      'Code Quality must not run on every main push.',
       failures
     );
   }

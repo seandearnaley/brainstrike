@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brainstrike CI Policy - Main Smoke, Nightly Matrix</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --panel: #171b22;
+    --panel-2: #1f2530;
+    --text: #eceff4;
+    --muted: #aeb6c5;
+    --line: #313947;
+    --good: #59d18c;
+    --warn: #f4c95d;
+    --bad: #ff6b7a;
+    --accent: #7aa2ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+  }
+  main { max-width: 1120px; margin: 0 auto; padding: 42px 22px 64px; }
+  header {
+    border: 1px solid var(--line);
+    background: linear-gradient(135deg, rgba(122,162,255,.14), rgba(89,209,140,.08)), var(--panel);
+    border-radius: 10px;
+    padding: 28px;
+    margin-bottom: 22px;
+  }
+  h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: -0.02em; }
+  h2 { margin: 30px 0 12px; font-size: 21px; }
+  p { color: var(--muted); margin: 0 0 12px; }
+  code { font-family: var(--mono); color: #b8f7d4; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .card, table {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 8px;
+  }
+  .card { padding: 16px; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .value { font-size: 28px; font-family: var(--mono); margin-top: 8px; }
+  .good { color: var(--good); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; overflow: hidden; }
+  th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  tr:last-child td { border-bottom: 0; }
+  .flow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+  .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; margin: 2px; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  footer { color: var(--muted); margin-top: 36px; font-family: var(--mono); font-size: 12px; }
+  @media (max-width: 800px) { .grid, .flow { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="label">Architecture reset follow-up - 2026-05-24</div>
+    <h1>Main pushes become smoke gates. Full proof moves to nightly/manual.</h1>
+    <p>
+      The previous post-merge behavior spent a full release matrix on every merge to
+      <code>main</code>. That was conservative, but too expensive for a pre-release,
+      single-developer project. The new policy keeps merge confidence while moving
+      expensive proof to a scheduled release lane.
+    </p>
+  </header>
+
+  <section class="grid" aria-label="Policy summary">
+    <div class="card">
+      <div class="label">Main push gate</div>
+      <div class="value good">Smoke</div>
+      <p>Static checks, web smoke, and desktop smoke.</p>
+    </div>
+    <div class="card">
+      <div class="label">Release proof</div>
+      <div class="value warn">Nightly</div>
+      <p>Coverage, browser, full web E2E, desktop regression, and embedding regression.</p>
+    </div>
+    <div class="card">
+      <div class="label">PR proof</div>
+      <div class="value">Selected</div>
+      <p>Still controlled by <code>ci:doctor</code>, exact labels, and the proof manifest.</p>
+    </div>
+  </section>
+
+  <h2>New Routing</h2>
+  <table>
+    <thead>
+      <tr><th>Event</th><th>What Runs</th><th>What Does Not Run</th><th>Gate</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>pull_request</code></td>
+        <td>Static checks plus lanes selected by proof labels.</td>
+        <td>Unselected E2E, coverage, desktop, and embedding lanes.</td>
+        <td><code>Required PR Gate</code></td>
+      </tr>
+      <tr>
+        <td><code>push</code> to <code>main</code></td>
+        <td><code>checks</code>, <code>prepare-web</code>, <code>web-e2e-smoke-pr</code>, <code>prepare-desktop</code>, <code>desktop-e2e-smoke-pr</code>.</td>
+        <td>Coverage, browser tests, full web matrix, stateful/destructive web lanes, desktop regression shards, embedding regression groups.</td>
+        <td><code>Required Main Gate</code></td>
+      </tr>
+      <tr>
+        <td><code>schedule</code> / <code>workflow_dispatch</code></td>
+        <td>The full release matrix.</td>
+        <td>Nothing from release proof.</td>
+        <td><code>Required Release Gate</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Why This Saves Budget</h2>
+  <div class="flow">
+    <div class="card">
+      <div class="label">Before</div>
+      <p>Every merge to <code>main</code> paid for full coverage, browser tests, full web E2E, desktop regression, embedding regression, and report merge.</p>
+      <span class="pill bad">high runner count</span>
+      <span class="pill bad">high wall time</span>
+      <span class="pill bad">expensive for docs/tooling merges</span>
+    </div>
+    <div class="card">
+      <div class="label">After</div>
+      <p>Every merge proves the app still builds and both web and desktop can start through smoke lanes. Full confidence moves to nightly/manual release proof.</p>
+      <span class="pill good">bounded main cost</span>
+      <span class="pill good">release confidence preserved</span>
+      <span class="pill good">no silent fallback</span>
+    </div>
+  </div>
+
+  <h2>Contract Coverage</h2>
+  <table>
+    <thead>
+      <tr><th>Contract</th><th>Failure It Prevents</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Release jobs must not include <code>push</code></td><td>Stops full matrix from returning on every merge.</td></tr>
+      <tr><td>Smoke jobs must include <code>push</code></td><td>Ensures main still has a real health gate.</td></tr>
+      <tr><td>Main gate may not depend on release-only jobs</td><td>Prevents accidental budget expansion through gate dependencies.</td></tr>
+      <tr><td>Release gate requires full matrix jobs</td><td>Keeps nightly/manual proof meaningful.</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    Source files: .github/workflows/test.yml, scripts/check-ci-workflow-contracts.mjs,
+    scripts/__tests__/check-ci-workflow-contracts.test.mjs, AGENTS.md.
+  </footer>
+</main>
+</body>
+</html>

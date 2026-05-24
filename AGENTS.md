@@ -120,6 +120,11 @@ missing, stale, missing required labels, or has extra `ci:*` labels. Any commit
 after the proof commit invalidates the proof unless the only changed file is
 `.ci/proof/latest.json`.
 
+Post-merge Actions budget policy:
+- Pushes to `main` run the cheap health gate only: static checks, web smoke, and desktop smoke.
+- Full coverage, browser, web E2E matrix, desktop regression, and embedding regression run on nightly `schedule` or manual `workflow_dispatch` release proof.
+- Do not re-expand `main` push back to full matrix without an explicit budget/quality decision and workflow-contract test updates.
+
 ---
 
 ## EMBEDDING ARCHITECTURE (CRITICAL)

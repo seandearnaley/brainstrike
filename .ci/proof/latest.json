@@ -1,43 +1,26 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T20:22:44.743Z",
+  "generatedAt": "2026-05-24T21:19:35.925Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "69414c57fcc8c74f2f1e4f863a451f9ad8cbdb3e",
+  "testedHeadSha": "42da93f7771d321f9b2fb708f363f6c6efd8adec",
   "selection": {
     "base": "origin/main",
-    "baseSha": "e57209e2d43d08069b96874d582efcbf6c3f2654",
+    "baseSha": "f1d72cfa70a8cf3f08fd3e6797263f4f04065149",
     "head": "HEAD",
-    "headSha": "69414c57fcc8c74f2f1e4f863a451f9ad8cbdb3e",
-    "mergeBase": "e57209e2d43d08069b96874d582efcbf6c3f2654",
+    "headSha": "42da93f7771d321f9b2fb708f363f6c6efd8adec",
+    "mergeBase": "f1d72cfa70a8cf3f08fd3e6797263f4f04065149",
     "files": [
       ".ci/proof/latest.json",
       ".github/workflows/test.yml",
       "AGENTS.md",
-      "README.md",
-      "apps/desktop/README.md",
-      "apps/web/README.md",
-      "lefthook.yml",
-      "package.json",
-      "packages/agent/README.md",
-      "packages/app-shell/README.md",
-      "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
+      "docs/architecture-reset/main-smoke-nightly-matrix-2026-05-24.html",
       "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/__tests__/ci-calibrate-proof-commands.test.mjs",
-      "scripts/__tests__/ci-calibration-summary.test.mjs",
-      "scripts/__tests__/ci-risk-rules.test.mjs",
-      "scripts/__tests__/ci-selector-guard.test.mjs",
-      "scripts/__tests__/ci-unit-proof-mode.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs",
-      "scripts/ci-risk-fixtures.json",
-      "scripts/ci-risk-rules.mjs",
-      "scripts/ci-select.mjs",
-      "scripts/ci-selector-guard.mjs",
-      "scripts/ci-unit-proof-mode.mjs"
+      "scripts/check-ci-workflow-contracts.mjs"
     ],
     "riskProfile": {
       "category": "config-tooling",
@@ -115,7 +98,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 18
+      "durationMs": 11
     },
     {
       "name": "ci-script-tests",
@@ -124,7 +107,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 378
+      "durationMs": 369
     },
     {
       "name": "workflow-contracts",
@@ -133,7 +116,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 350
+      "durationMs": 329
     }
   ]
 }
