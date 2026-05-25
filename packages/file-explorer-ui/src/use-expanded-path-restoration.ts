@@ -58,6 +58,20 @@ function getParentDirectoriesForSelectedFiles(selectedFiles: Set<string>): Set<s
   return parentDirectories;
 }
 
+function getDirectoriesForCurrentSelection(storeState: FileExplorerState): Set<string> {
+  const directories = getParentDirectoriesForSelectedFiles(storeState.selectedFilePaths);
+  if (storeState.selectionModel.mode !== 'query') {
+    return directories;
+  }
+
+  const coveredDirectoryPaths =
+    storeState.selectionModel.queryDescriptor?.coveredDirectoryPaths ?? [];
+  for (const directoryPath of coveredDirectoryPaths) {
+    directories.add(directoryPath);
+  }
+  return directories;
+}
+
 function getRestorationSkipReason(
   currentRootFolderId: string | null,
   isTreeLoading: boolean,
@@ -420,4 +434,81 @@ export function useExpandedPathRestoration(
     isRestoringExpandedPaths,
     restorationProgress,
   };
+}
+
+export interface UseExpandSelectedFileParentDirectoriesArgs {
+  currentRootFolderId: string | null;
+  disabled?: boolean;
+  isRestorationSettled: boolean;
+  loadSpecificPaths: (
+    paths: string[],
+    onProgress?: (loaded: number, total: number, currentPath: string) => void
+  ) => Promise<void>;
+  selectionVersion: number;
+  setExpandedPaths: (paths: Set<string>) => void;
+  store: FileExplorerStoreAccessor;
+}
+
+/**
+ * Expands parent directories for newly selected files without re-running full
+ * expanded-path restoration (which reloads the entire persisted expansion set).
+ */
+export function useExpandSelectedFileParentDirectories(
+  args: UseExpandSelectedFileParentDirectoriesArgs
+): void {
+  const {
+    currentRootFolderId,
+    disabled = false,
+    isRestorationSettled,
+    loadSpecificPaths,
+    selectionVersion,
+    setExpandedPaths,
+    store,
+  } = args;
+  const latestExpansionRequestRef = useRef(0);
+
+  useEffect(() => {
+    latestExpansionRequestRef.current += 1;
+    const expansionRequestId = latestExpansionRequestRef.current;
+
+    if (disabled || !currentRootFolderId || !isRestorationSettled) {
+      return;
+    }
+
+    const storeState = store.getState();
+    const parentDirectories = getDirectoriesForCurrentSelection(storeState);
+    if (parentDirectories.size === 0) {
+      return;
+    }
+
+    const currentExpanded = storeState.expandedDirectoryPaths;
+    const missingParents = [...parentDirectories].filter((path) => !currentExpanded.has(path));
+    if (missingParents.length === 0) {
+      return;
+    }
+
+    const sortedParents = missingParents.sort(
+      (left, right) => getPathDepth(left) - getPathDepth(right)
+    );
+
+    void loadSpecificPaths(sortedParents)
+      .then(() => {
+        if (latestExpansionRequestRef.current !== expansionRequestId) {
+          return;
+        }
+        const latestExpanded = store.getState().expandedDirectoryPaths;
+        setExpandedPaths(new Set([...latestExpanded, ...parentDirectories]));
+      })
+      .catch((error: unknown) => {
+        logger.warn('Failed to expand parent directories for selected files', { error });
+      });
+  }, [
+    currentRootFolderId,
+    disabled,
+    isRestorationSettled,
+    loadSpecificPaths,
+    selectionVersion,
+    setExpandedPaths,
+    store,
+  ]);
 }
