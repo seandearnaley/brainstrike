@@ -388,7 +388,7 @@ function buildContextWithCoverageNote(
   const coverageNote = formatRetrievalCoverageNote({
     skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     skippedSourceRangeChunks,
-    skippedForTokenBudget: packed.skipped,
+    skippedForTokenBudget: packed.skippedForTokenBudget,
     affectedFilePaths: buildAffectedFilePaths(skippedSourceRangeChunks, fileMap),
   });
   if (!coverageNote) {

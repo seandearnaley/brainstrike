@@ -44,6 +44,8 @@ export interface ContextPackerResult {
   chunks: readonly PackedContextChunk[];
   remainingTokens: number;
   skipped: number;
+  skippedForMaxChunks: number;
+  skippedForTokenBudget: number;
   totalTokens: number;
 }
 
@@ -194,23 +196,24 @@ export class ContextPacker {
   pack(chunks: readonly ContextPackerChunk[]): ContextPackerResult {
     const packed: PackedContextChunk[] = [];
     let totalTokens = 0;
-    let skipped = 0;
+    let skippedForMaxChunks = 0;
+    let skippedForTokenBudget = 0;
     const maxChunks = this.maxChunks ?? Number.POSITIVE_INFINITY;
 
     for (const [index, chunk] of chunks.entries()) {
       assertValidChunk(chunk);
       if (packed.length >= maxChunks) {
-        skipped += 1;
+        skippedForMaxChunks += 1;
         continue;
       }
 
       const tokenCount = resolveTokenCount(chunk, this.estimateTokens);
       if (shouldSkipForBudget(tokenCount, totalTokens, this.budgetTokens)) {
-        skipped += 1;
+        skippedForTokenBudget += 1;
         if (this.budgetTokens > 0 && totalTokens >= this.budgetTokens) {
           const remaining = chunks.length - index - 1;
           if (remaining > 0) {
-            skipped += remaining;
+            skippedForTokenBudget += remaining;
           }
           break;
         }
@@ -227,7 +230,9 @@ export class ContextPacker {
       totalTokens,
       budget: this.budgetTokens,
       remainingTokens,
-      skipped,
+      skipped: skippedForMaxChunks + skippedForTokenBudget,
+      skippedForMaxChunks,
+      skippedForTokenBudget,
     };
   }
 }

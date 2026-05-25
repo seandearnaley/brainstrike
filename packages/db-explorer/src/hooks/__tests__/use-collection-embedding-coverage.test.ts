@@ -1,37 +1,71 @@
-import { describe, expect, it } from 'vitest';
-import type { CollectionEmbeddingCoverageSnapshot } from '../use-collection-embedding-coverage';
+import { renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  resolveCoverageStatus,
+  useCollectionEmbeddingCoverage,
+} from '../use-collection-embedding-coverage';
 
-function resolveStatus(
-  totalFiles: number,
-  pendingReindexFileCount: number,
-  chunksMissingSourceRange: number
-): CollectionEmbeddingCoverageSnapshot['status'] {
-  if (totalFiles === 0) {
-    return 'idle';
-  }
-  if (pendingReindexFileCount > 0) {
-    return 'needs_reindex';
-  }
-  if (chunksMissingSourceRange > 0) {
-    return 'partial_source_ranges';
-  }
-  return 'fully_indexed';
+interface MockCoverageRow {
+  chunksmissing: number;
+  embeddingsetid: string;
+  pendingreindexfiles: number;
+  totalchunks: number;
+  totalfiles: number;
 }
 
+const mockLiveQueryState = {
+  rows: [] as MockCoverageRow[],
+  loading: false,
+  error: null as Error | null,
+};
+
+const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
+  () => mockLiveQueryState
+);
+
+vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+}));
+
 describe('collection embedding coverage status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockLiveQueryState.rows = [];
+    mockLiveQueryState.loading = false;
+    mockLiveQueryState.error = null;
+    usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
+  });
+
   it('reports idle when the collection has no files', () => {
-    expect(resolveStatus(0, 0, 0)).toBe('idle');
+    expect(resolveCoverageStatus(0, 0, 0)).toBe('idle');
   });
 
   it('reports needs_reindex when files lack processed chunks', () => {
-    expect(resolveStatus(12, 4, 0)).toBe('needs_reindex');
+    expect(resolveCoverageStatus(12, 4, 0)).toBe('needs_reindex');
   });
 
   it('reports partial_source_ranges when chunks lack line metadata', () => {
-    expect(resolveStatus(8, 0, 3)).toBe('partial_source_ranges');
+    expect(resolveCoverageStatus(8, 0, 3)).toBe('partial_source_ranges');
   });
 
   it('reports fully_indexed when files and chunks are line-aware', () => {
-    expect(resolveStatus(5, 0, 0)).toBe('fully_indexed');
+    expect(resolveCoverageStatus(5, 0, 0)).toBe('fully_indexed');
+  });
+
+  it('ignores a stale live-query row for a previous active collection', () => {
+    mockLiveQueryState.rows = [
+      {
+        embeddingsetid: 'previous-collection',
+        totalfiles: 3,
+        totalchunks: 9,
+        pendingreindexfiles: 3,
+        chunksmissing: 0,
+      },
+    ];
+
+    const { result } = renderHook(() => useCollectionEmbeddingCoverage('active-collection'));
+
+    expect(result.current.snapshot.status).toBe('idle');
   });
 });

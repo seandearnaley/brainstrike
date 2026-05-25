@@ -385,9 +385,10 @@ describe('createRetrievalTool', () => {
 
     const result = await runTool(tool, { query: 'test', maxChunks: 2 });
 
-    const r = result as { chunks: unknown[]; skipped: number };
+    const r = result as { chunks: unknown[]; context: string; skipped: number };
     expect(r.chunks).toHaveLength(2);
     expect(r.skipped).toBe(1);
+    expect(r.context).not.toContain('token budget');
   });
 
   it('reports when the token budget excludes all retrieved chunk content', async () => {

@@ -72,15 +72,15 @@ export function CollectionEmbeddingCoverageBanner({
   activeCollectionName,
 }: CollectionEmbeddingCoverageBannerProps) {
   const { snapshot: coverage } = useCollectionEmbeddingCoverage(activeCollectionId);
-  if (!activeCollectionId) {
+  if (!activeCollectionId || coverage.status === 'idle') {
     return null;
   }
 
   return (
     <div className="border-border border-b px-3 py-2">
       <EmbeddingCoverageNotice
-        {...(activeCollectionName ? { collectionName: activeCollectionName } : {})}
         coverage={coverage}
+        {...(activeCollectionName === undefined ? {} : { collectionName: activeCollectionName })}
       />
     </div>
   );

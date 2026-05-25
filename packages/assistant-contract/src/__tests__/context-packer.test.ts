@@ -17,6 +17,8 @@ describe('ContextPacker', () => {
     expect(result.totalTokens).toBe(9);
     expect(result.remainingTokens).toBe(1);
     expect(result.skipped).toBe(1);
+    expect(result.skippedForMaxChunks).toBe(0);
+    expect(result.skippedForTokenBudget).toBe(1);
   });
 
   it('falls back to heuristic token estimates when missing', () => {
@@ -76,6 +78,8 @@ describe('ContextPacker', () => {
 
     expect(result.chunks.map((chunk) => chunk.id)).toEqual(['a']);
     expect(result.skipped).toBe(1);
+    expect(result.skippedForMaxChunks).toBe(1);
+    expect(result.skippedForTokenBudget).toBe(0);
   });
 
   it('handles empty input arrays', () => {
@@ -113,6 +117,7 @@ describe('ContextPacker', () => {
     expect(result.totalTokens).toBe(0);
     expect(result.remainingTokens).toBe(0);
     expect(result.skipped).toBe(1);
+    expect(result.skippedForTokenBudget).toBe(1);
   });
 
   it('skips chunks that exceed the budget while allowing later fits', () => {
@@ -127,6 +132,7 @@ describe('ContextPacker', () => {
     expect(result.chunks.map((chunk) => chunk.id)).toEqual(['b']);
     expect(result.totalTokens).toBe(3);
     expect(result.skipped).toBe(1);
+    expect(result.skippedForTokenBudget).toBe(1);
   });
 
   it('skips all chunks when the budget is too small for any content', () => {
@@ -142,6 +148,7 @@ describe('ContextPacker', () => {
     expect(result.totalTokens).toBe(0);
     expect(result.remainingTokens).toBe(1);
     expect(result.skipped).toBe(2);
+    expect(result.skippedForTokenBudget).toBe(2);
   });
 
   it.each([

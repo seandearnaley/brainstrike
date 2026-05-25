@@ -17,6 +17,7 @@ export interface CollectionEmbeddingCoverageSnapshot {
 
 interface CollectionCoverageRow {
   chunksmissing: number;
+  embeddingsetid: string;
   pendingreindexfiles: number;
   totalchunks: number;
   totalfiles: number;
@@ -55,7 +56,7 @@ function isValidCoverageRow(row: unknown): row is CollectionCoverageRow {
   );
 }
 
-function resolveCoverageStatus(
+export function resolveCoverageStatus(
   totalFiles: number,
   pendingReindexFileCount: number,
   chunksMissingSourceRange: number
@@ -114,7 +115,7 @@ export function useCollectionEmbeddingCoverage(activeCollectionId: string | null
       return IDLE_SNAPSHOT;
     }
     const row = rows[0];
-    if (!(row && isValidCoverageRow(row))) {
+    if (!(row && isValidCoverageRow(row) && row.embeddingsetid === activeCollectionId)) {
       return IDLE_SNAPSHOT;
     }
     return mapRowToSnapshot(row);
