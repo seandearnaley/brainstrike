@@ -1365,19 +1365,19 @@ export function validateWorkflowContracts(source) {
   } else {
     requirePrRiskLabelGate(unitAffected, 'Checks (unit-affected)', ['ci:unit'], failures);
     // The affected-unit timeout is intentionally pinned: cold-cache full-risk runs have included
-    // Electron, embedding-worker diagnostics, and dependent package builds. Change the workflow and
-    // this contract together when measured runtimes justify tightening or widening it.
+    // Electron, embedding-worker diagnostics, dependent package builds, and Node 24 runtime overhead.
+    // Change the workflow and this contract together when measured runtimes justify tightening or widening it.
     requireNumericMatchAtMost(
       extractJobHeader(unitAffected),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
-      25,
+      35,
       'Affected unit job timeout must stay bounded for PR feedback.',
       failures
     );
     requireNumericMatchAtLeast(
       extractJobHeader(unitAffected),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
-      25,
+      35,
       'Affected unit job timeout must cover setup plus the test step.',
       failures
     );
@@ -1414,14 +1414,14 @@ export function validateWorkflowContracts(source) {
     requireStepTimeoutAtMost(
       unitAffected,
       'Run affected unit tests',
-      20,
+      30,
       'Affected unit test step timeout must stay bounded for PR feedback.',
       failures
     );
     requireStepTimeoutAtLeast(
       unitAffected,
       'Run affected unit tests',
-      20,
+      30,
       'Affected unit test step timeout must cover cold cache runs.',
       failures
     );

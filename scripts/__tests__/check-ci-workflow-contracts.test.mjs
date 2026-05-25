@@ -149,8 +149,8 @@ test('workflow contract fails when affected unit timeout cannot cover cold cache
   const source = workflowSource.replace(
     unitAffected,
     unitAffected
-      .replace('    timeout-minutes: 25', '    timeout-minutes: 15')
-      .replace('        timeout-minutes: 20', '        timeout-minutes: 10')
+      .replace('    timeout-minutes: 35', '    timeout-minutes: 25')
+      .replace('        timeout-minutes: 30', '        timeout-minutes: 20')
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
