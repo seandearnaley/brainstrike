@@ -162,10 +162,7 @@ export const ActionButtons = React.memo(
       const canUseRecursive = selectAllRecursively && addMultipleSelectedFiles && filteredTree;
 
       if (canUseRecursive) {
-        const result = await performRecursiveSelection(currentFolderId);
-        if (result?.limitReached === true) {
-          onSelectionLimitExceeded?.();
-        }
+        await performRecursiveSelection(currentFolderId);
       } else {
         performFallbackSelection(currentFolderId);
       }

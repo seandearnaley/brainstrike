@@ -18,7 +18,7 @@ export const useSelectionManager = ({
   selectedFilePaths,
   maxSelectionCount,
   setSelectedFiles,
-  onSelectionLimitExceeded,
+  onSelectionLimitExceeded: _onSelectionLimitExceeded,
 }: UseSelectionManagerParams) => {
   const wouldExceedSelectionLimit = useCallback(
     (newFilePaths: string[]) => {
@@ -37,14 +37,21 @@ export const useSelectionManager = ({
 
   const handleSelectionChange = useCallback(
     (nextSelectedFiles: Set<string>) => {
-      const nextArray = Array.from(nextSelectedFiles);
-      if (wouldExceedSelectionLimit(nextArray)) {
-        onSelectionLimitExceeded();
+      if (nextSelectedFiles.size <= maxSelectionCount) {
+        setSelectedFiles(new Set(nextSelectedFiles));
         return;
       }
-      setSelectedFiles(new Set(nextArray));
+
+      const clipped = new Set<string>();
+      for (const path of nextSelectedFiles) {
+        if (clipped.size >= maxSelectionCount) {
+          break;
+        }
+        clipped.add(path);
+      }
+      setSelectedFiles(clipped);
     },
-    [wouldExceedSelectionLimit, onSelectionLimitExceeded, setSelectedFiles]
+    [maxSelectionCount, setSelectedFiles]
   );
 
   return {

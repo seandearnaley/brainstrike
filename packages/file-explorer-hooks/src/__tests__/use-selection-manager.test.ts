@@ -75,7 +75,7 @@ describe('useSelectionManager', () => {
     expect(wouldExceed).toBe(false);
   });
 
-  it('calls onSelectionLimitExceeded when new selection would exceed limit', () => {
+  it('clips selection to the max instead of showing a limit error', () => {
     const { result } = renderSelectionManager({
       selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
@@ -85,8 +85,8 @@ describe('useSelectionManager', () => {
     act(() => {
       result.current.handleSelectionChange(new Set(['f1', 'f2', 'f3', 'f4', 'f5', 'f6']));
     });
-    expect(mockOnSelectionLimitExceeded).toHaveBeenCalled();
-    expect(mockSetSelectedFiles).not.toHaveBeenCalled();
+    expect(mockOnSelectionLimitExceeded).not.toHaveBeenCalled();
+    expect(mockSetSelectedFiles).toHaveBeenCalledWith(new Set(['f1', 'f2', 'f3', 'f4', 'f5']));
   });
 
   it('updates selection when new selection is within limit', () => {
