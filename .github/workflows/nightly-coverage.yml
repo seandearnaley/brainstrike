@@ -1,0 +1,154 @@
+name: Nightly Coverage
+
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-coverage-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-coverage-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Clear coverage directories
+        run: |
+          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
+          rm -rf .nyc_output
+
+      - name: Run package coverage
+        timeout-minutes: 30
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
+        run: >
+          pnpm turbo run test:coverage
+          --filter="!@brainstrike/db"
+          --concurrency=4
+          --summarize
+          --log-order=grouped
+          --cache-dir=.turbo
+
+      - name: Run DB runtime coverage
+        timeout-minutes: 10
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
+        run: >
+          pnpm turbo run test:coverage:db:runtime
+          --filter="@brainstrike/db"
+          --concurrency=1
+          --summarize
+          --log-order=grouped
+          --cache-dir=.turbo
+
+      - name: Run DB serial coverage lanes
+        timeout-minutes: 30
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
+        run: >
+          pnpm turbo run
+          test:coverage:db:architecture
+          test:coverage:db:chunking
+          test:coverage:db:migrations
+          test:coverage:db:queue
+          test:coverage:db:repositories
+          test:coverage:db:search
+          --filter="@brainstrike/db"
+          --concurrency=1
+          --summarize
+          --log-order=grouped
+          --cache-dir=.turbo
+
+      - name: Prepare coverage workspace
+        id: coverage
+        run: |
+          pnpm coverage:prepare-workspace
+          coverage_files=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
+          echo "coverage_files=${coverage_files}" >> "$GITHUB_OUTPUT"
+          if [ "$coverage_files" -gt 0 ]; then
+            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
+            echo "::error::No coverage-final.json files were generated."
+            exit 1
+          fi
+
+      - name: Enforce coverage thresholds
+        if: steps.coverage.outputs.has_coverage == 'true'
+        run: pnpm coverage:enforce
+
+      - name: Generate merged coverage report
+        if: steps.coverage.outputs.has_coverage == 'true'
+        run: |
+          pnpm coverage:merge -- --quiet packages apps
+          pnpm coverage:report
+
+      - name: Bundle coverage files
+        run: |
+          mkdir -p coverage-bundle
+          find . -name "coverage-final.json" -path "*/coverage/*" -exec cp --parents {} coverage-bundle/ \;
+          tar -cf coverage-bundle.tar coverage-bundle/
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: |
+            coverage/
+            coverage-bundle.tar
+          retention-days: 7
+          if-no-files-found: ignore

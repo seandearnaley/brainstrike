@@ -2,7 +2,7 @@
 
 Date: 2026-05-20
 Branch: `codex/local-architecture-reset`
-Mode: local only; no PRs, no pushes, no GitHub Actions, no proof manifest refresh.
+Mode: local only; no PRs, no pushes, no GitHub Actions.
 
 ## Objective
 
@@ -32,8 +32,7 @@ Primary drift/hotspot areas:
 ## Non-Negotiable Constraints
 
 - No pushes, PRs, GitHub Actions reruns, or cloud CI.
-- Do not run `pnpm ci:prove` or `pnpm ci:verify-proof`.
-- Do not update `.ci/proof/latest.json`.
+- Do not run removed CI proof commands.
 - Do not start duplicate long-running commands.
 - Before any long-running command, state exactly what it proves.
 - Targeted tests first. Wider build/lint/type/unit only after coherent slices are stable.
@@ -338,7 +337,7 @@ Commit: `Document desktop runtime platform`
 | central diagnostics surface | Slice 3 diagnostics contract + app-shell tests |
 | domain boundaries pass 0/0 exceptions | `pnpm run arch:domain-contract` and `pnpm run arch:domain-boundaries` |
 | risk-based pipeline stays selective | risk selector tests after pipeline-impacting changes |
-| local-only work | no pushes, no proof manifest update, clean local commits |
+| local-only work | no pushes, clean local commits |
 
 ## First Execution Step
 
