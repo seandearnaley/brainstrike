@@ -121,12 +121,47 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Pull request affected unit tests
+      # Compute changed-workspace filters from git diff (NOT turbo --affected).
+      # Turbo treats `globalDependencies` changes (pnpm-lock.yaml, root tsconfigs,
+      # turbo.jsonc, .nvmrc) as affecting EVERY package, so `--affected` and
+      # `--filter=[ref]` explode to all 40 workspaces whenever the lockfile
+      # changes (i.e., almost every PR). Computing the affected set from the
+      # git diff sidesteps that.
+      - name: Detect changed workspace packages (PR unit)
+        id: changed-pr
         if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          paths=$(git diff --name-only "origin/$BASE_REF"...HEAD \
+            | awk -F/ '/^packages\/|^apps\// && NF>=2 {print $1"/"$2}' \
+            | sort -u)
+          filters=""
+          while IFS= read -r p; do
+            [ -z "$p" ] && continue
+            [ -f "$p/package.json" ] || continue
+            name=$(jq -r '.name' "$p/package.json")
+            # `<name>...` = package + all dependents, so cross-package
+            # regressions still surface in Unit.
+            filters="$filters --filter=${name}..."
+          done <<<"$paths"
+          if [ -z "$filters" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changed workspace packages detected; Unit will skip."
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "filters=$filters" >> "$GITHUB_OUTPUT"
+            echo "Filters: $filters"
+          fi
+
+      - name: Pull request affected unit tests
+        if: github.event_name == 'pull_request' && steps.changed-pr.outputs.has_changes == 'true'
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test --affected --concurrency=4 --summarize --log-order=grouped
+          FILTERS: ${{ steps.changed-pr.outputs.filters }}
+        run: pnpm turbo run test $FILTERS --concurrency=4 --summarize --log-order=grouped
 
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
@@ -182,19 +217,49 @@ jobs:
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
 
+      # Same git-diff-driven detection as Unit. See the comment in the Unit
+      # job for why we don't use turbo's --filter=[ref] here.
+      - name: Detect changed workspace packages (PR coverage)
+        id: changed-cov
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          paths=$(git diff --name-only "origin/$BASE_REF"...HEAD \
+            | awk -F/ '/^packages\/|^apps\// && NF>=2 {print $1"/"$2}' \
+            | sort -u)
+          filters=""
+          while IFS= read -r p; do
+            [ -z "$p" ] && continue
+            [ -f "$p/package.json" ] || continue
+            name=$(jq -r '.name' "$p/package.json")
+            # Just the package itself — Codecov's patch gate is on changed
+            # lines, which live in the directly-changed packages.
+            filters="$filters --filter=${name}"
+          done <<<"$paths"
+          if [ -z "$filters" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changed workspace packages detected; coverage step will skip."
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "filters=$filters" >> "$GITHUB_OUTPUT"
+            echo "Filters: $filters"
+          fi
+
       - name: Run affected-only coverage
+        if: steps.changed-cov.outputs.has_changes == 'true'
         env:
           COVERAGE: "true"
           NODE_ENV: test
           TURBO_TEST_MODE: coverage
-          BASE_REF: ${{ github.base_ref }}
-        run: >
-          pnpm turbo run test:coverage
-          --filter="[origin/${BASE_REF}]"
-          --concurrency=4
-          --summarize
-          --log-order=grouped
-          --cache-dir=.turbo
+          FILTERS: ${{ steps.changed-cov.outputs.filters }}
+        run: |
+          pnpm turbo run test:coverage \
+            $FILTERS \
+            --concurrency=4 \
+            --summarize \
+            --log-order=grouped \
+            --cache-dir=.turbo
 
       - name: Prepare coverage workspace
         id: coverage
