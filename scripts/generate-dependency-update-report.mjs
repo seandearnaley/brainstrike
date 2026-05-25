@@ -108,7 +108,7 @@ function main() {
   md += `**Generated:** ${date}  \n`;
   md += '**Monorepo:** brainstrike (pnpm workspaces + Turborepo)  \n';
   md += '**Tooling:** `pnpm@10.33.0` (see root `package.json` `packageManager`)  \n';
-  md += '**Node engine (declared):** `22.x` (root `package.json` `engines`)  \n\n';
+  md += '**Node engine (declared):** `24.x` (root `package.json` `engines`)  \n\n';
 
   md += '## Methodology\n\n';
   md +=

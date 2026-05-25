@@ -39,7 +39,7 @@
     "vitest": "^4.1.4"
   },
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "keywords": [],
   "license": "ISC",

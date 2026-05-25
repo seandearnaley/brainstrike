@@ -1935,8 +1935,8 @@ export function validateSetupMonorepoContracts(source) {
     );
     requireIncludes(
       turboCacheStep,
-      '${{ runner.os }}-node22-turbo-v4-',
-      'Setup monorepo Turborepo cache must keep the stable node22 restore prefix.',
+      '${{ runner.os }}-node24-turbo-v4-',
+      'Setup monorepo Turborepo cache must keep the stable node24 restore prefix.',
       failures
     );
   }
