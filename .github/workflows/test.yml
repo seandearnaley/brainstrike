@@ -37,25 +37,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
@@ -90,25 +79,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
@@ -121,12 +99,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build workspace deps first. The previous `turbo run test --affected`
+      # got its build dependency via turbo.jsonc's `dependsOn: ["^build"]`,
+      # but pnpm's filter doesn't traverse that graph — workspace deps with
+      # exports maps pointing at `dist/` would otherwise fail to resolve at
+      # test time. Use turbo for build (cache makes this fast); use pnpm
+      # for affected test selection (turbo's --affected over-selects on
+      # merge commits, see commit message).
+      - name: Build workspace dependencies
+        if: github.event_name == 'pull_request'
+        run: pnpm turbo run build --concurrency=4
+
+      # PR-affected unit tests via pnpm's documented filter syntax.
+      # https://pnpm.io/filtering — pattern: `pnpm --filter "...[origin/master]" test`
+      #
+      # `...[ref]` = changed packages + their dependents — same semantic as
+      # `turbo run test --affected`. `!./` excludes the root workspace
+      # (which would otherwise run its root-level `test` script that
+      # delegates back to turbo over every workspace, defeating the scoping).
+      # --if-present skips packages that don't define a `test` script (e.g.
+      # apps/docs). Turbo silently skipped them via its task graph; pnpm
+      # errors without this flag. Per https://pnpm.io/cli/run:
+      # "Use the --if-present flag to avoid exiting with a non-zero exit
+      # code when the script is undefined."
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
-          COVERAGE: "false"
-          TURBO_TEST_MODE: unit
-        run: pnpm turbo run test --affected --concurrency=4 --summarize --log-order=grouped
+          BASE_REF: ${{ github.base_ref }}
+        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" run --if-present test
 
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
@@ -146,25 +146,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
@@ -182,19 +171,24 @@ jobs:
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
 
+      # See the Unit job for the rationale. Coverage instrumentation runs
+      # tests so it has the same build-dependency requirement.
+      - name: Build workspace dependencies
+        run: pnpm turbo run build --concurrency=4
+
+      # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
+      # gate is on changed lines, which only live in directly-changed
+      # packages — dependents add no patch-coverage signal. `!./` excludes
+      # the root workspace's `test:coverage` script (which delegates to
+      # `turbo run test:coverage` over every workspace).
       - name: Run affected-only coverage
         env:
           COVERAGE: "true"
           NODE_ENV: test
-          TURBO_TEST_MODE: coverage
           BASE_REF: ${{ github.base_ref }}
-        run: >
-          pnpm turbo run test:coverage
-          --filter="[origin/${BASE_REF}]"
-          --concurrency=4
-          --summarize
-          --log-order=grouped
-          --cache-dir=.turbo
+        # --if-present skips packages that don't define `test:coverage`.
+        # See the Unit step comment above for the rationale.
+        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" run --if-present test:coverage
 
       - name: Prepare coverage workspace
         id: coverage
@@ -232,25 +226,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
@@ -309,25 +292,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prod=false
@@ -368,25 +340,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Get Electron version
         id: electron-version
@@ -412,9 +373,16 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      # dbus-run-session provides an ephemeral D-Bus session so Chromium
+      # inside Electron doesn't spew `[ERROR:dbus/bus.cc:405] Failed to
+      # connect to the bus` for every spawned process. Tests pass without
+      # this (Electron handles the missing bus gracefully), but suppressing
+      # the noise keeps the smoke log readable.
+      # dbus-run-session is provided by the `dbus` package, pre-installed
+      # on the ubuntu-latest runner.
       - name: Run desktop smoke
         working-directory: apps/desktop
-        run: pnpm run test:e2e:lane:smoke
+        run: dbus-run-session -- pnpm run test:e2e:lane:smoke
 
       - name: Upload desktop smoke traces
         if: failure()

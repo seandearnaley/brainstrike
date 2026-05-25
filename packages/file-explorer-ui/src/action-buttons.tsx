@@ -163,7 +163,7 @@ export const ActionButtons = React.memo(
 
       if (canUseRecursive) {
         const result = await performRecursiveSelection(currentFolderId);
-        if (result?.limitReached === true) {
+        if (result?.limitReached) {
           onSelectionLimitExceeded?.();
         }
       } else {

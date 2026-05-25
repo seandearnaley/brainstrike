@@ -3,17 +3,11 @@ import { useMemo } from 'react';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
 
 interface UseFileExplorerSelectionParams {
-  onSelectionLimitExceeded: () => void;
   quickFilteredTree: IFileNode[] | null;
 }
 
-export function useFileExplorerSelection({
-  quickFilteredTree,
-  onSelectionLimitExceeded,
-}: UseFileExplorerSelectionParams) {
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
-    onSelectionLimitExceeded,
-  });
+export function useFileExplorerSelection({ quickFilteredTree }: UseFileExplorerSelectionParams) {
+  const { selectedFilePaths, handleSelectionChange } = useSelectionManager();
 
   // Derive displayed files from filtered tree using useMemo instead of useEffect
   const displayedFiles = useMemo(() => {
