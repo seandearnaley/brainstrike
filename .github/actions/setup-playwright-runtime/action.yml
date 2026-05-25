@@ -56,7 +56,41 @@ runs:
 
     - name: Verify Playwright runtime
       shell: bash
+      env:
+        PLAYWRIGHT_VERIFY_BROWSERS: ${{ inputs.browsers }}
       run: |
         set -euo pipefail
         pnpm exec playwright --version
-        node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+        node <<'NODE'
+        const { chromium, firefox, webkit } = require('playwright');
+
+        const launchTargets = {
+          chromium: [chromium, {}],
+          'chromium-headless-shell': [chromium, {}],
+          firefox: [firefox, {}],
+          webkit: [webkit, {}],
+          chrome: [chromium, { channel: 'chrome' }],
+          'chrome-beta': [chromium, { channel: 'chrome-beta' }],
+          msedge: [chromium, { channel: 'msedge' }],
+          'msedge-beta': [chromium, { channel: 'msedge-beta' }],
+        };
+
+        const requestedBrowsers = (process.env.PLAYWRIGHT_VERIFY_BROWSERS ?? '')
+          .split(/\s+/)
+          .filter(Boolean);
+
+        (async () => {
+          for (const browserName of requestedBrowsers) {
+            const target = launchTargets[browserName];
+            if (!target) {
+              throw new Error(`Unsupported Playwright browser: ${browserName}`);
+            }
+            const [browserType, launchOptions] = target;
+            const browser = await browserType.launch({ headless: true, ...launchOptions });
+            await browser.close();
+          }
+        })().catch((error) => {
+          console.error(error);
+          process.exit(1);
+        });
+        NODE

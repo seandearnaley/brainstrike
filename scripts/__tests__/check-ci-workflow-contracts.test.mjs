@@ -320,7 +320,7 @@ test('setup desktop E2E contract fails when Xvfb verification is removed', () =>
 });
 
 test('setup Playwright runtime contract fails when Chromium launch verification is removed', () => {
-  const source = setupPlaywrightRuntimeSource.replace('chromium.launch', 'console.log');
+  const source = setupPlaywrightRuntimeSource.replace('chromium: [chromium, {}]', 'chromium: null');
 
   assert.match(
     validateSetupPlaywrightRuntimeContracts(source).join('\n'),

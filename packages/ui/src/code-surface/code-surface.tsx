@@ -127,6 +127,13 @@ export function CodeSurface({
     onScrollTopChange,
     onSelectionChange,
   });
+  const initialConfigRef = useRef({
+    ariaLabel,
+    editable,
+    initialScrollTop,
+    lineWrapping,
+    value,
+  });
 
   const resolvedLanguage = useMemo<CodeSurfaceLanguageResolution>(
     () => resolveCodeSurfaceLanguage({ language, path }),
@@ -143,6 +150,7 @@ export function CodeSurface({
 
   useEffect(() => {
     // EditorView is intentionally created once; prop updates are handled by sync effects below.
+    const initialConfig = initialConfigRef.current;
     const host = hostRef.current;
     if (!host) {
       return;
@@ -151,12 +159,16 @@ export function CodeSurface({
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: value,
+        doc: initialConfig.value,
         extensions: [
           ...BASE_EXTENSIONS,
-          wrappingCompartmentRef.current.of(lineWrapping ? EditorView.lineWrapping : []),
-          editableCompartmentRef.current.of(createEditableExtensions(editable)),
-          contentAttributesCompartmentRef.current.of(createContentAttributes(ariaLabel)),
+          wrappingCompartmentRef.current.of(
+            initialConfig.lineWrapping ? EditorView.lineWrapping : []
+          ),
+          editableCompartmentRef.current.of(createEditableExtensions(initialConfig.editable)),
+          contentAttributesCompartmentRef.current.of(
+            createContentAttributes(initialConfig.ariaLabel)
+          ),
           languageCompartmentRef.current.of([]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !applyingExternalValueRef.current) {
@@ -184,7 +196,7 @@ export function CodeSurface({
       if (viewRef.current !== view) {
         return;
       }
-      view.scrollDOM.scrollTop = Math.max(0, initialScrollTop);
+      view.scrollDOM.scrollTop = Math.max(0, initialConfig.initialScrollTop);
     });
 
     return () => {

@@ -2075,6 +2075,13 @@ export function validateSetupPlaywrightRuntimeContracts(source) {
       /\n\s{4}- name: /
     ) ?? '';
   const installRuntimeRun = installRuntimeStep.match(/run:\s*\|([\s\S]*)/)?.[1] ?? '';
+  const verifyRuntimeStep =
+    extractBlock(
+      source,
+      /^\s{4}- name: Verify Playwright runtime\s*$/m,
+      /\n\s{4}- name: /
+    ) ?? '';
+  const verifyRuntimeRun = verifyRuntimeStep.match(/run:\s*\|([\s\S]*)/)?.[1] ?? '';
 
   requireIncludes(
     source,
@@ -2132,8 +2139,26 @@ export function validateSetupPlaywrightRuntimeContracts(source) {
   );
   requireIncludes(
     source,
-    'chromium.launch',
+    'chromium: [chromium, {}]',
     'Setup Playwright runtime must prove Chromium launches before running E2E lanes.',
+    failures
+  );
+  requireIncludes(
+    verifyRuntimeStep,
+    'PLAYWRIGHT_VERIFY_BROWSERS: ${{ inputs.browsers }}',
+    'Setup Playwright runtime must verify the browser runtime requested by the lane.',
+    failures
+  );
+  requireIncludes(
+    verifyRuntimeRun,
+    'launchTargets',
+    'Setup Playwright runtime must map requested browser names to matching launch checks.',
+    failures
+  );
+  requireIncludes(
+    verifyRuntimeRun,
+    'browserType.launch',
+    'Setup Playwright runtime must launch each requested browser target.',
     failures
   );
   requireNotIncludes(
