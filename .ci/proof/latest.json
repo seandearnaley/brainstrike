@@ -1,55 +1,56 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T23:29:54.169Z",
+  "generatedAt": "2026-05-25T02:10:51.587Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "1cdc35f66542464461bfc2329804f08745265bd1",
+  "testedHeadSha": "a8a871872c00c5c4a092c1d69f977b493433614f",
   "selection": {
     "base": "origin/main",
-    "baseSha": "590cd43adfe3e687b20061b300f00b2254aab741",
+    "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "1cdc35f66542464461bfc2329804f08745265bd1",
-    "mergeBase": "590cd43adfe3e687b20061b300f00b2254aab741",
+    "headSha": "a8a871872c00c5c4a092c1d69f977b493433614f",
+    "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
-      ".ci/proof/latest.json",
-      ".github/workflows/test.yml",
-      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/__tests__/ci-required-pr-gate.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs",
-      "scripts/ci-required-pr-gate.mjs"
+      "packages/ui/src/__tests__/collection-browser-toolbar.test.tsx",
+      "packages/ui/src/__tests__/search-mode-bar.test.tsx",
+      "packages/ui/src/collection-browser/search-mode-bar.tsx"
     ],
     "riskProfile": {
-      "category": "config-tooling",
+      "category": "shared-foundation",
       "domains": [
-        "tooling"
+        "shared-foundation"
       ],
-      "e2eLanes": [],
+      "e2eLanes": [
+        "critical-smoke"
+      ],
       "proofCommands": [
         "diff-check",
-        "ci-script-tests",
-        "workflow-contracts"
+        "ui-tests"
       ],
       "riskLevel": "medium",
       "cloudLabels": [
+        "ci:browser",
         "ci:unit"
       ]
     },
     "proofCommands": [
       "diff-check",
-      "ci-script-tests",
-      "workflow-contracts"
+      "ui-tests"
     ],
     "lanes": [
+      "ci:browser",
       "ci:unit"
     ],
     "expandedLanes": [
+      "ci:browser",
       "ci:unit"
     ],
     "labels": [
+      "ci:browser",
       "ci:unit"
     ],
     "commands": [
@@ -63,30 +64,19 @@
         ]
       },
       {
-        "name": "ci-script-tests",
-        "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-unit-proof-mode.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
-        "budgetMs": 120000,
-        "owner": "tooling",
-        "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
-        ]
-      },
-      {
-        "name": "workflow-contracts",
-        "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
+        "name": "ui-tests",
+        "command": "pnpm --filter @brainstrike/ui test",
         "budgetMs": 180000,
-        "owner": "ci-platform",
+        "owner": "shared-foundation",
         "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
+          "shared-foundation"
         ]
       }
     ],
     "budget": {
-      "target": "local-pr-risk",
-      "targetMs": 480000,
-      "totalMs": 330000,
+      "target": "normal-pr-risk",
+      "targetMs": 900000,
+      "totalMs": 210000,
       "status": "within-target"
     }
   },
@@ -98,25 +88,16 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 18
     },
     {
-      "name": "ci-script-tests",
-      "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-unit-proof-mode.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
-      "owner": "tooling",
-      "budgetMs": 120000,
-      "budgetStatus": "ok",
-      "exitCode": 0,
-      "durationMs": 430
-    },
-    {
-      "name": "workflow-contracts",
-      "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-      "owner": "ci-platform",
+      "name": "ui-tests",
+      "command": "pnpm --filter @brainstrike/ui test",
+      "owner": "shared-foundation",
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 409
+      "durationMs": 8287
     }
   ]
 }
