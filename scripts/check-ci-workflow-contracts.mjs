@@ -1955,8 +1955,14 @@ export function validateSetupMonorepoContracts(source) {
     );
     requireIncludes(
       turboCacheStep,
-      "hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json')",
-      'Setup monorepo Turborepo cache key must include lockfile, turbo config, and tsconfig inputs.',
+      "hashFiles('pnpm-lock.yaml', 'turbo.jsonc', 'tsconfig*.json', 'apps/*/tsconfig*.json', 'packages/*/tsconfig*.json', 'packages/*/tsconfig/*.json')",
+      'Setup monorepo Turborepo cache key must include scoped lockfile, turbo config, and first-party tsconfig inputs.',
+      failures
+    );
+    requireNotIncludes(
+      turboCacheStep,
+      "'**/tsconfig*.json'",
+      'Setup monorepo Turborepo cache key must not hash ignored worktree or generated tsconfig files.',
       failures
     );
     requireIncludes(
@@ -2014,6 +2020,37 @@ export function validateSetupMonorepoContracts(source) {
 
 export function validateTurboContracts(source) {
   const failures = [];
+  requireIncludes(
+    source,
+    '"tsconfig*.json"',
+    'Turborepo global dependencies must include root TypeScript config files.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '"apps/*/tsconfig*.json"',
+    'Turborepo global dependencies must include app TypeScript config files.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '"packages/*/tsconfig*.json"',
+    'Turborepo global dependencies must include package TypeScript config files.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '"packages/*/tsconfig/*.json"',
+    'Turborepo global dependencies must include shared tsconfig preset files.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    '"**/tsconfig*.json"',
+    'Turborepo global dependencies must not hash ignored worktree or generated tsconfig files.',
+    failures
+  );
+
   const browserTask = extractJsonObjectBlock(source, 'test:browser');
   if (!browserTask) {
     failures.push('Missing Turborepo test:browser task.');

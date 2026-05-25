@@ -272,6 +272,18 @@ test('Turborepo browser test contract fails when Playwright browser path is not 
   );
 });
 
+test('Turborepo global dependency contract rejects ignored tsconfig globs', () => {
+  const source = turboConfigSource.replace(
+    '"packages/*/tsconfig/*.json"',
+    '"**/tsconfig*.json"'
+  );
+
+  assert.match(
+    validateTurboContracts(source).join('\n'),
+    /must not hash ignored worktree or generated tsconfig files/
+  );
+});
+
 test('setup desktop E2E contract fails when apt is added to the shard setup', () => {
   const source = `${setupDesktopE2ESource}
     - name: Install system dependencies
@@ -445,7 +457,19 @@ test('setup monorepo contract fails when Turborepo config stops invalidating cac
 
   assert.match(
     validateSetupMonorepoContracts(source).join('\n'),
-    /cache key must include lockfile, turbo config, and tsconfig inputs/
+    /cache key must include scoped lockfile, turbo config, and first-party tsconfig inputs/
+  );
+});
+
+test('setup monorepo contract fails when Turborepo cache hashes ignored tsconfig files', () => {
+  const source = setupMonorepoSource.replace(
+    "'packages/*/tsconfig/*.json'",
+    "'**/tsconfig*.json'"
+  );
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /must not hash ignored worktree or generated tsconfig files/
   );
 });
 
