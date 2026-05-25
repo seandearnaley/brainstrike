@@ -244,6 +244,19 @@ function buildRisk(selection) {
   };
 }
 
+function normalizePrGateLanes(lanes, eventName) {
+  if (eventName !== 'pull_request') {
+    return lanes;
+  }
+  const prLanes = lanes.filter(
+    (lane) => !['coverage', 'coverage-db', 'coverage-full'].includes(lane)
+  );
+  if (prLanes.length !== lanes.length && !prLanes.includes('unit')) {
+    prLanes.push('unit');
+  }
+  return unique(prLanes);
+}
+
 function resolveUnitMode(selection) {
   return selection.localCommandNames.includes('changed-unit-tests')
     ? UNIT_MODE_CHANGED_TESTS
@@ -252,10 +265,12 @@ function resolveUnitMode(selection) {
 
 export function buildCiPlan(input) {
   const selection = buildSelection(input);
+  const eventName = input.eventName ?? 'pull_request';
   const isDocsOnly = selection.riskProfile.category === 'docs-only';
-  const lanes = isDocsOnly
+  const rawLanes = isDocsOnly
     ? ['docs-static']
     : unique(selection.expandedLanes.map(stripCiPrefix));
+  const lanes = normalizePrGateLanes(rawLanes, eventName);
   const e2eLanes = selection.riskProfile.e2eLanes.filter(
     (lane) => lane !== 'long-soak-release-only'
   );
@@ -282,7 +297,7 @@ export function buildCiPlan(input) {
   return {
     planVersion: PLAN_VERSION,
     selectionSource: input.selectionSource ?? 'git-diff',
-    eventName: input.eventName ?? 'pull_request',
+    eventName,
     base: selection.base,
     head: selection.head,
     baseSha: selection.baseSha,

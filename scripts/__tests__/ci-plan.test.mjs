@@ -96,10 +96,14 @@ test('full-risk changes select release lanes except long soak by default', () =>
 
   assert.equal(plan.risk.category, 'full-release-high-risk');
   assert.equal(plan.lanes.includes('full'), false);
+  assert.equal(plan.lanes.includes('coverage-db'), false);
+  assert.equal(plan.lanes.includes('coverage-full'), false);
+  assert.equal(plan.lanes.includes('unit'), true);
   assert.equal(plan.lanes.includes('web-e2e'), true);
   assert.equal(plan.lanes.includes('desktop'), true);
   assert.equal(plan.lanes.includes('embedding'), true);
-  assert.equal(plan.jobs.unit_coverage, true);
+  assert.equal(plan.jobs.unit_coverage, false);
+  assert.equal(plan.jobs.unit_affected, true);
   assert.equal(plan.jobs.prepare_web, true);
   assert.equal(plan.jobs.web_e2e_pr, true);
   assert.equal(plan.jobs.prepare_desktop, true);
