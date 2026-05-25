@@ -2,13 +2,17 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { JOBS_BY_LANE } from './ci-required-pr-gate.mjs';
+import { PLAN_JOB_IDS } from './ci-plan.mjs';
 
 const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
 const claudeReviewWorkflowPath = path.join(rootDir, '.github/workflows/claude-code-review.yml');
 const setupMonorepoActionPath = path.join(rootDir, '.github/actions/setup-monorepo/action.yml');
 const setupDesktopE2EActionPath = path.join(rootDir, '.github/actions/setup-desktop-e2e/action.yml');
+const setupPlaywrightRuntimeActionPath = path.join(
+  rootDir,
+  '.github/actions/setup-playwright-runtime/action.yml'
+);
 const turboConfigPath = path.join(rootDir, 'turbo.jsonc');
 const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
 const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
@@ -287,35 +291,25 @@ function requireMainPushEvent(job, jobName, failures) {
   );
 }
 
-function requireRiskLabelIncludes(job, jobName, labels, failures) {
+function requirePrPlanOutputGate(job, jobName, outputName, failures) {
   requireIncludes(
     job,
-    "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full')",
-    `${jobName} must run on PRs labeled ci:full.`,
+    "github.event_name == 'pull_request'",
+    `${jobName} must be gated to pull_request when reading CI Plan outputs.`,
     failures
   );
-  for (const label of labels) {
-    requireIncludes(
-      job,
-      `contains(join(github.event.pull_request.labels.*.name, ','), '${label}')`,
-      `${jobName} must run on PRs labeled ${label}.`,
-      failures
-    );
-  }
-}
-
-function requireRiskLabelGate(job, jobName, labels, failures) {
-  requireReleaseMatrixEvents(job, jobName, failures);
-  requireRiskLabelIncludes(job, jobName, labels, failures);
-}
-
-function requireMainPushAndRiskLabelGate(job, jobName, labels, failures) {
-  requireMainPushEvent(job, jobName, failures);
-  requireRiskLabelGate(job, jobName, labels, failures);
-}
-
-function requirePrRiskLabelGate(job, jobName, labels, failures) {
-  requireRiskLabelIncludes(job, jobName, labels, failures);
+  requireIncludes(
+    job,
+    `needs.plan.outputs.${outputName} == 'true'`,
+    `${jobName} must use CI Plan output ${outputName}.`,
+    failures
+  );
+  requireNotIncludes(
+    job,
+    'github.event.pull_request.labels',
+    `${jobName} must not read pull request labels for routing.`,
+    failures
+  );
 }
 
 function extractTurboRunCommandLines(source) {
@@ -339,20 +333,32 @@ function requireEveryTurboCommandHas(source, text, message, failures) {
 function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} desktop embedding job must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} desktop embedding job must use the cached Playwright runtime setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} desktop embedding job must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} desktop embedding job must not use a job container before fail-fast setup can run.`,
     failures
   );
   requireNotIncludes(
     source,
     'apt-get',
-    `${prefix} desktop embedding job must not run apt-get in the required shard path.`,
+    `${prefix} desktop embedding job must not run apt-get inline in the required shard path.`,
     failures
   );
   requireNotIncludes(
     source,
     'sudo ',
-    `${prefix} desktop embedding job must not require sudo in the required shard path.`,
+    `${prefix} desktop embedding job must not require sudo inline in the required shard path.`,
     failures
   );
   requireIncludes(
@@ -425,20 +431,32 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
 function requireDesktopRegressionJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} desktop regression job must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} desktop regression job must use the cached Playwright runtime setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} desktop regression job must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} desktop regression job must not use a job container before fail-fast setup can run.`,
     failures
   );
   requireNotIncludes(
     source,
     'apt-get',
-    `${prefix} desktop regression job must not run apt-get in the required shard path.`,
+    `${prefix} desktop regression job must not run apt-get inline in the required shard path.`,
     failures
   );
   requireNotIncludes(
     source,
     'sudo ',
-    `${prefix} desktop regression job must not require sudo in the required shard path.`,
+    `${prefix} desktop regression job must not require sudo inline in the required shard path.`,
     failures
   );
   requireNumericMatchAtMost(
@@ -501,8 +519,8 @@ function requireDesktopNarrowJobContracts(
   );
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} must use the cached Playwright runtime setup action.`,
     failures
   );
   requireIncludes(
@@ -513,16 +531,18 @@ function requireDesktopNarrowJobContracts(
   );
   requireNotIncludes(
     source,
-    'apt-get',
-    `${prefix} must not run apt-get in the required lane path.`,
+    'mcr.microsoft.com/playwright',
+    `${prefix} must not depend on the MCR Playwright container image.`,
     failures
   );
   requireNotIncludes(
     source,
-    'sudo ',
-    `${prefix} must not require sudo in the required lane path.`,
+    'container:',
+    `${prefix} must not use a job container before fail-fast setup can run.`,
     failures
   );
+  requireNotIncludes(source, 'apt-get', `${prefix} must not run apt-get inline.`, failures);
+  requireNotIncludes(source, 'sudo ', `${prefix} must not require sudo inline.`, failures);
   requireNumericMatchAtMost(
     extractJobHeader(source),
     /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -564,8 +584,20 @@ function requireWebNarrowJobContracts(source, { label, name, prefix, script, ste
   );
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} must use the cached Playwright runtime setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} must not use a job container before fail-fast setup can run.`,
     failures
   );
   requireNotIncludes(
@@ -599,65 +631,43 @@ function requireWebNarrowJobContracts(source, { label, name, prefix, script, ste
   requireIncludes(source, script, `${prefix} must run ${script}.`, failures);
 }
 
-function requirePreprovisionedPlaywrightJobContracts(source, prefix, failures) {
+function requirePlaywrightRuntimeJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} Playwright job must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} Playwright job must use the cached Playwright runtime setup action.`,
     failures
   );
-  requireIncludes(
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} Playwright job must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} Playwright job must not use a job container before fail-fast setup can run.`,
+    failures
+  );
+  requireNotIncludes(
     source,
     'PLAYWRIGHT_BROWSERS_PATH: /ms-playwright',
-    `${prefix} Playwright job must use the image-provided browser path explicitly.`,
-    failures
-  );
-  requireNotIncludes(
-    source,
-    'pnpm exec playwright install',
-    `${prefix} Playwright job must not install browsers or browser system dependencies during required CI.`,
-    failures
-  );
-  requireNotIncludes(
-    source,
-    'install-deps',
-    `${prefix} Playwright job must not run install-deps during required CI.`,
+    `${prefix} Playwright job must not assume image-provided browsers at /ms-playwright.`,
     failures
   );
   requireNotIncludes(
     source,
     'apt-get',
-    `${prefix} Playwright job must not run apt-get during required CI.`,
+    `${prefix} Playwright job must not run apt-get inline in the workflow job.`,
     failures
   );
-
-  const verifyStep = requireSingleNamedStep(
+  requireNotIncludes(
     source,
-    /Verify preprovisioned Playwright runtime/,
-    `${prefix} preprovisioned Playwright runtime verification step`,
+    'sudo ',
+    `${prefix} Playwright job must not require sudo inline in the workflow job.`,
     failures
   );
-
-  if (verifyStep) {
-    requireIncludes(
-      verifyStep,
-      'test -d "$PLAYWRIGHT_BROWSERS_PATH"',
-      `${prefix} Playwright job must fail fast if the image browser path is missing.`,
-      failures
-    );
-    requireIncludes(
-      verifyStep,
-      "require('playwright')",
-      `${prefix} Playwright job must verify the project Playwright package.`,
-      failures
-    );
-    requireIncludes(
-      verifyStep,
-      'chromium.launch',
-      `${prefix} Playwright job must prove Chromium launches before running the test lane.`,
-      failures
-    );
-  }
 }
 
 function requireWorkflowSecurityContracts(source, failures) {
@@ -772,8 +782,6 @@ export function validateWorkflowContracts(source) {
     'synchronize',
     'reopened',
     'ready_for_review',
-    'labeled',
-    'unlabeled',
   ]) {
     requireIncludes(
       source,
@@ -782,6 +790,26 @@ export function validateWorkflowContracts(source) {
       failures
     );
   }
+  for (const eventType of ['labeled', 'unlabeled']) {
+    requireNotIncludes(
+      source,
+      `      - ${eventType}`,
+      `Test workflow pull_request trigger must not rerun on ${eventType}; CI Plan is computed from the diff.`,
+      failures
+    );
+  }
+  requireNotIncludes(
+    source,
+    'github.event.pull_request.labels',
+    'Test workflow must not route PR checks from mutable pull request labels.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'ci:verify-proof',
+    'Test workflow must not require legacy local proof verification.',
+    failures
+  );
   requireIncludes(
     source,
     'release_proof:',
@@ -867,12 +895,7 @@ export function validateWorkflowContracts(source) {
   if (!determineMatrix) {
     failures.push('Missing determine-matrix job.');
   } else {
-    requireRiskLabelGate(
-      determineMatrix,
-      'Determine E2E Matrix',
-      ['ci:web-e2e', 'ci:desktop'],
-      failures
-    );
+    requireReleaseMatrixEvents(determineMatrix, 'Determine E2E Matrix', failures);
     requireNoMainPushEvent(determineMatrix, 'Determine E2E Matrix', failures);
     requireIncludes(
       determineMatrix,
@@ -904,9 +927,9 @@ export function validateWorkflowContracts(source) {
   if (!e2e) {
     failures.push('Missing e2e job.');
   } else {
-    requireRiskLabelGate(e2e, 'Functional E2E', ['ci:web-e2e'], failures);
+    requireReleaseMatrixEvents(e2e, 'Functional E2E', failures);
     requireNoMainPushEvent(e2e, 'Functional E2E', failures);
-    requirePreprovisionedPlaywrightJobContracts(e2e, 'Functional E2E', failures);
+    requirePlaywrightRuntimeJobContracts(e2e, 'Functional E2E', failures);
     requireIncludes(
       e2e,
       'needs: [checks, determine-matrix]',
@@ -937,9 +960,9 @@ export function validateWorkflowContracts(source) {
   if (!stateful) {
     failures.push('Missing e2e-stateful job.');
   } else {
-    requireRiskLabelGate(stateful, 'Stateful E2E', ['ci:web-e2e'], failures);
+    requireReleaseMatrixEvents(stateful, 'Stateful E2E', failures);
     requireNoMainPushEvent(stateful, 'Stateful E2E', failures);
-    requirePreprovisionedPlaywrightJobContracts(stateful, 'Stateful E2E', failures);
+    requirePlaywrightRuntimeJobContracts(stateful, 'Stateful E2E', failures);
     requireIncludes(
       stateful,
       'needs: [checks]',
@@ -958,9 +981,9 @@ export function validateWorkflowContracts(source) {
   if (!destructive) {
     failures.push('Missing e2e-destructive job.');
   } else {
-    requireRiskLabelGate(destructive, 'Destructive E2E', ['ci:web-e2e'], failures);
+    requireReleaseMatrixEvents(destructive, 'Destructive E2E', failures);
     requireNoMainPushEvent(destructive, 'Destructive E2E', failures);
-    requirePreprovisionedPlaywrightJobContracts(destructive, 'Destructive E2E', failures);
+    requirePlaywrightRuntimeJobContracts(destructive, 'Destructive E2E', failures);
     requireIncludes(
       destructive,
       'needs: [checks]',
@@ -1003,27 +1026,8 @@ export function validateWorkflowContracts(source) {
   if (!mergeReports) {
     failures.push('Missing merge-reports job.');
   } else {
-    requireRiskLabelGate(
-      mergeReports,
-      'Merge Test Reports',
-      [
-        'ci:web-smoke',
-        'ci:web-file-explorer-persistence',
-        'ci:web-import-indexing',
-        'ci:web-assistant-state',
-        'ci:web-settings-state',
-        'ci:web-db-startup',
-        'ci:web-destructive-reset',
-        'ci:web-e2e',
-        'ci:desktop-smoke',
-        'ci:desktop-ipc-reset',
-        'ci:desktop-runtime-hosts',
-        'ci:desktop-db-storage',
-        'ci:desktop',
-        'ci:embedding',
-      ],
-      failures
-    );
+    requireReleaseMatrixEvents(mergeReports, 'Merge Test Reports', failures);
+    requirePrPlanOutputGate(mergeReports, 'Merge Test Reports', 'run-merge-reports', failures);
     requireNoMainPushEvent(mergeReports, 'Merge Test Reports', failures);
     requireIncludes(
       mergeReports,
@@ -1051,183 +1055,151 @@ export function validateWorkflowContracts(source) {
     );
   }
 
-  for (const narrowLane of [
-    {
-      jobName: 'web-e2e-smoke-pr',
-      label: 'ci:web-smoke',
-      name: 'Web E2E Smoke',
-      prefix: 'PR web smoke',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke',
-      stepName: 'Run web smoke lane',
-    },
-    {
-      jobName: 'web-e2e-file-explorer-persistence-pr',
-      label: 'ci:web-file-explorer-persistence',
-      name: 'Web E2E File Explorer Persistence',
-      prefix: 'PR web file explorer persistence',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence',
-      stepName: 'Run file explorer persistence lane',
-    },
-    {
-      jobName: 'web-e2e-import-indexing-pr',
-      label: 'ci:web-import-indexing',
-      name: 'Web E2E Import Indexing',
-      prefix: 'PR web import indexing',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:import-indexing',
-      stepName: 'Run import indexing lane',
-    },
-    {
-      jobName: 'web-e2e-assistant-state-pr',
-      label: 'ci:web-assistant-state',
-      name: 'Web E2E Assistant State',
-      prefix: 'PR web assistant state',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:assistant-state',
-      stepName: 'Run assistant state lane',
-    },
-    {
-      jobName: 'web-e2e-settings-state-pr',
-      label: 'ci:web-settings-state',
-      name: 'Web E2E Settings State',
-      prefix: 'PR web settings state',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:settings-state',
-      stepName: 'Run settings state lane',
-    },
-    {
-      jobName: 'web-e2e-db-startup-pr',
-      label: 'ci:web-db-startup',
-      name: 'Web E2E DB Startup',
-      prefix: 'PR web DB startup',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:db-startup',
-      stepName: 'Run DB startup lane',
-    },
-    {
-      jobName: 'web-e2e-destructive-reset-pr',
-      label: 'ci:web-destructive-reset',
-      name: 'Web E2E Destructive Reset',
-      prefix: 'PR web destructive reset',
-      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset',
-      stepName: 'Run destructive reset lane',
-    },
-  ]) {
-    const job = extractJob(source, narrowLane.jobName);
-    if (!job) {
-      failures.push(`Missing ${narrowLane.jobName} job.`);
-      continue;
-    }
-    requireWebNarrowJobContracts(job, narrowLane, failures);
-    if (narrowLane.jobName === 'web-e2e-smoke-pr') {
-      requireMainPushEvent(job, 'Web E2E Smoke', failures);
-    }
+  const webE2ePr = extractJob(source, 'web-e2e-pr');
+  if (!webE2ePr) {
+    failures.push('Missing web-e2e-pr job.');
+  } else {
+    requirePrPlanOutputGate(webE2ePr, 'Web E2E PR', 'run-web-e2e-pr', failures);
+    requireIncludes(
+      webE2ePr,
+      'matrix: ${{ fromJSON(needs.plan.outputs.web-e2e-matrix) }}',
+      'Web E2E PR must use the CI Plan web matrix.',
+      failures
+    );
+    requireIncludes(
+      webE2ePr,
+      'E2E_COMMAND: ${{ matrix.command }}',
+      'Web E2E PR must receive the selected lane command from CI Plan.',
+      failures
+    );
+    requireIncludes(
+      webE2ePr,
+      'run: bash -euo pipefail -c "$E2E_COMMAND"',
+      'Web E2E PR must execute the selected lane command through the shell-safe env entrypoint.',
+      failures
+    );
+    requireIncludes(
+      webE2ePr,
+      'needs: [plan, checks, prepare-web]',
+      'Web E2E PR must depend on plan, checks, and the prepared web artifact.',
+      failures
+    );
+    requirePlaywrightRuntimeJobContracts(webE2ePr, 'Web E2E PR', failures);
+    requireNotIncludes(
+      webE2ePr,
+      'test:e2e:lane:full-regression',
+      'Web E2E PR must not hard-code full regression as a hidden fallback.',
+      failures
+    );
+  }
+
+  const webSmoke = extractJob(source, 'web-e2e-smoke-pr');
+  if (!webSmoke) {
+    failures.push('Missing web-e2e-smoke-pr job.');
+  } else {
+    requireMainPushEvent(webSmoke, 'Web E2E Smoke', failures);
+    requireNotIncludes(
+      webSmoke,
+      "github.event_name == 'pull_request'",
+      'Web E2E Smoke must not run for PRs outside CI Plan.',
+      failures
+    );
   }
 
   const desktopPr = extractJob(source, 'desktop-e2e-pr');
   if (!desktopPr) {
     failures.push('Missing desktop-e2e-pr job.');
   } else {
-    requirePrRiskLabelGate(desktopPr, 'PR desktop regression', ['ci:desktop'], failures);
+    requirePrPlanOutputGate(desktopPr, 'Desktop E2E PR', 'run-desktop-e2e-pr', failures);
     requireIncludes(
       desktopPr,
-      'name: Desktop E2E Regression',
-      'PR desktop E2E status must prove the desktop regression suite.',
+      'name: Desktop E2E PR (${{ matrix.lane }})',
+      'PR desktop E2E status must show the selected lane.',
       failures
     );
     requireIncludes(
       desktopPr,
-      '--project=regression',
-      'PR desktop E2E must run the regression Playwright project.',
+      'matrix: ${{ fromJSON(needs.plan.outputs.desktop-e2e-matrix) }}',
+      'Desktop E2E PR must use the CI Plan desktop matrix.',
       failures
     );
     requireIncludes(
       desktopPr,
-      '--grep-invert "@desktop-embedding-"',
-      'PR desktop E2E shard job must exclude embedding groups covered by the embedding job.',
+      'E2E_COMMAND: ${{ matrix.command }}',
+      'Desktop E2E PR must receive the selected lane command from CI Plan.',
       failures
     );
     requireIncludes(
       desktopPr,
-      '--workers=1',
-      'PR desktop E2E must keep one worker per shard to avoid concurrent Electron/DB-host contention.',
+      'bash -euo pipefail -c "$E2E_COMMAND"',
+      'Desktop E2E PR must execute the selected lane command through the shell-safe env entrypoint.',
       failures
     );
-    requireDesktopRegressionJobContracts(desktopPr, 'PR', failures);
-    if (desktopPr.includes('--project=smoke')) {
-      failures.push('PR desktop E2E must not use smoke as the required desktop proof.');
-    }
+    requireIncludes(
+      desktopPr,
+      'needs: [plan, prepare-desktop]',
+      'Desktop E2E PR must depend on plan and the prepared desktop artifact.',
+      failures
+    );
+    requireNumericMatchAtMost(
+      extractJobHeader(desktopPr),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      20,
+      'Desktop E2E PR job timeout must stay at 20 minutes or less.',
+      failures
+    );
+    requireNumericMatchAtLeast(
+      extractJobHeader(desktopPr),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      20,
+      'Desktop E2E PR job timeout must cover setup plus selected lane execution.',
+      failures
+    );
+    requireIncludes(
+      desktopPr,
+      'uses: ./.github/actions/setup-playwright-runtime',
+      'Desktop E2E PR must use the cached Playwright runtime setup action.',
+      failures
+    );
+    requireIncludes(
+      desktopPr,
+      'uses: ./.github/actions/setup-desktop-e2e',
+      'Desktop E2E PR must use the shared desktop E2E setup action.',
+      failures
+    );
+    requireNotIncludes(
+      desktopPr,
+      'mcr.microsoft.com/playwright',
+      'Desktop E2E PR must not depend on the MCR Playwright container image.',
+      failures
+    );
+    requireNotIncludes(
+      desktopPr,
+      'container:',
+      'Desktop E2E PR must not use a job container before fail-fast setup can run.',
+      failures
+    );
+    requireNotIncludes(desktopPr, 'apt-get', 'Desktop E2E PR must not run apt-get inline.', failures);
+    requireNotIncludes(desktopPr, 'sudo ', 'Desktop E2E PR must not require sudo inline.', failures);
+    requireNotIncludes(
+      desktopPr,
+      '--shard=',
+      'Desktop E2E PR must not silently shard all desktop regression for every desktop lane.',
+      failures
+    );
   }
 
-  for (const narrowLane of [
-    {
-      jobName: 'desktop-e2e-smoke-pr',
-      label: 'ci:desktop-smoke',
-      name: 'Desktop E2E Smoke',
-      prefix: 'PR desktop smoke',
-      script: 'pnpm run test:e2e:lane:smoke',
-    },
-    {
-      jobName: 'desktop-e2e-ipc-reset-pr',
-      label: 'ci:desktop-ipc-reset',
-      name: 'Desktop E2E IPC Reset',
-      prefix: 'PR desktop IPC reset',
-      script: 'pnpm run test:e2e:lane:ipc-reset',
-    },
-    {
-      jobName: 'desktop-e2e-runtime-hosts-pr',
-      label: 'ci:desktop-runtime-hosts',
-      name: 'Desktop E2E Runtime Hosts',
-      prefix: 'PR desktop runtime hosts',
-      script: 'pnpm run test:e2e:lane:runtime-hosts',
-    },
-    {
-      jobName: 'desktop-e2e-db-storage-pr',
-      label: 'ci:desktop-db-storage',
-      name: 'Desktop E2E DB Storage',
-      prefix: 'PR desktop DB storage',
-      script: 'pnpm run test:e2e:lane:db-storage',
-    },
-  ]) {
-    const job = extractJob(source, narrowLane.jobName);
-    if (!job) {
-      failures.push(`Missing ${narrowLane.jobName} job.`);
-      continue;
-    }
-    requireDesktopNarrowJobContracts(job, narrowLane, failures);
-    if (narrowLane.jobName === 'desktop-e2e-smoke-pr') {
-      requireMainPushEvent(job, 'Desktop E2E Smoke', failures);
-    }
-  }
-
-  const desktopEmbeddingPr = extractJob(source, 'desktop-e2e-embedding-pr');
-  if (!desktopEmbeddingPr) {
-    failures.push('Missing desktop-e2e-embedding-pr job.');
+  const desktopSmoke = extractJob(source, 'desktop-e2e-smoke-pr');
+  if (!desktopSmoke) {
+    failures.push('Missing desktop-e2e-smoke-pr job.');
   } else {
-    requirePrRiskLabelGate(
-      desktopEmbeddingPr,
-      'PR desktop embedding regression',
-      ['ci:embedding'],
+    requireMainPushEvent(desktopSmoke, 'Desktop E2E Smoke', failures);
+    requireNotIncludes(
+      desktopSmoke,
+      "github.event_name == 'pull_request'",
+      'Desktop E2E Smoke must not run for PRs outside CI Plan.',
       failures
     );
-    requireIncludes(
-      desktopEmbeddingPr,
-      'name: Desktop E2E Embedding Regression',
-      'PR desktop embedding E2E status must prove embedding regressions.',
-      failures
-    );
-    for (const group of [
-      '@desktop-embedding-lifecycle',
-      '@desktop-embedding-backfill',
-      '@desktop-embedding-search',
-      '@desktop-embedding-recovery',
-      '@desktop-embedding-memory',
-      '@desktop-embedding-mixed',
-    ]) {
-      requireIncludes(
-        desktopEmbeddingPr,
-        group,
-        `PR desktop embedding E2E must include ${group}.`,
-        failures
-      );
-    }
-    requireDesktopEmbeddingJobContracts(desktopEmbeddingPr, 'PR', failures);
   }
 
   const desktopMain = extractJob(source, 'desktop-e2e-main');
@@ -1323,38 +1295,21 @@ export function validateWorkflowContracts(source) {
   if (!prepareWeb) {
     failures.push('Missing prepare-web job.');
   } else {
-    requireMainPushAndRiskLabelGate(
-      prepareWeb,
-      'Build Web App',
-      [
-        'ci:web-smoke',
-        'ci:web-file-explorer-persistence',
-        'ci:web-import-indexing',
-        'ci:web-assistant-state',
-        'ci:web-settings-state',
-        'ci:web-db-startup',
-        'ci:web-destructive-reset',
-        'ci:web-e2e',
-      ],
-      failures
-    );
+    requireMainPushEvent(prepareWeb, 'Build Web App', failures);
+    requireReleaseMatrixEvents(prepareWeb, 'Build Web App', failures);
+    requirePrPlanOutputGate(prepareWeb, 'Build Web App', 'run-prepare-web', failures);
   }
 
   const prepareDesktop = extractJob(source, 'prepare-desktop');
   if (!prepareDesktop) {
     failures.push('Missing prepare-desktop job.');
   } else {
-    requireMainPushAndRiskLabelGate(
+    requireMainPushEvent(prepareDesktop, 'Build Desktop App', failures);
+    requireReleaseMatrixEvents(prepareDesktop, 'Build Desktop App', failures);
+    requirePrPlanOutputGate(
       prepareDesktop,
       'Build Desktop App',
-      [
-        'ci:desktop-smoke',
-        'ci:desktop-ipc-reset',
-        'ci:desktop-runtime-hosts',
-        'ci:desktop-db-storage',
-        'ci:desktop',
-        'ci:embedding',
-      ],
+      'run-prepare-desktop',
       failures
     );
   }
@@ -1363,10 +1318,10 @@ export function validateWorkflowContracts(source) {
   if (!unitAffected) {
     failures.push('Missing unit_affected job.');
   } else {
-    requirePrRiskLabelGate(unitAffected, 'Checks (unit-affected)', ['ci:unit'], failures);
-    // The affected-unit timeout is intentionally pinned: cold-cache full-risk runs have included
-    // Electron, embedding-worker diagnostics, dependent package builds, and Node 24 runtime overhead.
-    // Change the workflow and this contract together when measured runtimes justify tightening or widening it.
+    requirePrPlanOutputGate(unitAffected, 'Checks (unit-affected)', 'run-unit-affected', failures);
+    // The unit timeout is intentionally pinned. PR unit work must stay bounded by changed files or
+    // changed workspaces; broad package-graph validation belongs in explicit release/nightly lanes.
+    // Keep Node runtime changes in sync with this contract when measured runtimes justify a timeout change.
     requireNumericMatchAtMost(
       extractJobHeader(unitAffected),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -1389,26 +1344,38 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       unitAffected,
-      '- name: Detect selected unit proof mode',
-      'Affected unit job must detect changed-unit-test proof mode before expanding Turbo affected tests.',
+      'UNIT_MODE: ${{ needs.plan.outputs.unit-mode }}',
+      'Affected unit job must read changed-unit-test mode from CI Plan.',
       failures
     );
-    requireIncludes(
+    requireNotIncludes(
       unitAffected,
       'scripts/ci-unit-proof-mode.mjs',
-      'Affected unit job must use the tested unit proof mode detector.',
+      'Affected unit job must not read unit mode from the removed manifest path.',
       failures
     );
     requireIncludes(
       unitAffected,
       'node scripts/run-changed-unit-tests.mjs',
-      'Affected unit job must run changed unit test files directly for isolated unit-test-only proof.',
+      'Affected unit job must run changed unit test files directly for isolated unit-test-only changes.',
       failures
     );
     requireIncludes(
       unitAffected,
+      '--changed-workspaces',
+      'Affected unit job must run changed workspace unit tests without Turbo global-hash expansion.',
+      failures
+    );
+    requireNotIncludes(
+      unitAffected,
       'turbo run test --filter="...[origin/${GITHUB_BASE_REF}]"',
-      'Affected unit job must still support Turbo affected filtering against the PR base.',
+      'Affected unit job must not expand PR unit tests to dependents through Turbo affected filtering.',
+      failures
+    );
+    requireIncludes(
+      unitAffected,
+      'rm -rf .turbo/runs',
+      'Affected unit job must clear stale Turbo summaries before the affected unit phase.',
       failures
     );
     requireStepTimeoutAtMost(
@@ -1437,10 +1404,11 @@ export function validateWorkflowContracts(source) {
   if (!unitCoverage) {
     failures.push('Missing unit_coverage job.');
   } else {
-    requireRiskLabelGate(
+    requireReleaseMatrixEvents(unitCoverage, 'Checks (coverage-db/full)', failures);
+    requirePrPlanOutputGate(
       unitCoverage,
       'Checks (coverage-db/full)',
-      ['ci:coverage-db', 'ci:coverage-full'],
+      'run-unit-coverage',
       failures
     );
     requireNoMainPushEvent(unitCoverage, 'Checks (coverage-db/full)', failures);
@@ -1606,16 +1574,13 @@ export function validateWorkflowContracts(source) {
   if (!checks) {
     failures.push('Missing checks job.');
   } else {
+    requireMainPushEvent(checks, 'Checks (static)', failures);
+    requireReleaseMatrixEvents(checks, 'Checks (static)', failures);
+    requirePrPlanOutputGate(checks, 'Checks (static)', 'run-checks', failures);
     requireIncludes(
       checks,
-      "github.event_name != 'workflow_dispatch'",
-      'Checks (static) must not run on unconfirmed manual workflow_dispatch events.',
-      failures
-    );
-    requireIncludes(
-      checks,
-      MANUAL_FULL_RELEASE_EXPR,
-      'Checks (static) must run when manual release_proof=full-release is selected.',
+      'needs: [plan]',
+      'Checks (static) must depend on CI Plan so PR routing is computed before job selection.',
       failures
     );
   }
@@ -1624,95 +1589,114 @@ export function validateWorkflowContracts(source) {
   if (!browserTests) {
     failures.push('Missing browser-tests job.');
   } else {
-    requireRiskLabelGate(browserTests, 'Browser Vitest', ['ci:browser'], failures);
+    requireReleaseMatrixEvents(browserTests, 'Browser Vitest', failures);
+    requirePrPlanOutputGate(browserTests, 'Browser Vitest', 'run-browser-tests', failures);
     requireNoMainPushEvent(browserTests, 'Browser Vitest', failures);
-    requirePreprovisionedPlaywrightJobContracts(browserTests, 'Browser Vitest', failures);
+    requirePlaywrightRuntimeJobContracts(browserTests, 'Browser Vitest', failures);
   }
 
-  const prSentinel = extractJob(source, 'pr-sentinel');
-  if (!prSentinel) {
-    failures.push('Missing pr-sentinel job.');
+  const plan = extractJob(source, 'plan');
+  if (!plan) {
+    failures.push('Missing plan job.');
   } else {
     requireIncludes(
-      prSentinel,
-      'name: PR Sentinel',
-      'PR Sentinel status name must stay stable.',
+      plan,
+      'name: CI Plan',
+      'CI Plan status name must stay stable.',
       failures
     );
     requireIncludes(
-      prSentinel,
-      "if: github.event_name == 'pull_request'",
-      'PR Sentinel must only run on pull_request.',
+      plan,
+      'node scripts/ci-plan.mjs',
+      'CI Plan must use the tested planner script.',
       failures
     );
     requireIncludes(
-      prSentinel,
-      'timeout-minutes: 10',
-      'PR Sentinel must keep a tight ten minute timeout.',
+      plan,
+      '--github-output "$GITHUB_OUTPUT"',
+      'CI Plan must write machine-readable GitHub outputs.',
       failures
     );
     requireIncludes(
-      prSentinel,
+      plan,
       'uses: actions/checkout@v6',
-      'PR Sentinel must use actions/checkout@v6.',
+      'CI Plan must use actions/checkout@v6.',
       failures
     );
     requireIncludes(
-      prSentinel,
+      plan,
       'fetch-depth: 0',
-      'PR Sentinel checkout must fetch full history for proof ancestry checks.',
+      'CI Plan checkout must fetch full history for deterministic diff selection.',
       failures
     );
     requireIncludes(
-      prSentinel,
-      'uses: ./.github/actions/setup-monorepo',
-      'PR Sentinel must use the shared monorepo setup action.',
-      failures
-    );
-    requireIncludes(
-      prSentinel,
-      'pnpm ci:verify-proof',
-      'PR Sentinel must verify the local proof manifest.',
-      failures
-    );
-    requireIncludes(
-      prSentinel,
-      'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
-      'PR Sentinel must verify proof against the pull request head SHA, not the synthetic merge commit.',
-      failures
-    );
-    requireIncludes(
-      prSentinel,
-      '--head "$PR_HEAD_SHA"',
-      'PR Sentinel must pass the pull request head SHA to the proof verifier.',
+      plan,
+      '--head "$PR_HEAD_SHA" --base "origin/${GITHUB_BASE_REF}"',
+      'CI Plan must compute PR risk from the pull request head against the base branch.',
       failures
     );
     requireNotIncludes(
-      prSentinel,
-      '--head "$GITHUB_SHA"',
-      'PR Sentinel must not verify proof against GITHUB_SHA because pull_request events use a synthetic merge commit.',
+      plan,
+      'gh pr view',
+      'CI Plan must not read live pull request labels.',
       failures
     );
-    requireIncludes(
-      prSentinel,
-      'gh pr view "$PR_NUMBER" --json labels',
-      'PR Sentinel must fetch live pull request labels before proof verification.',
-      failures
-    );
-    requireIncludes(
-      prSentinel,
-      'PR_LABELS: ${{ steps.pr-labels.outputs.labels }}',
-      'PR Sentinel must pass live pull request labels to the proof verifier.',
-      failures
-    );
-    for (const outputName of ['required-labels', 'expanded-lanes', 'tested-head-sha']) {
+    for (const outputName of [
+      'required-jobs-json',
+      'run-docs-static',
+      'run-checks',
+      'run-unit-affected',
+      'run-unit-coverage',
+      'run-browser-tests',
+      'run-prepare-web',
+      'run-web-e2e-pr',
+      'run-prepare-desktop',
+      'run-desktop-e2e-pr',
+      'run-merge-reports',
+      'web-e2e-matrix',
+      'desktop-e2e-matrix',
+    ]) {
       requireIncludes(
-        prSentinel,
+        plan,
         outputName,
-        `PR Sentinel must write the ${outputName} output.`,
+        `CI Plan must write the ${outputName} output.`,
         failures
       );
     }
+  }
+
+  const docsStatic = extractJob(source, 'docs-static');
+  if (docsStatic) {
+    requireIncludes(
+      docsStatic,
+      'fetch-depth: 0',
+      'Docs Static checkout must fetch enough history for explicit diff validation.',
+      failures
+    );
+    requireIncludes(
+      docsStatic,
+      'DOCS_DIFF_BASE_SHA',
+      'Docs Static must use an explicit base SHA for git diff --check.',
+      failures
+    );
+    requireIncludes(
+      docsStatic,
+      'DOCS_DIFF_HEAD_SHA',
+      'Docs Static must use an explicit head SHA for git diff --check.',
+      failures
+    );
+    requireIncludes(
+      docsStatic,
+      'git diff --check "$DOCS_DIFF_BASE_SHA" "$DOCS_DIFF_HEAD_SHA"',
+      'Docs Static must run git diff --check against explicit base and head refs.',
+      failures
+    );
+    requireNotIncludes(
+      docsStatic,
+      'git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md',
+      'Docs Static must not run git diff --check without explicit refs on a clean CI checkout.',
+      failures
+    );
   }
 
   const requiredPrGate = extractJob(source, 'required-pr-gate');
@@ -1731,12 +1715,7 @@ export function validateWorkflowContracts(source) {
       'Required PR Gate must checkout the repo before running the gate script.',
       failures
     );
-    for (const jobName of [
-      'pr-sentinel',
-      'checks',
-      'merge-reports',
-      ...new Set([...JOBS_BY_LANE.values()].flat()),
-    ]) {
+    for (const jobName of ['plan', ...PLAN_JOB_IDS]) {
       requireYamlListItem(
         requiredPrGate,
         jobName,
@@ -1746,14 +1725,8 @@ export function validateWorkflowContracts(source) {
     }
     requireIncludes(
       requiredPrGate,
-      'REQUIRED_LABELS: ${{ needs.pr-sentinel.outputs.required-labels }}',
-      'Required PR Gate must read selected labels from PR Sentinel outputs.',
-      failures
-    );
-    requireIncludes(
-      requiredPrGate,
-      'REQUIRED_EXPANDED_LANES: ${{ needs.pr-sentinel.outputs.expanded-lanes }}',
-      'Required PR Gate must read expanded lanes from PR Sentinel outputs.',
+      'REQUIRED_JOBS_JSON: ${{ needs.plan.outputs.required-jobs-json }}',
+      'Required PR Gate must read required jobs from CI Plan outputs.',
       failures
     );
     requireIncludes(
@@ -1869,8 +1842,8 @@ export function validateWorkflowContracts(source) {
   } else {
     requireIncludes(
       codeQuality,
-      "if: github.event_name == 'pull_request' || github.event_name == 'schedule'",
-      'Code Quality must not run on every main push.',
+      "if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')",
+      'Code Quality Checks must not run on routine pull requests.',
       failures
     );
     requireNotIncludes(
@@ -1883,6 +1856,12 @@ export function validateWorkflowContracts(source) {
       extractJobHeader(codeQuality),
       "github.event_name == 'push'",
       'Code Quality must not run on every main push.',
+      failures
+    );
+    requireNotIncludes(
+      extractJobHeader(codeQuality),
+      "github.event_name == 'pull_request'",
+      'Code Quality Checks must not run on routine pull requests.',
       failures
     );
   }
@@ -1929,8 +1908,14 @@ export function validateSetupMonorepoContracts(source) {
     );
     requireIncludes(
       turboCacheStep,
-      "hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json')",
-      'Setup monorepo Turborepo cache key must include lockfile, turbo config, and tsconfig inputs.',
+      "hashFiles('pnpm-lock.yaml', 'turbo.jsonc', 'tsconfig*.json', 'apps/*/tsconfig*.json', 'packages/*/tsconfig*.json', 'packages/*/tsconfig/*.json')",
+      'Setup monorepo Turborepo cache key must include scoped lockfile, turbo config, and first-party tsconfig inputs.',
+      failures
+    );
+    requireNotIncludes(
+      turboCacheStep,
+      "'**/tsconfig*.json'",
+      'Setup monorepo Turborepo cache key must not hash ignored worktree or generated tsconfig files.',
       failures
     );
     requireIncludes(
@@ -1988,6 +1973,37 @@ export function validateSetupMonorepoContracts(source) {
 
 export function validateTurboContracts(source) {
   const failures = [];
+  requireIncludes(
+    source,
+    '"tsconfig*.json"',
+    'Turborepo global dependencies must include root TypeScript config files.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '"apps/*/tsconfig*.json"',
+    'Turborepo global dependencies must include app TypeScript config files.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '"packages/*/tsconfig*.json"',
+    'Turborepo global dependencies must include package TypeScript config files.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '"packages/*/tsconfig/*.json"',
+    'Turborepo global dependencies must include shared tsconfig preset files.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    '"**/tsconfig*.json"',
+    'Turborepo global dependencies must not hash ignored worktree or generated tsconfig files.',
+    failures
+  );
+
   const browserTask = extractJsonObjectBlock(source, 'test:browser');
   if (!browserTask) {
     failures.push('Missing Turborepo test:browser task.');
@@ -2033,8 +2049,8 @@ export function validateSetupDesktopE2EContracts(source) {
 
   const systemDepsStep = requireSingleNamedStep(
     source,
-    /Verify preprovisioned Electron runtime dependencies/,
-    'Setup desktop E2E preprovisioned dependency verification step',
+    /Verify Electron runtime dependencies/,
+    'Setup desktop E2E dependency verification step',
     failures
   );
 
@@ -2042,7 +2058,7 @@ export function validateSetupDesktopE2EContracts(source) {
     requireIncludes(
       systemDepsStep,
       'command -v Xvfb >/dev/null',
-      'Setup desktop E2E must verify Xvfb is already present in the CI image.',
+      'Setup desktop E2E must verify Xvfb is present after Playwright runtime setup.',
       failures
     );
     requireIncludes(
@@ -2070,6 +2086,111 @@ export function validateSetupDesktopE2EContracts(source) {
       failures
     );
   }
+
+  return failures;
+}
+
+export function validateSetupPlaywrightRuntimeContracts(source) {
+  const failures = [];
+  const installRuntimeStep =
+    extractBlock(
+      source,
+      /^\s{4}- name: Install Playwright runtime\s*$/m,
+      /\n\s{4}- name: /
+    ) ?? '';
+  const installRuntimeRun = installRuntimeStep.match(/run:\s*\|([\s\S]*)/)?.[1] ?? '';
+  const verifyRuntimeStep =
+    extractBlock(
+      source,
+      /^\s{4}- name: Verify Playwright runtime\s*$/m,
+      /\n\s{4}- name: /
+    ) ?? '';
+  const verifyRuntimeRun = verifyRuntimeStep.match(/run:\s*\|([\s\S]*)/)?.[1] ?? '';
+
+  requireIncludes(
+    source,
+    'pnpm exec playwright --version',
+    'Setup Playwright runtime must resolve the project Playwright version.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'actions/cache@v5',
+    'Setup Playwright runtime must cache browser binaries.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '~/.cache/ms-playwright',
+    'Setup Playwright runtime must cache the default Playwright browser path.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright',
+    'Setup Playwright runtime must export the cached browser path for Turbo/Vitest jobs.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'GITHUB_ENV',
+    'Setup Playwright runtime must persist the browser path to later workflow steps.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'pnpm exec playwright install --with-deps',
+    'Setup Playwright runtime must install browsers and system dependencies inside the job.',
+    failures
+  );
+  requireIncludes(
+    installRuntimeStep,
+    'PLAYWRIGHT_INSTALL_BROWSERS: ${{ inputs.browsers }}',
+    'Setup Playwright runtime must pass requested browsers through an environment variable.',
+    failures
+  );
+  requireIncludes(
+    installRuntimeRun,
+    'requested_browsers',
+    'Setup Playwright runtime must validate requested browser names before invoking Playwright.',
+    failures
+  );
+  requireNotIncludes(
+    installRuntimeRun,
+    '${{ inputs.browsers }}',
+    'Setup Playwright runtime must not interpolate action input directly into shell.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'chromium: [chromium, {}]',
+    'Setup Playwright runtime must prove Chromium launches before running E2E lanes.',
+    failures
+  );
+  requireIncludes(
+    verifyRuntimeStep,
+    'PLAYWRIGHT_VERIFY_BROWSERS: ${{ inputs.browsers }}',
+    'Setup Playwright runtime must verify the browser runtime requested by the lane.',
+    failures
+  );
+  requireIncludes(
+    verifyRuntimeRun,
+    'launchTargets',
+    'Setup Playwright runtime must map requested browser names to matching launch checks.',
+    failures
+  );
+  requireIncludes(
+    verifyRuntimeRun,
+    'browserType.launch',
+    'Setup Playwright runtime must launch each requested browser target.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    'Setup Playwright runtime must not depend on the MCR Playwright container image.',
+    failures
+  );
 
   return failures;
 }
@@ -2111,6 +2232,7 @@ export async function main() {
     claudeReviewWorkflowSource,
     setupMonorepoActionSource,
     setupDesktopE2EActionSource,
+    setupPlaywrightRuntimeActionSource,
     turboConfigSource,
     desktopPlaywrightConfigSource,
     playwrightEnvironmentSource,
@@ -2119,6 +2241,7 @@ export async function main() {
     readFile(claudeReviewWorkflowPath, 'utf8'),
     readFile(setupMonorepoActionPath, 'utf8'),
     readFile(setupDesktopE2EActionPath, 'utf8'),
+    readFile(setupPlaywrightRuntimeActionPath, 'utf8'),
     readFile(turboConfigPath, 'utf8'),
     readFile(desktopPlaywrightConfigPath, 'utf8'),
     readFile(playwrightEnvironmentPath, 'utf8'),
@@ -2128,6 +2251,7 @@ export async function main() {
     ...validateClaudeReviewWorkflowContracts(claudeReviewWorkflowSource),
     ...validateSetupMonorepoContracts(setupMonorepoActionSource),
     ...validateSetupDesktopE2EContracts(setupDesktopE2EActionSource),
+    ...validateSetupPlaywrightRuntimeContracts(setupPlaywrightRuntimeActionSource),
     ...validateTurboContracts(turboConfigSource),
     ...validateDesktopE2EContracts({
       playwrightConfigSource: desktopPlaywrightConfigSource,

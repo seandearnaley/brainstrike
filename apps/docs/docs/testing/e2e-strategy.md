@@ -66,16 +66,17 @@ A local CI simulation script (`scripts/local-ci.sh`) allows developers to run th
 
 PRs no longer run every cloud E2E lane by default.
 
-- `ci:browser` runs browser Vitest lanes.
-- `ci:web-e2e` runs web functional, stateful, and destructive E2E lanes.
-- `ci:desktop` runs desktop regression E2E.
-- `ci:embedding` runs desktop embedding E2E groups.
-- `ci:coverage` runs cloud unit coverage.
-- `ci:full` expands to all cloud risk lanes.
+`pnpm ci:select --base origin/main --head HEAD` prints the same risk plan that
+GitHub computes in the `plan` job. That plan owns:
 
-The labels are selected by `pnpm ci:select`. Removing a selected label does not
-bypass CI; `pnpm ci:verify-proof` recomputes the selection and fails the PR
-Sentinel when required labels are missing.
+- the selected risk lanes,
+- the exact `requiredJobs` cloud gate,
+- the web and desktop dynamic E2E matrices,
+- and the optional local `localCommands` evidence list.
+
+Developers do not add CI labels and do not commit generated proof artifacts.
+Empty E2E matrices do not run; selected narrow lanes run only their tagged
+commands.
 
 The full matrix remains available on `main`, nightly schedule, and manual
 workflow dispatch.
@@ -93,7 +94,6 @@ workflow dispatch.
 *   **"Waiting for debugger to disconnect":** Usually indicates a port collision. Check `electron-fixture.ts` port assignment logic.
 *   **App fails to start:** Check `dist/main.js` exists (run `pnpm build`). Verify dependencies are installed.
 *   **Selectors failing:** The UI might not be fully rendered. Ensure `waitForAppReady` helper is used.
-
 
 
 

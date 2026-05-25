@@ -12,8 +12,6 @@ on:
       - synchronize
       - reopened
       - ready_for_review
-      - labeled
-      - unlabeled
   schedule:
     - cron: '23 7 * * *'
   workflow_dispatch:
@@ -77,52 +75,105 @@ jobs:
           EOF
           printf '\nReason: `%s`\n' "$RELEASE_PROOF_REASON" >> "$GITHUB_STEP_SUMMARY"
 
-  pr-sentinel:
-    name: PR Sentinel
-    if: github.event_name == 'pull_request'
+  plan:
+    name: CI Plan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
-      required-labels: ${{ steps.verify-proof.outputs.required-labels }}
-      expanded-lanes: ${{ steps.verify-proof.outputs.expanded-lanes }}
-      tested-head-sha: ${{ steps.verify-proof.outputs.tested-head-sha }}
+      required-jobs-json: ${{ steps.plan.outputs.required-jobs-json }}
+      plan-json: ${{ steps.plan.outputs.plan-json }}
+      run-docs-static: ${{ steps.plan.outputs.run-docs-static }}
+      run-checks: ${{ steps.plan.outputs.run-checks }}
+      run-unit-affected: ${{ steps.plan.outputs.run-unit-affected }}
+      run-unit-coverage: ${{ steps.plan.outputs.run-unit-coverage }}
+      run-browser-tests: ${{ steps.plan.outputs.run-browser-tests }}
+      run-prepare-web: ${{ steps.plan.outputs.run-prepare-web }}
+      run-web-e2e-pr: ${{ steps.plan.outputs.run-web-e2e-pr }}
+      run-prepare-desktop: ${{ steps.plan.outputs.run-prepare-desktop }}
+      run-desktop-e2e-pr: ${{ steps.plan.outputs.run-desktop-e2e-pr }}
+      run-merge-reports: ${{ steps.plan.outputs.run-merge-reports }}
+      unit-mode: ${{ steps.plan.outputs.unit-mode }}
+      web-e2e-matrix: ${{ steps.plan.outputs.web-e2e-matrix }}
+      desktop-e2e-matrix: ${{ steps.plan.outputs.desktop-e2e-matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Read live pull request labels
-        id: pr-labels
+      - name: Compute deterministic CI plan
+        id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
         run: |
           set -euo pipefail
-          labels="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(",")')"
-          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            node scripts/ci-plan.mjs --head "$PR_HEAD_SHA" --base "origin/${GITHUB_BASE_REF}" --event pull_request --github-output "$GITHUB_OUTPUT"
+          else
+            node scripts/ci-plan.mjs --files ".github/workflows/test.yml" --event "$GITHUB_EVENT_NAME" --github-output "$GITHUB_OUTPUT"
+          fi
 
-      - name: Verify local proof and risk routing
-        id: verify-proof
+      - name: Summarize CI plan
+        run: |
+          node <<'NODE'
+          if (!process.env.CI_PLAN_JSON) {
+            throw new Error('CI Plan step did not publish plan-json output; check ci-plan --github-output handling.');
+          }
+          const plan = JSON.parse(process.env.CI_PLAN_JSON);
+          console.log(JSON.stringify(plan, null, 2));
+          const lines = [
+            '## CI Plan',
+            '',
+            `Risk: \`${plan.risk.category}\` (${plan.risk.level})`,
+            `Required jobs: ${plan.requiredJobs.map((job) => `\`${job}\``).join(', ')}`,
+            '',
+            '| Lane | Owner | Command |',
+            '|---|---|---|',
+            ...plan.webE2eMatrix.include.map((entry) => `| ${entry.lane} | ${entry.owner} | \`${entry.command}\` |`),
+            ...plan.desktopE2eMatrix.include.map((entry) => `| ${entry.lane} | ${entry.owner} | \`${entry.command}\` |`),
+          ];
+          if (plan.webE2eMatrix.include.length === 0 && plan.desktopE2eMatrix.include.length === 0) {
+            lines.push('| none | ci-platform | no E2E lane selected |');
+          }
+          require('node:fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+          NODE
         env:
-          PR_LABELS: ${{ steps.pr-labels.outputs.labels }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PLAN_JSON: ${{ steps.plan.outputs.plan-json }}
+
+  docs-static:
+    name: Docs Static
+    if: needs.plan.outputs.run-docs-static == 'true'
+    needs: [plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify docs diff
+        env:
+          DOCS_DIFF_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DOCS_DIFF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          pnpm ci:verify-proof --head "$PR_HEAD_SHA" --base "origin/${GITHUB_BASE_REF}" --labels "$PR_LABELS" --github-output "$GITHUB_OUTPUT"
-          pnpm lint:ci-workflow-contracts
-          pnpm test:scripts
+          if [ -z "$DOCS_DIFF_BASE_SHA" ]; then
+            echo "Docs diff check requires a base SHA." >&2
+            exit 1
+          fi
+          git diff --check "$DOCS_DIFF_BASE_SHA" "$DOCS_DIFF_HEAD_SHA" -- docs apps/docs README.md AGENTS.md CLAUDE.md
 
   # Fast-fail static checks. Unit coverage is a separate job so browser/E2E
   # preparation can start as soon as lint/type/build validation passes.
   checks:
     name: Checks (static)
     if: >-
-      github.event_name != 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && needs.plan.outputs.run-checks == 'true') ||
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
+    needs: [plan]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -256,8 +307,8 @@ jobs:
     name: Checks (unit-affected)
     if: >-
       github.event_name == 'pull_request' &&
-      (contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:unit'))
+      needs.plan.outputs.run-unit-affected == 'true'
+    needs: [plan]
     runs-on: ubuntu-latest
     # Cold-cache affected-unit runs can include Electron, embedding-worker diagnostics,
     # dependent package builds, and Node 24 runtime overhead; the step remains capped
@@ -284,43 +335,35 @@ jobs:
           echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
 
-      - name: Detect selected unit proof mode
-        id: unit-proof-mode
-        run: |
-          set -euo pipefail
-          node scripts/ci-unit-proof-mode.mjs --proof .ci/proof/latest.json --github-output "$GITHUB_OUTPUT"
-
       - name: Run affected unit tests
         # Kept below the job timeout so timing diagnostics and footer reporting still run.
         timeout-minutes: 30
         env:
           NODE_ENV: test
           TURBO_TEST_MODE: unit
-          UNIT_PROOF_MODE: ${{ steps.unit-proof-mode.outputs.mode }}
+          UNIT_MODE: ${{ needs.plan.outputs.unit-mode }}
         run: |
           START=$SECONDS
-          if [ "$UNIT_PROOF_MODE" = "changed-unit-tests" ]; then
+          rm -rf .turbo/runs
+          mkdir -p .turbo/runs
+          if [ "$UNIT_MODE" = "changed-unit-tests" ]; then
             echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
             node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
           else
-            echo "Running affected unit test workspaces for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            echo "Running changed workspace unit tests for PR against origin/${GITHUB_BASE_REF}"
+            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD --changed-workspaces
           fi
           echo "| Affected unit tests | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Report Turbo unit diagnostics
         if: ${{ !cancelled() }}
         run: |
-          set +e
-          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test --output turbo-unit-diagnostics.md
-          STATUS=$?
-          set -e
+          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test --output turbo-unit-diagnostics.md || true
           if [ -s turbo-unit-diagnostics.md ]; then
             cat turbo-unit-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No Turbo unit diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
+            echo "No Turbo unit diagnostics were generated; PR unit tests run through changed-file/workspace commands." >> "$GITHUB_STEP_SUMMARY"
           fi
-          exit "$STATUS"
 
       - name: Upload unit timing diagnostics
         if: ${{ !cancelled() }}
@@ -344,9 +387,8 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage-db') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage-full')
+      (github.event_name == 'pull_request' && needs.plan.outputs.run-unit-coverage == 'true')
+    needs: [plan]
     runs-on: ubuntu-latest
     # The split coverage phases can use up to 75 minutes of step budget on a
     # cold cache; keep job overhead bounded without letting the job kill valid
@@ -629,10 +671,7 @@ jobs:
     name: Determine E2E Matrix
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop')
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -657,16 +696,8 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-file-explorer-persistence') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-import-indexing') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-assistant-state') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-settings-state') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-db-startup') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-destructive-reset') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
-    needs: checks
+      (github.event_name == 'pull_request' && needs.plan.outputs.run-prepare-web == 'true')
+    needs: [plan, checks]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -688,14 +719,8 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:embedding')
-    needs: checks
+      (github.event_name == 'pull_request' && needs.plan.outputs.run-prepare-desktop == 'true')
+    needs: [plan, checks]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -727,15 +752,11 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:browser')
-    needs: checks # Only run if checks pass
+      (github.event_name == 'pull_request' && needs.plan.outputs.run-browser-tests == 'true')
+    needs: [plan, checks] # Only run if checks pass
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 30
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -746,12 +767,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd packages/storage
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Build packages
         run: pnpm run build --filter @brainstrike/db --filter @brainstrike/storage
@@ -779,16 +796,11 @@ jobs:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [checks, determine-matrix]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 40
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -813,12 +825,8 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd apps/web
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run E2E tests (shard)
         timeout-minutes: 30
@@ -858,16 +866,11 @@ jobs:
     name: E2E Stateful Tests (${{ matrix.group }})
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [checks]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 35
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -903,12 +906,8 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd apps/web
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run stateful E2E tests
         timeout-minutes: 25
@@ -948,16 +947,11 @@ jobs:
     name: E2E Destructive Tests
     if: >-
       github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
+      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [checks]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -977,12 +971,8 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd apps/web
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run destructive E2E tests
         timeout-minutes: 10
@@ -1018,19 +1008,65 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  web-e2e-pr:
+    name: Web E2E PR (${{ matrix.lane }})
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.plan.outputs.run-web-e2e-pr == 'true'
+    needs: [plan, checks, prepare-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+      NODE_ENV: "production"
+      PORT: "8080"
+      BASE_URL: "http://127.0.0.1:8080"
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.web-e2e-matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Build web workspace dependencies
+        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
+
+      - name: Download web dist
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
+
+      - name: Run selected web E2E lane
+        timeout-minutes: ${{ matrix.timeoutMinutes }}
+        run: bash -euo pipefail -c "$E2E_COMMAND"
+        env:
+          E2E_COMMAND: ${{ matrix.command }}
+
+      - name: Upload selected web traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-${{ matrix.lane }}-test-results
+          path: apps/web/test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
   web-e2e-smoke-pr:
     name: Web E2E Smoke
-    if: >-
-      github.event_name == 'push' ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke')
+    if: github.event_name == 'push'
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1052,6 +1088,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run web smoke lane
         timeout-minutes: 10
@@ -1068,16 +1107,11 @@ jobs:
 
   web-e2e-file-explorer-persistence-pr:
     name: Web E2E File Explorer Persistence
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-file-explorer-persistence')
+    if: ${{ false }}
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1099,6 +1133,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run file explorer persistence lane
         timeout-minutes: 12
@@ -1115,16 +1152,11 @@ jobs:
 
   web-e2e-import-indexing-pr:
     name: Web E2E Import Indexing
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-import-indexing')
+    if: ${{ false }}
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1146,6 +1178,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run import indexing lane
         timeout-minutes: 12
@@ -1162,16 +1197,11 @@ jobs:
 
   web-e2e-assistant-state-pr:
     name: Web E2E Assistant State
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-assistant-state')
+    if: ${{ false }}
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1193,6 +1223,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run assistant state lane
         timeout-minutes: 12
@@ -1209,16 +1242,11 @@ jobs:
 
   web-e2e-settings-state-pr:
     name: Web E2E Settings State
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-settings-state')
+    if: ${{ false }}
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1240,6 +1268,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run settings state lane
         timeout-minutes: 12
@@ -1256,16 +1287,11 @@ jobs:
 
   web-e2e-db-startup-pr:
     name: Web E2E DB Startup
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-db-startup')
+    if: ${{ false }}
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1287,6 +1313,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run DB startup lane
         timeout-minutes: 12
@@ -1303,16 +1332,11 @@ jobs:
 
   web-e2e-destructive-reset-pr:
     name: Web E2E Destructive Reset
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-destructive-reset')
+    if: ${{ false }}
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1335,6 +1359,9 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
+
       - name: Run destructive reset lane
         timeout-minutes: 12
         run: pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset
@@ -1348,17 +1375,14 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-  # Desktop E2E tests (PR) - runs the same regression project as main.
-  # This prevents a green PR from merging into a main-only desktop regression failure.
+  # Desktop E2E tests (PR) - runs exactly the desktop lanes selected by CI Plan.
   desktop-e2e-pr:
-    name: Desktop E2E Regression
+    name: Desktop E2E PR (${{ matrix.lane }})
     if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop')
-    needs: [prepare-desktop, determine-matrix]
+      github.event_name == 'pull_request' &&
+      needs.plan.outputs.run-desktop-e2e-pr == 'true'
+    needs: [plan, prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1366,9 +1390,7 @@ jobs:
       TURBO_CACHE_DIR: .turbo
     strategy:
       fail-fast: false
-      matrix:
-        shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shards) }}
-        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.desktop-e2e-matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -1378,24 +1400,24 @@ jobs:
         with:
           skip-electron: 'false'
 
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
+
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
 
-      - name: Run Desktop E2E regression tests (shard)
-        timeout-minutes: 15
+      - name: Run selected Desktop E2E lane
+        timeout-minutes: ${{ matrix.timeoutMinutes }}
         working-directory: apps/desktop
         run: |
-          # Use a deterministic X server number per shard to avoid collisions
-          # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
-          SERVER_NUM=$((90 + ${{ matrix.shardIndex }}))
-          export DISPLAY=":${SERVER_NUM}"
+          export DISPLAY=":${{ matrix.display }}"
 
           # Clean up any stale X lock files for this server number
-          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
           [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
 
           # Start Xvfb in background with explicit pre-warming
-          echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
+          echo "Starting Xvfb on display ${DISPLAY} for desktop lane ${{ matrix.lane }}"
           Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
           XVFB_PID=$!
 
@@ -1413,9 +1435,9 @@ jobs:
           # Run regression tests with explicit DISPLAY. Keep one worker per shard so a
           # required desktop lane never runs multiple Electron apps and DB hosts in the
           # same Xvfb/container.
-          echo "Starting Playwright regression tests..."
+          echo "Starting selected desktop lane: ${{ matrix.lane }}"
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          bash -euo pipefail -c "$E2E_COMMAND"
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -1425,41 +1447,37 @@ jobs:
           NODE_ENV: "test"
           CI: "true"
           RUN_SALT: ${{ github.run_id }}
+          E2E_COMMAND: ${{ matrix.command }}
           ELECTRON_ENABLE_STACK_DUMPING: "false"
           ELECTRON_DISABLE_GPU: "1"
 
-      - name: Bundle blob report (desktop shard)
+      - name: Bundle blob report (desktop lane)
         if: failure()
         run: |
           set -e
           cd apps/desktop
           if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf desktop-blob-report-${{ matrix.shardIndex }}.tar blob-report/
-            ls -lh desktop-blob-report-${{ matrix.shardIndex }}.tar
+            tar -cvf desktop-blob-report-${{ matrix.lane }}.tar blob-report/
+            ls -lh desktop-blob-report-${{ matrix.lane }}.tar
             echo "Bundled $(find blob-report -type f | wc -l) files in tar"
           else
-            echo "No blob report found for desktop shard ${{ matrix.shardIndex }}"
+            echo "No blob report found for desktop lane ${{ matrix.lane }}"
           fi
 
-      - name: Upload blob report (desktop shard)
+      - name: Upload blob report (desktop lane)
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-blob-report-${{ matrix.shardIndex }}
-          path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
+          name: desktop-blob-report-${{ matrix.lane }}
+          path: apps/desktop/desktop-blob-report-${{ matrix.lane }}.tar
           retention-days: 1
           if-no-files-found: warn
 
   desktop-e2e-smoke-pr:
     name: Desktop E2E Smoke
-    if: >-
-      github.event_name == 'push' ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke')
+    if: github.event_name == 'push'
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1473,6 +1491,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1509,13 +1530,9 @@ jobs:
 
   desktop-e2e-ipc-reset-pr:
     name: Desktop E2E IPC Reset
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset')
+    if: ${{ false }}
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1529,6 +1546,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1565,13 +1585,9 @@ jobs:
 
   desktop-e2e-runtime-hosts-pr:
     name: Desktop E2E Runtime Hosts
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts')
+    if: ${{ false }}
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1585,6 +1601,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1621,13 +1640,9 @@ jobs:
 
   desktop-e2e-db-storage-pr:
     name: Desktop E2E DB Storage
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage')
+    if: ${{ false }}
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1641,6 +1656,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1677,13 +1695,9 @@ jobs:
 
   desktop-e2e-embedding-pr:
     name: Desktop E2E Embedding Regression (${{ matrix.group }})
-    if: >-
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:embedding')
+    if: ${{ false }}
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1719,6 +1733,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1785,8 +1802,6 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential in release proof - wait for web E2E
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1805,6 +1820,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1882,8 +1900,6 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [prepare-desktop, e2e]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1919,6 +1935,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -2082,24 +2101,10 @@ jobs:
       (
         github.event_name == 'schedule' ||
         (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-file-explorer-persistence') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-import-indexing') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-assistant-state') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-settings-state') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-db-startup') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-destructive-reset') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop') ||
-        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:embedding')
+        (github.event_name == 'pull_request' && needs.plan.outputs.run-merge-reports == 'true')
       ) &&
-      (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.web-e2e-smoke-pr.result == 'success' || needs.web-e2e-file-explorer-persistence-pr.result == 'success' || needs.web-e2e-import-indexing-pr.result == 'success' || needs.web-e2e-assistant-state-pr.result == 'success' || needs.web-e2e-settings-state-pr.result == 'success' || needs.web-e2e-db-startup-pr.result == 'success' || needs.web-e2e-destructive-reset-pr.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-smoke-pr.result == 'success' || needs.desktop-e2e-ipc-reset-pr.result == 'success' || needs.desktop-e2e-runtime-hosts-pr.result == 'success' || needs.desktop-e2e-db-storage-pr.result == 'success' || needs.desktop-e2e-embedding-pr.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-embedding-main.result == 'success')
-    needs: [checks, e2e, e2e-stateful, e2e-destructive, web-e2e-smoke-pr, web-e2e-file-explorer-persistence-pr, web-e2e-import-indexing-pr, web-e2e-assistant-state-pr, web-e2e-settings-state-pr, web-e2e-db-startup-pr, web-e2e-destructive-reset-pr, desktop-e2e-pr, desktop-e2e-smoke-pr, desktop-e2e-ipc-reset-pr, desktop-e2e-runtime-hosts-pr, desktop-e2e-db-storage-pr, desktop-e2e-embedding-pr, desktop-e2e-main, desktop-e2e-embedding-main]
+      (needs.web-e2e-pr.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-embedding-main.result == 'success')
+    needs: [plan, e2e, e2e-stateful, e2e-destructive, web-e2e-pr, desktop-e2e-pr, desktop-e2e-main, desktop-e2e-embedding-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -2190,29 +2195,16 @@ jobs:
     name: Required PR Gate
     if: always() && github.event_name == 'pull_request'
     needs:
-      - pr-sentinel
+      - plan
+      - docs-static
       - checks
       - unit_affected
       - unit_coverage
       - browser-tests
       - prepare-web
       - prepare-desktop
-      - e2e
-      - e2e-stateful
-      - e2e-destructive
-      - web-e2e-smoke-pr
-      - web-e2e-file-explorer-persistence-pr
-      - web-e2e-import-indexing-pr
-      - web-e2e-assistant-state-pr
-      - web-e2e-settings-state-pr
-      - web-e2e-db-startup-pr
-      - web-e2e-destructive-reset-pr
+      - web-e2e-pr
       - desktop-e2e-pr
-      - desktop-e2e-smoke-pr
-      - desktop-e2e-ipc-reset-pr
-      - desktop-e2e-runtime-hosts-pr
-      - desktop-e2e-db-storage-pr
-      - desktop-e2e-embedding-pr
       - merge-reports
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2223,8 +2215,7 @@ jobs:
       - name: Verify required PR jobs
         env:
           REQUIRED_NEEDS: ${{ toJSON(needs) }}
-          REQUIRED_LABELS: ${{ needs.pr-sentinel.outputs.required-labels }}
-          REQUIRED_EXPANDED_LANES: ${{ needs.pr-sentinel.outputs.expanded-lanes }}
+          REQUIRED_JOBS_JSON: ${{ needs.plan.outputs.required-jobs-json }}
         run: node scripts/ci-required-pr-gate.mjs
 
   required-main-gate:
@@ -2301,7 +2292,7 @@ jobs:
   # Optional checks that don't block merging
   code-quality:
     name: Code Quality Checks
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
