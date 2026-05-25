@@ -327,6 +327,8 @@ export function useBackgroundTokenIndexer({
   const [progress, setProgress] = useState<IndexingProgress | null>(null);
   const workerErrorLoggedRef = useRef(false);
   const workerFailureHandledRef = useRef(false);
+  const workerFailureHandledGenerationRef = useRef<number | null>(null);
+  const workerGenerationRef = useRef(0);
   const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
   const ensureWorkerReadyRef = useRef<(() => Promise<Worker>) | null>(null);
   const workerMessageCleanupRef = useRef<(() => void) | null>(null);
@@ -386,6 +388,23 @@ export function useBackgroundTokenIndexer({
       ...terminalWorkerErrorDetails,
       ...normalized,
     });
+  }, []);
+
+  const isWorkerFailureHandled = useCallback(
+    (workerGeneration: number): boolean =>
+      workerFailureHandledRef.current &&
+      workerFailureHandledGenerationRef.current === workerGeneration,
+    []
+  );
+
+  const markWorkerFailureHandled = useCallback((workerGeneration: number): void => {
+    workerFailureHandledRef.current = true;
+    workerFailureHandledGenerationRef.current = workerGeneration;
+  }, []);
+
+  const clearWorkerFailureHandled = useCallback((): void => {
+    workerFailureHandledRef.current = false;
+    workerFailureHandledGenerationRef.current = null;
   }, []);
 
   const emitTerminalIndexingError = useCallback((errorMessage: string) => {
@@ -453,13 +472,13 @@ export function useBackgroundTokenIndexer({
   }, []);
 
   const failWorker = useCallback(
-    (error: unknown, context: string) => {
+    (error: unknown, context: string, workerGeneration = workerGenerationRef.current) => {
       // CRITICAL: terminal worker failure is latched. Duplicate failure signals
       // can arrive from queued worker events and must not fan out callbacks/logging.
-      if (workerFailureHandledRef.current) {
+      if (isWorkerFailureHandled(workerGeneration)) {
         return;
       }
-      workerFailureHandledRef.current = true;
+      markWorkerFailureHandled(workerGeneration);
 
       const runtime = workerRuntimeRef.current;
       const failure = runtime
@@ -492,14 +511,16 @@ export function useBackgroundTokenIndexer({
     [
       disposeCurrentWorker,
       emitTerminalIndexingError,
+      isWorkerFailureHandled,
       logWorkerErrorOnce,
+      markWorkerFailureHandled,
       rejectAllPendingBatchTrackers,
     ]
   );
 
   const scheduleRecoverableWorkerRestart = useCallback(
-    (error: Error, context: string): boolean => {
-      if (workerFailureHandledRef.current) {
+    (error: Error, context: string, workerGeneration = workerGenerationRef.current): boolean => {
+      if (isWorkerFailureHandled(workerGeneration)) {
         // A worker may emit the same recoverable failure through multiple event surfaces.
         // Treat the short backoff window as dedupe, not as a new restart decision.
         return true;
@@ -511,7 +532,7 @@ export function useBackgroundTokenIndexer({
         return false;
       }
 
-      workerFailureHandledRef.current = true;
+      markWorkerFailureHandled(workerGeneration);
       recoverableRestartCountRef.current += 1;
       terminalWorkerFailureRef.current = null;
 
@@ -537,7 +558,7 @@ export function useBackgroundTokenIndexer({
         if (!isMountedRef.current) {
           return;
         }
-        workerFailureHandledRef.current = false;
+        clearWorkerFailureHandled();
         const startWorker = ensureWorkerReadyRef.current;
         if (!startWorker) {
           logger.debug('Background token indexer restart skipped: no startup callback available');
@@ -552,7 +573,13 @@ export function useBackgroundTokenIndexer({
 
       return true;
     },
-    [disposeCurrentWorker, rejectAllPendingBatchTrackers]
+    [
+      clearWorkerFailureHandled,
+      disposeCurrentWorker,
+      isWorkerFailureHandled,
+      markWorkerFailureHandled,
+      rejectAllPendingBatchTrackers,
+    ]
   );
 
   const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
@@ -572,6 +599,8 @@ export function useBackgroundTokenIndexer({
 
     const initPromise = (async (): Promise<Worker> => {
       let worker: Worker;
+      const workerGeneration = workerGenerationRef.current + 1;
+      workerGenerationRef.current = workerGeneration;
       try {
         worker = createWorkerInstance(workerUrl);
       } catch (error) {
@@ -579,13 +608,19 @@ export function useBackgroundTokenIndexer({
         // Worker constructor failures are treated as deterministic terminal failures.
         // The scheduler check only preserves an already-latched duplicate signal; this
         // context is intentionally absent from the recoverable allowlist.
-        if (!scheduleRecoverableWorkerRestart(normalizedError, 'createWorkerInstance')) {
-          failWorker(normalizedError, 'createWorkerInstance');
+        if (
+          !scheduleRecoverableWorkerRestart(
+            normalizedError,
+            'createWorkerInstance',
+            workerGeneration
+          )
+        ) {
+          failWorker(normalizedError, 'createWorkerInstance', workerGeneration);
         }
         throw normalizedError;
       }
       workerRef.current = worker;
-      workerFailureHandledRef.current = false;
+      clearWorkerFailureHandled();
       const runtime = createWorkerRuntimeClient(worker, {
         createErrorFromEvent: (event) =>
           attachTerminalWorkerErrorDetails(
@@ -593,8 +628,14 @@ export function useBackgroundTokenIndexer({
             createTerminalWorkerErrorDetails(event)
           ),
         onFailure: (failure) => {
-          if (!scheduleRecoverableWorkerRestart(failure, 'worker.addEventListener(error)')) {
-            failWorker(failure, 'worker.addEventListener(error)');
+          if (
+            !scheduleRecoverableWorkerRestart(
+              failure,
+              'worker.addEventListener(error)',
+              workerGeneration
+            )
+          ) {
+            failWorker(failure, 'worker.addEventListener(error)', workerGeneration);
           }
         },
       });
@@ -608,11 +649,11 @@ export function useBackgroundTokenIndexer({
         };
 
         const settleFailure = (error: Error, context: string): void => {
-          if (scheduleRecoverableWorkerRestart(error, context)) {
+          if (scheduleRecoverableWorkerRestart(error, context, workerGeneration)) {
             reject(error);
             return;
           }
-          failWorker(error, context);
+          failWorker(error, context, workerGeneration);
           reject(error);
         };
 
@@ -644,7 +685,7 @@ export function useBackgroundTokenIndexer({
                 recoverableRestartCountRef.current = 0;
               }, RECOVERABLE_WORKER_RESTART_STABILITY_MS);
             }
-            workerFailureHandledRef.current = false;
+            clearWorkerFailureHandled();
             setIsReady(true);
             clearTimerRef(readinessTimerRef);
             settleReady();
@@ -752,7 +793,7 @@ export function useBackgroundTokenIndexer({
         workerInitPromiseRef.current = null;
       }
     }
-  }, [failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
+  }, [clearWorkerFailureHandled, failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
   useEffect(() => {
     // Restart timers need the latest startup callback without making the
     // restart scheduler depend directly on ensureWorkerReady.
@@ -776,7 +817,7 @@ export function useBackgroundTokenIndexer({
       isMountedRef.current = false;
       logger.debug('Terminating worker');
       clearTimerRef(restartTimerRef);
-      workerFailureHandledRef.current = false;
+      clearWorkerFailureHandled();
       workerErrorLoggedRef.current = false;
       terminalWorkerFailureRef.current = null;
       recoverableRestartCountRef.current = 0;
@@ -785,7 +826,13 @@ export function useBackgroundTokenIndexer({
       );
       disposeCurrentWorker();
     };
-  }, [autoStart, disposeCurrentWorker, ensureWorkerReady, rejectAllPendingBatchTrackers]);
+  }, [
+    autoStart,
+    clearWorkerFailureHandled,
+    disposeCurrentWorker,
+    ensureWorkerReady,
+    rejectAllPendingBatchTrackers,
+  ]);
 
   /**
    * Handle result from worker.

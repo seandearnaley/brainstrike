@@ -557,6 +557,51 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
+  it('does not let the recoverable failure latch swallow a new worker constructor failure', async () => {
+    vi.useFakeTimers();
+    const onFileError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    expect(mockWorkers).toHaveLength(1);
+
+    await act(async () => {
+      mockWorkers[0]!.onerror?.(
+        new ErrorEvent('error', {
+          message: 'runtime boom',
+          filename: 'background-indexer.worker.js',
+        })
+      );
+    });
+
+    class ThrowingRestartWorker extends MockWorker {
+      constructor(url: string | URL, opts?: WorkerOptions) {
+        if (mockWorkers.length > 0) {
+          throw new Error('new worker failed during backoff');
+        }
+        super(url, opts);
+      }
+    }
+    vi.stubGlobal('Worker', ThrowingRestartWorker as unknown as typeof Worker);
+
+    await expect(
+      result.current.indexFiles([
+        { compositeKey: 'folder|@|race.ts', folderId: 'folder', filePath: 'race.ts' },
+      ])
+    ).rejects.toThrow('new worker failed during backoff');
+
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('(createWorkerInstance): new worker failed during backoff')
+    );
+  });
+
   it('routes worker error events through the recoverable restart path', async () => {
     const onFileError = vi.fn();
 
