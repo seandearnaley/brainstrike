@@ -17,6 +17,7 @@
 
 - RED: Added tests proving one recoverable worker crash restarts and later indexing succeeds.
 - RED: Added tests proving repeated recoverable failures surface one terminal worker error.
+- Review follow-up: clarified the recoverable-failure allowlist, duplicate-signal latch, constructor-failure terminal path, stability-window budget, and missing restart-callback diagnostics.
 - GREEN: `pnpm --filter @brainstrike/token-cache test -- src/__tests__/use-background-token-indexer.test.tsx`
 - GREEN: `pnpm --filter @brainstrike/token-cache type-check`
 - GREEN: `pnpm exec biome check --write packages/token-cache/src/use-background-token-indexer.ts packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx`

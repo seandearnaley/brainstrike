@@ -29,6 +29,7 @@ import type { TokenCacheEntry, TokenCountingMode } from './types';
 
 const logger = createLogger('BackgroundTokenIndexer');
 const TERMINAL_WORKER_ERROR_KEY = '__worker__';
+// Tunable only if future environments show different restart characteristics.
 const MAX_RECOVERABLE_WORKER_RESTARTS = 2;
 const RECOVERABLE_WORKER_RESTART_BACKOFF_MS = 250;
 const RECOVERABLE_WORKER_RESTART_STABILITY_MS = 5000;
@@ -54,6 +55,7 @@ function isRecoverableWorkerFailure(error: Error, context: string): boolean {
   if (isTerminalTokenizerError(error.message)) {
     return false;
   }
+  // createWorkerInstance is intentionally excluded: constructor failures are deterministic.
   return (
     context === 'ready-timeout' ||
     context === 'worker.onerror' ||
@@ -498,6 +500,8 @@ export function useBackgroundTokenIndexer({
   const scheduleRecoverableWorkerRestart = useCallback(
     (error: Error, context: string): boolean => {
       if (workerFailureHandledRef.current) {
+        // A worker may emit the same recoverable failure through multiple event surfaces.
+        // Treat the short backoff window as dedupe, not as a new restart decision.
         return true;
       }
       if (!isRecoverableWorkerFailure(error, context)) {
@@ -534,7 +538,12 @@ export function useBackgroundTokenIndexer({
           return;
         }
         workerFailureHandledRef.current = false;
-        void ensureWorkerReadyRef.current?.().catch((restartError: unknown) => {
+        const startWorker = ensureWorkerReadyRef.current;
+        if (!startWorker) {
+          logger.debug('Background token indexer restart skipped: no startup callback available');
+          return;
+        }
+        void startWorker().catch((restartError: unknown) => {
           logger.warn('Background token indexer restart attempt failed', {
             error: formatErrorMessage(restartError),
           });
@@ -568,7 +577,8 @@ export function useBackgroundTokenIndexer({
       } catch (error) {
         const normalizedError = error instanceof Error ? error : new Error(String(error));
         // Worker constructor failures are treated as deterministic terminal failures.
-        // The restart scheduler is still checked first to preserve duplicate-signal latching.
+        // The scheduler check only preserves an already-latched duplicate signal; this
+        // context is intentionally absent from the recoverable allowlist.
         if (!scheduleRecoverableWorkerRestart(normalizedError, 'createWorkerInstance')) {
           failWorker(normalizedError, 'createWorkerInstance');
         }
@@ -626,6 +636,8 @@ export function useBackgroundTokenIndexer({
               // Keep ready-crash loops on the same bounded restart budget until
               // the restarted worker has remained usable for a full stability window.
               // Failures after that window are treated as independent transient failures.
+              // If the timer callback wins the event-loop turn, the next failure starts
+              // a new transient window by design.
               clearTimerRef(restartStabilityTimerRef);
               restartStabilityTimerRef.current = setTimeout(() => {
                 restartStabilityTimerRef.current = null;
