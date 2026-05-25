@@ -33,6 +33,24 @@ test('verifyRequiredPrGate passes a docs-only plan with only plan and docs-stati
   );
 });
 
+test('verifyRequiredPrGate lets docs-only plans skip checks but rejects checks if they ran', () => {
+  assert.deepEqual(
+    verifyRequiredPrGate({
+      needs: needsWith({ 'docs-static': { result: 'success' }, checks: { result: 'skipped' } }),
+      requiredJobs: ['plan', 'docs-static'],
+    }),
+    []
+  );
+
+  assert.deepEqual(
+    verifyRequiredPrGate({
+      needs: needsWith({ 'docs-static': { result: 'success' }, checks: { result: 'success' } }),
+      requiredJobs: ['plan', 'docs-static'],
+    }),
+    ['checks: ran successfully but was not selected by CI Plan']
+  );
+});
+
 test('verifyRequiredPrGate passes selected web and unit jobs', () => {
   assert.deepEqual(
     verifyRequiredPrGate({
