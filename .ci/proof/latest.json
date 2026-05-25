@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-25T02:41:20.496Z",
+  "generatedAt": "2026-05-25T02:45:37.850Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "c802cc8e837efe03fb074856eb1fa3a772133e95",
+  "testedHeadSha": "34a63e66fb4aa9941b34096a561a5b0120141429",
   "selection": {
     "base": "origin/main",
     "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "c802cc8e837efe03fb074856eb1fa3a772133e95",
+    "headSha": "34a63e66fb4aa9941b34096a561a5b0120141429",
     "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
       ".ci/proof/latest.json",
@@ -89,7 +89,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 18
+      "durationMs": 17
     },
     {
       "name": "ui-tests",
@@ -98,7 +98,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 9546
+      "durationMs": 7606
     }
   ]
 }
