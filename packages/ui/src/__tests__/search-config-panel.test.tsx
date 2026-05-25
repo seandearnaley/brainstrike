@@ -240,11 +240,13 @@ describe('SearchConfigPanel', () => {
     expect(onExpandedChange).toHaveBeenCalledWith(false);
   });
 
-  it('disables non-essential expand animation under reduced motion', () => {
+  it('does not animate the advanced options visibility toggle', () => {
     renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     const content = document.getElementById('search-config-content');
-    expect(content).toHaveClass('motion-reduce:transition-none');
+    expect(content).not.toHaveClass('transition-all');
+    expect(content).not.toHaveClass('duration-200');
+    expect(content).not.toHaveClass('ease-out');
   });
 
   // === Hybrid Search Tests (BST-294) ===
