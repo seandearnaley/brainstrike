@@ -136,6 +136,15 @@ jobs:
           pnpm coverage:merge -- --quiet packages apps
           pnpm coverage:report
 
+      - name: Upload coverage to Codecov
+        if: steps.coverage.outputs.has_coverage == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: nightly
+          fail_ci_if_error: false
+
       - name: Bundle coverage files
         run: |
           mkdir -p coverage-bundle
@@ -152,3 +161,47 @@ jobs:
             coverage-bundle.tar
           retention-days: 7
           if-no-files-found: ignore
+
+  notify-failure:
+    name: Notify nightly coverage failure
+    needs: coverage
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Ensure tracking label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "nightly-coverage-failure" \
+            --repo "$REPO" \
+            --color d93f0b \
+            --description "Auto-opened by nightly-coverage.yml when the scheduled coverage run fails" \
+            2>/dev/null || true
+
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --repo "$REPO" \
+            --label "nightly-coverage-failure" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" \
+              --body "Nightly coverage failed again. Run: $RUN_URL"
+          else
+            gh issue create --repo "$REPO" \
+              --title "Nightly coverage failure ($(date -u +%Y-%m-%d))" \
+              --label "nightly-coverage-failure" \
+              --body "Nightly coverage workflow failed.
+
+          Run: $RUN_URL
+
+          This issue stays open while the failure persists and gets a new comment on each subsequent failure. Close it once the next nightly is green."
+          fi
