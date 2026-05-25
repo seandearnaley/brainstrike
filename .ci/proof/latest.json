@@ -1,56 +1,124 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T23:29:54.169Z",
+  "generatedAt": "2026-05-25T05:11:45.349Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
-  "nodeVersion": "v22.19.0",
+  "nodeVersion": "v22.22.1",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "1cdc35f66542464461bfc2329804f08745265bd1",
+  "testedHeadSha": "5d4c58f3b332de8f88a4534b1753ba856ee0e751",
   "selection": {
     "base": "origin/main",
-    "baseSha": "590cd43adfe3e687b20061b300f00b2254aab741",
+    "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "1cdc35f66542464461bfc2329804f08745265bd1",
-    "mergeBase": "590cd43adfe3e687b20061b300f00b2254aab741",
+    "headSha": "5d4c58f3b332de8f88a4534b1753ba856ee0e751",
+    "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
-      ".ci/proof/latest.json",
-      ".github/workflows/test.yml",
-      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/__tests__/ci-required-pr-gate.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs",
-      "scripts/ci-required-pr-gate.mjs"
+      "apps/desktop/src/__tests__/vite-config.test.ts",
+      "apps/desktop/vite.config.mts",
+      "apps/desktop/vitest.config.mts",
+      "apps/web/src/__tests__/vite-config.test.ts",
+      "apps/web/vite.config.mts",
+      "apps/web/vitest.config.mts",
+      "docs/superpowers/plans/2026-05-25-bst-433-token-utils-single-source.md",
+      "packages/app-shell/vitest.config.mts",
+      "packages/chunking-worker/package.json",
+      "packages/chunking-worker/src/__tests__/token-utils-accurate-lite.shared.test.ts",
+      "packages/chunking-worker/src/token-utils-accurate-lite.ts",
+      "packages/chunking-worker/tsconfig.json",
+      "packages/chunking-worker/tsup.config.ts",
+      "packages/chunking-worker/vitest.config.mts",
+      "packages/text-splitter/package.json",
+      "packages/text-splitter/src/index.ts",
+      "packages/text-splitter/src/token-constants.ts",
+      "packages/text-splitter/src/token-counting-heuristics.ts",
+      "packages/text-splitter/src/token-utils-accurate-lite.ts",
+      "packages/text-splitter/tsconfig.json",
+      "packages/text-splitter/tsup.config.ts",
+      "packages/text-splitter/vitest.config.mts",
+      "packages/token-cache/src/token-utils-accurate-lite.ts",
+      "packages/token-cache/tsconfig.json",
+      "packages/token-cache/tsup.config.ts",
+      "packages/token-cache/vitest.config.mts",
+      "packages/utils/package.json",
+      "packages/utils/src/__tests__/token-counting-boundary.test.ts",
+      "packages/utils/src/__tests__/token-utils-accurate-lite.shared.test.ts",
+      "packages/utils/src/__tests__/token-utils.mocked-runtime.test.ts",
+      "packages/utils/src/token-constants.ts",
+      "packages/utils/src/token-utils-accurate-lite.ts",
+      "packages/utils/src/token-utils.ts",
+      "packages/utils/src/types/wasm.d.ts",
+      "packages/utils/tsconfig.test.json",
+      "packages/utils/tsup.config.ts",
+      "pnpm-lock.yaml",
+      "tsconfig.json"
     ],
     "riskProfile": {
-      "category": "config-tooling",
+      "category": "full-release-high-risk",
       "domains": [
-        "tooling"
+        "ci-platform"
       ],
-      "e2eLanes": [],
+      "e2eLanes": [
+        "critical-smoke",
+        "web-file-explorer-persistence",
+        "web-import-indexing",
+        "web-assistant-state",
+        "web-settings-state",
+        "web-db-startup",
+        "web-destructive-reset",
+        "web-full-regression",
+        "desktop-smoke",
+        "desktop-ipc-reset",
+        "desktop-runtime-hosts",
+        "desktop-db-storage",
+        "desktop-full-regression",
+        "desktop-embedding-diagnostics",
+        "desktop-llm-host-recovery",
+        "long-soak-release-only"
+      ],
       "proofCommands": [
         "diff-check",
         "ci-script-tests",
-        "workflow-contracts"
+        "workflow-contracts",
+        "full-local-suite"
       ],
-      "riskLevel": "medium",
+      "riskLevel": "full",
       "cloudLabels": [
-        "ci:unit"
+        "ci:full"
       ]
     },
     "proofCommands": [
       "diff-check",
       "ci-script-tests",
-      "workflow-contracts"
+      "workflow-contracts",
+      "full-local-suite"
     ],
     "lanes": [
-      "ci:unit"
+      "ci:full"
     ],
     "expandedLanes": [
-      "ci:unit"
+      "ci:browser",
+      "ci:web-smoke",
+      "ci:web-file-explorer-persistence",
+      "ci:web-import-indexing",
+      "ci:web-assistant-state",
+      "ci:web-settings-state",
+      "ci:web-db-startup",
+      "ci:web-destructive-reset",
+      "ci:web-e2e",
+      "ci:desktop-smoke",
+      "ci:desktop-ipc-reset",
+      "ci:desktop-runtime-hosts",
+      "ci:desktop-db-storage",
+      "ci:desktop",
+      "ci:embedding",
+      "ci:unit",
+      "ci:coverage-db",
+      "ci:coverage-full"
     ],
     "labels": [
-      "ci:unit"
+      "ci:full"
     ],
     "commands": [
       {
@@ -81,12 +149,21 @@
           "config-tooling",
           "full-release-high-risk"
         ]
+      },
+      {
+        "name": "full-local-suite",
+        "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
+        "budgetMs": 2700000,
+        "owner": "release",
+        "requiredFor": [
+          "full-release-high-risk"
+        ]
       }
     ],
     "budget": {
-      "target": "local-pr-risk",
-      "targetMs": 480000,
-      "totalMs": 330000,
+      "target": "release-full-risk",
+      "targetMs": 3600000,
+      "totalMs": 3030000,
       "status": "within-target"
     }
   },
@@ -98,7 +175,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 20
     },
     {
       "name": "ci-script-tests",
@@ -107,7 +184,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 430
+      "durationMs": 529
     },
     {
       "name": "workflow-contracts",
@@ -116,7 +193,16 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 409
+      "durationMs": 496
+    },
+    {
+      "name": "full-local-suite",
+      "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
+      "owner": "release",
+      "budgetMs": 2700000,
+      "budgetStatus": "ok",
+      "exitCode": 0,
+      "durationMs": 1511050
     }
   ]
 }
