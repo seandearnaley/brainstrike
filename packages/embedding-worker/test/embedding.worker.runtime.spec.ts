@@ -386,6 +386,98 @@ describe('embedding worker runtime', () => {
     });
   });
 
+  describe('contiguous output buffer (BST-90)', () => {
+    it('packs all result vectors into a single shared ArrayBuffer', async () => {
+      // Pipeline returns one vector per call (per text). With 4 texts we
+      // should get 4 vectors all backed by the same underlying buffer.
+      pipelineMock.mockResolvedValue(async (slice: readonly string[]) => {
+        // Return one Float32Array per text in the slice — the pipeline
+        // output normalizer flattens this into a vector list.
+        return slice.map((_, i) => Float32Array.from([0.1 * (i + 1), 0.2 * (i + 1)]));
+      });
+      const runEmbedding = await loadWorker();
+
+      const result = await runEmbedding({
+        type: 'embed',
+        id: 'pack-1',
+        model: 'bge-m3',
+        texts: ['a', 'b', 'c', 'd'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      });
+
+      expect(result.vectors).toHaveLength(4);
+      const firstBuffer = result.vectors[0]!.buffer;
+      for (const vector of result.vectors) {
+        expect(vector.buffer).toBe(firstBuffer);
+      }
+      // The total buffer length equals N * D — confirms a flat allocation.
+      expect(firstBuffer.byteLength).toBe(4 * 2 * Float32Array.BYTES_PER_ELEMENT);
+    });
+
+    it('transfers exactly one ArrayBuffer regardless of batch count', async () => {
+      pipelineMock.mockResolvedValue(async (slice: readonly string[]) =>
+        slice.map(() => Float32Array.from([0.5, 0.5]))
+      );
+      const runEmbedding = await loadWorker();
+
+      await runEmbedding({
+        type: 'embed',
+        id: 'pack-transfer',
+        model: 'bge-m3',
+        texts: ['a', 'b', 'c'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      });
+
+      // Transfer() is invoked once per non-empty processEmbeddings call.
+      // The mock's typed signature only declares one arg, but Transfer is
+      // called as `new Transfer(value, transferList)`, so we read the
+      // second positional arg off the recorded call.
+      expect(transferMock).toHaveBeenCalledTimes(1);
+      const call = transferMock.mock.calls[0] as readonly unknown[];
+      const transferList = call[1] as readonly ArrayBuffer[];
+      expect(transferList).toHaveLength(1);
+      expect(transferList[0]).toBeInstanceOf(ArrayBuffer);
+    });
+
+    it('does not invoke Transfer when there are no vectors to return', async () => {
+      pipelineMock.mockResolvedValue(async () => new Float32Array([0.1, 0.2]));
+      const runEmbedding = await loadWorker();
+      await runEmbedding({
+        type: 'embed',
+        id: 'pack-empty',
+        model: 'bge-m3',
+        texts: [],
+        deviceHint: 'wasm',
+      });
+      // Empty path returns success directly without packing.
+      expect(transferMock).not.toHaveBeenCalled();
+    });
+
+    it('preserves vector values through packing', async () => {
+      pipelineMock.mockResolvedValue(async (slice: readonly string[]) =>
+        slice.map((_, i) => Float32Array.from([i + 1, (i + 1) * 10]))
+      );
+      const runEmbedding = await loadWorker();
+      const result = await runEmbedding({
+        type: 'embed',
+        id: 'pack-values',
+        model: 'bge-m3',
+        texts: ['a', 'b'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      });
+
+      // After L2-normalize: [1,10] / sqrt(101) ≈ [0.0995, 0.9950]
+      // and [2,20] / sqrt(404) ≈ [0.0995, 0.9950] (same after normalize)
+      expect(result.vectors[0]?.[0]).toBeCloseTo(1 / Math.sqrt(101), 4);
+      expect(result.vectors[0]?.[1]).toBeCloseTo(10 / Math.sqrt(101), 4);
+      expect(result.vectors[1]?.[0]).toBeCloseTo(2 / Math.sqrt(404), 4);
+      expect(result.vectors[1]?.[1]).toBeCloseTo(20 / Math.sqrt(404), 4);
+    });
+  });
+
   it('short-circuits when no texts are provided', async () => {
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.1, 0.2]));
     const runEmbedding = await loadWorker();
