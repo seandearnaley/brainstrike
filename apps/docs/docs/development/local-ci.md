@@ -38,30 +38,25 @@ pnpm ci:local -j checks
 ./scripts/local-ci.sh -l
 ```
 
-## Local Proof For Pull Requests
+## Local CI Plan For Pull Requests
 
-Pull requests use a strict local proof manifest plus label-routed cloud lanes.
+Pull requests use CI-computed risk. Developers inspect the plan locally, but
+GitHub recomputes the same plan in the `plan` job and routes required jobs from
+that output.
 
 1. Commit all source, config, workflow, test, and doc changes.
 2. Run `pnpm ci:select --base origin/main --head HEAD`.
-3. Add every listed `ci:*` label to the PR.
-4. Run `pnpm ci:prove --base origin/main --head HEAD`.
-5. Commit `.ci/proof/latest.json` by itself:
+3. Review `risk`, `requiredJobs`, `webE2eMatrix`, `desktopE2eMatrix`, and `localCommands`.
+4. Run only the relevant listed `localCommands` when local evidence is needed.
+5. Open or update the PR without CI routing labels or generated proof artifacts.
 
 ```bash
-git add .ci/proof/latest.json
-git commit -m "ci: add local proof manifest"
+pnpm ci:select --base origin/main --head HEAD
 ```
 
-The proof commit must be the PR tip. Any later change invalidates proof and
-requires a new `pnpm ci:prove` run.
-Rebasing or merging `main` into the branch also changes the proof context, so
-refresh the manifest and recommit `.ci/proof/latest.json` after updating the
-branch.
-
-The PR Sentinel verifies the manifest, selected labels, and proof-tip invariant.
-It fails hard when proof is missing, stale, or does not match selected risk
-lanes.
+`ci:select` is read-only. It does not create files and it does not require PR
+labels. If the plan looks too broad for the diff, fix the selector and its tests
+before spending cloud time.
 
 ## Secrets
 

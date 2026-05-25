@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import {
   isUnitTestFile,
   parseChangedUnitTestArgs,
+  planChangedWorkspaceUnitTests,
   planChangedUnitTests,
   runChangedUnitTests,
 } from '../run-changed-unit-tests.mjs';
@@ -57,6 +58,7 @@ test('planChangedUnitTests groups changed unit tests by owning workspace', async
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/app/root-layout-content.test.tsx',
         ],
         command: 'pnpm',
@@ -71,6 +73,7 @@ test('planChangedUnitTests groups changed unit tests by owning workspace', async
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/__tests__/first.test.ts',
           'src/__tests__/second.test.ts',
         ],
@@ -93,8 +96,8 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
     const exitCode = await runChangedUnitTests({
       cwd: rootDir,
       files: ['packages/utils/src/__tests__/token-counting-boundary.test.ts'],
-      runner: async (command, args) => {
-        calls.push({ args, command });
+      runner: async (command, args, options) => {
+        calls.push({ args, command, env: options.env });
         return '';
       },
     });
@@ -103,16 +106,168 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
     assert.deepEqual(calls, [
       {
         args: [
+          'turbo',
+          'run',
+          'build',
+          '--filter',
+          '@brainstrike/utils^...',
+          '--concurrency=16',
+          '--summarize',
+          '--log-order=grouped',
+          '--cache-dir=.turbo',
+        ],
+        command: 'pnpm',
+        env: {
+          CI: 'false',
+          COVERAGE: 'false',
+          TURBO_TEST_MODE: 'unit',
+        },
+      },
+      {
+        args: [
           '--filter',
           '@brainstrike/utils',
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/__tests__/token-counting-boundary.test.ts',
         ],
         command: 'pnpm',
+        env: {
+          CI: 'false',
+          COVERAGE: 'false',
+          TURBO_TEST_MODE: 'unit',
+        },
       },
     ]);
+  } finally {
+    await rm(rootDir, { force: true, recursive: true });
+  }
+});
+
+test('planChangedWorkspaceUnitTests runs changed tests for test-only workspace changes', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'brainstrike-changed-unit-'));
+  try {
+    await writePackage(rootDir, 'packages/ui', '@brainstrike/ui');
+    await writePackage(rootDir, 'apps/desktop', '@brainstrike/desktop');
+
+    const commands = await planChangedWorkspaceUnitTests(
+      [
+        'packages/ui/src/__tests__/code-surface.test.tsx',
+        'apps/desktop/src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts',
+      ],
+      { cwd: rootDir }
+    );
+
+    assert.deepEqual(commands, [
+      {
+        args: [
+          '--filter',
+          '@brainstrike/desktop',
+          'exec',
+          'vitest',
+          'run',
+          '--coverage.enabled=false',
+          'src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts',
+        ],
+        command: 'pnpm',
+        files: ['src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts'],
+        owner: '@brainstrike/desktop',
+        workspaceRoot: 'apps/desktop',
+      },
+      {
+        args: [
+          '--filter',
+          '@brainstrike/ui',
+          'exec',
+          'vitest',
+          'run',
+          '--coverage.enabled=false',
+          'src/__tests__/code-surface.test.tsx',
+        ],
+        command: 'pnpm',
+        files: ['src/__tests__/code-surface.test.tsx'],
+        owner: '@brainstrike/ui',
+        workspaceRoot: 'packages/ui',
+      },
+    ]);
+  } finally {
+    await rm(rootDir, { force: true, recursive: true });
+  }
+});
+
+test('planChangedWorkspaceUnitTests runs full workspace tests for non-test changes', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'brainstrike-changed-unit-'));
+  try {
+    await writePackage(rootDir, 'packages/ui', '@brainstrike/ui');
+    await writePackage(rootDir, 'packages/file-explorer-ui', '@brainstrike/file-explorer-ui');
+
+    const commands = await planChangedWorkspaceUnitTests(
+      [
+        'packages/ui/src/code-surface/language.ts',
+        'packages/ui/src/__tests__/code-surface.test.tsx',
+        'packages/file-explorer-ui/e2e/layout-persistence.test.ts',
+        'docs/architecture-reset/handoff.md',
+      ],
+      { cwd: rootDir }
+    );
+
+    assert.deepEqual(commands, [
+      {
+        args: ['--filter', '@brainstrike/ui', 'test'],
+        command: 'pnpm',
+        files: [],
+        owner: '@brainstrike/ui',
+        workspaceRoot: 'packages/ui',
+      },
+    ]);
+  } finally {
+    await rm(rootDir, { force: true, recursive: true });
+  }
+});
+
+test('planChangedWorkspaceUnitTests treats package code outside src as workspace test relevant', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'brainstrike-changed-unit-'));
+  try {
+    await writePackage(rootDir, 'packages/db', '@brainstrike/db');
+
+    const commands = await planChangedWorkspaceUnitTests(
+      [
+        'packages/db/migrations/0001_create_tables.sql',
+        'packages/db/drizzle.config.ts',
+        'packages/db/coverage/report.json',
+      ],
+      { cwd: rootDir }
+    );
+
+    assert.deepEqual(commands, [
+      {
+        args: ['--filter', '@brainstrike/db', 'test'],
+        command: 'pnpm',
+        files: [],
+        owner: '@brainstrike/db',
+        workspaceRoot: 'packages/db',
+      },
+    ]);
+  } finally {
+    await rm(rootDir, { force: true, recursive: true });
+  }
+});
+
+test('planChangedWorkspaceUnitTests ignores workspace documentation files', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'brainstrike-changed-unit-'));
+  try {
+    const commands = await planChangedWorkspaceUnitTests(
+      [
+        'apps/docs/docs/development/local-ci.md',
+        'packages/ui/README.md',
+        'packages/ui/docs/component-guidelines.mdx',
+      ],
+      { cwd: rootDir }
+    );
+
+    assert.deepEqual(commands, []);
   } finally {
     await rm(rootDir, { force: true, recursive: true });
   }
