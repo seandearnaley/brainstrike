@@ -6,7 +6,7 @@ import {
   buildSelection,
   collectGitSelection,
   E2E_LANES,
-  LOCAL_PROOF_COMMANDS,
+  LOCAL_CI_COMMANDS,
   parseSelectArgs,
   renderSelectionJson,
 } from '../ci-select.mjs';
@@ -26,7 +26,7 @@ test('parseSelectArgs rejects duplicate flags', () => {
   );
 });
 
-test('buildSelection returns files, lanes, expanded lanes, labels, and commands', () => {
+test('buildSelection returns files, lanes, expanded lanes, commands', () => {
   const selection = buildSelection({
     base: 'origin/main',
     baseSha: '1111111111111111111111111111111111111111',
@@ -37,10 +37,6 @@ test('buildSelection returns files, lanes, expanded lanes, labels, and commands'
   });
 
   assert.deepEqual(selection.lanes, [
-    'ci:desktop-runtime-hosts',
-    'ci:unit',
-  ]);
-  assert.deepEqual(selection.labels, [
     'ci:desktop-runtime-hosts',
     'ci:unit',
   ]);
@@ -58,7 +54,7 @@ test('buildSelection returns files, lanes, expanded lanes, labels, and commands'
   );
 });
 
-test('buildSelection includes deterministic risk profile and local proof commands', () => {
+test('buildSelection includes deterministic risk profile and local CI commands', () => {
   const selection = buildSelection({
     base: 'origin/main',
     baseSha: '1111111111111111111111111111111111111111',
@@ -90,7 +86,7 @@ test('buildSelection includes deterministic risk profile and local proof command
   });
 });
 
-test('buildSelection keeps docs-only proof cheap and without labels', () => {
+test('buildSelection keeps docs-only validation cheap and without cloud lanes', () => {
   const selection = buildSelection({
     base: 'origin/main',
     baseSha: '1111111111111111111111111111111111111111',
@@ -101,7 +97,6 @@ test('buildSelection keeps docs-only proof cheap and without labels', () => {
   });
 
   assert.deepEqual(selection.lanes, []);
-  assert.deepEqual(selection.labels, []);
   assert.deepEqual(selection.riskProfile.e2eLanes, []);
   assert.deepEqual(
     selection.commands.map((entry) => entry.name),
@@ -133,11 +128,11 @@ test('buildSelection keeps isolated unit tests out of product e2e lanes', () => 
   );
 });
 
-test('buildSelection marks full release proof as explicit release budget', () => {
+test('buildSelection marks full release validation as explicit release budget', () => {
   const selection = buildSelection({
     base: 'origin/main',
     baseSha: '1111111111111111111111111111111111111111',
-    files: ['turbo.jsonc'],
+    files: ['pnpm-lock.yaml'],
     head: 'HEAD',
     headSha: '2222222222222222222222222222222222222222',
     mergeBase: '1111111111111111111111111111111111111111',
@@ -206,7 +201,7 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
 test('E2E lane commands reference existing desktop embedding split specs', () => {
   const desktopEmbeddingCommands = [
     E2E_LANES['desktop-embedding-diagnostics'].command,
-    LOCAL_PROOF_COMMANDS['desktop-embedding-smoke'].command,
+    LOCAL_CI_COMMANDS['desktop-embedding-smoke'].command,
   ];
 
   for (const command of desktopEmbeddingCommands) {
@@ -244,8 +239,8 @@ test('buildSelection routes llm host changes to llm recovery without embedding d
     selection.commands.some((command) => command.name === 'desktop-embedding-smoke'),
     false
   );
-  assert.equal(selection.labels.includes('ci:embedding'), false);
-  assert.equal(selection.labels.includes('ci:desktop'), false);
+  assert.equal(selection.lanes.includes('ci:embedding'), false);
+  assert.equal(selection.lanes.includes('ci:desktop'), false);
 });
 
 test('buildSelection routes factory reset changes to the narrow desktop reset lane', () => {
@@ -260,7 +255,7 @@ test('buildSelection routes factory reset changes to the narrow desktop reset la
     selection.commands.map((command) => command.name),
     ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests']
   );
-  assert.equal(selection.labels.includes('ci:desktop'), false);
+  assert.equal(selection.lanes.includes('ci:desktop'), false);
 });
 
 test('buildSelection proves every selected narrow desktop lane locally', () => {
@@ -300,8 +295,8 @@ test('buildSelection routes db IPC changes to db storage without desktop full re
     selection.commands.map((command) => command.name),
     ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests']
   );
-  assert.equal(selection.labels.includes('ci:embedding'), false);
-  assert.equal(selection.labels.includes('ci:desktop'), false);
+  assert.equal(selection.lanes.includes('ci:embedding'), false);
+  assert.equal(selection.lanes.includes('ci:desktop'), false);
 });
 
 test('buildSelection routes file explorer UI to only file explorer persistence', () => {
@@ -316,14 +311,14 @@ test('buildSelection routes file explorer UI to only file explorer persistence',
     selection.commands.map((command) => command.name),
     ['diff-check', 'file-explorer-tests', 'web-file-explorer-persistence-tests']
   );
-  assert.equal(selection.labels.includes('ci:web-import-indexing'), false);
-  assert.equal(selection.labels.includes('ci:web-assistant-state'), false);
-  assert.equal(selection.labels.includes('ci:web-settings-state'), false);
-  assert.equal(selection.labels.includes('ci:web-destructive-reset'), false);
-  assert.equal(selection.labels.includes('ci:web-e2e'), false);
+  assert.equal(selection.lanes.includes('ci:web-import-indexing'), false);
+  assert.equal(selection.lanes.includes('ci:web-assistant-state'), false);
+  assert.equal(selection.lanes.includes('ci:web-settings-state'), false);
+  assert.equal(selection.lanes.includes('ci:web-destructive-reset'), false);
+  assert.equal(selection.lanes.includes('ci:web-e2e'), false);
 });
 
-test('buildSelection routes import indexing UI to import lane plus indexing proof', () => {
+test('buildSelection routes import indexing UI to import lane plus indexing validation', () => {
   const selection = buildSelection({
     files: ['apps/web/e2e/database-import-backfill.test.ts'],
     mergeBase: '1111111111111111111111111111111111111111',
@@ -334,7 +329,7 @@ test('buildSelection routes import indexing UI to import lane plus indexing proo
     selection.commands.map((command) => command.name),
     ['diff-check', 'indexing-tests', 'web-import-indexing-tests']
   );
-  assert.equal(selection.labels.includes('ci:web-e2e'), false);
+  assert.equal(selection.lanes.includes('ci:web-e2e'), false);
 });
 
 test('buildSelection routes assistant UI to assistant state only', () => {
@@ -360,7 +355,7 @@ test('buildSelection routes settings persistence to settings state only', () => 
   );
 });
 
-test('buildSelection keeps palette tooltip plus destructive reset proof out of full web regression', () => {
+test('buildSelection keeps palette tooltip plus destructive reset validation out of full web regression', () => {
   const selection = buildSelection({
     files: [
       '.jules/palette.md',
@@ -385,7 +380,7 @@ test('buildSelection keeps palette tooltip plus destructive reset proof out of f
     selection.commands.map((command) => command.name),
     ['diff-check', 'web-destructive-reset-tests', 'ui-tests']
   );
-  assert.equal(selection.labels.includes('ci:web-e2e'), false);
+  assert.equal(selection.lanes.includes('ci:web-e2e'), false);
   assert.equal(
     selection.commands.some((command) => command.name === 'web-full-regression-tests'),
     false
@@ -440,29 +435,29 @@ test('buildSelection only emits E2E lanes with registered commands', () => {
   }
 });
 
-test('local proof command registry has owners and timing budgets for failure routing', () => {
-  for (const command of Object.values(LOCAL_PROOF_COMMANDS)) {
+test('local CI command registry has owners and timing budgets for failure routing', () => {
+  for (const command of Object.values(LOCAL_CI_COMMANDS)) {
     assert.equal(typeof command.owner, 'string', command.name);
     assert.equal(typeof command.budgetMs, 'number', command.name);
     assert.equal(command.budgetMs > 0, true, command.name);
   }
-  assert.equal(LOCAL_PROOF_COMMANDS['db-schema-migration-tests'].budgetMs, 120_000);
-  assert.equal(LOCAL_PROOF_COMMANDS['db-repository-tests'].budgetMs, 150_000);
-  assert.equal(LOCAL_PROOF_COMMANDS['db-queue-tests'].budgetMs, 90_000);
-  assert.equal(LOCAL_PROOF_COMMANDS['db-search-tests'].budgetMs, 90_000);
-  assert.equal(LOCAL_PROOF_COMMANDS['db-integration-tests'].budgetMs, 150_000);
+  assert.equal(LOCAL_CI_COMMANDS['db-schema-migration-tests'].budgetMs, 120_000);
+  assert.equal(LOCAL_CI_COMMANDS['db-repository-tests'].budgetMs, 150_000);
+  assert.equal(LOCAL_CI_COMMANDS['db-queue-tests'].budgetMs, 90_000);
+  assert.equal(LOCAL_CI_COMMANDS['db-search-tests'].budgetMs, 90_000);
+  assert.equal(LOCAL_CI_COMMANDS['db-integration-tests'].budgetMs, 150_000);
   assert.match(
-    LOCAL_PROOF_COMMANDS['db-schema-migration-tests'].command,
+    LOCAL_CI_COMMANDS['db-schema-migration-tests'].command,
     /test:db:schema-migration/
   );
   assert.match(
-    LOCAL_PROOF_COMMANDS['db-integration-tests'].command,
+    LOCAL_CI_COMMANDS['db-integration-tests'].command,
     /test:db:integration/
   );
-  assert.doesNotMatch(LOCAL_PROOF_COMMANDS['db-repository-tests'].command, /\*\*/);
+  assert.doesNotMatch(LOCAL_CI_COMMANDS['db-repository-tests'].command, /\*\*/);
 });
 
-test('buildSelection routes db queue changes to the queue proof lane only', () => {
+test('buildSelection routes db queue changes to the queue validation lane only', () => {
   const selection = buildSelection({
     files: ['packages/db/src/queue/job-queue.ts'],
     mergeBase: '1111111111111111111111111111111111111111',
@@ -559,8 +554,8 @@ test('renderSelectionJson emits stable JSON', () => {
     riskProfile: null,
     head: 'HEAD',
     headSha: '2',
-    labels: [],
     lanes: [],
+    localCommandNames: [],
     mergeBase: '1',
   });
 
@@ -575,7 +570,7 @@ test('renderSelectionJson emits stable JSON', () => {
     'riskProfile',
     'lanes',
     'expandedLanes',
-    'labels',
+    'localCommandNames',
     'commands',
     'budget',
   ]);

@@ -89,7 +89,7 @@
     <div class="card">
       <div class="label">PR proof</div>
       <div class="value">Selected</div>
-      <p>Still controlled by <code>ci:doctor</code>, exact labels, and the proof manifest.</p>
+      <p>Controlled by the CI Plan job and dynamic matrices computed from the PR diff.</p>
     </div>
   </section>
 
@@ -101,7 +101,7 @@
     <tbody>
       <tr>
         <td><code>pull_request</code></td>
-        <td>Static checks plus lanes selected by proof labels.</td>
+        <td>Static checks plus lanes selected by the CI Plan output.</td>
         <td>Unselected E2E, coverage, desktop, and embedding lanes.</td>
         <td><code>Required PR Gate</code></td>
       </tr>

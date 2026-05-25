@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { E2E_LANES } from './ci-select.mjs';
 import {
-  selectProofCommandsForFiles,
+  selectLocalCommandNamesForFiles,
   selectRiskLanesForFiles,
   selectRiskProfileForFiles,
 } from './ci-risk-rules.mjs';
@@ -91,17 +91,17 @@ export function verifyRiskFixtures(fixtureDocument) {
     }
     names.add(fixture.name);
     const actual = selectRiskProfileForFiles(fixture.files);
-    const actualCloudLabels = selectRiskLanesForFiles(fixture.files);
-    const actualProofCommands = selectProofCommandsForFiles(fixture.files);
+    const actualCloudLanes = selectRiskLanesForFiles(fixture.files);
+    const actualLocalCommandNames = selectLocalCommandNamesForFiles(fixture.files);
     const expected = fixture.expected;
     if (actual.category !== expected.category) {
       failures.push(`${fixture.name} category differs: expected ${expected.category}, got ${actual.category}`);
     }
-    failures.push(...compareArray(`${fixture.name} cloudLabels`, actualCloudLabels, expected.cloudLabels));
+    failures.push(...compareArray(`${fixture.name} cloudLanes`, actualCloudLanes, expected.cloudLanes));
     failures.push(...validateRegisteredE2eLanes(`${fixture.name} expected e2eLanes`, expected.e2eLanes));
     failures.push(...validateRegisteredE2eLanes(`${fixture.name} actual e2eLanes`, actual.e2eLanes));
     failures.push(...compareArray(`${fixture.name} e2eLanes`, actual.e2eLanes, expected.e2eLanes));
-    failures.push(...compareArray(`${fixture.name} proofCommands`, actualProofCommands, expected.proofCommands));
+    failures.push(...compareArray(`${fixture.name} localCommandNames`, actualLocalCommandNames, expected.localCommandNames));
   }
   return failures;
 }
