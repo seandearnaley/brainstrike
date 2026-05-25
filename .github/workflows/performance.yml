@@ -3,10 +3,6 @@ name: Performance E2E
 on:
   schedule:
     - cron: '23 7 * * *' # Daily at 07:23 UTC
-  pull_request:
-    types: [labeled, synchronize, opened, reopened]
-    branches:
-      - '**'
   workflow_dispatch:
     inputs:
       project:
@@ -27,21 +23,15 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   web-perf:
     name: Web Performance Tests
     timeout-minutes: 30
-    if: >
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      ( github.event_name == 'pull_request' &&
-        ( contains(join(github.event.pull_request.labels.*.name, ','), 'run-perf') ||
-          contains(join(github.event.pull_request.labels.*.name, ','), 'run-performance-tests') ) )
     runs-on: ubuntu-latest
     env:
       TURBO_CACHE_DIR: .turbo
@@ -54,8 +44,20 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: Cache Turborepo
         uses: actions/cache@v5
@@ -95,20 +97,20 @@ jobs:
 
       - name: Run performance tests
         timeout-minutes: 30
-        run: |
-          cd apps/web
-          unset NO_COLOR
-          PROJECT=${{ github.event.inputs.project || 'performance' }}
-          GREP=${{ github.event.inputs.grep || '' }}
-          if [ -n "$GREP" ]; then
-            pnpm exec playwright test --project="$PROJECT" -g "$GREP"
-          else
-            pnpm exec playwright test --project="$PROJECT"
-          fi
         env:
           NODE_ENV: "production"
           PORT: "8080"
           BASE_URL: "http://127.0.0.1:8080"
+          PERF_PROJECT: ${{ github.event.inputs.project || 'performance' }}
+          PERF_GREP: ${{ github.event.inputs.grep || '' }}
+        run: |
+          cd apps/web
+          unset NO_COLOR
+          if [ -n "$PERF_GREP" ]; then
+            pnpm exec playwright test --project="$PERF_PROJECT" -g "$PERF_GREP"
+          else
+            pnpm exec playwright test --project="$PERF_PROJECT"
+          fi
 
       - name: Upload blob report
         if: failure()

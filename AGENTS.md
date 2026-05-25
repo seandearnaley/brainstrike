@@ -84,41 +84,21 @@ Agent DevTools Debugging:
 
 ---
 
-## PR CI PLAN FLOW
+## PR CI FLOW
 
-Pull requests are gated by CI-computed risk. Developers do not add CI labels,
-commit local proof manifests, or choose cloud lanes by hand.
+Pull requests use plain GitHub Actions workflows. There is no custom planner,
+no generated CI artifact, no CI routing labels, and no local command registry.
 
-Before opening or updating a PR:
-1. Commit the source, config, workflow, test, and doc changes.
-2. Run `pnpm ci:select --base origin/main --head HEAD` to inspect the computed plan.
-3. Run only the local commands shown in `localCommands` when local evidence is needed.
-4. Open or update the PR. GitHub runs the same planner in the `plan` job and routes jobs from that output.
-
-Use `origin/main` for PRs targeting `main`. If the PR targets another branch,
-replace `origin/main` with that target branch ref when inspecting the plan.
-
-Agent rules:
-- `pnpm ci:select` is read-only. It is the source of truth for risk, required jobs, and local commands.
-- Never add `ci:*` labels. PR labels are not part of CI routing.
-- Never run removed proof commands such as `ci:prove` or `ci:verify-proof`.
-- Never run full E2E, desktop regression, embedding diagnostics, or full release validation for a small change unless the plan selects that lane.
-- If a selected local command fails, fix that command first. Do not rerun broader suites to hide or bypass the failure.
-- If the computed plan looks too broad for the diff, stop and fix the selector/tests before opening or updating the PR.
-
-CI Plan output:
-- `risk` explains the category, level, domains, and changed-file reasons.
-- `lanes` lists normalized risk lanes used by the workflow.
-- `requiredJobs` is the exact cloud gate set for the PR.
-- `webE2eMatrix` and `desktopE2eMatrix` are explicit dynamic matrices; empty matrices do not run.
-- `localCommands` are optional local evidence commands, not a manifest contract.
-
-Post-merge Actions budget policy:
-- Pushes to `main` run the cheap health gate only: static checks, web smoke, and desktop smoke.
-- Full coverage, browser, web E2E matrix, desktop regression, and embedding regression run on nightly `schedule` or manual `workflow_dispatch` with `release_proof=full-release`.
-- Manual `workflow_dispatch` defaults to `release_proof=skip`; do not change that default. It exists to prevent accidental full-matrix spend.
-- Manual desktop backgrounding diagnostics require `release_proof=desktop-backgrounding`; they are not part of the default manual release proof.
-- Do not re-expand `main` push back to full matrix without an explicit budget/quality decision and workflow-contract test updates.
+Rules:
+- Do not add CI labels.
+- Do not commit generated CI proof artifacts.
+- Do not reintroduce the removed custom proof/planner commands or any custom
+  planner script.
+- Required PR checks should be the always-present checks from `.github/workflows/test.yml`.
+- Web and desktop E2E smoke workflows run on every PR.
+- Full web and desktop E2E regression runs on `schedule` or explicit
+  `workflow_dispatch`.
+- Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
 ---
 
