@@ -72,7 +72,10 @@ jobs:
   unit:
     name: Unit
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Foundational PRs (e.g. changes to @brainstrike/utils) pull in ~30
+    # dependent packages via pnpm's `...[ref]` filter. 30 minutes was tight
+    # on those — bumped to 45 to leave headroom.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -126,7 +129,10 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" run --if-present test
+        # --workspace-concurrency=4 explicitly matches pnpm's documented
+        # default for `pnpm -r` (https://pnpm.io/cli/recursive); making it
+        # explicit avoids surprises if the default changes.
+        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test
 
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
@@ -188,7 +194,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         # --if-present skips packages that don't define `test:coverage`.
         # See the Unit step comment above for the rationale.
-        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" run --if-present test:coverage
+        # Explicit --workspace-concurrency=4; same rationale as Unit.
+        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test:coverage
 
       - name: Prepare coverage workspace
         id: coverage
