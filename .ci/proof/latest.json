@@ -1,24 +1,25 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-25T00:50:22.846Z",
+  "generatedAt": "2026-05-25T01:54:18.343Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "da6c8b11d016188ededd9ddb9ea156496bd6b1b4",
+  "testedHeadSha": "3d20e8e0a364f0a483288c71dbc1665ce9c6129a",
   "selection": {
     "base": "origin/main",
     "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "da6c8b11d016188ededd9ddb9ea156496bd6b1b4",
+    "headSha": "3d20e8e0a364f0a483288c71dbc1665ce9c6129a",
     "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
       ".ci/proof/latest.json",
       ".github/actions/setup-desktop-e2e/action.yml",
       ".github/actions/setup-playwright-runtime/action.yml",
       ".github/workflows/test.yml",
+      "apps/desktop/e2e/embedding-worker-renderer.diagnostics.desktop.test.ts",
       "packages/file-explorer-ui/src/__tests__/workspace-tab-host.test.tsx",
       "packages/file-explorer-ui/src/shell/workspace-tab-host.tsx",
       "packages/ui/package.json",
@@ -154,7 +155,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 9
+      "durationMs": 12
     },
     {
       "name": "ci-script-tests",
@@ -163,7 +164,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 368
+      "durationMs": 439
     },
     {
       "name": "workflow-contracts",
@@ -172,7 +173,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 352
+      "durationMs": 409
     },
     {
       "name": "full-local-suite",
@@ -181,7 +182,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1468921
+      "durationMs": 1126572
     }
   ]
 }
