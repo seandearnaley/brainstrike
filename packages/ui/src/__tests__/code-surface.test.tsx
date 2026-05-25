@@ -1,8 +1,12 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeSurface } from '../code-surface';
 
 describe('CodeSurface', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('mounts a read-only CodeMirror surface with line numbers and resolved language metadata', async () => {
     render(
       <CodeSurface
@@ -41,5 +45,45 @@ describe('CodeSurface', () => {
     expect(surface).toHaveAttribute('data-language', 'Markdown');
     expect(surface).toHaveAttribute('data-editable', 'false');
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('restores initial scroll position after CodeMirror has measured layout', async () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    const requestAnimationFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    const cancelAnimationFrame = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+
+    const { unmount } = render(
+      <CodeSurface
+        initialScrollTop={72}
+        path="src/example.ts"
+        testId="scroll-preview"
+        value={Array.from({ length: 100 }, (_, index) => `const line${index} = ${index};`).join(
+          '\n'
+        )}
+      />
+    );
+
+    const surface = await screen.findByTestId('scroll-preview');
+    const scroller = surface.querySelector<HTMLElement>('.cm-scroller');
+    expect(scroller).not.toBeNull();
+    expect(requestAnimationFrame).toHaveBeenCalled();
+    expect(scroller?.scrollTop).toBe(0);
+
+    for (const animationFrame of animationFrames) {
+      animationFrame(performance.now());
+    }
+
+    expect(scroller?.scrollTop).toBe(72);
+
+    unmount();
+
+    expect(cancelAnimationFrame).toHaveBeenCalled();
   });
 });

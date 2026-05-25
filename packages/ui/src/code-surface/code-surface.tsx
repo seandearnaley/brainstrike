@@ -92,6 +92,7 @@ const BASE_EXTENSIONS: Extension[] = [
       overflow: 'auto',
     },
     '.cm-selectionBackground': {
+      // CodeMirror injects selection styles with high specificity; keep app theme contrast.
       backgroundColor: 'hsl(var(--primary) / 0.2) !important',
     },
   }),
@@ -175,10 +176,16 @@ export function CodeSurface({
     };
 
     view.scrollDOM.addEventListener('scroll', handleScroll, { passive: true });
-    view.scrollDOM.scrollTop = Math.max(0, initialScrollTop);
     viewRef.current = view;
+    const restoreScrollFrame = window.requestAnimationFrame(() => {
+      if (viewRef.current !== view) {
+        return;
+      }
+      view.scrollDOM.scrollTop = Math.max(0, initialScrollTop);
+    });
 
     return () => {
+      window.cancelAnimationFrame(restoreScrollFrame);
       view.scrollDOM.removeEventListener('scroll', handleScroll);
       view.destroy();
       if (viewRef.current === view) {
