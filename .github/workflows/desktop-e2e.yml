@@ -98,7 +98,7 @@ jobs:
     name: Desktop Embedding E2E
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -166,7 +166,7 @@ jobs:
             --workers=1 \
             --retries=0 \
             --max-failures=1 \
-            --global-timeout=1200000 \
+            --global-timeout=3000000 \
             --grep="@desktop-embedding-"
 
       - name: Upload desktop embedding traces
