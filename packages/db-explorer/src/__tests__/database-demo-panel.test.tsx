@@ -511,7 +511,10 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Hybrid search' })).toBeInTheDocument();
+        // Trigger button's aria-label is dynamic — "Expand hybrid search" /
+        // "Collapse hybrid search" (a11y polish in 4e65c86b4) — so match by
+        // a case-insensitive regex covering both expanded and collapsed states.
+        expect(screen.getByRole('button', { name: /hybrid search/i })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('No collection selected')).not.toBeInTheDocument();
