@@ -99,7 +99,7 @@ export const E2E_LANES = {
   },
   'desktop-embedding-diagnostics': {
     command:
-      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts e2e/embedding-worker-renderer.crash-a.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
     owner: 'indexing',
     tagContract: '@desktop-embedding-* required groups only; crash diagnostics stay release-only',
   },
@@ -550,8 +550,9 @@ export async function collectGitSelection(options, runner = defaultRunner) {
 
 export async function main(args = process.argv.slice(2)) {
   const options = parseSelectArgs(args);
-  const selection = await collectGitSelection(options);
-  process.stdout.write(renderSelectionJson(selection));
+  const { collectCiPlan, renderPlanJson } = await import('./ci-plan.mjs');
+  const plan = await collectCiPlan({ ...options, eventName: 'local' });
+  process.stdout.write(renderPlanJson(plan));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
