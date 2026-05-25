@@ -1,4 +1,4 @@
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -42,7 +42,6 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     : filteredFileTree;
 
   const tokenCounting = useTokenCounting();
-  const { handleSelectionLimitError } = useToastManager();
   const { storageAdapter } = useAdapters();
 
   const store = useFileExplorerStoreContext();
@@ -73,9 +72,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
       ] as const
   );
 
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
-    onSelectionLimitExceeded: handleSelectionLimitError,
-  });
+  const { selectedFilePaths, handleSelectionChange } = useSelectionManager();
   const [projectTreeUsesViewFilters, setProjectTreeUsesViewFilters] = useState(false);
 
   const fileNodeCache = useMemo(() => buildFileNodeCache(unfilteredFileTree), [unfilteredFileTree]);

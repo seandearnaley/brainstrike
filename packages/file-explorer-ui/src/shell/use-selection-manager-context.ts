@@ -15,11 +15,7 @@ import { useCallback, useMemo } from 'react';
 import { useSelectionResolver } from '../use-selection-resolver';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
-interface UseSelectionManagerProps {
-  onSelectionLimitExceeded: () => void;
-}
-
-export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionManagerProps) => {
+export const useSelectionManager = () => {
   const [
     selectedFilePaths,
     maxSelectionCount,
@@ -57,7 +53,6 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
     selectedFilePaths,
     maxSelectionCount,
     setSelectedFiles: setSelectedFilesStable,
-    onSelectionLimitExceeded,
   });
 
   /**

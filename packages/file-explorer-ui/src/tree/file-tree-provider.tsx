@@ -27,6 +27,7 @@ import {
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
+  useExpandSelectedFileParentDirectories,
 } from '../use-expanded-path-restoration';
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { createEmptyNormalizedFileTreeState } from '../utils/normalized-file-tree';
@@ -156,12 +157,21 @@ export function FileTreeProvider({
   }, [onNodesIndexed, filterTreeFn]);
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
+  const restorationKey = currentRootPath ?? 'none';
   const restorationState = useExpandedPathRestoration({
     currentRootFolderId: rootDirectoryHandle?.path ?? null,
     fileTree: fileTreeState.fileTree,
     isTreeLoading: fileTreeState.isLoading,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
-    restorationKey: `selection:${selectionVersion}`,
+    restorationKey,
+    setExpandedPaths,
+    store,
+  });
+  useExpandSelectedFileParentDirectories({
+    currentRootFolderId: rootDirectoryHandle?.path ?? null,
+    isRestorationSettled: restorationState.isRestorationSettled,
+    loadSpecificPaths: fileTreeState.loadSpecificPaths,
+    selectionVersion,
     setExpandedPaths,
     store,
   });

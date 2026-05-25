@@ -18,7 +18,6 @@ let latestOptions: {
   resolveTargetEmbeddingSetId?: () => string | null;
 };
 let selectionPaths = new Set<string>();
-let selectionOptions: { onSelectionLimitExceeded?: () => void } = {};
 
 vi.mock('../enhanced-file-import-service', () => ({
   useEnhancedFileImportService: (options: typeof latestOptions) => {
@@ -39,10 +38,7 @@ const mockExplorer: {
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorer: () => mockExplorer,
-  useSelectionManager: (options: { onSelectionLimitExceeded?: () => void }) => {
-    selectionOptions = options;
-    return { selectedFilePaths: selectionPaths };
-  },
+  useSelectionManager: () => ({ selectedFilePaths: selectionPaths }),
 }));
 
 const baseSettings = {
@@ -57,7 +53,6 @@ const baseSettings = {
 
 beforeEach(() => {
   selectionPaths = new Set();
-  selectionOptions = {};
   importServiceReturn.importFiles.mockClear();
   importServiceReturn.chunkRepository = { findAll: vi.fn() };
   importServiceReturn.progress = null;
@@ -201,24 +196,6 @@ describe('useImportFlow', () => {
 
     expect(firstComplete).not.toHaveBeenCalled();
     expect(secondComplete).toHaveBeenCalledTimes(1);
-  });
-
-  it('surfaces selection limit feedback via toast handler', () => {
-    const toast = vi.fn();
-    renderHook(() =>
-      useImportFlow({
-        importSettings: baseSettings,
-        toast,
-        resolveActiveCollectionId: () => 'set-1',
-      })
-    );
-
-    act(() => {
-      selectionOptions.onSelectionLimitExceeded?.();
-    });
-
-    expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast.mock.calls[0]?.[0]?.title).toBe('Selection Limit Reached');
   });
 
   it('forwards tokenTrueSizing preference to the enhanced import service', () => {
