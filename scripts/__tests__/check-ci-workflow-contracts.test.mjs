@@ -171,8 +171,8 @@ test('workflow contract fails when isolated changed unit tests expand to Turbo a
     unitAffected,
     unitAffected
       .replace(
-        '          UNIT_PROOF_MODE: ${{ needs.plan.outputs.unit-proof-mode }}',
-        '          UNIT_PROOF_MODE: affected-packages'
+        '          UNIT_MODE: ${{ needs.plan.outputs.unit-mode }}',
+        '          UNIT_MODE: affected-packages'
       )
       .replace(
         '            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD',

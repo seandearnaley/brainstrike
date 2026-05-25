@@ -92,7 +92,7 @@ jobs:
       run-prepare-desktop: ${{ steps.plan.outputs.run-prepare-desktop }}
       run-desktop-e2e-pr: ${{ steps.plan.outputs.run-desktop-e2e-pr }}
       run-merge-reports: ${{ steps.plan.outputs.run-merge-reports }}
-      unit-proof-mode: ${{ steps.plan.outputs.unit-proof-mode }}
+      unit-mode: ${{ steps.plan.outputs.unit-mode }}
       web-e2e-matrix: ${{ steps.plan.outputs.web-e2e-matrix }}
       desktop-e2e-matrix: ${{ steps.plan.outputs.desktop-e2e-matrix }}
     steps:
@@ -326,12 +326,12 @@ jobs:
         env:
           NODE_ENV: test
           TURBO_TEST_MODE: unit
-          UNIT_PROOF_MODE: ${{ needs.plan.outputs.unit-proof-mode }}
+          UNIT_MODE: ${{ needs.plan.outputs.unit-mode }}
         run: |
           START=$SECONDS
           rm -rf .turbo/runs
           mkdir -p .turbo/runs
-          if [ "$UNIT_PROOF_MODE" = "changed-unit-tests" ]; then
+          if [ "$UNIT_MODE" = "changed-unit-tests" ]; then
             echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
             node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
           else

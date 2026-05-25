@@ -4,7 +4,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { LOCAL_PROOF_COMMANDS } from './ci-select.mjs';
+import { LOCAL_CI_COMMANDS } from './ci-select.mjs';
 
 function asPositiveInteger(value, fallback) {
   const parsed = Number(value);
@@ -121,9 +121,9 @@ function readCalibrationCommandResult(result, sourcePath) {
   if (typeof result.exitCode !== 'number') {
     throw new Error(`${sourcePath} command ${result.name} exitCode must be a number`);
   }
-  const currentCommand = LOCAL_PROOF_COMMANDS[result.name];
+  const currentCommand = LOCAL_CI_COMMANDS[result.name];
   if (!currentCommand) {
-    throw new Error(`${sourcePath} references unknown local proof command ${result.name}`);
+    throw new Error(`${sourcePath} references unknown local local command ${result.name}`);
   }
   return {
     command: currentCommand.command,
@@ -229,9 +229,9 @@ export function buildCalibrationGapPlan(summary, selection = {}) {
   );
   for (const commandName of selectedCommandNames) {
     if (!commandsByName.has(commandName)) {
-      const registryCommand = LOCAL_PROOF_COMMANDS[commandName];
+      const registryCommand = LOCAL_CI_COMMANDS[commandName];
       if (!registryCommand) {
-        throw new Error(`selected command ${commandName} is not in the local proof registry`);
+        throw new Error(`selected command ${commandName} is not in the local validation registry`);
       }
       commandsByName.set(commandName, {
         name: registryCommand.name,

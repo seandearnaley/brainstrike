@@ -41,26 +41,10 @@ export const EXPANDED_FULL_LANES = [
   'ci:coverage-full',
 ];
 
-export const E2E_PROOF_COMMAND_LABELS = new Map([
-  ['web-smoke-tests', 'ci:web-smoke'],
-  ['web-file-explorer-persistence-tests', 'ci:web-file-explorer-persistence'],
-  ['web-import-indexing-tests', 'ci:web-import-indexing'],
-  ['web-assistant-state-tests', 'ci:web-assistant-state'],
-  ['web-settings-state-tests', 'ci:web-settings-state'],
-  ['web-db-startup-tests', 'ci:web-db-startup'],
-  ['web-destructive-reset-tests', 'ci:web-destructive-reset'],
-  ['web-full-regression-tests', 'ci:web-e2e'],
-  ['desktop-smoke-tests', 'ci:desktop-smoke'],
-  ['desktop-ipc-reset-tests', 'ci:desktop-ipc-reset'],
-  ['desktop-runtime-host-tests', 'ci:desktop-runtime-hosts'],
-  ['desktop-db-storage-tests', 'ci:desktop-db-storage'],
-  ['desktop-full-regression-tests', 'ci:desktop'],
-]);
-
 const FULL_PATTERNS = [
-  // test.yml routing is guarded by workflow-contract tests. Running product E2E does not prove
-  // label/proof wiring changes, so keep this on the CI tooling proof lane unless product files
-  // in the same diff select product lanes themselves.
+  // test.yml routing is guarded by workflow-contract tests. Product E2E does
+  // not prove CI routing changes, so keep this on the CI tooling validation
+  // lane unless product files in the same diff select product lanes themselves.
   /^\.github\/(?!workflows\/test\.yml$)/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
@@ -80,8 +64,6 @@ const DOCS_ONLY_PATTERNS = [
   /\.md$/,
   /\.html$/,
 ];
-
-const PROOF_ARTIFACT_PATTERNS = [/^\.ci\/proof\/latest\.json$/];
 
 const CONFIG_TOOLING_PATTERNS = [
   /^package\.json$/,
@@ -429,7 +411,7 @@ const E2E_LANES_BY_RISK_LABEL = new Map([
   ['ci:embedding', ['desktop-embedding-diagnostics']],
 ]);
 
-const LOCAL_PROOF_COMMANDS_BY_LANE = new Map([
+const LOCAL_COMMANDS_BY_LANE = new Map([
   ['ci:web-smoke', ['web-smoke-tests']],
   [
     'ci:web-file-explorer-persistence',
@@ -486,23 +468,16 @@ function hasAny(normalizedFiles, patterns) {
 function docsNeutralRuntimeFiles(files) {
   return [...files]
     .map((filePath) => normalizePath(filePath))
-    .filter((filePath) => !matchesAny(filePath, PROOF_ARTIFACT_PATTERNS))
     .filter((filePath) => !matchesAny(filePath, DOCS_ONLY_PATTERNS));
 }
 
-function proofNeutralRiskFiles(files) {
-  return [...files]
-    .map((filePath) => normalizePath(filePath))
-    .filter((filePath) => !matchesAny(filePath, PROOF_ARTIFACT_PATTERNS));
-}
-
-function orderRiskLabels(labels) {
-  const selected = new Set(labels);
+function orderRiskLanes(lanes) {
+  const selected = new Set(lanes);
   return RISK_LANES.filter((lane) => selected.has(lane));
 }
 
-function selectPatternMatchedCloudLabels(normalizedFiles, initialLabels) {
-  const selected = new Set(initialLabels);
+function selectPatternMatchedCloudLanes(normalizedFiles, initialLanes) {
+  const selected = new Set(initialLanes);
   for (const filePath of normalizedFiles) {
     for (const [lane, patterns] of LANE_PATTERNS) {
       if (matchesAny(filePath, patterns)) {
@@ -517,12 +492,12 @@ function selectPatternMatchedCloudLabels(normalizedFiles, initialLabels) {
     }
   }
 
-  return orderRiskLabels(selected);
+  return orderRiskLanes(selected);
 }
 
-function mergeE2eLanes(e2eLanes, cloudLabels) {
+function mergeE2eLanes(e2eLanes, cloudLanes) {
   const selected = new Set(e2eLanes);
-  for (const label of cloudLabels) {
+  for (const label of cloudLanes) {
     for (const lane of E2E_LANES_BY_RISK_LABEL.get(label) ?? []) {
       selected.add(lane);
     }
@@ -623,31 +598,31 @@ function profile({
   category,
   domains,
   e2eLanes,
-  proofCommands,
+  localCommandNames,
   riskLevel,
-  cloudLabels,
+  cloudLanes,
 }) {
   return {
     category,
     domains,
     e2eLanes,
-    proofCommands,
+    localCommandNames,
     riskLevel,
-    cloudLabels,
+    cloudLanes,
   };
 }
 
 function selectBaseRiskProfileForFiles(files) {
-  let normalizedFiles = proofNeutralRiskFiles(files);
+  let normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
 
   if (normalizedFiles.length === 0 || allFilesMatch(normalizedFiles, DOCS_ONLY_PATTERNS)) {
     return profile({
       category: 'docs-only',
       domains: ['documentation'],
       e2eLanes: [],
-      proofCommands: ['diff-check', 'docs-static'],
+      localCommandNames: ['diff-check', 'docs-static'],
       riskLevel: 'low',
-      cloudLabels: [],
+      cloudLanes: [],
     });
   }
 
@@ -677,9 +652,9 @@ function selectBaseRiskProfileForFiles(files) {
         'desktop-llm-host-recovery',
         'long-soak-release-only',
       ],
-      proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
+      localCommandNames: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
       riskLevel: 'full',
-      cloudLabels: ['ci:full'],
+      cloudLanes: ['ci:full'],
     });
   }
 
@@ -688,9 +663,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'isolated-unit-test-only',
       domains: ['test-only'],
       e2eLanes: [],
-      proofCommands: ['diff-check', 'changed-unit-tests'],
+      localCommandNames: ['diff-check', 'changed-unit-tests'],
       riskLevel: 'low',
-      cloudLabels: ['ci:unit'],
+      cloudLanes: ['ci:unit'],
     });
   }
 
@@ -700,9 +675,9 @@ function selectBaseRiskProfileForFiles(files) {
         category: 'desktop-ipc-reset',
         domains: ['desktop-platform'],
         e2eLanes: ['desktop-ipc-reset'],
-        proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests'],
+        localCommandNames: ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests'],
         riskLevel: 'medium',
-        cloudLabels: ['ci:desktop-ipc-reset', 'ci:unit'],
+        cloudLanes: ['ci:desktop-ipc-reset', 'ci:unit'],
       });
     }
 
@@ -711,9 +686,9 @@ function selectBaseRiskProfileForFiles(files) {
         category: 'desktop-db-storage',
         domains: ['desktop-platform', 'data-platform'],
         e2eLanes: ['desktop-db-storage'],
-        proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests'],
+        localCommandNames: ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests'],
         riskLevel: 'medium',
-        cloudLabels: ['ci:desktop-db-storage', 'ci:unit', 'ci:coverage-db'],
+        cloudLanes: ['ci:desktop-db-storage', 'ci:unit', 'ci:coverage-db'],
       });
     }
 
@@ -724,9 +699,9 @@ function selectBaseRiskProfileForFiles(files) {
           ? ['desktop-platform', 'indexing']
           : ['desktop-platform'],
         e2eLanes: ['desktop-runtime-hosts'],
-        proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
+        localCommandNames: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
         riskLevel: 'high',
-        cloudLabels: ['ci:desktop-runtime-hosts', 'ci:unit'],
+        cloudLanes: ['ci:desktop-runtime-hosts', 'ci:unit'],
       });
     }
 
@@ -734,9 +709,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'desktop-platform-ipc-preload',
       domains: ['desktop-platform'],
       e2eLanes: ['desktop-full-regression'],
-      proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
+      localCommandNames: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:desktop', 'ci:unit'],
+      cloudLanes: ['ci:desktop', 'ci:unit'],
     });
   }
 
@@ -745,7 +720,7 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
       e2eLanes: ['web-db-startup', 'web-destructive-reset'],
-      proofCommands: [
+      localCommandNames: [
         'diff-check',
         'db-schema-migration-tests',
         'db-integration-tests',
@@ -753,7 +728,7 @@ function selectBaseRiskProfileForFiles(files) {
         'web-destructive-reset-tests',
       ],
       riskLevel: 'high',
-      cloudLabels: [
+      cloudLanes: [
         'ci:web-db-startup',
         'ci:web-destructive-reset',
         'ci:browser',
@@ -771,9 +746,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
       e2eLanes: [],
-      proofCommands: dataPlatformPackageCommands(normalizedFiles),
+      localCommandNames: dataPlatformPackageCommands(normalizedFiles),
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
+      cloudLanes: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -784,11 +759,11 @@ function selectBaseRiskProfileForFiles(files) {
       e2eLanes: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
         ? ['desktop-embedding-diagnostics']
         : ['critical-smoke'],
-      proofCommands: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
+      localCommandNames: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
         ? ['diff-check', 'indexing-tests', 'embedding-tests']
         : ['diff-check', 'indexing-tests'],
       riskLevel: hasAny(normalizedFiles, EMBEDDING_PATTERNS) ? 'high' : 'medium',
-      cloudLabels: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
+      cloudLanes: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
         ? ['ci:embedding', 'ci:unit']
         : ['ci:unit'],
     });
@@ -799,9 +774,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'assistant-contract-runtime',
       domains: ['assistant'],
       e2eLanes: ['web-assistant-state'],
-      proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
+      localCommandNames: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-assistant-state', 'ci:unit'],
+      cloudLanes: ['ci:web-assistant-state', 'ci:unit'],
     });
   }
 
@@ -810,9 +785,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-import-indexing',
       domains: ['workspace-experience', 'indexing'],
       e2eLanes: ['web-import-indexing'],
-      proofCommands: ['diff-check', 'indexing-tests', 'web-import-indexing-tests'],
+      localCommandNames: ['diff-check', 'indexing-tests', 'web-import-indexing-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-import-indexing', 'ci:unit'],
+      cloudLanes: ['ci:web-import-indexing', 'ci:unit'],
     });
   }
 
@@ -821,13 +796,13 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-ui-file-explorer',
       domains: ['workspace-experience'],
       e2eLanes: ['web-file-explorer-persistence'],
-      proofCommands: [
+      localCommandNames: [
         'diff-check',
         'file-explorer-tests',
         'web-file-explorer-persistence-tests',
       ],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:unit'],
+      cloudLanes: ['ci:web-file-explorer-persistence', 'ci:unit'],
     });
   }
 
@@ -836,9 +811,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-settings-state',
       domains: ['applications'],
       e2eLanes: ['web-settings-state'],
-      proofCommands: ['diff-check', 'web-settings-state-tests'],
+      localCommandNames: ['diff-check', 'web-settings-state-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-settings-state', 'ci:unit'],
+      cloudLanes: ['ci:web-settings-state', 'ci:unit'],
     });
   }
 
@@ -847,9 +822,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-db-startup',
       domains: ['applications', 'data-platform'],
       e2eLanes: ['web-db-startup'],
-      proofCommands: ['diff-check', 'web-db-startup-tests'],
+      localCommandNames: ['diff-check', 'web-db-startup-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-db-startup', 'ci:unit', 'ci:coverage-db'],
+      cloudLanes: ['ci:web-db-startup', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -858,9 +833,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-destructive-reset',
       domains: ['applications', 'data-platform'],
       e2eLanes: ['web-destructive-reset'],
-      proofCommands: ['diff-check', 'web-destructive-reset-tests'],
+      localCommandNames: ['diff-check', 'web-destructive-reset-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:web-destructive-reset', 'ci:unit', 'ci:coverage-db'],
+      cloudLanes: ['ci:web-destructive-reset', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -869,9 +844,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-smoke',
       domains: ['applications'],
       e2eLanes: ['web-smoke'],
-      proofCommands: ['diff-check', 'web-smoke-tests'],
+      localCommandNames: ['diff-check', 'web-smoke-tests'],
       riskLevel: 'low',
-      cloudLabels: ['ci:web-smoke', 'ci:unit'],
+      cloudLanes: ['ci:web-smoke', 'ci:unit'],
     });
   }
 
@@ -880,9 +855,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-full-regression',
       domains: ['applications'],
       e2eLanes: ['web-full-regression'],
-      proofCommands: ['diff-check', 'web-full-regression-tests'],
+      localCommandNames: ['diff-check', 'web-full-regression-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:web-e2e', 'ci:unit'],
+      cloudLanes: ['ci:web-e2e', 'ci:unit'],
     });
   }
 
@@ -891,9 +866,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
       e2eLanes: [],
-      proofCommands: dbPackageCommands(normalizedFiles),
+      localCommandNames: dbPackageCommands(normalizedFiles),
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
+      cloudLanes: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -902,9 +877,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'web-ui-file-explorer',
       domains: ['workspace-experience'],
       e2eLanes: ['web-functional-stateful'],
-      proofCommands: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
+      localCommandNames: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-e2e', 'ci:unit'],
+      cloudLanes: ['ci:web-e2e', 'ci:unit'],
     });
   }
 
@@ -913,9 +888,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'shared-foundation',
       domains: ['shared-foundation'],
       e2eLanes: ['critical-smoke'],
-      proofCommands: sharedFoundationCommands(normalizedFiles),
+      localCommandNames: sharedFoundationCommands(normalizedFiles),
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:unit'],
+      cloudLanes: ['ci:browser', 'ci:unit'],
     });
   }
 
@@ -924,9 +899,9 @@ function selectBaseRiskProfileForFiles(files) {
       category: 'config-tooling',
       domains: ['tooling'],
       e2eLanes: [],
-      proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+      localCommandNames: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:unit'],
+      cloudLanes: ['ci:unit'],
     });
   }
 
@@ -934,9 +909,9 @@ function selectBaseRiskProfileForFiles(files) {
     category: 'config-tooling',
     domains: ['tooling'],
     e2eLanes: [],
-    proofCommands: ['diff-check', 'ci-script-tests'],
+    localCommandNames: ['diff-check', 'ci-script-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:unit'],
+    cloudLanes: ['ci:unit'],
   });
 }
 
@@ -950,37 +925,37 @@ export function selectRiskProfileForFiles(files) {
   ) {
     return {
       ...baseProfile,
-      cloudLabels: orderRiskLabels(baseProfile.cloudLabels),
+      cloudLanes: orderRiskLanes(baseProfile.cloudLanes),
     };
   }
 
-  const cloudLabels = selectPatternMatchedCloudLabels(
+  const cloudLanes = selectPatternMatchedCloudLanes(
     docsNeutralRuntimeFiles(files),
-    baseProfile.cloudLabels
+    baseProfile.cloudLanes
   );
 
   return {
     ...baseProfile,
-    e2eLanes: mergeE2eLanes(baseProfile.e2eLanes, cloudLabels),
-    cloudLabels,
+    e2eLanes: mergeE2eLanes(baseProfile.e2eLanes, cloudLanes),
+    cloudLanes,
   };
 }
 
 export function selectRiskLanesForFiles(files) {
-  return selectRiskProfileForFiles(files).cloudLabels;
+  return selectRiskProfileForFiles(files).cloudLanes;
 }
 
-export function selectProofCommandsForFiles(files) {
+export function selectLocalCommandNamesForFiles(files) {
   const profileForFiles = selectRiskProfileForFiles(files);
   const normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
 
-  if (profileForFiles.cloudLabels.includes('ci:full')) {
-    return [...profileForFiles.proofCommands];
+  if (profileForFiles.cloudLanes.includes('ci:full')) {
+    return [...profileForFiles.localCommandNames];
   }
 
-  const commands = new Set(profileForFiles.proofCommands);
+  const commands = new Set(profileForFiles.localCommandNames);
   for (const lane of selectRiskLanesForFiles(files)) {
-    for (const commandName of LOCAL_PROOF_COMMANDS_BY_LANE.get(lane) ?? []) {
+    for (const commandName of LOCAL_COMMANDS_BY_LANE.get(lane) ?? []) {
       commands.add(commandName);
     }
   }
@@ -1012,12 +987,4 @@ export function expandRiskLanes(lanes) {
   return RISK_LANES.filter(
     (lane) => lane !== 'ci:full' && selected.has(lane)
   );
-}
-
-export function toRiskLabels(lanes) {
-  for (const lane of lanes) {
-    assertKnownLane(lane);
-  }
-
-  return [...lanes];
 }

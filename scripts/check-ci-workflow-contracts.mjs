@@ -291,37 +291,6 @@ function requireMainPushEvent(job, jobName, failures) {
   );
 }
 
-function requireRiskLabelIncludes(job, jobName, labels, failures) {
-  requireIncludes(
-    job,
-    "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full')",
-    `${jobName} must run on PRs labeled ci:full.`,
-    failures
-  );
-  for (const label of labels) {
-    requireIncludes(
-      job,
-      `contains(join(github.event.pull_request.labels.*.name, ','), '${label}')`,
-      `${jobName} must run on PRs labeled ${label}.`,
-      failures
-    );
-  }
-}
-
-function requireRiskLabelGate(job, jobName, labels, failures) {
-  requireReleaseMatrixEvents(job, jobName, failures);
-  requireRiskLabelIncludes(job, jobName, labels, failures);
-}
-
-function requireMainPushAndRiskLabelGate(job, jobName, labels, failures) {
-  requireMainPushEvent(job, jobName, failures);
-  requireRiskLabelGate(job, jobName, labels, failures);
-}
-
-function requirePrRiskLabelGate(job, jobName, labels, failures) {
-  requireRiskLabelIncludes(job, jobName, labels, failures);
-}
-
 function requirePrPlanOutputGate(job, jobName, outputName, failures) {
   requireIncludes(
     job,
@@ -838,7 +807,7 @@ export function validateWorkflowContracts(source) {
   requireNotIncludes(
     source,
     'ci:verify-proof',
-    'Test workflow must not require local proof-manifest verification.',
+    'Test workflow must not require legacy local proof verification.',
     failures
   );
   requireIncludes(
@@ -1363,20 +1332,20 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       unitAffected,
-      'UNIT_PROOF_MODE: ${{ needs.plan.outputs.unit-proof-mode }}',
+      'UNIT_MODE: ${{ needs.plan.outputs.unit-mode }}',
       'Affected unit job must read changed-unit-test mode from CI Plan.',
       failures
     );
     requireNotIncludes(
       unitAffected,
       'scripts/ci-unit-proof-mode.mjs',
-      'Affected unit job must not read unit mode from the proof manifest.',
+      'Affected unit job must not read unit mode from the removed manifest path.',
       failures
     );
     requireIncludes(
       unitAffected,
       'node scripts/run-changed-unit-tests.mjs',
-      'Affected unit job must run changed unit test files directly for isolated unit-test-only proof.',
+      'Affected unit job must run changed unit test files directly for isolated unit-test-only changes.',
       failures
     );
     requireIncludes(

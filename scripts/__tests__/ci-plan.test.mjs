@@ -24,7 +24,7 @@ function planFor(files) {
 }
 
 test('docs-only changes select only the static docs job', () => {
-  const plan = planFor(['docs/architecture-reset/ci-proof-system-onboarding.html']);
+  const plan = planFor(['docs/architecture-reset/ci-computed-risk-plan-onboarding.html']);
 
   assert.equal(plan.risk.category, 'docs-only');
   assert.deepEqual(plan.lanes, ['docs-static']);
@@ -48,7 +48,7 @@ test('tooling changes select checks and affected unit tests without e2e', () => 
   assert.equal(plan.jobs.unit_affected, true);
   assert.equal(plan.jobs.web_e2e_pr, false);
   assert.equal(plan.jobs.desktop_e2e_pr, false);
-  assert.equal(plan.unitProofMode, 'affected-packages');
+  assert.equal(plan.unitMode, 'affected-packages');
 });
 
 test('isolated unit test changes keep changed-file unit mode', () => {
@@ -56,7 +56,7 @@ test('isolated unit test changes keep changed-file unit mode', () => {
 
   assert.equal(plan.risk.category, 'isolated-unit-test-only');
   assert.equal(plan.jobs.unit_affected, true);
-  assert.equal(plan.unitProofMode, 'changed-unit-tests');
+  assert.equal(plan.unitMode, 'changed-unit-tests');
   assert.deepEqual(plan.webE2eMatrix, { include: [] });
   assert.deepEqual(plan.desktopE2eMatrix, { include: [] });
 });
@@ -129,14 +129,14 @@ test('desktop embedding plan preserves current regression spec coverage', () => 
 });
 
 test('renderGithubOutputs emits machine-readable job switches and matrices', () => {
-  const plan = planFor(['docs/architecture-reset/ci-proof-system-onboarding.html']);
+  const plan = planFor(['docs/architecture-reset/ci-computed-risk-plan-onboarding.html']);
   const outputs = renderGithubOutputs(plan);
 
   assert.match(outputs, /^plan-json=\{.*\}$/m);
   assert.match(outputs, /^required-jobs-json=\["plan","docs-static"\]$/m);
   assert.match(outputs, /^run-docs-static=true$/m);
   assert.match(outputs, /^run-unit-affected=false$/m);
-  assert.match(outputs, /^unit-proof-mode=affected-packages$/m);
+  assert.match(outputs, /^unit-mode=affected-packages$/m);
   assert.match(outputs, /^web-e2e-matrix=\{"include":\[\]\}$/m);
   assert.doesNotMatch(outputs, /ci:prove/);
   assert.doesNotMatch(outputs, /ci:verify-proof/);

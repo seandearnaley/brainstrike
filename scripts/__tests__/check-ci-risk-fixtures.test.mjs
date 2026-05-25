@@ -35,7 +35,7 @@ test('verifyRiskFixtures reports deterministic lane mismatches', () => {
         expected: {
           ...riskFixtures.cases[0].expected,
           category: 'full-release-high-risk',
-          cloudLabels: ['ci:full'],
+          cloudLanes: ['ci:full'],
         },
       },
       ...riskFixtures.cases.slice(1),
@@ -44,7 +44,7 @@ test('verifyRiskFixtures reports deterministic lane mismatches', () => {
 
   assert.deepEqual(verifyRiskFixtures(fixtureDocument), [
     'docs-only report category differs: expected full-release-high-risk, got docs-only',
-    'docs-only report cloudLabels length differs: expected 1, got 0',
+    'docs-only report cloudLanes length differs: expected 1, got 0',
   ]);
 });
 
@@ -98,7 +98,7 @@ test('runCli checks the committed fixture file successfully', async () => {
     const exitCode = await runCli([]);
 
     assert.equal(exitCode, 0);
-    assert.match(logs.join('\n'), /CI risk fixture check passed: 31 representative cases\./);
+    assert.match(logs.join('\n'), /CI risk fixture check passed: 29 representative cases\./);
   } finally {
     console.log = originalConsoleLog;
   }

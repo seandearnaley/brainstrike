@@ -6,9 +6,9 @@
       "files": ["docs/architecture-reset/report.html"],
       "expected": {
         "category": "docs-only",
-        "cloudLabels": [],
+        "cloudLanes": [],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "docs-static"]
+        "localCommandNames": ["diff-check", "docs-static"]
       }
     },
     {
@@ -23,9 +23,9 @@
       ],
       "expected": {
         "category": "docs-only",
-        "cloudLabels": [],
+        "cloudLanes": [],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "docs-static"]
+        "localCommandNames": ["diff-check", "docs-static"]
       }
     },
     {
@@ -39,35 +39,9 @@
       ],
       "expected": {
         "category": "config-tooling",
-        "cloudLabels": ["ci:unit"],
+        "cloudLanes": ["ci:unit"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts"]
-      }
-    },
-    {
-      "name": "docs plus proof artifact",
-      "files": [
-        ".ci/proof/latest.json",
-        "docs/architecture-reset/selector-smoke-docs-only.md"
-      ],
-      "expected": {
-        "category": "docs-only",
-        "cloudLabels": [],
-        "e2eLanes": [],
-        "proofCommands": ["diff-check", "docs-static"]
-      }
-    },
-    {
-      "name": "unit test plus proof artifact",
-      "files": [
-        ".ci/proof/latest.json",
-        "packages/utils/src/__tests__/token-counting-boundary.test.ts"
-      ],
-      "expected": {
-        "category": "isolated-unit-test-only",
-        "cloudLabels": ["ci:unit"],
-        "e2eLanes": [],
-        "proofCommands": ["diff-check", "changed-unit-tests"]
+        "localCommandNames": ["diff-check", "ci-script-tests", "workflow-contracts"]
       }
     },
     {
@@ -75,9 +49,9 @@
       "files": ["scripts/ci-select.mjs"],
       "expected": {
         "category": "config-tooling",
-        "cloudLabels": ["ci:unit"],
+        "cloudLanes": ["ci:unit"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts"]
+        "localCommandNames": ["diff-check", "ci-script-tests", "workflow-contracts"]
       }
     },
     {
@@ -85,9 +59,9 @@
       "files": ["packages/assistant-contract/src/runtime-data.ts"],
       "expected": {
         "category": "assistant-contract-runtime",
-        "cloudLabels": ["ci:web-assistant-state", "ci:unit"],
+        "cloudLanes": ["ci:web-assistant-state", "ci:unit"],
         "e2eLanes": ["web-assistant-state"],
-        "proofCommands": [
+        "localCommandNames": [
           "diff-check",
           "assistant-contract-tests",
           "app-shell-tests",
@@ -100,9 +74,9 @@
       "files": ["packages/embeddings/src/worker/embedding-worker.ts"],
       "expected": {
         "category": "indexing-import-embedding",
-        "cloudLabels": ["ci:embedding", "ci:unit"],
+        "cloudLanes": ["ci:embedding", "ci:unit"],
         "e2eLanes": ["desktop-embedding-diagnostics"],
-        "proofCommands": ["diff-check", "indexing-tests", "embedding-tests"]
+        "localCommandNames": ["diff-check", "indexing-tests", "embedding-tests"]
       }
     },
     {
@@ -110,7 +84,7 @@
       "files": ["packages/db/src/migrations/012-add-index.sql.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": [
+        "cloudLanes": [
           "ci:browser",
           "ci:web-db-startup",
           "ci:web-destructive-reset",
@@ -118,7 +92,7 @@
           "ci:coverage-db"
         ],
         "e2eLanes": ["web-db-startup", "web-destructive-reset"],
-        "proofCommands": [
+        "localCommandNames": [
           "diff-check",
           "db-schema-migration-tests",
           "db-integration-tests",
@@ -132,9 +106,9 @@
       "files": ["packages/db/src/queue/job-queue.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "db-queue-tests"]
+        "localCommandNames": ["diff-check", "db-queue-tests"]
       }
     },
     {
@@ -142,9 +116,9 @@
       "files": ["packages/db/src/repositories/drizzle/file-record-repository.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "db-repository-tests"]
+        "localCommandNames": ["diff-check", "db-repository-tests"]
       }
     },
     {
@@ -152,9 +126,9 @@
       "files": ["packages/db/src/search/hybrid-search-service.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "db-search-tests"]
+        "localCommandNames": ["diff-check", "db-search-tests"]
       }
     },
     {
@@ -162,9 +136,9 @@
       "files": ["packages/file-explorer-ui/src/tree/optimized-file-tree.tsx"],
       "expected": {
         "category": "web-ui-file-explorer",
-        "cloudLabels": ["ci:web-file-explorer-persistence", "ci:unit"],
+        "cloudLanes": ["ci:web-file-explorer-persistence", "ci:unit"],
         "e2eLanes": ["web-file-explorer-persistence"],
-        "proofCommands": [
+        "localCommandNames": [
           "diff-check",
           "file-explorer-tests",
           "web-file-explorer-persistence-tests"
@@ -176,9 +150,9 @@
       "files": ["apps/web/e2e/database-import-backfill.test.ts"],
       "expected": {
         "category": "web-import-indexing",
-        "cloudLabels": ["ci:web-import-indexing", "ci:unit"],
+        "cloudLanes": ["ci:web-import-indexing", "ci:unit"],
         "e2eLanes": ["web-import-indexing"],
-        "proofCommands": ["diff-check", "indexing-tests", "web-import-indexing-tests"]
+        "localCommandNames": ["diff-check", "indexing-tests", "web-import-indexing-tests"]
       }
     },
     {
@@ -186,9 +160,9 @@
       "files": ["packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx"],
       "expected": {
         "category": "assistant-contract-runtime",
-        "cloudLabels": ["ci:web-assistant-state", "ci:unit"],
+        "cloudLanes": ["ci:web-assistant-state", "ci:unit"],
         "e2eLanes": ["web-assistant-state"],
-        "proofCommands": [
+        "localCommandNames": [
           "diff-check",
           "assistant-contract-tests",
           "app-shell-tests",
@@ -201,9 +175,9 @@
       "files": ["apps/web/src/app/settings/model-provider-section.tsx"],
       "expected": {
         "category": "web-settings-state",
-        "cloudLabels": ["ci:web-settings-state", "ci:unit"],
+        "cloudLanes": ["ci:web-settings-state", "ci:unit"],
         "e2eLanes": ["web-settings-state"],
-        "proofCommands": ["diff-check", "web-settings-state-tests"]
+        "localCommandNames": ["diff-check", "web-settings-state-tests"]
       }
     },
     {
@@ -211,9 +185,9 @@
       "files": ["apps/web/e2e/web-db-worker-startup.test.ts"],
       "expected": {
         "category": "web-db-startup",
-        "cloudLabels": ["ci:web-db-startup", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:web-db-startup", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["web-db-startup"],
-        "proofCommands": ["diff-check", "web-db-startup-tests"]
+        "localCommandNames": ["diff-check", "web-db-startup-tests"]
       }
     },
     {
@@ -221,9 +195,9 @@
       "files": ["apps/web/e2e/factory-reset-recovery.test.ts"],
       "expected": {
         "category": "web-destructive-reset",
-        "cloudLabels": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["web-destructive-reset"],
-        "proofCommands": ["diff-check", "web-destructive-reset-tests"]
+        "localCommandNames": ["diff-check", "web-destructive-reset-tests"]
       }
     },
     {
@@ -231,9 +205,9 @@
       "files": ["packages/ui/src/prompt-management/components/prompt-card.tsx"],
       "expected": {
         "category": "shared-foundation",
-        "cloudLabels": ["ci:browser", "ci:unit"],
+        "cloudLanes": ["ci:browser", "ci:unit"],
         "e2eLanes": ["critical-smoke"],
-        "proofCommands": ["diff-check", "ui-tests"]
+        "localCommandNames": ["diff-check", "ui-tests"]
       }
     },
     {
@@ -251,9 +225,9 @@
       ],
       "expected": {
         "category": "web-destructive-reset",
-        "cloudLabels": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["web-destructive-reset"],
-        "proofCommands": ["diff-check", "web-destructive-reset-tests", "ui-tests"]
+        "localCommandNames": ["diff-check", "web-destructive-reset-tests", "ui-tests"]
       }
     },
     {
@@ -261,9 +235,9 @@
       "files": ["apps/desktop/src/preload.ts"],
       "expected": {
         "category": "desktop-platform-ipc-preload",
-        "cloudLabels": ["ci:desktop", "ci:unit"],
+        "cloudLanes": ["ci:desktop", "ci:unit"],
         "e2eLanes": ["desktop-full-regression"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-full-regression-tests"]
+        "localCommandNames": ["diff-check", "desktop-unit-tests", "desktop-full-regression-tests"]
       }
     },
     {
@@ -271,9 +245,9 @@
       "files": ["apps/desktop/src/desktop-factory-reset.ts"],
       "expected": {
         "category": "desktop-ipc-reset",
-        "cloudLabels": ["ci:desktop-ipc-reset", "ci:unit"],
+        "cloudLanes": ["ci:desktop-ipc-reset", "ci:unit"],
         "e2eLanes": ["desktop-ipc-reset"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-ipc-reset-tests"]
+        "localCommandNames": ["diff-check", "desktop-unit-tests", "desktop-ipc-reset-tests"]
       }
     },
     {
@@ -281,9 +255,9 @@
       "files": ["apps/desktop/src/ipc-domains/db-ipc.ts"],
       "expected": {
         "category": "desktop-db-storage",
-        "cloudLabels": ["ci:desktop-db-storage", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:desktop-db-storage", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["desktop-db-storage"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-db-storage-tests"]
+        "localCommandNames": ["diff-check", "desktop-unit-tests", "desktop-db-storage-tests"]
       }
     },
     {
@@ -291,9 +265,9 @@
       "files": ["apps/desktop/src/embedding-host-manager.ts"],
       "expected": {
         "category": "desktop-runtime-hosts",
-        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:unit"],
+        "cloudLanes": ["ci:desktop-runtime-hosts", "ci:unit"],
         "e2eLanes": ["desktop-runtime-hosts"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
+        "localCommandNames": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
       }
     },
     {
@@ -301,9 +275,9 @@
       "files": ["apps/desktop/src/llm-host-manager.ts"],
       "expected": {
         "category": "desktop-runtime-hosts",
-        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:unit"],
+        "cloudLanes": ["ci:desktop-runtime-hosts", "ci:unit"],
         "e2eLanes": ["desktop-runtime-hosts"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
+        "localCommandNames": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
       }
     },
     {
@@ -311,9 +285,9 @@
       "files": ["packages/storage/src/opfs.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "storage-tests"]
+        "localCommandNames": ["diff-check", "storage-tests"]
       }
     },
     {
@@ -321,9 +295,9 @@
       "files": ["packages/file-system/src/utils.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
+        "cloudLanes": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "file-system-tests"]
+        "localCommandNames": ["diff-check", "file-system-tests"]
       }
     },
     {
@@ -331,9 +305,9 @@
       "files": ["packages/utils/src/token-counting-runtime.ts"],
       "expected": {
         "category": "shared-foundation",
-        "cloudLabels": ["ci:browser", "ci:unit"],
+        "cloudLanes": ["ci:browser", "ci:unit"],
         "e2eLanes": ["critical-smoke"],
-        "proofCommands": ["diff-check", "shared-foundation-tests"]
+        "localCommandNames": ["diff-check", "shared-foundation-tests"]
       }
     },
     {
@@ -341,9 +315,9 @@
       "files": ["packages/utils/src/__tests__/token-counting-boundary.test.ts"],
       "expected": {
         "category": "isolated-unit-test-only",
-        "cloudLabels": ["ci:unit"],
+        "cloudLanes": ["ci:unit"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "changed-unit-tests"]
+        "localCommandNames": ["diff-check", "changed-unit-tests"]
       }
     },
     {
@@ -351,9 +325,9 @@
       "files": ["apps/web/src/app/root-layout-content.tsx"],
       "expected": {
         "category": "web-full-regression",
-        "cloudLabels": ["ci:web-e2e", "ci:unit"],
+        "cloudLanes": ["ci:web-e2e", "ci:unit"],
         "e2eLanes": ["web-full-regression"],
-        "proofCommands": ["diff-check", "web-full-regression-tests"]
+        "localCommandNames": ["diff-check", "web-full-regression-tests"]
       }
     },
     {
@@ -361,9 +335,9 @@
       "files": [".github/workflows/test.yml"],
       "expected": {
         "category": "config-tooling",
-        "cloudLabels": ["ci:unit"],
+        "cloudLanes": ["ci:unit"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts"]
+        "localCommandNames": ["diff-check", "ci-script-tests", "workflow-contracts"]
       }
     }
   ]
