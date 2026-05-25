@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
   expandRiskLanes,
-  selectProofCommandsForFiles,
+  selectLocalCommandNamesForFiles,
   selectRiskProfileForFiles,
   selectRiskLanesForFiles,
-  toRiskLabels,
 } from './ci-risk-rules.mjs';
 import { splitLines } from './ci-script-utils.mjs';
 
@@ -22,8 +22,9 @@ const WEB_SMOKE_LANE = Object.freeze({
 });
 
 export const E2E_LANES = {
-  // Full-risk proof uses the critical-smoke alias so release gates can depend on
-  // a stable lane name while the actual web smoke test set stays product-owned.
+  // Full-risk validation uses the critical-smoke alias so release gates can
+  // depend on a stable lane name while the actual web smoke test set stays
+  // product-owned.
   'critical-smoke': WEB_SMOKE_LANE,
   'web-smoke': WEB_SMOKE_LANE,
   'web-file-explorer-persistence': {
@@ -99,7 +100,7 @@ export const E2E_LANES = {
   },
   'desktop-embedding-diagnostics': {
     command:
-      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts e2e/embedding-worker-renderer.crash-a.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
     owner: 'indexing',
     tagContract: '@desktop-embedding-* required groups only; crash diagnostics stay release-only',
   },
@@ -116,7 +117,7 @@ export const E2E_LANES = {
   },
 };
 
-export const LOCAL_PROOF_COMMANDS = {
+export const LOCAL_CI_COMMANDS = {
   'diff-check': {
     name: 'diff-check',
     command: 'git diff --check',
@@ -134,7 +135,7 @@ export const LOCAL_PROOF_COMMANDS = {
   'ci-script-tests': {
     name: 'ci-script-tests',
     command:
-      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-unit-proof-mode.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures',
+      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-plan.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/ci-required-pr-gate.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures',
     budgetMs: 120_000,
     owner: 'tooling',
     requiredFor: ['config-tooling', 'full-release-high-risk'],
@@ -469,12 +470,11 @@ export function buildSelection(input) {
   const riskProfile = selectRiskProfileForFiles(input.files);
   const lanes = selectRiskLanesForFiles(input.files);
   const expandedLanes = expandRiskLanes(lanes);
-  const labels = toRiskLabels(lanes);
-  const proofCommands = selectProofCommandsForFiles(input.files);
-  const commands = proofCommands.map((commandName) => {
-    const command = LOCAL_PROOF_COMMANDS[commandName];
+  const localCommandNames = selectLocalCommandNamesForFiles(input.files);
+  const commands = localCommandNames.map((commandName) => {
+    const command = LOCAL_CI_COMMANDS[commandName];
     if (!command) {
-      throw new Error(`no local proof command defined for ${commandName}`);
+      throw new Error(`no local CI command defined for ${commandName}`);
     }
     return renderCommand(command, input.mergeBase);
   });
@@ -488,10 +488,9 @@ export function buildSelection(input) {
     mergeBase: input.mergeBase,
     files: [...input.files],
     riskProfile,
-    proofCommands,
+    localCommandNames,
     lanes,
     expandedLanes,
-    labels,
     commands,
     budget,
   };
@@ -509,7 +508,7 @@ export function renderSelectionJson(selection) {
       riskProfile: selection.riskProfile ?? null,
       lanes: selection.lanes,
       expandedLanes: selection.expandedLanes,
-      labels: selection.labels,
+      localCommandNames: selection.localCommandNames,
       commands: selection.commands,
       budget: selection.budget ?? null,
     },
@@ -550,11 +549,12 @@ export async function collectGitSelection(options, runner = defaultRunner) {
 
 export async function main(args = process.argv.slice(2)) {
   const options = parseSelectArgs(args);
-  const selection = await collectGitSelection(options);
-  process.stdout.write(renderSelectionJson(selection));
+  const { collectCiPlan, renderPlanJson } = await import('./ci-plan.mjs');
+  const plan = await collectCiPlan({ ...options, eventName: 'local' });
+  process.stdout.write(renderPlanJson(plan));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

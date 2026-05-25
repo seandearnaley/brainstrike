@@ -1,5 +1,5 @@
 name: 'Setup Desktop E2E'
-description: 'Common setup for desktop Electron E2E tests: downloads pre-built dist, verifies preprovisioned Electron runtime deps, and builds workspace dependencies via Turbo remote cache.'
+description: 'Common setup for desktop Electron E2E tests: downloads pre-built dist, verifies Electron runtime deps, and builds workspace dependencies via Turbo remote cache.'
 
 runs:
   using: 'composite'
@@ -10,7 +10,7 @@ runs:
         name: desktop-dist
         path: apps/desktop/dist/
 
-    - name: Verify preprovisioned Electron runtime dependencies
+    - name: Verify Electron runtime dependencies
       shell: bash
       run: |
         set -euo pipefail

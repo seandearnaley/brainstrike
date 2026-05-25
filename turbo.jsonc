@@ -7,7 +7,10 @@
   // These files affect all tasks and will cause cache misses when modified
   "globalDependencies": [
     "pnpm-lock.yaml", // Package dependencies
-    "**/tsconfig*.json", // TypeScript configuration
+    "tsconfig*.json", // Root TypeScript configuration
+    "apps/*/tsconfig*.json", // App TypeScript configuration
+    "packages/*/tsconfig*.json", // Package TypeScript configuration
+    "packages/*/tsconfig/*.json", // Shared tsconfig preset package files
     "turbo.jsonc", // Turborepo configuration
     "biome.json", // Formatting/linting configuration
     ".nvmrc", // Node version specification
@@ -145,9 +148,8 @@
         "build"
       ],
       // Turborepo runs tasks with a constrained environment. Required browser
-      // CI lanes use the Playwright Docker image, so package-level Vitest
-      // browser providers must see the image browser path instead of falling
-      // back to HOME/.cache/ms-playwright.
+      // CI lanes use the shared Playwright runtime setup action, so package-level
+      // Vitest browser providers must see the cached browser path.
       "env": [
         "CI",
         "PLAYWRIGHT_BROWSERS_PATH"
