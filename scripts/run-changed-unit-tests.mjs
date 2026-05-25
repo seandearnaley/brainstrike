@@ -53,9 +53,18 @@ async function defaultRunner(command, args, options = {}) {
   const { stderr, stdout } = await execFileAsync(command, args, {
     cwd: options.cwd,
     encoding: 'utf8',
+    env: options.env ? { ...process.env, ...options.env } : process.env,
     maxBuffer: 1024 * 1024 * 50,
   });
   return `${stdout}${stderr}`;
+}
+
+function unitTestEnv() {
+  return {
+    CI: 'false',
+    COVERAGE: 'false',
+    TURBO_TEST_MODE: 'unit',
+  };
 }
 
 async function readJson(filePath) {
@@ -103,7 +112,15 @@ export async function planChangedUnitTests(files, options = {}) {
   )) {
     const workspace = await resolveWorkspace(rootDir, workspaceRoot);
     commands.push({
-      args: ['--filter', workspace.name, 'exec', 'vitest', 'run', ...relativeFiles.sort()],
+      args: [
+        '--filter',
+        workspace.name,
+        'exec',
+        'vitest',
+        'run',
+        '--coverage.enabled=false',
+        ...relativeFiles.sort(),
+      ],
       command: 'pnpm',
       files: [...relativeFiles].sort(),
       owner: workspace.name,
@@ -203,7 +220,7 @@ export async function runChangedUnitTests(options) {
   for (const command of commands) {
     const target = command.files.length > 0 ? command.files.join(', ') : 'workspace test';
     console.log(`Running ${command.owner}: ${target}`);
-    await runner(command.command, command.args, { cwd: options.cwd });
+    await runner(command.command, command.args, { cwd: options.cwd, env: unitTestEnv() });
   }
   return 0;
 }

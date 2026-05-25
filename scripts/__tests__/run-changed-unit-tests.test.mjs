@@ -58,6 +58,7 @@ test('planChangedUnitTests groups changed unit tests by owning workspace', async
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/app/root-layout-content.test.tsx',
         ],
         command: 'pnpm',
@@ -72,6 +73,7 @@ test('planChangedUnitTests groups changed unit tests by owning workspace', async
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/__tests__/first.test.ts',
           'src/__tests__/second.test.ts',
         ],
@@ -94,8 +96,8 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
     const exitCode = await runChangedUnitTests({
       cwd: rootDir,
       files: ['packages/utils/src/__tests__/token-counting-boundary.test.ts'],
-      runner: async (command, args) => {
-        calls.push({ args, command });
+      runner: async (command, args, options) => {
+        calls.push({ args, command, env: options.env });
         return '';
       },
     });
@@ -109,9 +111,15 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/__tests__/token-counting-boundary.test.ts',
         ],
         command: 'pnpm',
+        env: {
+          CI: 'false',
+          COVERAGE: 'false',
+          TURBO_TEST_MODE: 'unit',
+        },
       },
     ]);
   } finally {
@@ -143,6 +151,7 @@ test('planChangedWorkspaceUnitTests runs changed tests instead of full workspace
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts',
         ],
         command: 'pnpm',
@@ -157,6 +166,7 @@ test('planChangedWorkspaceUnitTests runs changed tests instead of full workspace
           'exec',
           'vitest',
           'run',
+          '--coverage.enabled=false',
           'src/__tests__/code-surface.test.tsx',
         ],
         command: 'pnpm',
