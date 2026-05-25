@@ -78,10 +78,11 @@ jobs:
           unset NO_COLOR
           # dbus-run-session provides an ephemeral D-Bus session bus so
           # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
-          # Failed to connect to the bus` for every process — same fix
-          # applied to test.yml + desktop-e2e.yml.
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac +extension GLX" \
-            dbus-run-session -- pnpm exec playwright test --shard=${SHARD}/${{ inputs.shardTotal || 2 }}
+          # Failed to connect to the bus`. Wraps as the OUTER layer to
+          # match the ordering in test.yml + desktop-e2e.yml.
+          dbus-run-session -- \
+            xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac +extension GLX" \
+            pnpm exec playwright test --shard=${SHARD}/${{ inputs.shardTotal || 2 }}
         env:
           NODE_ENV: "test"
           CI: "true"
