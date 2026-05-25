@@ -730,11 +730,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:browser')
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 30
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -745,12 +742,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd packages/storage
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Build packages
         run: pnpm run build --filter @brainstrike/db --filter @brainstrike/storage
@@ -783,11 +776,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
     needs: [checks, determine-matrix]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 40
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -812,12 +802,8 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd apps/web
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run E2E tests (shard)
         timeout-minutes: 30
@@ -862,11 +848,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
     needs: [checks]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 35
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -902,12 +885,8 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd apps/web
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run stateful E2E tests
         timeout-minutes: 25
@@ -952,11 +931,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')
     needs: [checks]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -976,12 +952,8 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Verify preprovisioned Playwright runtime
-        run: |
-          cd apps/web
-          test -d "$PLAYWRIGHT_BROWSERS_PATH"
-          pnpm exec playwright --version
-          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run destructive E2E tests
         timeout-minutes: 10
@@ -1025,11 +997,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-smoke')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1051,6 +1020,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run web smoke lane
         timeout-minutes: 10
@@ -1072,11 +1044,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-file-explorer-persistence')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1098,6 +1067,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run file explorer persistence lane
         timeout-minutes: 12
@@ -1119,11 +1091,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-import-indexing')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1145,6 +1114,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run import indexing lane
         timeout-minutes: 12
@@ -1166,11 +1138,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-assistant-state')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1192,6 +1161,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run assistant state lane
         timeout-minutes: 12
@@ -1213,11 +1185,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-settings-state')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1239,6 +1208,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run settings state lane
         timeout-minutes: 12
@@ -1260,11 +1232,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-db-startup')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1286,6 +1255,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run DB startup lane
         timeout-minutes: 12
@@ -1307,11 +1279,8 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-destructive-reset')
     needs: [checks, prepare-web]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -1333,6 +1302,9 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist/
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Run destructive reset lane
         timeout-minutes: 12
@@ -1356,8 +1328,6 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop')
     needs: [prepare-desktop, determine-matrix]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1376,6 +1346,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1457,8 +1430,6 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke')
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1472,6 +1443,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1513,8 +1487,6 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset')
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1528,6 +1500,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1569,8 +1544,6 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts')
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1584,6 +1557,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1625,8 +1601,6 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage')
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 10
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1640,6 +1614,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1681,8 +1658,6 @@ jobs:
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:embedding')
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1718,6 +1693,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1784,8 +1762,6 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential in release proof - wait for web E2E
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1804,6 +1780,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
@@ -1881,8 +1860,6 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
     needs: [prepare-desktop, e2e]
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1918,6 +1895,9 @@ jobs:
         uses: ./.github/actions/setup-monorepo
         with:
           skip-electron: 'false'
+
+      - name: Setup Playwright runtime
+        uses: ./.github/actions/setup-playwright-runtime
 
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e

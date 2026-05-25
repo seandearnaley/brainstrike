@@ -9,6 +9,7 @@ import {
   validateClaudeReviewWorkflowContracts,
   validateSetupDesktopE2EContracts,
   validateSetupMonorepoContracts,
+  validateSetupPlaywrightRuntimeContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
@@ -19,6 +20,10 @@ const claudeReviewWorkflowSource = await readFile(
 );
 const setupMonorepoSource = await readFile('.github/actions/setup-monorepo/action.yml', 'utf8');
 const setupDesktopE2ESource = await readFile('.github/actions/setup-desktop-e2e/action.yml', 'utf8');
+const setupPlaywrightRuntimeSource = await readFile(
+  '.github/actions/setup-playwright-runtime/action.yml',
+  'utf8'
+);
 const turboConfigSource = await readFile('turbo.jsonc', 'utf8');
 
 test('extractJob returns a single workflow job block', () => {
@@ -231,8 +236,12 @@ test('setup monorepo action satisfies cache contracts', () => {
   assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
 });
 
-test('setup desktop E2E action satisfies preprovisioned dependency setup contracts', () => {
+test('setup desktop E2E action satisfies dependency setup contracts', () => {
   assert.deepEqual(validateSetupDesktopE2EContracts(setupDesktopE2ESource), []);
+});
+
+test('setup Playwright runtime action satisfies browser runtime contracts', () => {
+  assert.deepEqual(validateSetupPlaywrightRuntimeContracts(setupPlaywrightRuntimeSource), []);
 });
 
 test('Turborepo task config satisfies browser test environment contracts', () => {
@@ -272,12 +281,42 @@ test('setup desktop E2E contract fails when Playwright dependency install is unb
   );
 });
 
-test('setup desktop E2E contract fails when Xvfb image verification is removed', () => {
+test('setup desktop E2E contract fails when Xvfb verification is removed', () => {
   const source = setupDesktopE2ESource.replace('command -v Xvfb >/dev/null', 'echo skipped');
 
   assert.match(
     validateSetupDesktopE2EContracts(source).join('\n'),
     /must verify Xvfb/
+  );
+});
+
+test('setup Playwright runtime contract fails when Chromium launch verification is removed', () => {
+  const source = setupPlaywrightRuntimeSource.replace('chromium.launch', 'console.log');
+
+  assert.match(
+    validateSetupPlaywrightRuntimeContracts(source).join('\n'),
+    /must prove Chromium launches/
+  );
+});
+
+test('setup Playwright runtime contract fails when browser caching is removed', () => {
+  const source = setupPlaywrightRuntimeSource.replace('actions/cache@v5', 'actions/checkout@v6');
+
+  assert.match(
+    validateSetupPlaywrightRuntimeContracts(source).join('\n'),
+    /must cache browser binaries/
+  );
+});
+
+test('setup Playwright runtime contract fails when browser path export is removed', () => {
+  const source = setupPlaywrightRuntimeSource.replace(
+    'echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" >> "$GITHUB_ENV"',
+    'echo skipped'
+  );
+
+  assert.match(
+    validateSetupPlaywrightRuntimeContracts(source).join('\n'),
+    /must export the cached browser path/
   );
 });
 
@@ -329,51 +368,51 @@ test('workflow contract accepts Turbo run commands without the pnpm prefix', () 
   assert.deepEqual(validateWorkflowContracts(source), []);
 });
 
-test('workflow contract fails when required browser Vitest installs Playwright deps live', () => {
+test('workflow contract fails when required browser Vitest bypasses the shared Playwright runtime setup', () => {
   const browserTests = extractJob(workflowSource, 'browser-tests');
   assert.ok(browserTests);
 
   const source = workflowSource.replace(
     browserTests,
     browserTests.replace(
-      'pnpm exec playwright --version',
-      'pnpm exec playwright install-deps chromium'
+      'uses: ./.github/actions/setup-playwright-runtime',
+      'run: pnpm exec playwright --version'
     )
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Browser Vitest Playwright job must not run install-deps during required CI/
+    /Browser Vitest Playwright job must use the cached Playwright runtime setup action/
   );
 });
 
-test('workflow contract fails when required web E2E leaves the Playwright image', () => {
+test('workflow contract fails when required web E2E reintroduces the Playwright container', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   assert.ok(e2e);
 
   const source = workflowSource.replace(
     e2e,
-    e2e.replace('image: mcr.microsoft.com/playwright:v1.59.1-noble', 'image: ubuntu:24.04')
+    e2e.replace('runs-on: ubuntu-latest', 'runs-on: ubuntu-latest\n    container:\n      image: mcr.microsoft.com/playwright:v1.59.1-noble')
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Functional E2E Playwright job must run in the preprovisioned Playwright Noble image/
+    /Functional E2E Playwright job must not depend on the MCR Playwright container image/
   );
 });
 
-test('workflow contract fails when preprovisioned Playwright runtime verification is removed', () => {
+test('workflow contract fails when Playwright runtime setup is removed from destructive E2E', () => {
   const destructive = extractJob(workflowSource, 'e2e-destructive');
   assert.ok(destructive);
 
   const source = workflowSource.replace(
     destructive,
-    destructive.replace('chromium.launch', 'console.log')
+    destructive.replace('uses: ./.github/actions/setup-playwright-runtime', 'run: pnpm exec playwright --version')
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Destructive E2E Playwright job must prove Chromium launches/
+    /Destructive E2E Playwright job must use the cached Playwright runtime setup action/
   );
 });
 
@@ -878,18 +917,18 @@ test('workflow contract fails when desktop regression retries are reintroduced',
   assert.match(failures, /desktop regression E2E must fail fast on the first failure/);
 });
 
-test('workflow contract fails when desktop regression jobs leave the Playwright image', () => {
+test('workflow contract fails when desktop regression jobs reintroduce the Playwright container', () => {
   const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
   assert.ok(desktopPr);
 
   const source = workflowSource.replace(
     desktopPr,
-    desktopPr.replace('image: mcr.microsoft.com/playwright:v1.59.1-noble', 'image: ubuntu:24.04')
+    desktopPr.replace('runs-on: ubuntu-latest', 'runs-on: ubuntu-latest\n    container:\n      image: mcr.microsoft.com/playwright:v1.59.1-noble')
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /desktop regression job must run in the preprovisioned Playwright Noble image/
+    /desktop regression job must not depend on the MCR Playwright container image/
   );
 });
 
@@ -983,21 +1022,18 @@ test('workflow contract fails when desktop embedding retries are reintroduced', 
   assert.match(failures, /desktop embedding E2E must fail fast on the first failure/);
 });
 
-test('workflow contract fails when desktop embedding jobs leave the Playwright image', () => {
+test('workflow contract fails when desktop embedding jobs reintroduce the Playwright container', () => {
   const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
   assert.ok(desktopEmbeddingPr);
 
   const source = workflowSource.replace(
     desktopEmbeddingPr,
-    desktopEmbeddingPr.replace(
-      'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-      'image: ubuntu:24.04'
-    )
+    desktopEmbeddingPr.replace('runs-on: ubuntu-latest', 'runs-on: ubuntu-latest\n    container:\n      image: mcr.microsoft.com/playwright:v1.59.1-noble')
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /desktop embedding job must run in the preprovisioned Playwright Noble image/
+    /desktop embedding job must not depend on the MCR Playwright container image/
   );
 });
 

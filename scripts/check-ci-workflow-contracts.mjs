@@ -9,6 +9,10 @@ const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
 const claudeReviewWorkflowPath = path.join(rootDir, '.github/workflows/claude-code-review.yml');
 const setupMonorepoActionPath = path.join(rootDir, '.github/actions/setup-monorepo/action.yml');
 const setupDesktopE2EActionPath = path.join(rootDir, '.github/actions/setup-desktop-e2e/action.yml');
+const setupPlaywrightRuntimeActionPath = path.join(
+  rootDir,
+  '.github/actions/setup-playwright-runtime/action.yml'
+);
 const turboConfigPath = path.join(rootDir, 'turbo.jsonc');
 const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
 const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
@@ -339,20 +343,32 @@ function requireEveryTurboCommandHas(source, text, message, failures) {
 function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} desktop embedding job must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} desktop embedding job must use the cached Playwright runtime setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} desktop embedding job must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} desktop embedding job must not use a job container before fail-fast setup can run.`,
     failures
   );
   requireNotIncludes(
     source,
     'apt-get',
-    `${prefix} desktop embedding job must not run apt-get in the required shard path.`,
+    `${prefix} desktop embedding job must not run apt-get inline in the required shard path.`,
     failures
   );
   requireNotIncludes(
     source,
     'sudo ',
-    `${prefix} desktop embedding job must not require sudo in the required shard path.`,
+    `${prefix} desktop embedding job must not require sudo inline in the required shard path.`,
     failures
   );
   requireIncludes(
@@ -425,20 +441,32 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
 function requireDesktopRegressionJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} desktop regression job must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} desktop regression job must use the cached Playwright runtime setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} desktop regression job must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} desktop regression job must not use a job container before fail-fast setup can run.`,
     failures
   );
   requireNotIncludes(
     source,
     'apt-get',
-    `${prefix} desktop regression job must not run apt-get in the required shard path.`,
+    `${prefix} desktop regression job must not run apt-get inline in the required shard path.`,
     failures
   );
   requireNotIncludes(
     source,
     'sudo ',
-    `${prefix} desktop regression job must not require sudo in the required shard path.`,
+    `${prefix} desktop regression job must not require sudo inline in the required shard path.`,
     failures
   );
   requireNumericMatchAtMost(
@@ -501,8 +529,8 @@ function requireDesktopNarrowJobContracts(
   );
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} must use the cached Playwright runtime setup action.`,
     failures
   );
   requireIncludes(
@@ -513,16 +541,18 @@ function requireDesktopNarrowJobContracts(
   );
   requireNotIncludes(
     source,
-    'apt-get',
-    `${prefix} must not run apt-get in the required lane path.`,
+    'mcr.microsoft.com/playwright',
+    `${prefix} must not depend on the MCR Playwright container image.`,
     failures
   );
   requireNotIncludes(
     source,
-    'sudo ',
-    `${prefix} must not require sudo in the required lane path.`,
+    'container:',
+    `${prefix} must not use a job container before fail-fast setup can run.`,
     failures
   );
+  requireNotIncludes(source, 'apt-get', `${prefix} must not run apt-get inline.`, failures);
+  requireNotIncludes(source, 'sudo ', `${prefix} must not require sudo inline.`, failures);
   requireNumericMatchAtMost(
     extractJobHeader(source),
     /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -564,8 +594,20 @@ function requireWebNarrowJobContracts(source, { label, name, prefix, script, ste
   );
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} must use the cached Playwright runtime setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} must not use a job container before fail-fast setup can run.`,
     failures
   );
   requireNotIncludes(
@@ -599,65 +641,43 @@ function requireWebNarrowJobContracts(source, { label, name, prefix, script, ste
   requireIncludes(source, script, `${prefix} must run ${script}.`, failures);
 }
 
-function requirePreprovisionedPlaywrightJobContracts(source, prefix, failures) {
+function requirePlaywrightRuntimeJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
-    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
-    `${prefix} Playwright job must run in the preprovisioned Playwright Noble image.`,
+    'uses: ./.github/actions/setup-playwright-runtime',
+    `${prefix} Playwright job must use the cached Playwright runtime setup action.`,
     failures
   );
-  requireIncludes(
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    `${prefix} Playwright job must not depend on the MCR Playwright container image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'container:',
+    `${prefix} Playwright job must not use a job container before fail-fast setup can run.`,
+    failures
+  );
+  requireNotIncludes(
     source,
     'PLAYWRIGHT_BROWSERS_PATH: /ms-playwright',
-    `${prefix} Playwright job must use the image-provided browser path explicitly.`,
-    failures
-  );
-  requireNotIncludes(
-    source,
-    'pnpm exec playwright install',
-    `${prefix} Playwright job must not install browsers or browser system dependencies during required CI.`,
-    failures
-  );
-  requireNotIncludes(
-    source,
-    'install-deps',
-    `${prefix} Playwright job must not run install-deps during required CI.`,
+    `${prefix} Playwright job must not assume image-provided browsers at /ms-playwright.`,
     failures
   );
   requireNotIncludes(
     source,
     'apt-get',
-    `${prefix} Playwright job must not run apt-get during required CI.`,
+    `${prefix} Playwright job must not run apt-get inline in the workflow job.`,
     failures
   );
-
-  const verifyStep = requireSingleNamedStep(
+  requireNotIncludes(
     source,
-    /Verify preprovisioned Playwright runtime/,
-    `${prefix} preprovisioned Playwright runtime verification step`,
+    'sudo ',
+    `${prefix} Playwright job must not require sudo inline in the workflow job.`,
     failures
   );
-
-  if (verifyStep) {
-    requireIncludes(
-      verifyStep,
-      'test -d "$PLAYWRIGHT_BROWSERS_PATH"',
-      `${prefix} Playwright job must fail fast if the image browser path is missing.`,
-      failures
-    );
-    requireIncludes(
-      verifyStep,
-      "require('playwright')",
-      `${prefix} Playwright job must verify the project Playwright package.`,
-      failures
-    );
-    requireIncludes(
-      verifyStep,
-      'chromium.launch',
-      `${prefix} Playwright job must prove Chromium launches before running the test lane.`,
-      failures
-    );
-  }
 }
 
 function requireWorkflowSecurityContracts(source, failures) {
@@ -906,7 +926,7 @@ export function validateWorkflowContracts(source) {
   } else {
     requireRiskLabelGate(e2e, 'Functional E2E', ['ci:web-e2e'], failures);
     requireNoMainPushEvent(e2e, 'Functional E2E', failures);
-    requirePreprovisionedPlaywrightJobContracts(e2e, 'Functional E2E', failures);
+    requirePlaywrightRuntimeJobContracts(e2e, 'Functional E2E', failures);
     requireIncludes(
       e2e,
       'needs: [checks, determine-matrix]',
@@ -939,7 +959,7 @@ export function validateWorkflowContracts(source) {
   } else {
     requireRiskLabelGate(stateful, 'Stateful E2E', ['ci:web-e2e'], failures);
     requireNoMainPushEvent(stateful, 'Stateful E2E', failures);
-    requirePreprovisionedPlaywrightJobContracts(stateful, 'Stateful E2E', failures);
+    requirePlaywrightRuntimeJobContracts(stateful, 'Stateful E2E', failures);
     requireIncludes(
       stateful,
       'needs: [checks]',
@@ -960,7 +980,7 @@ export function validateWorkflowContracts(source) {
   } else {
     requireRiskLabelGate(destructive, 'Destructive E2E', ['ci:web-e2e'], failures);
     requireNoMainPushEvent(destructive, 'Destructive E2E', failures);
-    requirePreprovisionedPlaywrightJobContracts(destructive, 'Destructive E2E', failures);
+    requirePlaywrightRuntimeJobContracts(destructive, 'Destructive E2E', failures);
     requireIncludes(
       destructive,
       'needs: [checks]',
@@ -1626,7 +1646,7 @@ export function validateWorkflowContracts(source) {
   } else {
     requireRiskLabelGate(browserTests, 'Browser Vitest', ['ci:browser'], failures);
     requireNoMainPushEvent(browserTests, 'Browser Vitest', failures);
-    requirePreprovisionedPlaywrightJobContracts(browserTests, 'Browser Vitest', failures);
+    requirePlaywrightRuntimeJobContracts(browserTests, 'Browser Vitest', failures);
   }
 
   const prSentinel = extractJob(source, 'pr-sentinel');
@@ -2033,8 +2053,8 @@ export function validateSetupDesktopE2EContracts(source) {
 
   const systemDepsStep = requireSingleNamedStep(
     source,
-    /Verify preprovisioned Electron runtime dependencies/,
-    'Setup desktop E2E preprovisioned dependency verification step',
+    /Verify Electron runtime dependencies/,
+    'Setup desktop E2E dependency verification step',
     failures
   );
 
@@ -2042,7 +2062,7 @@ export function validateSetupDesktopE2EContracts(source) {
     requireIncludes(
       systemDepsStep,
       'command -v Xvfb >/dev/null',
-      'Setup desktop E2E must verify Xvfb is already present in the CI image.',
+      'Setup desktop E2E must verify Xvfb is present after Playwright runtime setup.',
       failures
     );
     requireIncludes(
@@ -2070,6 +2090,61 @@ export function validateSetupDesktopE2EContracts(source) {
       failures
     );
   }
+
+  return failures;
+}
+
+export function validateSetupPlaywrightRuntimeContracts(source) {
+  const failures = [];
+
+  requireIncludes(
+    source,
+    'pnpm exec playwright --version',
+    'Setup Playwright runtime must resolve the project Playwright version.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'actions/cache@v5',
+    'Setup Playwright runtime must cache browser binaries.',
+    failures
+  );
+  requireIncludes(
+    source,
+    '~/.cache/ms-playwright',
+    'Setup Playwright runtime must cache the default Playwright browser path.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright',
+    'Setup Playwright runtime must export the cached browser path for Turbo/Vitest jobs.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'GITHUB_ENV',
+    'Setup Playwright runtime must persist the browser path to later workflow steps.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'pnpm exec playwright install --with-deps',
+    'Setup Playwright runtime must install browsers and system dependencies inside the job.',
+    failures
+  );
+  requireIncludes(
+    source,
+    'chromium.launch',
+    'Setup Playwright runtime must prove Chromium launches before running E2E lanes.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'mcr.microsoft.com/playwright',
+    'Setup Playwright runtime must not depend on the MCR Playwright container image.',
+    failures
+  );
 
   return failures;
 }
@@ -2111,6 +2186,7 @@ export async function main() {
     claudeReviewWorkflowSource,
     setupMonorepoActionSource,
     setupDesktopE2EActionSource,
+    setupPlaywrightRuntimeActionSource,
     turboConfigSource,
     desktopPlaywrightConfigSource,
     playwrightEnvironmentSource,
@@ -2119,6 +2195,7 @@ export async function main() {
     readFile(claudeReviewWorkflowPath, 'utf8'),
     readFile(setupMonorepoActionPath, 'utf8'),
     readFile(setupDesktopE2EActionPath, 'utf8'),
+    readFile(setupPlaywrightRuntimeActionPath, 'utf8'),
     readFile(turboConfigPath, 'utf8'),
     readFile(desktopPlaywrightConfigPath, 'utf8'),
     readFile(playwrightEnvironmentPath, 'utf8'),
@@ -2128,6 +2205,7 @@ export async function main() {
     ...validateClaudeReviewWorkflowContracts(claudeReviewWorkflowSource),
     ...validateSetupMonorepoContracts(setupMonorepoActionSource),
     ...validateSetupDesktopE2EContracts(setupDesktopE2EActionSource),
+    ...validateSetupPlaywrightRuntimeContracts(setupPlaywrightRuntimeActionSource),
     ...validateTurboContracts(turboConfigSource),
     ...validateDesktopE2EContracts({
       playwrightConfigSource: desktopPlaywrightConfigSource,
