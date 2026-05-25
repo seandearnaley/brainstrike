@@ -17,6 +17,24 @@ function parseRequiredJobs(value) {
   }
 }
 
+function parseRequiredNeeds(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('expected a JSON object');
+    }
+    for (const [name, job] of Object.entries(parsed)) {
+      if (!job || typeof job !== 'object' || typeof job.result !== 'string') {
+        throw new Error(`expected ${name} to include a string result`);
+      }
+    }
+    return parsed;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`REQUIRED_NEEDS must be a GitHub needs JSON object: ${message}`);
+  }
+}
+
 export function parseRequiredPrGateEnv(env = process.env) {
   if (!env.REQUIRED_NEEDS) {
     throw new Error('REQUIRED_NEEDS is required');
@@ -25,7 +43,7 @@ export function parseRequiredPrGateEnv(env = process.env) {
     throw new Error('REQUIRED_JOBS_JSON is required');
   }
   return {
-    needs: JSON.parse(env.REQUIRED_NEEDS),
+    needs: parseRequiredNeeds(env.REQUIRED_NEEDS),
     requiredJobs: parseRequiredJobs(env.REQUIRED_JOBS_JSON),
   };
 }

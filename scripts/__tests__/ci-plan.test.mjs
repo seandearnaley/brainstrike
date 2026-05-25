@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   buildCiPlan,
+  collectCiPlan,
   parsePlanArgs,
   renderGithubOutputs,
 } from '../ci-plan.mjs';
@@ -159,4 +160,14 @@ test('parsePlanArgs maps github output flag to the writer option', () => {
     githubOutput: '/tmp/github-output',
     head: 'HEAD',
   });
+});
+
+test('collectCiPlan marks explicit file plans as fixture-sourced', async () => {
+  const plan = await collectCiPlan({
+    eventName: 'pull_request',
+    files: ['docs/a.md'],
+  });
+
+  assert.equal(plan.selectionSource, 'files-fixture');
+  assert.equal(plan.baseSha, '1111111111111111111111111111111111111111');
 });

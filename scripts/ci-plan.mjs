@@ -237,6 +237,7 @@ export function buildCiPlan(input) {
 
   return {
     planVersion: PLAN_VERSION,
+    selectionSource: input.selectionSource ?? 'git-diff',
     eventName: input.eventName ?? 'pull_request',
     base: selection.base,
     head: selection.head,
@@ -337,6 +338,7 @@ export async function collectCiPlan(options, runner) {
       head: options.head,
       headSha: SHA_PATTERN.test(options.headSha ?? '') ? options.headSha : '2'.repeat(40),
       mergeBase: SHA_PATTERN.test(options.mergeBase ?? '') ? options.mergeBase : '3'.repeat(40),
+      selectionSource: 'files-fixture',
     });
   }
 
@@ -349,6 +351,7 @@ export async function collectCiPlan(options, runner) {
     head: selection.head,
     headSha: selection.headSha,
     mergeBase: selection.mergeBase,
+    selectionSource: 'git-diff',
   });
 }
 

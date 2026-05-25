@@ -109,3 +109,25 @@ test('parseRequiredPrGateEnv rejects missing plan output', () => {
     /REQUIRED_JOBS_JSON is required/
   );
 });
+
+test('parseRequiredPrGateEnv rejects malformed needs with useful context', () => {
+  assert.throws(
+    () =>
+      parseRequiredPrGateEnv({
+        REQUIRED_JOBS_JSON: JSON.stringify(['plan']),
+        REQUIRED_NEEDS: '{not-json',
+      }),
+    /REQUIRED_NEEDS must be a GitHub needs JSON object/
+  );
+});
+
+test('parseRequiredPrGateEnv validates needs result shape', () => {
+  assert.throws(
+    () =>
+      parseRequiredPrGateEnv({
+        REQUIRED_JOBS_JSON: JSON.stringify(['plan']),
+        REQUIRED_NEEDS: JSON.stringify({ plan: {} }),
+      }),
+    /expected plan to include a string result/
+  );
+});

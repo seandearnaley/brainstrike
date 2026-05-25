@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils/logger';
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state';
 import {
@@ -42,6 +43,7 @@ interface CodeSurfaceCallbacks {
 
 const MONO_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+const logger = createLogger('CodeSurface');
 
 const BASE_EXTENSIONS: Extension[] = [
   highlightSpecialChars(),
@@ -140,6 +142,7 @@ export function CodeSurface({
   }, [onChange, onScrollTopChange, onSelectionChange]);
 
   useEffect(() => {
+    // EditorView is intentionally created once; prop updates are handled by sync effects below.
     const host = hostRef.current;
     if (!host) {
       return;
@@ -204,15 +207,18 @@ export function CodeSurface({
       return;
     }
     applyingExternalValueRef.current = true;
-    view.dispatch({
-      changes: {
-        from: 0,
-        insert: value,
-        to: currentValue.length,
-      },
-      selection: EditorSelection.cursor(0),
-    });
-    applyingExternalValueRef.current = false;
+    try {
+      view.dispatch({
+        changes: {
+          from: 0,
+          insert: value,
+          to: currentValue.length,
+        },
+        selection: EditorSelection.cursor(0),
+      });
+    } finally {
+      applyingExternalValueRef.current = false;
+    }
   }, [value]);
 
   useEffect(() => {
@@ -273,8 +279,11 @@ export function CodeSurface({
           effects: languageCompartmentRef.current.reconfigure(support),
         });
       })
-      .catch(() => {
-        // CodeMirror language packages are optional at runtime; keep plaintext fallback.
+      .catch((error: unknown) => {
+        logger.debug('Failed to load CodeMirror language support; keeping plaintext fallback', {
+          error,
+          language: resolvedLanguage.label,
+        });
       });
 
     return () => {
