@@ -45,6 +45,13 @@ function isTerminalTokenizerError(errorMessage: string): boolean {
   return TERMINAL_TOKENIZER_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+function isRecoverableWorkerMessageContext(context: string): boolean {
+  if (!context.startsWith('worker.message.')) {
+    return false;
+  }
+  return context !== 'worker.message.__init__' && context !== 'worker.message.__batch__';
+}
+
 function extractTerminalTokenizerErrorFromWorkerLog(logMessage: WorkerLog): string | null {
   if (logMessage.level !== 'error') {
     return null;
@@ -446,7 +453,7 @@ export function useBackgroundTokenIndexer({
       context === 'worker.onerror' ||
       context === 'worker.addEventListener(error)' ||
       context === 'worker.onmessageerror' ||
-      context.startsWith('worker.message.')
+      isRecoverableWorkerMessageContext(context)
     );
   }, []);
 
@@ -629,6 +636,8 @@ export function useBackgroundTokenIndexer({
             runtime.clearFailure();
             runtime.markReady();
             terminalWorkerFailureRef.current = null;
+            // A ready worker closes the current failure cycle; future independent
+            // recoverable failures get a fresh bounded restart budget.
             recoverableRestartCountRef.current = 0;
             workerFailureHandledRef.current = false;
             setIsReady(true);
@@ -739,7 +748,14 @@ export function useBackgroundTokenIndexer({
       }
     }
   }, [clearReadinessTimer, failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
-  ensureWorkerReadyRef.current = ensureWorkerReady;
+  useEffect(() => {
+    ensureWorkerReadyRef.current = ensureWorkerReady;
+    return () => {
+      if (ensureWorkerReadyRef.current === ensureWorkerReady) {
+        ensureWorkerReadyRef.current = null;
+      }
+    };
+  }, [ensureWorkerReady]);
 
   useEffect(() => {
     isMountedRef.current = true;

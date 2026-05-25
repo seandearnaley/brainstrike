@@ -825,6 +825,55 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
+  it('treats generic batch-level worker messages as terminal failures', async () => {
+    const onFileError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
+        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+      ]);
+    });
+    void indexPromise.catch(() => {});
+
+    await waitFor(() => {
+      expect(mockWorkers[0]!.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'error',
+          id: '__batch__',
+          compositeKey: '__batch__',
+          error: 'batch worker failed',
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).rejects.toThrow('batch worker failed');
+    expect(onFileError).toHaveBeenCalledTimes(1);
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('(worker.message.__batch__): batch worker failed')
+    );
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      'Background token indexer restarting after recoverable worker failure',
+      expect.anything()
+    );
+  });
+
   it('treats tokenizer initialization failures as terminal even when emitted as file errors', async () => {
     const onFileError = vi.fn();
 
