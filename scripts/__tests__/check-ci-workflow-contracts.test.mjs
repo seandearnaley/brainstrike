@@ -183,6 +183,21 @@ test('workflow contract fails when isolated changed unit tests expand to Turbo a
   assert.match(failures, /must run changed unit test files directly/);
 });
 
+test('workflow contract fails when affected unit diagnostics can use stale Turbo summaries', () => {
+  const unitAffected = extractJob(workflowSource, 'unit_affected');
+  assert.ok(unitAffected);
+
+  const source = workflowSource.replace(
+    unitAffected,
+    unitAffected.replace('          rm -rf .turbo/runs\n          mkdir -p .turbo/runs\n', '')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Affected unit job must clear stale Turbo summaries/
+  );
+});
+
 test('workflow contract fails when split unit coverage step timeouts are widened', () => {
   const unitCoverage = extractJob(workflowSource, 'unit_coverage');
   assert.ok(unitCoverage);

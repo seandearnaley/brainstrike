@@ -578,6 +578,28 @@ test('test workflow and CI script changes select tooling lanes without full prod
   assert.deepEqual(expandRiskLanes(['ci:unit']), ['ci:unit']);
 });
 
+test('full-risk expansion does not duplicate plain unit and full coverage lanes', () => {
+  assert.deepEqual(expandRiskLanes(['ci:full']), [
+    'ci:browser',
+    'ci:web-smoke',
+    'ci:web-file-explorer-persistence',
+    'ci:web-import-indexing',
+    'ci:web-assistant-state',
+    'ci:web-settings-state',
+    'ci:web-db-startup',
+    'ci:web-destructive-reset',
+    'ci:web-e2e',
+    'ci:desktop-smoke',
+    'ci:desktop-ipc-reset',
+    'ci:desktop-runtime-hosts',
+    'ci:desktop-db-storage',
+    'ci:desktop',
+    'ci:embedding',
+    'ci:coverage-db',
+    'ci:coverage-full',
+  ]);
+});
+
 test('browser storage changes select browser and coverage lanes without full db tests', () => {
   assert.deepEqual(selectRiskProfileForFiles(['packages/storage/src/opfs.ts']), {
     category: 'db-migrations-storage',

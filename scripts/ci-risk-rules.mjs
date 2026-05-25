@@ -37,7 +37,6 @@ export const EXPANDED_FULL_LANES = [
   'ci:desktop-db-storage',
   'ci:desktop',
   'ci:embedding',
-  'ci:unit',
   'ci:coverage-db',
   'ci:coverage-full',
 ];

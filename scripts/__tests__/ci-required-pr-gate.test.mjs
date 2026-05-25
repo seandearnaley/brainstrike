@@ -55,7 +55,6 @@ test('verifyRequiredPrGate fails ci:full when expanded lane jobs are skipped', (
       'ci:desktop-db-storage',
       'ci:desktop',
       'ci:embedding',
-      'ci:unit',
       'ci:coverage-db',
       'ci:coverage-full',
     ],
@@ -63,7 +62,7 @@ test('verifyRequiredPrGate fails ci:full when expanded lane jobs are skipped', (
 
   assert.match(failures.join('\n'), /ci:browser requires browser-tests, got skipped/);
   assert.match(failures.join('\n'), /ci:desktop requires desktop-e2e-pr, got skipped/);
-  assert.match(failures.join('\n'), /ci:unit requires unit_affected, got skipped/);
+  assert.doesNotMatch(failures.join('\n'), /unit_affected/);
 });
 
 test('verifyRequiredPrGate passes a narrow lane when its jobs succeeded', () => {

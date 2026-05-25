@@ -1431,6 +1431,12 @@ export function validateWorkflowContracts(source) {
       'Affected unit job must still support Turbo affected filtering against the PR base.',
       failures
     );
+    requireIncludes(
+      unitAffected,
+      'rm -rf .turbo/runs',
+      'Affected unit job must clear stale Turbo summaries before the affected unit phase.',
+      failures
+    );
     requireStepTimeoutAtMost(
       unitAffected,
       'Run affected unit tests',

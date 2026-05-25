@@ -298,6 +298,8 @@ jobs:
           UNIT_PROOF_MODE: ${{ steps.unit-proof-mode.outputs.mode }}
         run: |
           START=$SECONDS
+          rm -rf .turbo/runs
+          mkdir -p .turbo/runs
           if [ "$UNIT_PROOF_MODE" = "changed-unit-tests" ]; then
             echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
             node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
