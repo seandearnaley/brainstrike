@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { SearchModeBar } from '../collection-browser/search-mode-bar';
 import type { SearchModeBarProps } from '../collection-browser/types';
@@ -35,11 +36,13 @@ describe('SearchModeBar', () => {
       <SearchModeBar {...createProps({ hasSearched: true, resultCount: 1 })} />
     );
 
-    expect(screen.getByText('1 result')).toBeInTheDocument();
+    // Result label appears twice: as visible text inside the trigger, and
+    // as a sr-only live region sibling that screen readers announce.
+    expect(screen.getAllByText('1 result')).toHaveLength(2);
 
     rerender(<SearchModeBar {...createProps({ hasSearched: true, resultCount: 2 })} />);
 
-    expect(screen.getByText('2 results')).toBeInTheDocument();
+    expect(screen.getAllByText('2 results')).toHaveLength(2);
   });
 
   it('calls onSearchExpandedChange when the hybrid search trigger is clicked', () => {
@@ -328,6 +331,47 @@ describe('SearchModeBar', () => {
       fireEvent.keyDown(input, { key: 'Escape' });
 
       expect(onSearchExpandedChange).not.toHaveBeenCalled();
+    });
+
+    it('returns focus to the trigger after Escape collapses the panel', () => {
+      // When focus is on a non-input control inside the panel (e.g. Query
+      // button) and Escape removes the panel from the DOM, focus would
+      // otherwise fall to <body>. Returning focus to the trigger keeps the
+      // keyboard user oriented.
+      function TestHarness() {
+        const [expanded, setExpanded] = React.useState(true);
+        return (
+          <SearchModeBar
+            {...createProps({
+              isSearchExpanded: expanded,
+              onSearchExpandedChange: setExpanded,
+              // Non-empty query so the Query button is focusable (not disabled).
+              semanticQuery: 'cat',
+            })}
+          />
+        );
+      }
+      render(<TestHarness />);
+
+      const trigger = screen.getByRole('button', { name: /hybrid search/i });
+      const queryButton = screen.getByRole('button', { name: 'Query' });
+      queryButton.focus();
+      expect(document.activeElement).toBe(queryButton);
+
+      fireEvent.keyDown(queryButton, { key: 'Escape' });
+
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('renders the result-count live region as a sibling of the trigger, not nested inside it', () => {
+      // Live regions nested inside <button> can be unreliably announced by
+      // screen readers because button descendants are exposed as
+      // presentational. Keeping the status as a sibling fixes that.
+      render(<SearchModeBar {...createProps({ hasSearched: true, resultCount: 5 })} />);
+
+      const status = screen.getByRole('status');
+      expect(status.closest('button')).toBeNull();
     });
   });
 });

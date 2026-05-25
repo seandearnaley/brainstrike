@@ -70,12 +70,21 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   }, [isSearchExpanded, onSearchExpandedChange]);
 
   const panelRef = React.useRef<HTMLElement | null>(null);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // useId() produces stable, collision-free ids so multiple SearchModeBar
+  // instances on the same page don't clash on aria-controls/aria-labelledby.
+  const reactId = React.useId();
+  const triggerId = `hybrid-search-trigger-${reactId}`;
+  const panelId = `hybrid-search-panel-${reactId}`;
 
   // Escape inside the expanded panel collapses it. If focus is in the query
   // input, the input's own Escape handler (blur) runs first and we leave the
   // panel alone so the user doesn't lose their typed query with their focus.
   // Using a document-level listener keeps the panel element itself free of
   // event handlers, satisfying a11y lint rules around non-interactive nodes.
+  // After collapse, focus returns to the trigger button so keyboard users
+  // aren't dropped onto <body> when their focused control disappears.
   React.useEffect(() => {
     if (!isSearchExpanded) {
       return;
@@ -94,6 +103,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       }
       event.preventDefault();
       onSearchExpandedChange(false);
+      triggerRef.current?.focus();
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => {
@@ -108,14 +118,25 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
   return (
     <div className={cn('bg-background', className)}>
+      {/* Live region lives OUTSIDE the trigger button. Live-region semantics
+          on descendants of an interactive control are unreliable across
+          screen readers (button descendants are exposed as presentational),
+          so we keep this as a visually-hidden sibling that announces
+          independently. */}
+      {resultLabel ? (
+        <span aria-live="polite" className="sr-only" role="status">
+          {resultLabel}
+        </span>
+      ) : null}
       <Button
-        aria-controls="hybrid-search-panel"
+        aria-controls={panelId}
         aria-expanded={isSearchExpanded}
         aria-label="Hybrid search"
         className="h-auto w-full justify-between rounded-none px-3 py-2 text-left hover:bg-muted/50"
         depress={false}
-        id="hybrid-search-trigger"
+        id={triggerId}
         onClick={handleToggleExpanded}
+        ref={triggerRef}
         size="sm"
         variant="ghost"
       >
@@ -129,11 +150,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-          {resultLabel ? (
-            <span aria-live="polite" role="status">
-              {resultLabel}
-            </span>
-          ) : null}
+          {resultLabel}
           {isSearchExpanded ? (
             <ChevronUp className="h-4 w-4" />
           ) : (
@@ -148,10 +165,10 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         // Escape-to-collapse is wired up via a document-level keydown listener
         // (see effect above) so the panel itself stays free of event handlers.
         <section
-          aria-labelledby="hybrid-search-trigger"
+          aria-labelledby={triggerId}
           className="overflow-hidden"
           data-testid="hybrid-search-panel"
-          id="hybrid-search-panel"
+          id={panelId}
           ref={panelRef}
         >
           <div className="space-y-2 px-3 pb-3">
