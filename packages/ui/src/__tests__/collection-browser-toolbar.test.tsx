@@ -112,4 +112,38 @@ describe('CollectionBrowserToolbar', () => {
 
     expect(screen.getByRole('button', { name: 'Group by' })).toHaveClass('bg-accent');
   });
+
+  describe('accessibility polish (BST-519)', () => {
+    it('hides decorative icons from assistive tech (buttons have their own labels)', () => {
+      const { container } = render(
+        <CollectionBrowserToolbar
+          filters={{
+            embeddingStatus: 'all',
+            nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
+            searchMatchesOnly: false,
+            searchQuery: '',
+          }}
+          groupBy="none"
+          onCollapseAll={vi.fn()}
+          onExpandAll={vi.fn()}
+          onFiltersChange={vi.fn()}
+          onGroupByChange={vi.fn()}
+          onMultiSelectToggle={vi.fn()}
+        />
+      );
+
+      // lucide-react renamed Filter -> Funnel in recent versions, so the rendered
+      // class is `lucide-funnel`. Same for the other icon imports.
+      for (const className of [
+        '.lucide-funnel',
+        '.lucide-chevrons-up-down',
+        '.lucide-chevrons-down-up',
+        '.lucide-list-checks',
+        '.lucide-group',
+      ]) {
+        const icon = container.querySelector(className);
+        expect(icon, `${className} should be aria-hidden`).toHaveAttribute('aria-hidden', 'true');
+      }
+    });
+  });
 });

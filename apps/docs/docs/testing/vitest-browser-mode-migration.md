@@ -158,8 +158,8 @@ browser-tests:
   needs: build
   steps:
     - uses: actions/checkout@v4
-    - uses: pnpm/action-setup@v4
     - uses: actions/setup-node@v4
+    - run: corepack enable
     - run: pnpm install --frozen-lockfile
     - uses: actions/cache@v4
       with:

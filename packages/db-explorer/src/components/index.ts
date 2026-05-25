@@ -1,6 +1,14 @@
 export { ClearDatabaseDialog } from './clear-database-dialog';
 export type { CollectionBrowserViewProps } from './collection-browser-view';
 export { CollectionBrowserView } from './collection-browser-view';
+export type {
+  CollectionEmbeddingCoverageBannerProps,
+  EmbeddingCoverageNoticeProps,
+} from './embedding-coverage-notice';
+export {
+  CollectionEmbeddingCoverageBanner,
+  EmbeddingCoverageNotice,
+} from './embedding-coverage-notice';
 export { ExportButtons } from './export-buttons';
 export { ExportDropdown } from './export-dropdown';
 export { FileActionButtons } from './file-action-buttons';
