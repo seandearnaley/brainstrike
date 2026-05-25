@@ -414,6 +414,7 @@ export function CollectionBrowserView({
 
   const [selectedChunkDetail, setSelectedChunkDetail] = useState<FileChunk | null>(null);
   const treeDiagnosticSignatureRef = useRef<string | null>(null);
+  const inflightChunkLoads = useRef(new Map<string, Promise<DatabaseFileChunkSummary[]>>());
 
   const ensureFileChunksLoaded = useCallback(
     async (fileRecordId: string): Promise<DatabaseFileChunkSummary[]> => {
@@ -424,7 +425,15 @@ export function CollectionBrowserView({
       if (loadedChunks.length > 0) {
         return loadedChunks;
       }
-      return loadFileChunkSummaries(fileRecordId);
+      const existing = inflightChunkLoads.current.get(fileRecordId);
+      if (existing) {
+        return existing;
+      }
+      const pending = loadFileChunkSummaries(fileRecordId).finally(() => {
+        inflightChunkLoads.current.delete(fileRecordId);
+      });
+      inflightChunkLoads.current.set(fileRecordId, pending);
+      return pending;
     },
     [chunks, loadFileChunkSummaries]
   );

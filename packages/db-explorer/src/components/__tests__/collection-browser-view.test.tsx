@@ -7,6 +7,7 @@ import {
   __resetCollectionBrowserStoreForTests,
   useCollectionBrowserStore,
 } from '../../stores/collection-browser-store';
+import type { DatabaseFileChunkSummary } from '../../use-database-demo-data';
 import { CollectionBrowserView } from '../collection-browser-view';
 
 const collectionBrowserPropsSpy = vi.fn<(props: Record<string, unknown>) => void>();
@@ -765,6 +766,61 @@ describe('CollectionBrowserView', () => {
 
     expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
     expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1']);
+  });
+
+  it('deduplicates in-flight chunk summary loads when expand-all is triggered repeatedly', async () => {
+    const user = userEvent.setup();
+    let resolveLoad: ((value: DatabaseFileChunkSummary[]) => void) | null = null;
+    const loadFileChunkSummaries = vi.fn(
+      () =>
+        new Promise<DatabaseFileChunkSummary[]>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            id: '1',
+            name: 'one.ts',
+            path: '/one.ts',
+            size: 100,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            chunksCount: 1,
+            embeddingSetId: 'collection-1',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Expand all' }));
+    await user.click(screen.getByRole('button', { name: 'Expand all' }));
+
+    expect(loadFileChunkSummaries).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveLoad?.([
+        {
+          id: 'loaded-chunk-1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          chunkSize: 128,
+          chunkType: 'text',
+          contentHash: 'hash-1',
+          tokenCount: 12,
+          hasEmbedding: true,
+          embeddingSetId: 'collection-1',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+    });
   });
 
   it('updates groupBy via toolbar', async () => {
