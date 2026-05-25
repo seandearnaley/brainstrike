@@ -1,21 +1,24 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-25T00:02:05.342Z",
+  "generatedAt": "2026-05-25T00:50:22.846Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "fbc44af073bb8e992f3945527377a79d73f8260b",
+  "testedHeadSha": "da6c8b11d016188ededd9ddb9ea156496bd6b1b4",
   "selection": {
     "base": "origin/main",
     "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "fbc44af073bb8e992f3945527377a79d73f8260b",
+    "headSha": "da6c8b11d016188ededd9ddb9ea156496bd6b1b4",
     "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
       ".ci/proof/latest.json",
+      ".github/actions/setup-desktop-e2e/action.yml",
+      ".github/actions/setup-playwright-runtime/action.yml",
+      ".github/workflows/test.yml",
       "packages/file-explorer-ui/src/__tests__/workspace-tab-host.test.tsx",
       "packages/file-explorer-ui/src/shell/workspace-tab-host.tsx",
       "packages/ui/package.json",
@@ -25,7 +28,10 @@
       "packages/ui/src/code-surface/index.ts",
       "packages/ui/src/code-surface/language.ts",
       "packages/ui/src/index.ts",
-      "pnpm-lock.yaml"
+      "pnpm-lock.yaml",
+      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
+      "scripts/check-ci-workflow-contracts.mjs",
+      "turbo.jsonc"
     ],
     "riskProfile": {
       "category": "full-release-high-risk",
@@ -148,7 +154,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 9
     },
     {
       "name": "ci-script-tests",
@@ -157,7 +163,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 429
+      "durationMs": 368
     },
     {
       "name": "workflow-contracts",
@@ -166,7 +172,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 386
+      "durationMs": 352
     },
     {
       "name": "full-local-suite",
@@ -175,7 +181,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1398476
+      "durationMs": 1468921
     }
   ]
 }
