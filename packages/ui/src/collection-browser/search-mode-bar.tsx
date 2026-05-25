@@ -59,6 +59,10 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         }
       }
       if (e.key === 'Escape') {
+        // preventDefault marks the event so the panel's document-level
+        // collapse handler skips it. Lets us add custom text-input controls
+        // later without relying on a tagName check at the listener.
+        e.preventDefault();
         e.currentTarget.blur();
       }
     },
@@ -69,15 +73,68 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     onSearchExpandedChange(!isSearchExpanded);
   }, [isSearchExpanded, onSearchExpandedChange]);
 
+  const panelRef = React.useRef<HTMLElement | null>(null);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // useId-suffixed so multiple SearchModeBar instances don't collide.
+  const reactId = React.useId();
+  const triggerId = `hybrid-search-trigger-${reactId}`;
+  const panelId = `hybrid-search-panel-${reactId}`;
+
+  // Escape collapses the panel and restores focus to the trigger. The query
+  // input preventDefaults its own Escape (blur first) so defaultPrevented is
+  // the primary gate; the tagName check is defense-in-depth.
+  React.useEffect(() => {
+    if (!isSearchExpanded) {
+      return;
+    }
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const panel = panelRef.current;
+      if (!(panel && target && panel.contains(target))) {
+        return;
+      }
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+      event.preventDefault();
+      onSearchExpandedChange(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onDocumentKeyDown);
+    };
+  }, [isSearchExpanded, onSearchExpandedChange]);
+
+  const resultLabel =
+    hasSearched && resultCount !== undefined
+      ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
+      : null;
+
   return (
     <div className={cn('bg-background', className)}>
+      {/* Live region outside the trigger — button descendants are
+          presentational in screen readers, so nested live regions
+          announce unreliably. Always rendered (with empty content when
+          there are no results) so older NVDA/JAWS announce the first
+          count change; some engines only track mutations on regions
+          that existed at load time. */}
+      <span aria-live="polite" className="sr-only" role="status">
+        {resultLabel ?? ''}
+      </span>
       <Button
-        aria-controls="hybrid-search-panel"
+        aria-controls={panelId}
         aria-expanded={isSearchExpanded}
         aria-label="Hybrid search"
         className="h-auto w-full justify-between rounded-none px-3 py-2 text-left hover:bg-muted/50"
         depress={false}
+        id={triggerId}
         onClick={handleToggleExpanded}
+        ref={triggerRef}
         size="sm"
         variant="ghost"
       >
@@ -91,9 +148,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-          {hasSearched && resultCount !== undefined
-            ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
-            : null}
+          {resultLabel}
           {isSearchExpanded ? (
             <ChevronUp className="h-4 w-4" />
           ) : (
@@ -103,7 +158,15 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       </Button>
 
       {isSearchExpanded && (
-        <div className="overflow-hidden" data-testid="hybrid-search-panel" id="hybrid-search-panel">
+        // <section> + aria-labelledby = a landmark named by its trigger.
+        // Escape handling lives in the document-level effect above.
+        <section
+          aria-labelledby={triggerId}
+          className="overflow-hidden"
+          data-testid="hybrid-search-panel"
+          id={panelId}
+          ref={panelRef}
+        >
           <div className="space-y-2 px-3 pb-3">
             <p className="text-muted-foreground text-xs">
               Ask in natural language, then tune hybrid search when exact terms should carry more or
@@ -153,7 +216,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
             {advancedOptions}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

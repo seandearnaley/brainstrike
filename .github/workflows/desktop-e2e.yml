@@ -1,0 +1,179 @@
+name: Desktop E2E
+
+on:
+  schedule:
+    - cron: '53 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  NODE_ENV: test
+  CI: "true"
+  ELECTRON_ENABLE_STACK_DUMPING: "false"
+  ELECTRON_DISABLE_GPU: "1"
+
+jobs:
+  desktop-full-regression:
+    name: Desktop Full Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-
+
+      - name: Get Electron version
+        id: electron-version
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop
+        run: pnpm run build --filter @brainstrike/desktop
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run full desktop regression
+        working-directory: apps/desktop
+        run: pnpm run test:e2e:lane:full-regression
+
+      - name: Upload desktop traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-full-regression-test-results
+          path: apps/desktop/test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
+  desktop-embedding-e2e:
+    name: Desktop Embedding E2E
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-
+
+      - name: Get Electron version
+        id: electron-version
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop
+        run: pnpm run build --filter @brainstrike/desktop
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run desktop embedding regression
+        working-directory: apps/desktop
+        run: |
+          unset NO_COLOR
+          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn pnpm exec xvfb-maybe pnpm exec playwright test \
+            e2e/embedding-worker-renderer.smoke.desktop.test.ts \
+            e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
+            e2e/embedding-worker-renderer.memory.desktop.test.ts \
+            e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
+            e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
+            --project=regression \
+            --workers=1 \
+            --retries=0 \
+            --max-failures=1 \
+            --global-timeout=3000000 \
+            --grep="@desktop-embedding-"
+
+      - name: Upload desktop embedding traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-embedding-e2e-test-results
+          path: apps/desktop/test-results/
+          retention-days: 1
+          if-no-files-found: ignore

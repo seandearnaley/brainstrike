@@ -1,9 +1,6 @@
 name: Test
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - '**'
@@ -12,2359 +9,418 @@ on:
       - synchronize
       - reopened
       - ready_for_review
-  schedule:
-    - cron: '23 7 * * *'
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      release_proof:
-        description: "Manual release proof mode. Use full-release only when the full matrix is intentionally required."
-        required: true
-        type: choice
-        default: skip
-        options:
-          - skip
-          - full-release
-          - desktop-backgrounding
-      reason:
-        description: "Why this manual proof is being run."
-        required: false
-        type: string
 
-# Cancel in-progress runs when new commits are pushed to the same PR
-# Uses head repo + head_ref for PRs to avoid fork collisions (different forks can use the same branch name)
-# For pushes (e.g., main), uses the full ref to ensure proper isolation
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  pull-requests: write
-  security-events: write
 
-# Skip ONNX Runtime CUDA binary download in CI to avoid flaky external fetches.
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-# CI environment variable is already set by GitHub Actions
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
-  release-proof-dispatch-policy:
-    name: Manual Release Proof Policy
-    if: github.event_name == 'workflow_dispatch'
+  static:
+    name: Static
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Explain selected manual proof mode
-        env:
-          RELEASE_PROOF_MODE: ${{ inputs.release_proof }}
-          RELEASE_PROOF_REASON: ${{ inputs.reason }}
-        run: |
-          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          ## Manual release proof policy
-
-          EOF
-          printf 'Selected mode: `%s`\n\n' "$RELEASE_PROOF_MODE" >> "$GITHUB_STEP_SUMMARY"
-
-          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          - `skip`: do not run the expensive matrix.
-          - `full-release`: run the scheduled release matrix now.
-          - `desktop-backgrounding`: run only the manual desktop backgrounding diagnostic.
-
-          EOF
-          printf '\nReason: `%s`\n' "$RELEASE_PROOF_REASON" >> "$GITHUB_STEP_SUMMARY"
-
-  plan:
-    name: CI Plan
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      required-jobs-json: ${{ steps.plan.outputs.required-jobs-json }}
-      plan-json: ${{ steps.plan.outputs.plan-json }}
-      run-docs-static: ${{ steps.plan.outputs.run-docs-static }}
-      run-checks: ${{ steps.plan.outputs.run-checks }}
-      run-unit-affected: ${{ steps.plan.outputs.run-unit-affected }}
-      run-unit-coverage: ${{ steps.plan.outputs.run-unit-coverage }}
-      run-browser-tests: ${{ steps.plan.outputs.run-browser-tests }}
-      run-prepare-web: ${{ steps.plan.outputs.run-prepare-web }}
-      run-web-e2e-pr: ${{ steps.plan.outputs.run-web-e2e-pr }}
-      run-prepare-desktop: ${{ steps.plan.outputs.run-prepare-desktop }}
-      run-desktop-e2e-pr: ${{ steps.plan.outputs.run-desktop-e2e-pr }}
-      run-merge-reports: ${{ steps.plan.outputs.run-merge-reports }}
-      unit-mode: ${{ steps.plan.outputs.unit-mode }}
-      web-e2e-matrix: ${{ steps.plan.outputs.web-e2e-matrix }}
-      desktop-e2e-matrix: ${{ steps.plan.outputs.desktop-e2e-matrix }}
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          fetch-depth: 0
+          node-version-file: .nvmrc
 
-      - name: Compute deterministic CI plan
-        id: plan
-        env:
-          PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            node scripts/ci-plan.mjs --head "$PR_HEAD_SHA" --base "origin/${GITHUB_BASE_REF}" --event pull_request --github-output "$GITHUB_OUTPUT"
-          else
-            node scripts/ci-plan.mjs --files ".github/workflows/test.yml" --event "$GITHUB_EVENT_NAME" --github-output "$GITHUB_OUTPUT"
-          fi
+      - name: Enable Corepack
+        run: corepack enable
 
-      - name: Summarize CI plan
-        run: |
-          node <<'NODE'
-          if (!process.env.CI_PLAN_JSON) {
-            throw new Error('CI Plan step did not publish plan-json output; check ci-plan --github-output handling.');
-          }
-          const plan = JSON.parse(process.env.CI_PLAN_JSON);
-          console.log(JSON.stringify(plan, null, 2));
-          const lines = [
-            '## CI Plan',
-            '',
-            `Risk: \`${plan.risk.category}\` (${plan.risk.level})`,
-            `Required jobs: ${plan.requiredJobs.map((job) => `\`${job}\``).join(', ')}`,
-            '',
-            '| Lane | Owner | Command |',
-            '|---|---|---|',
-            ...plan.webE2eMatrix.include.map((entry) => `| ${entry.lane} | ${entry.owner} | \`${entry.command}\` |`),
-            ...plan.desktopE2eMatrix.include.map((entry) => `| ${entry.lane} | ${entry.owner} | \`${entry.command}\` |`),
-          ];
-          if (plan.webE2eMatrix.include.length === 0 && plan.desktopE2eMatrix.include.length === 0) {
-            lines.push('| none | ci-platform | no E2E lane selected |');
-          }
-          require('node:fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
-          NODE
-        env:
-          CI_PLAN_JSON: ${{ steps.plan.outputs.plan-json }}
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
-  docs-static:
-    name: Docs Static
-    if: needs.plan.outputs.run-docs-static == 'true'
-    needs: [plan]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Cache pnpm store
+        uses: actions/cache@v5
         with:
-          fetch-depth: 0
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
-      - name: Verify docs diff
-        env:
-          DOCS_DIFF_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          DOCS_DIFF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          if [ -z "$DOCS_DIFF_BASE_SHA" ]; then
-            echo "Docs diff check requires a base SHA." >&2
-            exit 1
-          fi
-          git diff --check "$DOCS_DIFF_BASE_SHA" "$DOCS_DIFF_HEAD_SHA" -- docs apps/docs README.md AGENTS.md CLAUDE.md
-
-  # Fast-fail static checks. Unit coverage is a separate job so browser/E2E
-  # preparation can start as soon as lint/type/build validation passes.
-  checks:
-    name: Checks (static)
-    if: >-
-      (github.event_name == 'pull_request' && needs.plan.outputs.run-checks == 'true') ||
-      github.event_name == 'push' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    needs: [plan]
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
         with:
-          fetch-depth: 0
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
 
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Initialize timing table
-        run: |
-          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
-          echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
-
-      - name: Test CI utility scripts
-        run: |
-          START=$SECONDS
-          pnpm test:scripts
-          echo "| CI utility scripts | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Secret scan
-        run: |
-          START=$SECONDS
-          pnpm secrets:scan
-          echo "| Secret scan | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+        run: pnpm secrets:scan
+
+      - name: Script tests
+        run: pnpm test:scripts
 
       - name: Lint
-        run: |
-          START=$SECONDS
-          pnpm run lint
-          echo "| Lint | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+        run: pnpm run lint:ci
 
       - name: Type check
-        run: |
-          START=$SECONDS
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
-            echo "Running affected type-check for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run type-check --filter="...[origin/${GITHUB_BASE_REF}]" --summarize --log-order=grouped --cache-dir=.turbo
-          else
-            echo "Running full type-check"
-            pnpm run type-check
-          fi
-          echo "| Type check | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+        run: pnpm run type-check
 
-      - name: Report Turbo type-check diagnostics
-        if: ${{ !cancelled() }}
-        run: |
-          set +e
-          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task type-check --output turbo-type-check-diagnostics.md
-          STATUS=$?
-          set -e
-          if [ -s turbo-type-check-diagnostics.md ]; then
-            cat turbo-type-check-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No Turbo type-check diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$STATUS"
+  unit:
+    name: Unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-      - name: Build all packages
-        run: |
-          START=$SECONDS
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
-            echo "Running affected build for PR against origin/${GITHUB_BASE_REF} plus @brainstrike/web for CSS validation"
-            TAILWIND_DEBUG=1 pnpm turbo run build --filter="...[origin/${GITHUB_BASE_REF}]" --filter="@brainstrike/web" --summarize --log-order=grouped --cache-dir=.turbo
-          else
-            echo "Running full build"
-            TAILWIND_DEBUG=1 pnpm run build
-          fi
-          echo "| Build | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
-      - name: Report Turbo build diagnostics
-        if: ${{ !cancelled() }}
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Pull request affected unit tests
+        if: github.event_name == 'pull_request'
+        env:
+          COVERAGE: "false"
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test --affected --concurrency=4 --summarize --log-order=grouped
+
+      - name: Push and manual unit tests
+        if: github.event_name != 'pull_request'
+        env:
+          COVERAGE: "false"
+          TURBO_TEST_MODE: unit
+        run: pnpm run test:fast
+
+  coverage:
+    name: Coverage
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Clear coverage directories
         run: |
-          set +e
-          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task build --output turbo-build-diagnostics.md
-          STATUS=$?
-          set -e
-          if [ -s turbo-build-diagnostics.md ]; then
-            cat turbo-build-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
+          rm -rf .nyc_output
+
+      - name: Run affected-only coverage
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
+          BASE_REF: ${{ github.base_ref }}
+        run: >
+          pnpm turbo run test:coverage
+          --filter="[origin/${BASE_REF}]"
+          --concurrency=4
+          --summarize
+          --log-order=grouped
+          --cache-dir=.turbo
+
+      - name: Prepare coverage workspace
+        id: coverage
+        run: |
+          pnpm coverage:prepare-workspace
+          coverage_files=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
+          echo "coverage_files=${coverage_files}" >> "$GITHUB_OUTPUT"
+          if [ "$coverage_files" -gt 0 ]; then
+            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No Turbo build diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
+            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
+            echo "No affected packages produced coverage; skipping merge and upload."
           fi
-          exit "$STATUS"
+
+      - name: Generate merged coverage report
+        if: steps.coverage.outputs.has_coverage == 'true'
+        run: |
+          pnpm coverage:merge -- --quiet packages apps
+          pnpm coverage:report
+
+      - name: Upload coverage to Codecov
+        if: steps.coverage.outputs.has_coverage == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: pr
+          fail_ci_if_error: false
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: TAILWIND_DEBUG=1 pnpm run build
 
       - name: Validate CSS bundle
         run: |
-          # Check CSS bundle size (must be >= 50kB)
           CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
           echo "CSS bundle size: ${CSS_SIZE} bytes"
 
           if [ "$CSS_SIZE" -lt 50000 ]; then
             echo "::error::CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources."
             exit 1
-          else
-            echo "CSS bundle size OK: ${CSS_SIZE} bytes"
           fi
 
-          # Check for duplicate Tailwind layers
           PAT='*,:after,:before,::backdrop{box-sizing:border-box'
           DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
           if [ "$DUPLICATE_COUNT" -ne 1 ]; then
             echo "::error::Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import \"tailwindcss\" statements."
             exit 1
-          else
-            echo "No duplicate CSS layers detected"
           fi
 
-      - name: Upload web dist
+      - name: Upload build artifacts
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
-          name: web-dist
-          path: apps/web/dist/
-          retention-days: 1
-
-      - name: Append timing table footer
-        if: ${{ !cancelled() }}
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
-
-  unit_affected:
-    name: Checks (unit-affected)
-    if: >-
-      github.event_name == 'pull_request' &&
-      needs.plan.outputs.run-unit-affected == 'true'
-    needs: [plan]
-    runs-on: ubuntu-latest
-    # Cold-cache affected-unit runs can include Electron, embedding-worker diagnostics,
-    # dependent package builds, and Node 24 runtime overhead; the step remains capped
-    # below this job budget so diagnostics can still run.
-    timeout-minutes: 35
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Initialize timing table
-        run: |
-          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
-          echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
-
-      - name: Run affected unit tests
-        # Kept below the job timeout so timing diagnostics and footer reporting still run.
-        timeout-minutes: 30
-        env:
-          NODE_ENV: test
-          TURBO_TEST_MODE: unit
-          UNIT_MODE: ${{ needs.plan.outputs.unit-mode }}
-        run: |
-          START=$SECONDS
-          rm -rf .turbo/runs
-          mkdir -p .turbo/runs
-          if [ "$UNIT_MODE" = "changed-unit-tests" ]; then
-            echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
-            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
-          else
-            echo "Running changed workspace unit tests for PR against origin/${GITHUB_BASE_REF}"
-            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD --changed-workspaces
-          fi
-          echo "| Affected unit tests | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Report Turbo unit diagnostics
-        if: ${{ !cancelled() }}
-        run: |
-          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test --output turbo-unit-diagnostics.md || true
-          if [ -s turbo-unit-diagnostics.md ]; then
-            cat turbo-unit-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No Turbo unit diagnostics were generated; PR unit tests run through changed-file/workspace commands." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload unit timing diagnostics
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: unit-affected-turbo-diagnostics
+          name: build-artifacts
           path: |
-            turbo-unit-diagnostics.md
-            .turbo/runs/*.json
+            apps/web/dist/
+            apps/desktop/dist/
+            packages/*/dist/
           retention-days: 1
-          if-no-files-found: ignore
-
-      - name: Append timing table footer
-        if: ${{ !cancelled() }}
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
-
-  unit_coverage:
-    name: Checks (coverage-db/full)
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      (github.event_name == 'pull_request' && needs.plan.outputs.run-unit-coverage == 'true')
-    needs: [plan]
-    runs-on: ubuntu-latest
-    # The split coverage phases can use up to 75 minutes of step budget on a
-    # cold cache; keep job overhead bounded without letting the job kill valid
-    # serial DB coverage before diagnostics and coverage prep can run.
-    timeout-minutes: 90
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Initialize timing table
-        run: |
-          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
-          echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
-
-      - name: Clear coverage directories
-        run: |
-          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf .nyc_output
-          rm -rf .turbo/runs
-          mkdir -p .turbo/runs
-
-      - name: Run affected package unit coverage
-        # Keep the affected package slice separate from the serial DB lanes so
-        # a cold cache cannot spend the entire step timeout before DB coverage.
-        timeout-minutes: 30
-        env:
-          COVERAGE: "true"
-          NODE_ENV: test
-          TURBO_TEST_MODE: coverage
-        run: |
-          START=$SECONDS
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
-            echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run test:coverage --filter="...[origin/${GITHUB_BASE_REF}]" --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
-          else
-            echo "Running full unit coverage"
-            pnpm turbo run test:coverage --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
-          fi
-          echo "| Package coverage | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Run DB runtime coverage
-        # DB runtime coverage cold-starts PGlite and must stay isolated from the
-        # broader DB lanes to avoid runner resource contention. These coverage
-        # phases remain fail-fast intentionally; diagnostics below still run.
-        timeout-minutes: 10
-        env:
-          COVERAGE: "true"
-          DB_COVERAGE_RUNTIME_TASK: test:coverage:db:runtime
-          NODE_ENV: test
-          TURBO_TEST_MODE: coverage
-        run: |
-          START=$SECONDS
-          pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
-          echo "| DB runtime coverage | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Run DB serial coverage lanes
-        # DB coverage lanes are PGlite-heavy. On GitHub runners, running
-        # several lanes at once saturates the runner and turns valid 10s unit
-        # timeouts into contention failures, so keep DB lanes serial.
-        timeout-minutes: 30
-        env:
-          COVERAGE: "true"
-          DB_COVERAGE_TASKS: test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search
-          NODE_ENV: test
-          TURBO_TEST_MODE: coverage
-        run: |
-          START=$SECONDS
-          pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
-          echo "| DB serial coverage | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Prepare unit coverage workspace
-        id: unit-tests
-        timeout-minutes: 5
-        run: |
-          START=$SECONDS
-          pnpm coverage:prepare-workspace
-
-          COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
-          echo "coverage_files=${COVERAGE_FILES}" >> "$GITHUB_OUTPUT"
-          if [ "$COVERAGE_FILES" -gt 0 ]; then
-            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
-            echo "No coverage-final.json files generated (likely no affected test tasks)."
-          fi
-          echo "| Coverage workspace prep | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Enforce package coverage thresholds
-        if: steps.unit-tests.outputs.has_coverage == 'true'
-        run: pnpm coverage:enforce
-
-      - name: Generate merged coverage report
-        if: steps.unit-tests.outputs.has_coverage == 'true'
-        run: |
-          pnpm coverage:merge -- --quiet packages apps
-          pnpm coverage:report
-
-      - name: Upload coverage to Codecov
-        if: steps.unit-tests.outputs.has_coverage == 'true'
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          fail_ci_if_error: false
-
-      - name: Comment PR with Coverage Summary
-        if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-
-            // Thresholds are enforced by scripts/enforce-coverage.mjs (single source of truth).
-            // This PR comment is purely informational — it shows measured coverage only.
-
-            function summarize(json) {
-              let stTot = 0, stCov = 0, fnTot = 0, fnCov = 0, brTot = 0, brCov = 0, lnTot = 0, lnCov = 0;
-              for (const file of Object.values(json)) {
-                const s = file.s; stTot += Object.keys(s).length; stCov += Object.values(s).filter(v => v>0).length;
-                const f = file.f; fnTot += Object.keys(f).length; fnCov += Object.values(f).filter(v => v>0).length;
-                const b = file.b; for (const arr of Object.values(b)) { brTot += arr.length; brCov += arr.filter(v=>v>0).length; }
-                const stm = file.statementMap; const lns = new Set();
-                for (const { start, end } of Object.values(stm)) { for (let l = start.line; l <= end.line; l++) lns.add(l); }
-                lnTot += lns.size; const coveredLines = new Set();
-                for (const [k, v] of Object.entries(file.s)) {
-                  if (v>0) { const { start, end } = file.statementMap[k]; for (let l = start.line; l <= end.line; l++) coveredLines.add(l); }
-                }
-                lnCov += coveredLines.size;
-              }
-              const pct = (cov, tot) => (tot ? (100 * cov) / tot : 0);
-              return {
-                lines: pct(lnCov, lnTot),
-                functions: pct(fnCov, fnTot),
-                branches: pct(brCov, brTot),
-                statements: pct(stCov, stTot),
-              };
-            }
-
-            function* walk(dir) {
-              const entries = fs.readdirSync(dir, { withFileTypes: true });
-              for (const e of entries) {
-                const p = path.join(dir, e.name);
-                if (e.isDirectory()) yield* walk(p);
-                else yield p;
-              }
-            }
-
-            function findPackageName(fromDir) {
-              let curr = path.resolve(fromDir);
-              for (let i = 0; i < 5; i++) {
-                const pkgPath = path.join(curr, 'package.json');
-                if (fs.existsSync(pkgPath)) {
-                  try { return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).name || path.basename(curr); } catch {}
-                }
-                curr = path.dirname(curr);
-              }
-              return path.basename(fromDir);
-            }
-
-            const roots = ['packages', 'apps'].filter((p) => fs.existsSync(p));
-            const coverageFiles = [];
-            for (const root of roots) {
-              for (const file of walk(root)) {
-                if (file.endsWith(path.join('coverage', 'coverage-final.json'))) coverageFiles.push(file);
-              }
-            }
-
-            const rows = [];
-            const fmt = (n) => `${n.toFixed(2)}%`;
-            for (const file of coverageFiles.sort()) {
-              const pkgDir = path.dirname(path.dirname(file));
-              const pkgName = findPackageName(pkgDir);
-              try {
-                const json = JSON.parse(fs.readFileSync(file, 'utf8'));
-                const s = summarize(json);
-                rows.push(`| ${pkgName} | ${fmt(s.lines)} | ${fmt(s.functions)} | ${fmt(s.branches)} | ${fmt(s.statements)} |`);
-              } catch (e) {
-                rows.push(`| ${pkgName} | error | — | — | — |`);
-              }
-            }
-
-            const header = `## ✅ Coverage Summary (All Workspaces with reports)\n\n` +
-              `| Package | Lines | Functions | Branches | Statements |\n` +
-              `|---|---:|---:|---:|---:|`;
-            const body = rows.length ? [header, ...rows].join('\n') : `${header}\n| — | — | — | — | — |`;
-
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via `scripts/enforce-coverage.mjs`_',
-            });
-
-      - name: Bundle coverage files
-        run: |
-          set -e
-          mkdir -p coverage-bundle
-          find . -name "coverage-final.json" -path "*/coverage/*" -exec cp --parents {} coverage-bundle/ \;
-          if [ ! "$(ls -A coverage-bundle 2>/dev/null)" ]; then
-            echo "No coverage files found, creating empty marker"
-            touch coverage-bundle/.empty
-          fi
-          tar -cvf coverage-bundle.tar coverage-bundle/
-          ls -lh coverage-bundle.tar
-          echo "Bundled $(find coverage-bundle -name '*.json' 2>/dev/null | wc -l) coverage files"
-
-      - name: Upload coverage bundle
-        uses: actions/upload-artifact@v7
-        with:
-          name: unit-coverage
-          path: coverage-bundle.tar
-          retention-days: 1
-
-      - name: Report Turbo test task timings
-        if: ${{ !cancelled() }}
-        run: |
-          set +e
-          : > turbo-test-timings.md
-          # Aggregate coverage can cold-start every package; per-task caps still catch localized regressions.
-          pnpm ci:timing-summary -- --runs-dir .turbo/runs --all --task-prefix test:coverage --warn-ms 600000 --fail-ms 900000 --total-warn-ms 2100000 --total-fail-ms 2400000 --output turbo-test-timings.md
-          STATUS=$?
-          set -e
-          if [ -s turbo-test-timings.md ]; then
-            cat turbo-test-timings.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No Turbo timing summary was generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$STATUS"
-
-      - name: Report Turbo unit coverage diagnostics
-        if: ${{ !cancelled() }}
-        run: |
-          set +e
-          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test:coverage --output turbo-unit-coverage-diagnostics.md
-          STATUS=$?
-          set -e
-          if [ -s turbo-unit-coverage-diagnostics.md ]; then
-            cat turbo-unit-coverage-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No Turbo unit coverage diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$STATUS"
-
-      - name: Upload coverage timing diagnostics
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: unit-coverage-turbo-diagnostics
-          path: |
-            turbo-test-timings.md
-            turbo-unit-coverage-diagnostics.md
-            .turbo/runs/*.json
-          retention-days: 1
-          if-no-files-found: ignore
-
-      - name: Append timing table footer
-        if: ${{ !cancelled() }}
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
-
-  # Dynamic matrix: release/full-risk E2E uses five web shards and four desktop
-  # shards. Plain pushes to main intentionally do not enter this matrix; they
-  # run smoke gates below, while scheduled/manual runs own full release proof.
-  determine-matrix:
-    name: Determine E2E Matrix
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      web-shards: ${{ steps.set-matrix.outputs.web-shards }}
-      web-shard-total: ${{ steps.set-matrix.outputs.web-shard-total }}
-      desktop-shards: ${{ steps.set-matrix.outputs.desktop-shards }}
-      desktop-shard-total: ${{ steps.set-matrix.outputs.desktop-shard-total }}
-    steps:
-      - name: Set shard matrix
-        id: set-matrix
-        run: |
-          echo 'web-shards=["1","2","3","4","5"]' >> "$GITHUB_OUTPUT"
-          echo 'web-shard-total=["5"]' >> "$GITHUB_OUTPUT"
-          echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-          echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
-
-  # The checks job builds @brainstrike/web for CSS validation and uploads the
-  # exact dist used by E2E. Keep this required check as an artifact contract.
-  prepare-web:
-    name: Build Web App
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      (github.event_name == 'pull_request' && needs.plan.outputs.run-prepare-web == 'true')
-    needs: [plan, checks]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Verify web dist
-        run: |
-          test -f apps/web/dist/index.html
-          test -d apps/web/dist/assets
-
-  # Build desktop app and upload as artifact for E2E jobs
-  prepare-desktop:
-    name: Build Desktop App
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      (github.event_name == 'pull_request' && needs.plan.outputs.run-prepare-desktop == 'true')
-    needs: [plan, checks]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Build desktop application
-        run: pnpm run build --filter @brainstrike/desktop
-
-      - name: Upload desktop dist
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-dist
-          path: apps/desktop/dist/
-          retention-days: 1
-
-  # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
-  browser-tests:
-    name: Browser Tests (Vitest 4)
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-      (github.event_name == 'pull_request' && needs.plan.outputs.run-browser-tests == 'true')
-    needs: [plan, checks] # Only run if checks pass
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Build packages
-        run: pnpm run build --filter @brainstrike/db --filter @brainstrike/storage
-
-      - name: Run browser tests
-        timeout-minutes: 40
-        run: pnpm run test:browser
-
-      - name: Upload browser test traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: browser-test-traces
-          path: |
-            packages/*/test-results/**/*.zip
-            packages/*/test-results/**/*.png
-          retention-days: 1
-          if-no-files-found: ignore
-
-  # E2E tests run in parallel with sharding. Keep PR coverage complete, but use
-  # fewer jobs with two Playwright workers each to reduce repeated runner setup.
-  # Origin-destructive reset flows, DB-startup, and storage/import-heavy stateful
-  # specs are excluded here and covered by isolated lanes below.
-  e2e:
-    name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    needs: [checks, determine-matrix]
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix:
-        shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.web-shards) }}
-        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.web-shard-total) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run E2E tests (shard)
-        timeout-minutes: 30
-        run: |
-          cd apps/web
-          echo "Running functional E2E tests"
-          unset NO_COLOR
-          pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-        env:
-          NODE_ENV: "production"
-          PORT: "8080"
-          BASE_URL: "http://127.0.0.1:8080"
-
-      - name: Bundle blob report
-        if: failure()
-        run: |
-          set -e
-          cd apps/web
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf blob-report-${{ matrix.shardIndex }}.tar blob-report/
-            ls -lh blob-report-${{ matrix.shardIndex }}.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No blob report found for shard ${{ matrix.shardIndex }}"
-          fi
-
-      - name: Upload blob report
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: blob-report-${{ matrix.shardIndex }}
-          path: apps/web/blob-report-${{ matrix.shardIndex }}.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  e2e-stateful:
-    name: E2E Stateful Tests (${{ matrix.group }})
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    needs: [checks]
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: import
-            testFiles: e2e/database-import-backfill.test.ts
-          - group: tree-table
-            testFiles: e2e/tree-table-resize.test.ts
-          - group: file-explorer-persistence
-            testFiles: e2e/file-explorer-persistence.test.ts
-          - group: assistant-ui
-            testFiles: e2e/assistant-ui-panel.test.ts e2e/assistant-local-availability.test.ts e2e/assistant-panel.test.ts e2e/assistant-panel-interactions.test.ts
-          - group: database-startup
-            testFiles: e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts e2e/embedding-worker-telemetry.test.ts
-          - group: settings-state
-            testFiles: e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run stateful E2E tests
-        timeout-minutes: 25
-        run: |
-          cd apps/web
-          echo "Running stateful functional E2E tests with one worker per runner"
-          unset NO_COLOR
-          pnpm exec playwright test --project=functional --workers=1 --grep "@stateful" ${{ matrix.testFiles }}
-        env:
-          NODE_ENV: "production"
-          PORT: "8080"
-          BASE_URL: "http://127.0.0.1:8080"
-
-      - name: Bundle blob report
-        if: failure()
-        run: |
-          set -e
-          cd apps/web
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf stateful-blob-report-${{ matrix.group }}.tar blob-report/
-            ls -lh stateful-blob-report-${{ matrix.group }}.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No stateful blob report found for ${{ matrix.group }}"
-          fi
-
-      - name: Upload blob report
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: stateful-blob-report-${{ matrix.group }}
-          path: apps/web/stateful-blob-report-${{ matrix.group }}.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  e2e-destructive:
-    name: E2E Destructive Tests
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    needs: [checks]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run destructive E2E tests
-        timeout-minutes: 10
-        run: |
-          cd apps/web
-          echo "Running destructive functional E2E tests in isolation"
-          unset NO_COLOR
-          pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive"
-        env:
-          NODE_ENV: "production"
-          PORT: "8080"
-          BASE_URL: "http://127.0.0.1:8080"
-
-      - name: Bundle blob report
-        if: failure()
-        run: |
-          set -e
-          cd apps/web
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf destructive-blob-report.tar blob-report/
-            ls -lh destructive-blob-report.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No destructive blob report found"
-          fi
-
-      - name: Upload blob report
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: destructive-blob-report
-          path: apps/web/destructive-blob-report.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  web-e2e-pr:
-    name: Web E2E PR (${{ matrix.lane }})
-    if: >-
-      github.event_name == 'pull_request' &&
-      needs.plan.outputs.run-web-e2e-pr == 'true'
-    needs: [plan, checks, prepare-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.web-e2e-matrix) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run selected web E2E lane
-        timeout-minutes: ${{ matrix.timeoutMinutes }}
-        run: bash -euo pipefail -c "$E2E_COMMAND"
-        env:
-          E2E_COMMAND: ${{ matrix.command }}
-
-      - name: Upload selected web traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-${{ matrix.lane }}-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  web-e2e-smoke-pr:
-    name: Web E2E Smoke
-    if: github.event_name == 'push'
-    needs: [checks, prepare-web]
+          if-no-files-found: error
+
+  web-e2e:
+    name: Web E2E
+    if: github.event_name != 'workflow_dispatch'
+    needs: [static, unit, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
+      NODE_ENV: production
       PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
+      BASE_URL: http://127.0.0.1:8080
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
+      - name: Enable Corepack
+        run: corepack enable
 
-      - name: Download web dist
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prod=false
+
+      - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
-          name: web-dist
-          path: apps/web/dist/
+          name: build-artifacts
+          path: .
 
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run web smoke lane
-        timeout-minutes: 10
+      - name: Run web smoke
         run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
 
-      - name: Upload web smoke traces on failure
+      - name: Upload web smoke traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: web-smoke-test-results
+          name: web-smoke-main-test-results
           path: apps/web/test-results/
           retention-days: 1
           if-no-files-found: ignore
 
-  web-e2e-file-explorer-persistence-pr:
-    name: Web E2E File Explorer Persistence
-    if: ${{ false }}
-    needs: [checks, prepare-web]
+  desktop-e2e:
+    name: Desktop E2E
+    if: github.event_name != 'workflow_dispatch'
+    needs: [static, unit, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
+      NODE_ENV: test
+      CI: "true"
+      ELECTRON_ENABLE_STACK_DUMPING: "false"
+      ELECTRON_DISABLE_GPU: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
+      - name: Enable Corepack
+        run: corepack enable
 
-      - name: Download web dist
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Get Electron version
+        id: electron-version
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
-          name: web-dist
-          path: apps/web/dist/
+          name: build-artifacts
+          path: .
 
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run file explorer persistence lane
-        timeout-minutes: 12
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence
+      - name: Run desktop smoke
+        working-directory: apps/desktop
+        run: pnpm run test:e2e:lane:smoke
 
-      - name: Upload file explorer traces on failure
+      - name: Upload desktop smoke traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: web-file-explorer-persistence-test-results
-          path: apps/web/test-results/
+          name: desktop-smoke-main-test-results
+          path: apps/desktop/test-results/
           retention-days: 1
           if-no-files-found: ignore
-
-  web-e2e-import-indexing-pr:
-    name: Web E2E Import Indexing
-    if: ${{ false }}
-    needs: [checks, prepare-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run import indexing lane
-        timeout-minutes: 12
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:import-indexing
-
-      - name: Upload import indexing traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-import-indexing-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  web-e2e-assistant-state-pr:
-    name: Web E2E Assistant State
-    if: ${{ false }}
-    needs: [checks, prepare-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run assistant state lane
-        timeout-minutes: 12
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:assistant-state
-
-      - name: Upload assistant traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-assistant-state-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  web-e2e-settings-state-pr:
-    name: Web E2E Settings State
-    if: ${{ false }}
-    needs: [checks, prepare-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run settings state lane
-        timeout-minutes: 12
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:settings-state
-
-      - name: Upload settings traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-settings-state-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  web-e2e-db-startup-pr:
-    name: Web E2E DB Startup
-    if: ${{ false }}
-    needs: [checks, prepare-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run DB startup lane
-        timeout-minutes: 12
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:db-startup
-
-      - name: Upload DB startup traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-db-startup-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  web-e2e-destructive-reset-pr:
-    name: Web E2E Destructive Reset
-    if: ${{ false }}
-    needs: [checks, prepare-web]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      NODE_ENV: "production"
-      PORT: "8080"
-      BASE_URL: "http://127.0.0.1:8080"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web workspace dependencies
-        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Download web dist
-        uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: apps/web/dist/
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Run destructive reset lane
-        timeout-minutes: 12
-        run: pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset
-
-      - name: Upload destructive reset traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-destructive-reset-test-results
-          path: apps/web/test-results/
-          retention-days: 1
-          if-no-files-found: ignore
-
-  # Desktop E2E tests (PR) - runs exactly the desktop lanes selected by CI Plan.
-  desktop-e2e-pr:
-    name: Desktop E2E PR (${{ matrix.lane }})
-    if: >-
-      github.event_name == 'pull_request' &&
-      needs.plan.outputs.run-desktop-e2e-pr == 'true'
-    needs: [plan, prepare-desktop]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.desktop-e2e-matrix) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run selected Desktop E2E lane
-        timeout-minutes: ${{ matrix.timeoutMinutes }}
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":${{ matrix.display }}"
-
-          # Clean up any stale X lock files for this server number
-          LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          # Start Xvfb in background with explicit pre-warming
-          echo "Starting Xvfb on display ${DISPLAY} for desktop lane ${{ matrix.lane }}"
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-
-          # Pre-warm: Wait for Xvfb to fully initialize
-          echo "Waiting for Xvfb to initialize..."
-          sleep 3
-
-          # Verify Xvfb is running and display is accessible
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
-
-          # Run regression tests with explicit DISPLAY. Keep one worker per shard so a
-          # required desktop lane never runs multiple Electron apps and DB hosts in the
-          # same Xvfb/container.
-          echo "Starting selected desktop lane: ${{ matrix.lane }}"
-          unset NO_COLOR
-          bash -euo pipefail -c "$E2E_COMMAND"
-          TEST_EXIT_CODE=$?
-
-          # Cleanup
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          E2E_COMMAND: ${{ matrix.command }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-      - name: Bundle blob report (desktop lane)
-        if: failure()
-        run: |
-          set -e
-          cd apps/desktop
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf desktop-blob-report-${{ matrix.lane }}.tar blob-report/
-            ls -lh desktop-blob-report-${{ matrix.lane }}.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No blob report found for desktop lane ${{ matrix.lane }}"
-          fi
-
-      - name: Upload blob report (desktop lane)
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-blob-report-${{ matrix.lane }}
-          path: apps/desktop/desktop-blob-report-${{ matrix.lane }}.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  desktop-e2e-smoke-pr:
-    name: Desktop E2E Smoke
-    if: github.event_name == 'push'
-    needs: [prepare-desktop]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop E2E smoke lane
-        timeout-minutes: 8
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":107"
-          LOCK_FILE="/tmp/.X107-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-
-          unset NO_COLOR
-          pnpm run test:e2e:lane:smoke
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-  desktop-e2e-ipc-reset-pr:
-    name: Desktop E2E IPC Reset
-    if: ${{ false }}
-    needs: [prepare-desktop]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop E2E IPC reset lane
-        timeout-minutes: 8
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":108"
-          LOCK_FILE="/tmp/.X108-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-
-          unset NO_COLOR
-          pnpm run test:e2e:lane:ipc-reset
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-  desktop-e2e-runtime-hosts-pr:
-    name: Desktop E2E Runtime Hosts
-    if: ${{ false }}
-    needs: [prepare-desktop]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop E2E runtime hosts lane
-        timeout-minutes: 8
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":109"
-          LOCK_FILE="/tmp/.X109-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-
-          unset NO_COLOR
-          pnpm run test:e2e:lane:runtime-hosts
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-  desktop-e2e-db-storage-pr:
-    name: Desktop E2E DB Storage
-    if: ${{ false }}
-    needs: [prepare-desktop]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop E2E DB storage lane
-        timeout-minutes: 8
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":110"
-          LOCK_FILE="/tmp/.X110-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-
-          unset NO_COLOR
-          pnpm run test:e2e:lane:db-storage
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-  desktop-e2e-embedding-pr:
-    name: Desktop E2E Embedding Regression (${{ matrix.group }})
-    if: ${{ false }}
-    needs: [prepare-desktop]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: lifecycle
-            display: 101
-            grep: "@desktop-embedding-lifecycle"
-          - group: backfill
-            display: 102
-            grep: "@desktop-embedding-backfill"
-          - group: search
-            display: 103
-            grep: "@desktop-embedding-search"
-          - group: recovery
-            display: 104
-            grep: "@desktop-embedding-recovery"
-          - group: memory
-            display: 105
-            grep: "@desktop-embedding-memory"
-          - group: mixed
-            display: 106
-            grep: "@desktop-embedding-mixed"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop embedding E2E regression group
-        timeout-minutes: 12
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":${{ matrix.display }}"
-          LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-
-          unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "${{ matrix.grep }}" e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts e2e/embedding-worker-renderer.crash-a.desktop.test.ts
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-      - name: Bundle blob report (desktop embedding group)
-        if: failure()
-        run: |
-          set -e
-          cd apps/desktop
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf desktop-embedding-blob-report-${{ matrix.group }}.tar blob-report/
-            ls -lh desktop-embedding-blob-report-${{ matrix.group }}.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No blob report found for desktop embedding group ${{ matrix.group }}"
-          fi
-
-      - name: Upload blob report (desktop embedding group)
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-embedding-blob-report-${{ matrix.group }}
-          path: apps/desktop/desktop-embedding-blob-report-${{ matrix.group }}.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  # Desktop E2E tests (release proof) - runs AFTER web E2E to prevent Electron flakiness.
-  # WARNING: Do NOT change to parallel execution in release proof. See docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
-  # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
-  # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
-  desktop-e2e-main:
-    name: Desktop E2E Regression
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    needs: [prepare-desktop, e2e, determine-matrix] # Sequential in release proof - wait for web E2E
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix:
-        shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shards) }}
-        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop E2E tests (shard)
-        timeout-minutes: 15
-        working-directory: apps/desktop
-        run: |
-          # Use a deterministic X server number per shard to avoid collisions
-          # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
-          SERVER_NUM=$((90 + ${{ matrix.shardIndex }}))
-          export DISPLAY=":${SERVER_NUM}"
-
-          # Clean up any stale X lock files for this server number
-          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          # Start Xvfb in background with explicit pre-warming
-          echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-
-          # Pre-warm: Wait for Xvfb to fully initialize
-          echo "Waiting for Xvfb to initialize..."
-          sleep 3
-
-          # Verify Xvfb is running and display is accessible
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
-
-          # Run regression tests (non-smoke) with explicit DISPLAY. Keep one worker per
-          # shard so post-merge validation uses the same Electron/DB-host isolation as PRs.
-          echo "Starting Playwright regression tests..."
-          unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-          TEST_EXIT_CODE=$?
-
-          # Cleanup
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-      - name: Bundle blob report (desktop shard)
-        if: failure()
-        run: |
-          set -e
-          cd apps/desktop
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf desktop-blob-report-${{ matrix.shardIndex }}.tar blob-report/
-            ls -lh desktop-blob-report-${{ matrix.shardIndex }}.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No blob report found for desktop shard ${{ matrix.shardIndex }}"
-          fi
-
-      - name: Upload blob report (desktop shard)
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-blob-report-${{ matrix.shardIndex }}
-          path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  desktop-e2e-embedding-main:
-    name: Desktop E2E Embedding Regression (${{ matrix.group }})
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    needs: [prepare-desktop, e2e]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: lifecycle
-            display: 101
-            grep: "@desktop-embedding-lifecycle"
-          - group: backfill
-            display: 102
-            grep: "@desktop-embedding-backfill"
-          - group: search
-            display: 103
-            grep: "@desktop-embedding-search"
-          - group: recovery
-            display: 104
-            grep: "@desktop-embedding-recovery"
-          - group: memory
-            display: 105
-            grep: "@desktop-embedding-memory"
-          - group: mixed
-            display: 106
-            grep: "@desktop-embedding-mixed"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Setup Playwright runtime
-        uses: ./.github/actions/setup-playwright-runtime
-
-      - name: Setup desktop E2E
-        uses: ./.github/actions/setup-desktop-e2e
-
-      - name: Run Desktop embedding E2E regression group
-        timeout-minutes: 12
-        working-directory: apps/desktop
-        run: |
-          export DISPLAY=":${{ matrix.display }}"
-          LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
-          XVFB_PID=$!
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            exit 1
-          fi
-
-          unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "${{ matrix.grep }}" e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts e2e/embedding-worker-renderer.crash-a.desktop.test.ts
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-      - name: Bundle blob report (desktop embedding group)
-        if: failure()
-        run: |
-          set -e
-          cd apps/desktop
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf desktop-embedding-blob-report-${{ matrix.group }}.tar blob-report/
-            ls -lh desktop-embedding-blob-report-${{ matrix.group }}.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No blob report found for desktop embedding group ${{ matrix.group }}"
-          fi
-
-      - name: Upload blob report (desktop embedding group)
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-embedding-blob-report-${{ matrix.group }}
-          path: apps/desktop/desktop-embedding-blob-report-${{ matrix.group }}.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  desktop-e2e-backgrounding:
-    name: Desktop E2E Backgrounding Regression
-    if: github.event_name == 'workflow_dispatch' && inputs.release_proof == 'desktop-backgrounding'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-        with:
-          skip-electron: 'false'
-
-      - name: Install system dependencies for Electron
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-
-      - name: Install Playwright system dependencies
-        run: pnpm exec playwright install-deps
-
-      - name: Build desktop application
-        run: pnpm run build --filter @brainstrike/desktop
-
-      - name: Run desktop backgrounding regression tests
-        timeout-minutes: 30
-        working-directory: apps/desktop
-        run: |
-          unset NO_COLOR
-          export DISPLAY=":95"
-          XVFB_STDOUT_LOG="/tmp/brainstrike-xvfb-stdout.log"
-          XVFB_STDERR_LOG="/tmp/brainstrike-xvfb-stderr.log"
-
-          LOCK_FILE="/tmp/.X95-lock"
-          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
-
-          echo "Starting Xvfb on display ${DISPLAY} for backgrounding regression"
-          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX >"$XVFB_STDOUT_LOG" 2>"$XVFB_STDERR_LOG" &
-          XVFB_PID=$!
-
-          echo "Waiting for Xvfb to initialize..."
-          sleep 3
-
-          if ! kill -0 $XVFB_PID 2>/dev/null; then
-            echo "ERROR: Xvfb process died unexpectedly"
-            [ -s "$XVFB_STDOUT_LOG" ] && cat "$XVFB_STDOUT_LOG"
-            [ -s "$XVFB_STDERR_LOG" ] && cat "$XVFB_STDERR_LOG"
-            exit 1
-          fi
-          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
-
-          echo "Starting Playwright backgrounding regression tests..."
-          pnpm test:e2e:backgrounding
-          TEST_EXIT_CODE=$?
-
-          kill $XVFB_PID 2>/dev/null || true
-          if [ "$TEST_EXIT_CODE" -ne 0 ]; then
-            [ -s "$XVFB_STDOUT_LOG" ] && cat "$XVFB_STDOUT_LOG"
-            [ -s "$XVFB_STDERR_LOG" ] && cat "$XVFB_STDERR_LOG"
-          fi
-          exit $TEST_EXIT_CODE
-        env:
-          NODE_ENV: "test"
-          CI: "true"
-          LOG_LEVEL: "warn"
-          RUN_SALT: ${{ github.run_id }}
-          ELECTRON_ENABLE_STACK_DUMPING: "false"
-          ELECTRON_DISABLE_GPU: "1"
-
-      - name: Bundle blob report (desktop backgrounding)
-        if: failure()
-        run: |
-          set -e
-          cd apps/desktop
-          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-            tar -cvf desktop-backgrounding-blob-report.tar blob-report/
-            ls -lh desktop-backgrounding-blob-report.tar
-            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
-          else
-            echo "No blob report found for desktop backgrounding regression"
-          fi
-
-      - name: Upload blob report (desktop backgrounding)
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-backgrounding-blob-report
-          path: apps/desktop/desktop-backgrounding-blob-report.tar
-          retention-days: 1
-          if-no-files-found: warn
-
-  # Merge E2E test reports
-  # Note: exactly one of the PR/release desktop job sets is always skipped.
-  # The OR condition handles this correctly.
-  merge-reports:
-    name: Merge Test Reports
-    if: >-
-      always() &&
-      (
-        github.event_name == 'schedule' ||
-        (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release') ||
-        (github.event_name == 'pull_request' && needs.plan.outputs.run-merge-reports == 'true')
-      ) &&
-      (needs.web-e2e-pr.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-embedding-main.result == 'success')
-    needs: [plan, e2e, e2e-stateful, e2e-destructive, web-e2e-pr, desktop-e2e-pr, desktop-e2e-main, desktop-e2e-embedding-main]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download blob reports
-        id: download-reports
-        uses: actions/download-artifact@v8
-        with:
-          path: all-blob-reports
-          pattern: '*blob-report*'
-        continue-on-error: true
-
-      - name: Extract blob report bundles
-        if: steps.download-reports.outcome == 'success'
-        run: |
-          set -e
-          if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports 2>/dev/null)" ]; then
-            echo "Extracting blob report tar bundles..."
-            find all-blob-reports -type f -name "*.tar" -print0 | while IFS= read -r -d '' tar_file; do
-              artifact_dir="$(dirname "$tar_file")"
-              echo "Extracting: $tar_file"
-              tar -xvf "$tar_file" -C "$artifact_dir"
-              rm "$tar_file"
-              echo "Extracted $(basename "$tar_file")"
-            done
-            echo "Extraction complete"
-          else
-            echo "No blob reports to extract"
-          fi
-
-      - name: Check if blob reports exist
-        id: check-reports
-        run: |
-          if [ -d "all-blob-reports" ] && [ "$(find all-blob-reports -type f -path "*/blob-report/*" -print -quit)" ]; then
-            echo "reports-exist=true" >> $GITHUB_OUTPUT
-            echo "Blob report directories:"
-            find all-blob-reports -type d -name "blob-report" | wc -l
-            echo "Blob report files:"
-            find all-blob-reports -type f -path "*/blob-report/*" | wc -l
-          else
-            echo "reports-exist=false" >> $GITHUB_OUTPUT
-            echo "No blob reports found - shard jobs either passed without diagnostic upload or produced no report"
-          fi
-
-      - name: Setup monorepo
-        if: steps.check-reports.outputs.reports-exist == 'true'
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Merge Playwright reports
-        if: steps.check-reports.outputs.reports-exist == 'true'
-        run: |
-          echo "Downloaded blob report tree:"
-          find all-blob-reports -maxdepth 3 -print | sort
-
-          # Create a single directory with all blob files
-          mkdir -p merged-blob-reports
-
-          # Copy all blob report files to the merged directory
-          find all-blob-reports -type d -name "blob-report" -print0 | while IFS= read -r -d '' report_dir; do
-            echo "Copying files from $report_dir"
-            cp -r "$report_dir"/. merged-blob-reports/
-          done
-
-          echo "Merged blob reports directory contents:"
-          find merged-blob-reports -maxdepth 2 -print | sort
-
-          # Debug: Check if merge config exists and is valid
-          echo "Checking merge config..."
-          ls -la playwright-merge.config.js
-          node -c playwright-merge.config.js
-
-          # Merge reports using custom merge config to handle both web and desktop
-          echo "Starting merge process..."
-          pnpm exec playwright merge-reports --config playwright-merge.config.js merged-blob-reports
-
-      - name: Upload final test results
-        if: steps.check-reports.outputs.reports-exist == 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: all-test-results
-          path: playwright-report-merged/
-          retention-days: 1
-          if-no-files-found: warn
-
-  required-pr-gate:
-    name: Required PR Gate
-    if: always() && github.event_name == 'pull_request'
-    needs:
-      - plan
-      - docs-static
-      - checks
-      - unit_affected
-      - unit_coverage
-      - browser-tests
-      - prepare-web
-      - prepare-desktop
-      - web-e2e-pr
-      - desktop-e2e-pr
-      - merge-reports
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Verify required PR jobs
-        env:
-          REQUIRED_NEEDS: ${{ toJSON(needs) }}
-          REQUIRED_JOBS_JSON: ${{ needs.plan.outputs.required-jobs-json }}
-        run: node scripts/ci-required-pr-gate.mjs
-
-  required-main-gate:
-    name: Required Main Gate
-    if: always() && github.event_name == 'push'
-    needs:
-      - checks
-      - prepare-web
-      - prepare-desktop
-      - web-e2e-smoke-pr
-      - desktop-e2e-smoke-pr
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify required main jobs
-        env:
-          REQUIRED_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          node <<'NODE'
-          const needs = JSON.parse(process.env.REQUIRED_NEEDS);
-          // Strict by design: every required main dependency must run and succeed.
-          const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
-          if (failed.length > 0) {
-            console.error('Required main gate failed:');
-            for (const [name, job] of failed) {
-              console.error(`- ${name}: ${job.result}`);
-            }
-            process.exit(1);
-          }
-          console.log('Required main gate passed.');
-          NODE
-
-  required-release-gate:
-    name: Required Release Gate
-    if: >-
-      always() &&
-      (
-        github.event_name == 'schedule' ||
-        (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-      )
-    needs:
-      - checks
-      - unit_coverage
-      - browser-tests
-      - prepare-web
-      - prepare-desktop
-      - e2e
-      - e2e-stateful
-      - e2e-destructive
-      - desktop-e2e-main
-      - desktop-e2e-embedding-main
-      - merge-reports
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify required release jobs
-        env:
-          REQUIRED_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          node <<'NODE'
-          const needs = JSON.parse(process.env.REQUIRED_NEEDS);
-          // Strict by design: scheduled/manual release proof must run the full matrix.
-          const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
-          if (failed.length > 0) {
-            console.error('Required release gate failed:');
-            for (const [name, job] of failed) {
-              console.error(`- ${name}: ${job.result}`);
-            }
-            process.exit(1);
-          }
-          console.log('Required release gate passed.');
-          NODE
-
-  # Optional checks that don't block merging
-  code-quality:
-    name: Code Quality Checks
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
-      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build Knip prerequisites
-        run: pnpm turbo run build --filter=@brainstrike/build-utils --filter=@brainstrike/server-config --summarize --log-order=grouped --cache-dir=.turbo
-
-      - name: Audit production dependencies
-        id: production-audit
-        run: |
-          set +e
-          pnpm audit --prod --audit-level high
-          audit_exit_code=$?
-          set -e
-
-          echo "exit_code=${audit_exit_code}" >> "$GITHUB_OUTPUT"
-          if [ "$audit_exit_code" -ne 0 ]; then
-            echo "Production dependency audit reported findings." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Run Knip analysis
-        id: knip-analysis
-        run: |
-          REPORT_FILE="knip-report.md"
-          OUTPUT=$(pnpm run knip -c knip.jsonc --cache --reporter markdown || true)
-          echo "$OUTPUT"
-
-          if echo "$OUTPUT" | grep -q "Unused"; then
-            echo "$OUTPUT" > $REPORT_FILE
-            echo "has_issues=true" >> $GITHUB_OUTPUT
-          else
-            echo "## No unused code detected!" > $REPORT_FILE
-            echo "" >> $REPORT_FILE
-            echo "Great job! Knip didn't find any unused files, exports, or dependencies." >> $REPORT_FILE
-            echo "has_issues=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Comment PR with Knip Results
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            let knipReport = '## Knip analysis failed to run\n\nPlease check the workflow logs for details.';
-            if (fs.existsSync('knip-report.md')) {
-              knipReport = fs.readFileSync('knip-report.md', 'utf8');
-            }
-
-            const body = `## Code Quality Analysis
-
-            ${knipReport}
-
-            > Knip helps identify unused code to reduce bundle size and improve maintainability.
-            > This check is non-blocking but please consider cleaning up unused code.
-            >
-            > [Learn more about Knip](https://knip.dev)`;
-
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });

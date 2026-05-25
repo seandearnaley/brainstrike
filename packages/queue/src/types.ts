@@ -151,6 +151,18 @@ export interface QueueAdapter {
    */
   cancel(): Promise<void>;
   /**
+   * Release all resources (workers, listeners) held by the adapter.
+   *
+   * Intent: terminal "I'm done with this adapter" signal — typically called
+   * from React unmount or page-navigation handlers. Must be idempotent:
+   * calling twice is safe and a no-op after the first call. Subsequent
+   * `add()` / `addBulk()` calls should reject.
+   *
+   * Optional: implementations without explicit lifecycle (e.g. durable queues
+   * backed by a shared database) may omit this and rely on `cancel()`.
+   */
+  dispose?(): Promise<void>;
+  /**
    * Wait for all in-flight work to complete.
    * Does not accept new work during drain (use pause() first).
    */
