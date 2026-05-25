@@ -230,6 +230,46 @@ describe('createBrowserEmbeddingQueue', () => {
     await expect(queue.drain()).resolves.toBeUndefined();
   });
 
+  it('rejects work after dispose even when the lazy adapter was never bootstrapped', async () => {
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+
+    await expect(queue.dispose?.()).resolves.toBeUndefined();
+    await expect(
+      queue.add({
+        id: 'task-after-dispose',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('Adapter has been disposed');
+
+    expect(createWorkerpoolAdapterMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects work after cancel even when the lazy adapter was never bootstrapped', async () => {
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+
+    await queue.cancel();
+    await expect(
+      queue.add({
+        id: 'task-after-cancel',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('Adapter has been canceled');
+
+    expect(createWorkerpoolAdapterMock).not.toHaveBeenCalled();
+  });
+
   it('clears stale listener unsubscribe handles when adapter bootstrap fails', async () => {
     const unsubscribe = vi.fn();
     const adapter = createQueueAdapterStub();
