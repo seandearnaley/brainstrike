@@ -349,8 +349,8 @@ jobs:
             echo "Running changed unit test files for PR against origin/${GITHUB_BASE_REF}"
             node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD
           else
-            echo "Running affected unit test workspaces for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            echo "Running changed workspace unit tests for PR against origin/${GITHUB_BASE_REF}"
+            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD --changed-workspaces
           fi
           echo "| Affected unit tests | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
@@ -359,14 +359,12 @@ jobs:
         run: |
           set +e
           pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test --output turbo-unit-diagnostics.md
-          STATUS=$?
           set -e
           if [ -s turbo-unit-diagnostics.md ]; then
             cat turbo-unit-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No Turbo unit diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
+            echo "No Turbo unit diagnostics were generated; PR unit tests run through changed-file/workspace commands." >> "$GITHUB_STEP_SUMMARY"
           fi
-          exit "$STATUS"
 
       - name: Upload unit timing diagnostics
         if: ${{ !cancelled() }}

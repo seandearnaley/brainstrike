@@ -1319,9 +1319,8 @@ export function validateWorkflowContracts(source) {
     failures.push('Missing unit_affected job.');
   } else {
     requirePrPlanOutputGate(unitAffected, 'Checks (unit-affected)', 'run-unit-affected', failures);
-    // The affected-unit timeout is intentionally pinned: cold-cache full-risk runs have included
-    // Electron, embedding-worker diagnostics, and dependent package builds. Change the workflow and
-    // this contract together when measured runtimes justify tightening or widening it.
+    // The unit timeout is intentionally pinned. PR unit work must stay bounded by changed files or
+    // changed workspaces; broad package-graph validation belongs in explicit release/nightly lanes.
     requireNumericMatchAtMost(
       extractJobHeader(unitAffected),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -1362,8 +1361,14 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       unitAffected,
+      '--changed-workspaces',
+      'Affected unit job must run changed workspace unit tests without Turbo global-hash expansion.',
+      failures
+    );
+    requireNotIncludes(
+      unitAffected,
       'turbo run test --filter="...[origin/${GITHUB_BASE_REF}]"',
-      'Affected unit job must still support Turbo affected filtering against the PR base.',
+      'Affected unit job must not expand PR unit tests to dependents through Turbo affected filtering.',
       failures
     );
     requireIncludes(

@@ -163,7 +163,7 @@ test('workflow contract fails when affected unit timeout cannot cover cold cache
   assert.match(failures, /Affected unit test step timeout must cover cold cache runs/);
 });
 
-test('workflow contract fails when isolated changed unit tests expand to Turbo affected tests only', () => {
+test('workflow contract fails when PR unit tests expand to Turbo affected tests', () => {
   const unitAffected = extractJob(workflowSource, 'unit_affected');
   assert.ok(unitAffected);
 
@@ -175,14 +175,15 @@ test('workflow contract fails when isolated changed unit tests expand to Turbo a
         '          UNIT_MODE: affected-packages'
       )
       .replace(
-        '            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD',
+        '            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD --changed-workspaces',
         '            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo'
       )
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /must read changed-unit-test mode from CI Plan/);
-  assert.match(failures, /must run changed unit test files directly/);
+  assert.match(failures, /must run changed workspace unit tests/);
+  assert.match(failures, /must not expand PR unit tests to dependents/);
 });
 
 test('workflow contract fails when affected unit diagnostics can use stale Turbo summaries', () => {

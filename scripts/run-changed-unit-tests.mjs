@@ -31,6 +31,24 @@ export function isUnitTestFile(filePath) {
   );
 }
 
+function isWorkspaceUnitRelevantFile(filePath) {
+  const normalized = normalizePath(filePath);
+  if (!/^(apps|packages)\//.test(normalized) || normalized.includes('/e2e/')) {
+    return false;
+  }
+  const parts = normalized.split('/');
+  if (parts.length < 3) {
+    return false;
+  }
+  const relativePath = parts.slice(2).join('/');
+  return (
+    relativePath === 'package.json' ||
+    relativePath.startsWith('src/') ||
+    /^vitest\.config\.(ts|mts|js|mjs)$/.test(relativePath) ||
+    /^tsconfig(?:\.[\w-]+)?\.json$/.test(relativePath)
+  );
+}
+
 async function defaultRunner(command, args, options = {}) {
   const { stderr, stdout } = await execFileAsync(command, args, {
     cwd: options.cwd,
@@ -95,6 +113,44 @@ export async function planChangedUnitTests(files, options = {}) {
   return commands;
 }
 
+export async function planChangedWorkspaceUnitTests(files, options = {}) {
+  const rootDir = options.cwd ?? process.cwd();
+  const normalizedFiles = files.map((filePath) => normalizePath(filePath));
+  const changedTestCommands = await planChangedUnitTests(normalizedFiles, options);
+  const workspacesWithChangedTests = new Set(
+    changedTestCommands.map((command) => command.workspaceRoot)
+  );
+  const sourceOnlyWorkspaces = new Set();
+
+  for (const filePath of normalizedFiles) {
+    if (!isWorkspaceUnitRelevantFile(filePath) || isUnitTestFile(filePath)) {
+      continue;
+    }
+    const workspaceRoot = workspaceRootForFile(filePath);
+    if (!workspacesWithChangedTests.has(workspaceRoot)) {
+      sourceOnlyWorkspaces.add(workspaceRoot);
+    }
+  }
+
+  const sourceOnlyCommands = [];
+  for (const workspaceRoot of [...sourceOnlyWorkspaces].sort((left, right) =>
+    left.localeCompare(right)
+  )) {
+    const workspace = await resolveWorkspace(rootDir, workspaceRoot);
+    sourceOnlyCommands.push({
+      args: ['--filter', workspace.name, 'test'],
+      command: 'pnpm',
+      files: [],
+      owner: workspace.name,
+      workspaceRoot,
+    });
+  }
+
+  return [...changedTestCommands, ...sourceOnlyCommands].sort((left, right) =>
+    left.workspaceRoot.localeCompare(right.workspaceRoot)
+  );
+}
+
 function readFlagValue(args, name) {
   const index = args.indexOf(name);
   if (index === -1) {
@@ -111,10 +167,11 @@ export function parseChangedUnitTestArgs(args = process.argv.slice(2)) {
   const base = readFlagValue(args, '--base');
   const head = readFlagValue(args, '--head') ?? 'HEAD';
   const dryRun = args.includes('--dry-run');
+  const changedWorkspaces = args.includes('--changed-workspaces');
   if (!base) {
     throw new Error('--base is required');
   }
-  return { base, dryRun, head };
+  return { base, changedWorkspaces, dryRun, head };
 }
 
 async function changedFiles({ base, head, runner }) {
@@ -132,7 +189,9 @@ async function changedFiles({ base, head, runner }) {
 export async function runChangedUnitTests(options) {
   const runner = options.runner ?? defaultRunner;
   const files = options.files ?? (await changedFiles({ ...options, runner }));
-  const commands = await planChangedUnitTests(files, { cwd: options.cwd });
+  const commands = options.changedWorkspaces
+    ? await planChangedWorkspaceUnitTests(files, { cwd: options.cwd })
+    : await planChangedUnitTests(files, { cwd: options.cwd });
   if (commands.length === 0) {
     console.log('No changed unit test files selected.');
     return 0;
@@ -142,7 +201,8 @@ export async function runChangedUnitTests(options) {
     return 0;
   }
   for (const command of commands) {
-    console.log(`Running ${command.owner}: ${command.files.join(', ')}`);
+    const target = command.files.length > 0 ? command.files.join(', ') : 'workspace test';
+    console.log(`Running ${command.owner}: ${target}`);
     await runner(command.command, command.args, { cwd: options.cwd });
   }
   return 0;

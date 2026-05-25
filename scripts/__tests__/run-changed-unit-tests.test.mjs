@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import {
   isUnitTestFile,
   parseChangedUnitTestArgs,
+  planChangedWorkspaceUnitTests,
   planChangedUnitTests,
   runChangedUnitTests,
 } from '../run-changed-unit-tests.mjs';
@@ -111,6 +112,86 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
           'src/__tests__/token-counting-boundary.test.ts',
         ],
         command: 'pnpm',
+      },
+    ]);
+  } finally {
+    await rm(rootDir, { force: true, recursive: true });
+  }
+});
+
+test('planChangedWorkspaceUnitTests runs changed tests instead of full workspace when tests changed', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'brainstrike-changed-unit-'));
+  try {
+    await writePackage(rootDir, 'packages/ui', '@brainstrike/ui');
+    await writePackage(rootDir, 'apps/desktop', '@brainstrike/desktop');
+
+    const commands = await planChangedWorkspaceUnitTests(
+      [
+        'packages/ui/src/code-surface/code-surface.tsx',
+        'packages/ui/src/__tests__/code-surface.test.tsx',
+        'apps/desktop/src/ipc-embedding-backfill.ts',
+        'apps/desktop/src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts',
+      ],
+      { cwd: rootDir }
+    );
+
+    assert.deepEqual(commands, [
+      {
+        args: [
+          '--filter',
+          '@brainstrike/desktop',
+          'exec',
+          'vitest',
+          'run',
+          'src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts',
+        ],
+        command: 'pnpm',
+        files: ['src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts'],
+        owner: '@brainstrike/desktop',
+        workspaceRoot: 'apps/desktop',
+      },
+      {
+        args: [
+          '--filter',
+          '@brainstrike/ui',
+          'exec',
+          'vitest',
+          'run',
+          'src/__tests__/code-surface.test.tsx',
+        ],
+        command: 'pnpm',
+        files: ['src/__tests__/code-surface.test.tsx'],
+        owner: '@brainstrike/ui',
+        workspaceRoot: 'packages/ui',
+      },
+    ]);
+  } finally {
+    await rm(rootDir, { force: true, recursive: true });
+  }
+});
+
+test('planChangedWorkspaceUnitTests runs full workspace tests for source-only changes', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'brainstrike-changed-unit-'));
+  try {
+    await writePackage(rootDir, 'packages/ui', '@brainstrike/ui');
+    await writePackage(rootDir, 'packages/file-explorer-ui', '@brainstrike/file-explorer-ui');
+
+    const commands = await planChangedWorkspaceUnitTests(
+      [
+        'packages/ui/src/code-surface/language.ts',
+        'packages/file-explorer-ui/e2e/layout-persistence.test.ts',
+        'docs/architecture-reset/handoff.md',
+      ],
+      { cwd: rootDir }
+    );
+
+    assert.deepEqual(commands, [
+      {
+        args: ['--filter', '@brainstrike/ui', 'test'],
+        command: 'pnpm',
+        files: [],
+        owner: '@brainstrike/ui',
+        workspaceRoot: 'packages/ui',
       },
     ]);
   } finally {
