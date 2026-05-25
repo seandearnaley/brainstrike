@@ -87,7 +87,10 @@ const DESKTOP_LANE_COMMANDS = new Map([
   ['desktop-ipc-reset', 'pnpm run test:e2e:lane:ipc-reset'],
   ['desktop-runtime-hosts', 'pnpm run test:e2e:lane:runtime-hosts'],
   ['desktop-db-storage', 'pnpm run test:e2e:lane:db-storage'],
-  ['desktop-full-regression', 'pnpm run test:e2e:lane:full-regression'],
+  [
+    'desktop-full-regression',
+    'pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert="@desktop-embedding-"',
+  ],
   [
     'desktop-embedding-diagnostics',
     'pnpm exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts e2e/embedding-worker-renderer.crash-a.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
@@ -107,6 +110,8 @@ const DESKTOP_LANE_DISPLAYS = new Map([
   ['desktop-embedding-diagnostics', 112],
   ['desktop-llm-host-recovery', 113],
 ]);
+
+const DESKTOP_FULL_REGRESSION_SHARD_TOTAL = 4;
 
 function stripCiPrefix(lane) {
   return lane.startsWith('ci:') ? lane.slice(3) : lane;
@@ -172,14 +177,41 @@ function resolveDesktopLaneTimeoutMinutes(lane) {
 
 function buildDesktopMatrix(e2eLanes) {
   const lanes = unique(e2eLanes.filter(isDesktopLane));
+  const include = [];
 
-  return {
-    include: lanes.map((lane) =>
+  for (const lane of lanes) {
+    if (lane === 'desktop-full-regression') {
+      const command = DESKTOP_LANE_COMMANDS.get(lane);
+      const metadata = E2E_LANES[lane] ?? {};
+      for (let shardIndex = 1; shardIndex <= DESKTOP_FULL_REGRESSION_SHARD_TOTAL; shardIndex++) {
+        include.push(
+          buildMatrixEntry(
+            `${lane}-shard-${shardIndex}-of-${DESKTOP_FULL_REGRESSION_SHARD_TOTAL}`,
+            `${command} --shard=${shardIndex}/${DESKTOP_FULL_REGRESSION_SHARD_TOTAL}`,
+            {
+              display: DESKTOP_LANE_DISPLAYS.get(lane) + shardIndex - 1,
+              owner: metadata.owner ?? 'desktop-platform',
+              shardIndex,
+              shardTotal: DESKTOP_FULL_REGRESSION_SHARD_TOTAL,
+              tagContract: metadata.tagContract ?? lane,
+              timeoutMinutes: resolveDesktopLaneTimeoutMinutes(lane),
+            }
+          )
+        );
+      }
+      continue;
+    }
+
+    include.push(
       buildMatrixEntry(lane, DESKTOP_LANE_COMMANDS.get(lane), {
         display: DESKTOP_LANE_DISPLAYS.get(lane),
         timeoutMinutes: resolveDesktopLaneTimeoutMinutes(lane),
       })
-    ),
+    );
+  }
+
+  return {
+    include,
   };
 }
 

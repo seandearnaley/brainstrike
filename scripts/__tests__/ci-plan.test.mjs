@@ -112,11 +112,39 @@ test('full-risk changes select release lanes except long soak by default', () =>
       'desktop-ipc-reset',
       'desktop-runtime-hosts',
       'desktop-db-storage',
-      'desktop-full-regression',
+      'desktop-full-regression-shard-1-of-4',
+      'desktop-full-regression-shard-2-of-4',
+      'desktop-full-regression-shard-3-of-4',
+      'desktop-full-regression-shard-4-of-4',
       'desktop-embedding-diagnostics',
       'desktop-llm-host-recovery',
     ]
   );
+});
+
+test('desktop full regression plan shards the serial Playwright suite', () => {
+  const plan = planFor(['apps/desktop/src/main.ts']);
+  const shards = plan.desktopE2eMatrix.include.filter((entry) =>
+    entry.lane.startsWith('desktop-full-regression-shard-')
+  );
+
+  assert.equal(shards.length, 4);
+  assert.deepEqual(
+    shards.map((entry) => entry.shardIndex),
+    [1, 2, 3, 4]
+  );
+  assert.deepEqual(
+    shards.map((entry) => entry.shardTotal),
+    [4, 4, 4, 4]
+  );
+  for (const shard of shards) {
+    assert.match(shard.command, /--project=regression/);
+    assert.match(shard.command, /--workers=1/);
+    assert.match(shard.command, /--grep-invert="@desktop-embedding-"/);
+    assert.match(shard.command, new RegExp(`--shard=${shard.shardIndex}/4`));
+    assert.equal(shard.tagContract, 'regression project with @desktop-embedding-* inverted');
+    assert.equal(shard.timeoutMinutes, 15);
+  }
 });
 
 test('desktop embedding plan preserves current regression spec coverage', () => {
