@@ -63,7 +63,6 @@ async function defaultRunner(command, args, options = {}) {
 
 function unitTestEnv() {
   return {
-    CI: 'false',
     COVERAGE: 'false',
     TURBO_TEST_MODE: 'unit',
   };
