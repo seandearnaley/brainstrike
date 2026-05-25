@@ -69,6 +69,43 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     onSearchExpandedChange(!isSearchExpanded);
   }, [isSearchExpanded, onSearchExpandedChange]);
 
+  const panelRef = React.useRef<HTMLElement | null>(null);
+
+  // Escape inside the expanded panel collapses it. If focus is in the query
+  // input, the input's own Escape handler (blur) runs first and we leave the
+  // panel alone so the user doesn't lose their typed query with their focus.
+  // Using a document-level listener keeps the panel element itself free of
+  // event handlers, satisfying a11y lint rules around non-interactive nodes.
+  React.useEffect(() => {
+    if (!isSearchExpanded) {
+      return;
+    }
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const panel = panelRef.current;
+      if (!(panel && target && panel.contains(target))) {
+        return;
+      }
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+      event.preventDefault();
+      onSearchExpandedChange(false);
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onDocumentKeyDown);
+    };
+  }, [isSearchExpanded, onSearchExpandedChange]);
+
+  const resultLabel =
+    hasSearched && resultCount !== undefined
+      ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
+      : null;
+
   return (
     <div className={cn('bg-background', className)}>
       <Button
@@ -77,6 +114,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         aria-label="Hybrid search"
         className="h-auto w-full justify-between rounded-none px-3 py-2 text-left hover:bg-muted/50"
         depress={false}
+        id="hybrid-search-trigger"
         onClick={handleToggleExpanded}
         size="sm"
         variant="ghost"
@@ -91,9 +129,11 @@ export const SearchModeBar = React.memo(function SearchModeBar({
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-          {hasSearched && resultCount !== undefined
-            ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
-            : null}
+          {resultLabel ? (
+            <span aria-live="polite" role="status">
+              {resultLabel}
+            </span>
+          ) : null}
           {isSearchExpanded ? (
             <ChevronUp className="h-4 w-4" />
           ) : (
@@ -103,7 +143,17 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       </Button>
 
       {isSearchExpanded && (
-        <div className="overflow-hidden" data-testid="hybrid-search-panel" id="hybrid-search-panel">
+        // <section> + aria-labelledby promotes the panel to a landmark named
+        // by its trigger, giving screen reader users a navigable region.
+        // Escape-to-collapse is wired up via a document-level keydown listener
+        // (see effect above) so the panel itself stays free of event handlers.
+        <section
+          aria-labelledby="hybrid-search-trigger"
+          className="overflow-hidden"
+          data-testid="hybrid-search-panel"
+          id="hybrid-search-panel"
+          ref={panelRef}
+        >
           <div className="space-y-2 px-3 pb-3">
             <p className="text-muted-foreground text-xs">
               Ask in natural language, then tune hybrid search when exact terms should carry more or
@@ -153,7 +203,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
             {advancedOptions}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

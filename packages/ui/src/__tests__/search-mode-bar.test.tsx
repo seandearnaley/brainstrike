@@ -242,4 +242,92 @@ describe('SearchModeBar', () => {
       expect(screen.getByRole('textbox', { name: 'Hybrid search query' })).toHaveClass('h-9');
     });
   });
+
+  describe('accessibility polish (BST-519)', () => {
+    it('hides decorative icons from assistive tech when collapsed', () => {
+      const { container } = render(<SearchModeBar {...createProps()} />);
+
+      // Sparkles (leading) and ChevronDown (trailing) are purely decorative;
+      // aria-expanded already conveys state, so screen readers should not
+      // announce the SVG presentation.
+      const sparkles = container.querySelector('.lucide-sparkles');
+      const chevronDown = container.querySelector('.lucide-chevron-down');
+      expect(sparkles).toHaveAttribute('aria-hidden', 'true');
+      expect(chevronDown).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('hides the expanded-state chevron from assistive tech', () => {
+      const { container } = render(<SearchModeBar {...createProps({ isSearchExpanded: true })} />);
+
+      const chevronUp = container.querySelector('.lucide-chevron-up');
+      expect(chevronUp).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('hides the clear-query X icon from assistive tech (button has its own label)', () => {
+      const { container } = render(
+        <SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: 'test' })} />
+      );
+
+      const xIcon = container.querySelector('.lucide-x');
+      expect(xIcon).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('hides the searching spinner icon from assistive tech', () => {
+      const { container } = render(
+        <SearchModeBar
+          {...createProps({
+            isSearchExpanded: true,
+            isSearching: true,
+            semanticQuery: 'test',
+          })}
+        />
+      );
+
+      const loader = container.querySelector(
+        '.lucide-loader-circle, .lucide-loader2, .lucide-loader-2'
+      );
+      expect(loader).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('announces the result count via a polite live region', () => {
+      render(<SearchModeBar {...createProps({ hasSearched: true, resultCount: 3 })} />);
+
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('3 results');
+      expect(status).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('omits the live region when no search has been performed', () => {
+      render(<SearchModeBar {...createProps()} />);
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('collapses the expanded panel when Escape is pressed within it', () => {
+      const onSearchExpandedChange = vi.fn();
+      render(
+        <SearchModeBar {...createProps({ isSearchExpanded: true, onSearchExpandedChange })} />
+      );
+
+      const panel = screen.getByTestId('hybrid-search-panel');
+      fireEvent.keyDown(panel, { key: 'Escape' });
+
+      expect(onSearchExpandedChange).toHaveBeenCalledWith(false);
+    });
+
+    it('does not collapse the panel when Escape originates from the query input', () => {
+      // Escape on the input should blur it (existing behavior), not collapse the panel,
+      // because users typically want to dismiss the keyboard focus first.
+      const onSearchExpandedChange = vi.fn();
+      render(
+        <SearchModeBar {...createProps({ isSearchExpanded: true, onSearchExpandedChange })} />
+      );
+
+      const input = screen.getByRole('textbox', { name: 'Hybrid search query' });
+      input.focus();
+      fireEvent.keyDown(input, { key: 'Escape' });
+
+      expect(onSearchExpandedChange).not.toHaveBeenCalled();
+    });
+  });
 });
