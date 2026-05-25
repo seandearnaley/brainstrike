@@ -1,26 +1,23 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T23:29:54.169Z",
+  "generatedAt": "2026-05-25T02:05:53.950Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
-  "nodeVersion": "v22.19.0",
+  "nodeVersion": "v24.14.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "1cdc35f66542464461bfc2329804f08745265bd1",
+  "testedHeadSha": "0ee31d7d54a92e5ee22fd3ff9cae49f4c6fd1f92",
   "selection": {
     "base": "origin/main",
-    "baseSha": "590cd43adfe3e687b20061b300f00b2254aab741",
+    "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "1cdc35f66542464461bfc2329804f08745265bd1",
-    "mergeBase": "590cd43adfe3e687b20061b300f00b2254aab741",
+    "headSha": "0ee31d7d54a92e5ee22fd3ff9cae49f4c6fd1f92",
+    "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
-      ".ci/proof/latest.json",
-      ".github/workflows/test.yml",
-      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/__tests__/ci-required-pr-gate.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs",
-      "scripts/ci-required-pr-gate.mjs"
+      "docs/superpowers/plans/2026-05-25-bst-80-token-cache-worker-restart.md",
+      "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
+      "packages/token-cache/src/use-background-token-indexer.ts"
     ],
     "riskProfile": {
       "category": "config-tooling",
@@ -30,8 +27,7 @@
       "e2eLanes": [],
       "proofCommands": [
         "diff-check",
-        "ci-script-tests",
-        "workflow-contracts"
+        "ci-script-tests"
       ],
       "riskLevel": "medium",
       "cloudLabels": [
@@ -40,8 +36,7 @@
     },
     "proofCommands": [
       "diff-check",
-      "ci-script-tests",
-      "workflow-contracts"
+      "ci-script-tests"
     ],
     "lanes": [
       "ci:unit"
@@ -71,22 +66,12 @@
           "config-tooling",
           "full-release-high-risk"
         ]
-      },
-      {
-        "name": "workflow-contracts",
-        "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-        "budgetMs": 180000,
-        "owner": "ci-platform",
-        "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
-        ]
       }
     ],
     "budget": {
       "target": "local-pr-risk",
       "targetMs": 480000,
-      "totalMs": 330000,
+      "totalMs": 150000,
       "status": "within-target"
     }
   },
@@ -98,7 +83,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 23
     },
     {
       "name": "ci-script-tests",
@@ -107,16 +92,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 430
-    },
-    {
-      "name": "workflow-contracts",
-      "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-      "owner": "ci-platform",
-      "budgetMs": 180000,
-      "budgetStatus": "ok",
-      "exitCode": 0,
-      "durationMs": 409
+      "durationMs": 607
     }
   ]
 }
