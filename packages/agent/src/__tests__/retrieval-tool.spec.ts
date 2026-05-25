@@ -385,9 +385,10 @@ describe('createRetrievalTool', () => {
 
     const result = await runTool(tool, { query: 'test', maxChunks: 2 });
 
-    const r = result as { chunks: unknown[]; skipped: number };
+    const r = result as { chunks: unknown[]; context: string; skipped: number };
     expect(r.chunks).toHaveLength(2);
     expect(r.skipped).toBe(1);
+    expect(r.context).not.toContain('token budget');
   });
 
   it('reports when the token budget excludes all retrieved chunk content', async () => {
@@ -410,7 +411,8 @@ describe('createRetrievalTool', () => {
     };
     expect(r.chunkContentIncludedInContext).toBe(false);
     expect(r.chunks).toHaveLength(0);
-    expect(r.context).toBe('');
+    expect(r.context).toContain('[Retrieval coverage]');
+    expect(r.context).toContain('token budget');
     expect(r.skipped).toBe(1);
   });
 
@@ -495,6 +497,9 @@ describe('createRetrievalTool', () => {
       }>;
     };
     expect(r.chunks).toHaveLength(1);
+    expect(r.context).toContain('[Retrieval coverage]');
+    expect(r.context).toContain('1 chunk missing source line ranges');
+    expect(r.context).toContain('Re-index the embedding space');
     expect(r.context).toContain('Line-aware content.');
     expect(r.context).not.toContain('This is test chunk content.');
     expect(r.skipped).toBe(1);
