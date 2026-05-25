@@ -160,6 +160,16 @@ function buildWebMatrix(e2eLanes) {
   };
 }
 
+function resolveDesktopLaneTimeoutMinutes(lane) {
+  if (lane === 'desktop-embedding-diagnostics') {
+    return 20;
+  }
+  if (lane === 'desktop-full-regression') {
+    return 15;
+  }
+  return 8;
+}
+
 function buildDesktopMatrix(e2eLanes) {
   const lanes = unique(e2eLanes.filter(isDesktopLane));
 
@@ -167,7 +177,7 @@ function buildDesktopMatrix(e2eLanes) {
     include: lanes.map((lane) =>
       buildMatrixEntry(lane, DESKTOP_LANE_COMMANDS.get(lane), {
         display: DESKTOP_LANE_DISPLAYS.get(lane),
-        timeoutMinutes: lane === 'desktop-full-regression' ? 15 : 8,
+        timeoutMinutes: resolveDesktopLaneTimeoutMinutes(lane),
       })
     ),
   };

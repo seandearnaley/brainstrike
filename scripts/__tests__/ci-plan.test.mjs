@@ -127,6 +127,7 @@ test('desktop embedding plan preserves current regression spec coverage', () => 
   assert.match(entry.command, /embedding-worker-renderer\.crash-a\.desktop\.test\.ts/);
   assert.match(entry.command, /@desktop-embedding-mixed/);
   assert.doesNotMatch(entry.command, /@desktop-embedding-crash/);
+  assert.equal(entry.timeoutMinutes, 20);
 });
 
 test('renderGithubOutputs emits machine-readable job switches and matrices', () => {

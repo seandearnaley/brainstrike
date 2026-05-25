@@ -70,6 +70,7 @@ describe('database IPC embedding backfill handlers', () => {
         assertCanContinue: expect.any(Function),
         progressIntervalBatches: 4,
         progressIntervalMs: 250,
+        queueCapacityTimeoutMs: 600_000,
       })
     );
     expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {

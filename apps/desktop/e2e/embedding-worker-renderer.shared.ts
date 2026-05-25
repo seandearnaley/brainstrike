@@ -978,7 +978,8 @@ async function dismissBlockingToastNotifications(page: Page): Promise<void> {
       break;
     }
 
-    await closeButtons.first().click({ timeout: 2000 });
+    // Toast close controls animate; this setup helper is not testing toast actionability.
+    await closeButtons.first().click({ force: true, timeout: 5000 });
     await page.waitForTimeout(150);
   }
 
@@ -1742,7 +1743,6 @@ export async function createLargeBackfillCorpusFixture(
         window as Window & {
           electronAPI?: {
             db?: {
-              exec?: (sql: string) => Promise<unknown>;
               query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
             };
             storage?: {
@@ -1752,16 +1752,15 @@ export async function createLargeBackfillCorpusFixture(
         }
       ).electronAPI;
 
-      if (!(api?.db?.query && api.db.exec)) {
+      if (!api?.db?.query) {
         throw new Error('Database API not available');
       }
       if (!api?.storage?.setItem) {
         throw new Error('Storage API not available');
       }
       const dbApi = api.db;
-      const exec = dbApi.exec;
       const query = dbApi.query;
-      if (typeof exec !== 'function' || typeof query !== 'function') {
+      if (typeof query !== 'function') {
         throw new Error('Database API not available');
       }
 
@@ -1842,55 +1841,49 @@ export async function createLargeBackfillCorpusFixture(
         );
       };
 
-      await exec('BEGIN');
-      try {
-        await query(
-          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Backfill Corpus', now]
-        );
+      // Avoid raw BEGIN/COMMIT over renderer IPC. Each call is separately scheduled, so
+      // desktop maintenance can otherwise interleave and attempt VACUUM inside the transaction.
+      await query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Backfill Corpus', now]
+      );
 
-        for (let offset = 0; offset < fileCount; offset += fileBatchSize) {
-          await insertFileBatch(offset, Math.min(fileBatchSize, fileCount - offset));
-        }
+      for (let offset = 0; offset < fileCount; offset += fileBatchSize) {
+        await insertFileBatch(offset, Math.min(fileBatchSize, fileCount - offset));
+      }
 
-        let chunkRows: Array<{
-          chunkIndex: number;
-          content: string;
-          fileRecordId: string;
-          id: string;
-        }> = [];
+      let chunkRows: Array<{
+        chunkIndex: number;
+        content: string;
+        fileRecordId: string;
+        id: string;
+      }> = [];
 
-        for (let fileIndex = 0; fileIndex < fileCount; fileIndex += 1) {
-          const fileRecordId = `${embeddingSetId}-file-${fileIndex}`;
-          for (let chunkIndex = 0; chunkIndex < chunksPerFile; chunkIndex += 1) {
-            chunkRows.push({
-              id: `${fileRecordId}-chunk-${chunkIndex}`,
-              fileRecordId,
-              chunkIndex,
-              content: [
-                `export const fileIndex = ${fileIndex};`,
-                `export const chunkIndex = ${chunkIndex};`,
-                `export const corpusId = "${embeddingSetId}";`,
-                'export const note = "backfill-memory-regression";',
-              ].join('\n'),
-            });
+      for (let fileIndex = 0; fileIndex < fileCount; fileIndex += 1) {
+        const fileRecordId = `${embeddingSetId}-file-${fileIndex}`;
+        for (let chunkIndex = 0; chunkIndex < chunksPerFile; chunkIndex += 1) {
+          chunkRows.push({
+            id: `${fileRecordId}-chunk-${chunkIndex}`,
+            fileRecordId,
+            chunkIndex,
+            content: [
+              `export const fileIndex = ${fileIndex};`,
+              `export const chunkIndex = ${chunkIndex};`,
+              `export const corpusId = "${embeddingSetId}";`,
+              'export const note = "backfill-memory-regression";',
+            ].join('\n'),
+          });
 
-            if (chunkRows.length === chunkBatchSize) {
-              await insertChunkBatch(chunkRows);
-              chunkRows = [];
-            }
+          if (chunkRows.length === chunkBatchSize) {
+            await insertChunkBatch(chunkRows);
+            chunkRows = [];
           }
         }
+      }
 
-        if (chunkRows.length > 0) {
-          await insertChunkBatch(chunkRows);
-        }
-
-        await exec('COMMIT');
-      } catch (error) {
-        await exec('ROLLBACK');
-        throw error;
+      if (chunkRows.length > 0) {
+        await insertChunkBatch(chunkRows);
       }
 
       if (persistActiveSet) {
@@ -1940,7 +1933,6 @@ export async function createLargeCollectionListFixture(
         window as Window & {
           electronAPI?: {
             db?: {
-              exec?: (sql: string) => Promise<unknown>;
               query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
             };
             storage?: {
@@ -1950,7 +1942,7 @@ export async function createLargeCollectionListFixture(
         }
       ).electronAPI;
 
-      if (!(api?.db?.query && api.db.exec)) {
+      if (!api?.db?.query) {
         throw new Error('Database API not available');
       }
       if (!api?.storage?.setItem) {
@@ -1965,9 +1957,8 @@ export async function createLargeCollectionListFixture(
       const fileBatchSize = 250;
       const fileContentTemplate = 'l'.repeat(fileContentBytes);
       const dbApi = api.db;
-      const exec = dbApi.exec;
       const query = dbApi.query;
-      if (typeof exec !== 'function' || typeof query !== 'function') {
+      if (typeof query !== 'function') {
         throw new Error('Database API not available');
       }
 
@@ -2004,22 +1995,16 @@ export async function createLargeCollectionListFixture(
         );
       };
 
-      await exec('BEGIN');
-      try {
-        await query(
-          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Collection List', now]
-        );
+      // Avoid raw BEGIN/COMMIT over renderer IPC. Each call is separately scheduled, so
+      // desktop maintenance can otherwise interleave and attempt VACUUM inside the transaction.
+      await query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Collection List', now]
+      );
 
-        for (let offset = 0; offset < fileCount; offset += fileBatchSize) {
-          await insertFileBatch(offset, Math.min(fileBatchSize, fileCount - offset));
-        }
-
-        await exec('COMMIT');
-      } catch (error) {
-        await exec('ROLLBACK');
-        throw error;
+      for (let offset = 0; offset < fileCount; offset += fileBatchSize) {
+        await insertFileBatch(offset, Math.min(fileBatchSize, fileCount - offset));
       }
 
       if (persistActiveSet) {
