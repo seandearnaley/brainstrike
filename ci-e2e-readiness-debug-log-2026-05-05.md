@@ -121,7 +121,7 @@ This is broader than a single missing `@stateful` tag.
 | 2026-05-05 16:10 | User corrected the process: these always pass locally. | Stopped using local E2E reproduction as proof for this failure class. | For this harness issue, local E2E can be used only as smoke coverage after code changes. Root-cause proof must come from CI evidence plus static/contract tests that prevent DB-coupled setup from leaking into fast functional shards. |
 | 2026-05-05 16:13 | Added a TDD red test for a new E2E readiness contract checker. | `node --test scripts/__tests__/check-e2e-readiness-contracts.test.mjs` failed with `ERR_MODULE_NOT_FOUND` for `scripts/check-e2e-readiness-contracts.mjs`. | The contract test is active before implementation. It will guard the rule that fast functional paths must not use default DB readiness outside isolated title ranges. |
 | 2026-05-05 16:17 | Implemented `scripts/check-e2e-readiness-contracts.mjs` and ran it before spec fixes. | Unit tests passed; repo-level check failed on the real DB-coupled fast-shard paths: `embedding-worker-telemetry`, `layout`, `panel-state-preservation`, and `settings-models-and-providers`. | The checker produces concrete file/line evidence and caught the same class as the CI failures. |
-| 2026-05-05 16:21 | Patched readiness routing: shell-only waits in panel/settings/layout, DB telemetry tagged `@stateful`, stateful matrix updated, `openAssistantWorkspace` made shell-only by default after reset/reload, and checker added to `pnpm lint`. | `node --test scripts/__tests__/check-e2e-readiness-contracts.test.mjs`, `node scripts/check-e2e-readiness-contracts.mjs`, `node scripts/check-e2e-stateful-matrix.mjs`, and `node scripts/check-ci-workflow-contracts.mjs` all passed. | Fast functional web E2E no longer contains the known DB-readiness waits that caused the latest CI failure shape. DB telemetry now runs in the one-worker stateful lane. |
+| 2026-05-05 16:21 | Patched readiness routing: shell-only waits in panel/settings/layout, DB telemetry tagged `@stateful`, stateful matrix updated, `openAssistantWorkspace` made shell-only by default after reset/reload, and checker added to `pnpm lint`. | `node --test scripts/__tests__/check-e2e-readiness-contracts.test.mjs` and `node scripts/check-e2e-readiness-contracts.mjs` passed. | Fast functional web E2E no longer contains the known DB-readiness waits that caused the latest CI failure shape. DB telemetry now runs in the one-worker stateful lane. |
 | 2026-05-05 16:22 | Ran `pnpm test:scripts`. | 89/89 script tests passed. | The new readiness contract is covered by the repo script test suite and will run in existing CI/static checks. |
 | 2026-05-05 16:25 | Ran focused fast functional E2E smoke for changed shell-only files with CI env, two workers, retries disabled, and `--grep-invert "@destructive|@stateful"`. | 16/16 passed. | The changed shell-only fast-shard paths still exercise their assertions without DB readiness. This is smoke only, not proof of GitHub stability. |
 | 2026-05-05 16:27 | Ran focused stateful DB lane smoke with CI env, one worker, retries disabled, and `--grep "@stateful"` for `tools-panel-persistence`, `web-db-worker-startup`, and `embedding-worker-telemetry`. | 3/3 passed. | The expanded `database-startup` lane runs all intended DB readiness specs after moving telemetry out of the fast shard. This is smoke only, not proof of GitHub stability. |
@@ -876,7 +876,6 @@ Targeted contract validation:
 ```text
 node --test scripts/__tests__/check-e2e-readiness-contracts.test.mjs
 node scripts/check-e2e-readiness-contracts.mjs
-node scripts/check-e2e-stateful-matrix.mjs
 pnpm test:scripts
 ```
 
@@ -884,7 +883,6 @@ Result:
 
 - Passed.
 - `check-e2e-readiness-contracts` now fails on DB-backed assistant workspace usage outside isolated stateful/destructive ranges.
-- `check-e2e-stateful-matrix` confirms the tagged assistant specs are included in the stateful workflow matrix.
 - Full scripts suite passed 91/91.
 
 Targeted E2E validation:
