@@ -23,6 +23,23 @@ describe('web vite config alias contract', () => {
     expect(config).toContain('../../packages/selection-rules/src/index.ts');
   });
 
+  it('pins text-splitter subpath imports before the root source alias', () => {
+    const config = readWebViteConfig();
+    const rootAliasIndex = config.indexOf("'@brainstrike/text-splitter': path.resolve(");
+
+    for (const [specifier, sourcePath] of [
+      ['@brainstrike/text-splitter/chunking-core', 'chunking-core.ts'],
+      ['@brainstrike/text-splitter/token-counting-heuristics', 'token-counting-heuristics.ts'],
+      ['@brainstrike/text-splitter/token-constants', 'token-constants.ts'],
+      ['@brainstrike/text-splitter/token-utils-accurate-lite', 'token-utils-accurate-lite.ts'],
+    ] as const) {
+      const aliasIndex = config.indexOf(`'${specifier}': path.resolve(`);
+      expect(aliasIndex).toBeGreaterThanOrEqual(0);
+      expect(aliasIndex).toBeLessThan(rootAliasIndex);
+      expect(config).toContain(`../../packages/text-splitter/src/${sourcePath}`);
+    }
+  });
+
   it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
     const config = readWebViteConfig();
 

@@ -44,6 +44,10 @@ export default defineConfig({
   target: 'es2020',
   outDir: 'dist',
   external: [
+    '@brainstrike/text-splitter',
+    '@brainstrike/text-splitter/token-constants',
+    '@brainstrike/text-splitter/token-counting-heuristics',
+    '@brainstrike/text-splitter/token-utils-accurate-lite',
     '@brainstrike/types',
     '@brainstrike/utils',
     '@brainstrike/utils/logger',

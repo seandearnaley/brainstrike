@@ -24,6 +24,9 @@
   ],
   "references": [
     {
+      "path": "../text-splitter"
+    },
+    {
       "path": "../types"
     }
   ]

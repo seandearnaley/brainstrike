@@ -2,7 +2,7 @@
   "name": "@brainstrike/text-splitter",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*"
+    "tiktoken": "^1.0.22"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -21,6 +21,21 @@
       "types": "./dist/chunking-core.d.ts",
       "import": "./dist/chunking-core.js",
       "require": "./dist/chunking-core.cjs"
+    },
+    "./token-counting-heuristics": {
+      "types": "./dist/token-counting-heuristics.d.ts",
+      "import": "./dist/token-counting-heuristics.js",
+      "require": "./dist/token-counting-heuristics.cjs"
+    },
+    "./token-constants": {
+      "types": "./dist/token-constants.d.ts",
+      "import": "./dist/token-constants.js",
+      "require": "./dist/token-constants.cjs"
+    },
+    "./token-utils-accurate-lite": {
+      "types": "./dist/token-utils-accurate-lite.d.ts",
+      "import": "./dist/token-utils-accurate-lite.js",
+      "require": "./dist/token-utils-accurate-lite.cjs"
     }
   },
   "files": [
@@ -30,9 +45,9 @@
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/chunking-core.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
     "clean": "rimraf dist",
-    "dev": "tsup src/index.ts src/chunking-core.ts --format esm,cjs --out-dir dist --watch",
+    "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint --filter @brainstrike/text-splitter",
     "test": "vitest run",
     "type-check": "tsc --noEmit -p tsconfig.json",

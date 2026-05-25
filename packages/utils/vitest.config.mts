@@ -18,6 +18,19 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@brainstrike/text-splitter/token-counting-heuristics': resolve(
+        import.meta.dirname,
+        '../text-splitter/src/token-counting-heuristics.ts'
+      ),
+      '@brainstrike/text-splitter/token-constants': resolve(
+        import.meta.dirname,
+        '../text-splitter/src/token-constants.ts'
+      ),
+      '@brainstrike/text-splitter/token-utils-accurate-lite': resolve(
+        import.meta.dirname,
+        '../text-splitter/src/token-utils-accurate-lite.ts'
+      ),
+      '@brainstrike/text-splitter': resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
       '@brainstrike/utils': resolve(import.meta.dirname, './src'),
       '@brainstrike/utils/logger': resolve(import.meta.dirname, './src/logger.ts'),
       '@brainstrike/utils/log-buffer': resolve(import.meta.dirname, './src/log-buffer.ts'),

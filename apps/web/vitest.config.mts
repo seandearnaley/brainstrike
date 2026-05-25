@@ -103,6 +103,18 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/text-splitter/src/chunking-core.ts'
       ),
+      '@brainstrike/text-splitter/token-counting-heuristics': resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/token-counting-heuristics.ts'
+      ),
+      '@brainstrike/text-splitter/token-constants': resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/token-constants.ts'
+      ),
+      '@brainstrike/text-splitter/token-utils-accurate-lite': resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
+      ),
       '@brainstrike/text-splitter': resolve(
         import.meta.dirname,
         '../../packages/text-splitter/src/index.ts'

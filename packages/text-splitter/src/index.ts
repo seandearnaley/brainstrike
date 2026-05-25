@@ -2,8 +2,9 @@ import {
   countTokensHeuristic,
   estimateTokenCost,
   formatTokenCount,
-} from '@brainstrike/utils/token-counting-heuristics';
+} from './token-counting-heuristics';
 
+export { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from './token-constants';
 export { countTokensHeuristic, estimateTokenCost, formatTokenCount };
 
 export type ResolvedChunkingStrategy =
@@ -117,8 +118,6 @@ const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
 const DEFAULT_SEPARATORS = ['\n\n', '\n', ' ', ''];
 const MAX_SEPARATOR_REGEX_CACHE_SIZE = 64;
 const SEPARATOR_REGEX_CACHE = new Map<string, RegExp>();
-export const ACCURATE_TOKEN_MODEL_HINT = 'gpt-5.2';
-export const ACCURATE_TOKEN_ENCODING = 'o200k_base';
 
 export function isResolvedChunkingStrategy(value: unknown): value is ResolvedChunkingStrategy {
   return (

@@ -5,6 +5,14 @@
       "vitest/globals",
       "node"
     ],
+    "paths": {
+      "@brainstrike/text-splitter": [
+        "../text-splitter/dist/index.d.ts"
+      ],
+      "@brainstrike/text-splitter/*": [
+        "../text-splitter/dist/*.d.ts"
+      ]
+    },
     "skipLibCheck": true,
     "strictNullChecks": true
   },
