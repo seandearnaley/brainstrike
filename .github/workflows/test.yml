@@ -121,24 +121,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build workspace deps first. The previous `turbo run test --affected`
+      # got its build dependency via turbo.jsonc's `dependsOn: ["^build"]`,
+      # but pnpm's filter doesn't traverse that graph — workspace deps with
+      # exports maps pointing at `dist/` would otherwise fail to resolve at
+      # test time. Use turbo for build (cache makes this fast); use pnpm
+      # for affected test selection (turbo's --affected over-selects on
+      # merge commits, see commit message).
+      - name: Build workspace dependencies
+        if: github.event_name == 'pull_request'
+        run: pnpm turbo run build --concurrency=4
+
       # PR-affected unit tests via pnpm's documented filter syntax.
       # https://pnpm.io/filtering — pattern: `pnpm --filter "...[origin/master]" test`
       #
       # `...[ref]` = changed packages + their dependents — same semantic as
-      # `turbo run test --affected`. We use pnpm because turbo's --affected
-      # over-selects on merge commits (it returns every workspace regardless
-      # of the actual diff); pnpm correctly resolves the affected set in the
-      # same scenarios.
-      #
-      # `!./` excludes the root workspace (per pnpm docs: "exclusion filters
-      # subtract from the matched set"). Without it, pnpm would also run the
-      # root `test` script, which delegates to `turbo run test` over every
-      # workspace and defeats the affected scoping.
+      # `turbo run test --affected`. `!./` excludes the root workspace
+      # (which would otherwise run its root-level `test` script that
+      # delegates back to turbo over every workspace, defeating the scoping).
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
-          COVERAGE: "false"
-          TURBO_TEST_MODE: unit
           BASE_REF: ${{ github.base_ref }}
         run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" run test
 
@@ -196,23 +199,20 @@ jobs:
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
 
-      # PR-affected coverage via pnpm's documented filter syntax.
-      # https://pnpm.io/filtering
-      #
+      # See the Unit job for the rationale. Coverage instrumentation runs
+      # tests so it has the same build-dependency requirement.
+      - name: Build workspace dependencies
+        run: pnpm turbo run build --concurrency=4
+
       # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
       # gate is on changed lines, which only live in directly-changed
-      # packages — dependents add no patch-coverage signal. Same docs-cited
-      # rationale for using pnpm instead of turbo: turbo --affected over-
-      # selects on merge commits.
-      #
-      # `!./` excludes the root workspace; without it, pnpm runs the root's
-      # `test:coverage` script which delegates to `turbo run test:coverage`
-      # over every workspace and defeats the affected scoping.
+      # packages — dependents add no patch-coverage signal. `!./` excludes
+      # the root workspace's `test:coverage` script (which delegates to
+      # `turbo run test:coverage` over every workspace).
       - name: Run affected-only coverage
         env:
           COVERAGE: "true"
           NODE_ENV: test
-          TURBO_TEST_MODE: coverage
           BASE_REF: ${{ github.base_ref }}
         run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" run test:coverage
 
