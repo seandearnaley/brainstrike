@@ -1084,12 +1084,69 @@ async function processEmbeddings(
     id: context.id,
   });
   const vectors = await runBatches(context, state, extractor);
-  const success = buildSuccessResult(context, state, vectors);
   if (vectors.length === 0) {
-    return success;
+    return buildSuccessResult(context, state, vectors);
   }
-  const transferList = vectors.map((vector) => vector.buffer);
-  return new Transfer(success, transferList) as unknown as EmbedWorkerSuccess;
+  const packed = packVectorsContiguous(vectors);
+  const success = buildSuccessResult(context, state, packed.vectors);
+  return new Transfer(success, packed.transferList) as unknown as EmbedWorkerSuccess;
+}
+
+/**
+ * Pack a list of per-vector `Float32Array`s into a single contiguous buffer
+ * so the worker can transfer just one `ArrayBuffer` to the host (BST-90).
+ *
+ * The returned `vectors` are subarray *views* into the shared buffer — same
+ * shape `Float32Array[]`, same numeric values, but only one transfer entry.
+ * If the input vectors have uneven lengths (e.g. mixed truncation), the pack
+ * is skipped and the original arrays are returned with their own buffers as
+ * a defensive fallback.
+ */
+function getTransferableBuffers(vectors: readonly Float32Array[]): ArrayBuffer[] {
+  const buffers: ArrayBuffer[] = [];
+  const seen = new Set<ArrayBuffer>();
+  for (const vector of vectors) {
+    const buffer = vector.buffer;
+    if (!(buffer instanceof ArrayBuffer) || seen.has(buffer)) {
+      continue;
+    }
+    seen.add(buffer);
+    buffers.push(buffer);
+  }
+  return buffers;
+}
+
+function packVectorsContiguous(vectors: readonly Float32Array[]): {
+  transferList: ArrayBuffer[];
+  vectors: Float32Array[];
+} {
+  const first = vectors[0];
+  if (!first) {
+    return { transferList: [], vectors: [] };
+  }
+  const dim = first.length;
+  for (const vector of vectors) {
+    if (vector.length !== dim) {
+      // Uneven dimensions shouldn't happen in normal flows, but fall back
+      // to per-vector buffers rather than silently dropping dimensions.
+      return {
+        transferList: getTransferableBuffers(vectors),
+        vectors: vectors.slice(),
+      };
+    }
+  }
+  const flat = new Float32Array(vectors.length * dim);
+  for (let i = 0; i < vectors.length; i += 1) {
+    const vector = vectors[i];
+    if (vector) {
+      flat.set(vector, i * dim);
+    }
+  }
+  const views: Float32Array[] = [];
+  for (let i = 0; i < vectors.length; i += 1) {
+    views.push(flat.subarray(i * dim, (i + 1) * dim));
+  }
+  return { transferList: [flat.buffer], vectors: views };
 }
 
 function postStreamEvent(
