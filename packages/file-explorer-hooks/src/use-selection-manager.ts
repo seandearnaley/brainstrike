@@ -9,7 +9,6 @@ import { useCallback } from 'react';
 
 interface UseSelectionManagerParams {
   maxSelectionCount: FileExplorerState['maxSelectionCount'];
-  onSelectionLimitExceeded: () => void;
   selectedFilePaths: FileExplorerState['selectedFilePaths'];
   setSelectedFiles: FileExplorerState['setSelectedFiles'];
 }
@@ -18,7 +17,6 @@ export const useSelectionManager = ({
   selectedFilePaths,
   maxSelectionCount,
   setSelectedFiles,
-  onSelectionLimitExceeded: _onSelectionLimitExceeded,
 }: UseSelectionManagerParams) => {
   const wouldExceedSelectionLimit = useCallback(
     (newFilePaths: string[]) => {

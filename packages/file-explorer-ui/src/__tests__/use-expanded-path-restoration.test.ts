@@ -24,7 +24,14 @@ function createStoreState(overrides: Partial<FileExplorerState> = {}): FileExplo
   return {
     expandedDirectoryPaths: new Set<string>(),
     selectedFilePaths: new Set<string>(),
-    selectionModel: { mode: 'explicit' },
+    selectionModel: {
+      explicitPaths: new Set<string>(),
+      materializedAt: null,
+      materializedPaths: null,
+      mode: 'explicit',
+      queryDescriptor: null,
+      ruleSetJson: null,
+    },
     ...overrides,
   } as FileExplorerState;
 }
@@ -181,5 +188,111 @@ describe('useExpandSelectedFileParentDirectories', () => {
 
     expect(loadSpecificPaths).not.toHaveBeenCalled();
     expect(setExpandedPaths).not.toHaveBeenCalled();
+  });
+
+  it('expands query-covered directories when the selection version changes', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set<string>(),
+          selectionModel: {
+            explicitPaths: new Set<string>(),
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'query',
+            queryDescriptor: {
+              kind: 'recursive-select-all',
+              folderId: '/workspace',
+              rootPath: null,
+              coveredDirectoryPaths: ['src', 'src/generated'],
+              includeFilters: [],
+              excludeFilters: [],
+              includedPaths: [],
+              excludedPaths: [],
+              manifestFingerprint: 'query-fingerprint',
+              manifestSnapshotId: 'snapshot-1',
+              useRegex: false,
+              totalSelectedCount: 2,
+            },
+            ruleSetJson: null,
+          },
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandSelectedFileParentDirectories({
+        currentRootFolderId: '/workspace',
+        isRestorationSettled: true,
+        loadSpecificPaths,
+        selectionVersion: 2,
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(['src', 'src/generated']);
+    });
+
+    await waitFor(() => {
+      expect(setExpandedPaths).toHaveBeenCalledWith(new Set(['src', 'src/generated']));
+    });
+  });
+
+  it('does not apply stale expansion work from an earlier selection version', async () => {
+    let resolveFirstLoad: (() => void) | undefined;
+    const loadSpecificPaths = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstLoad = resolve;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const storeState = createStoreState({
+      expandedDirectoryPaths: new Set<string>(),
+      selectedFilePaths: new Set(['/workspace|@|src/initial.ts']),
+    });
+    const store = {
+      getState: vi.fn(() => storeState),
+    };
+
+    const { rerender } = renderHook(
+      (props: { selectionVersion: number }) =>
+        useExpandSelectedFileParentDirectories({
+          currentRootFolderId: '/workspace',
+          isRestorationSettled: true,
+          loadSpecificPaths,
+          selectionVersion: props.selectionVersion,
+          setExpandedPaths,
+          store,
+        }),
+      { initialProps: { selectionVersion: 1 } }
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(['src']);
+    });
+
+    storeState.selectedFilePaths = new Set(['/workspace|@|packages/agent/runtime.ts']);
+    rerender({ selectionVersion: 2 });
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(['packages', 'packages/agent']);
+    });
+
+    await act(async () => {
+      resolveFirstLoad?.();
+    });
+
+    await waitFor(() => {
+      expect(setExpandedPaths).toHaveBeenCalledTimes(1);
+      expect(setExpandedPaths).toHaveBeenCalledWith(new Set(['packages', 'packages/agent']));
+    });
   });
 });

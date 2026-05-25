@@ -58,6 +58,20 @@ function getParentDirectoriesForSelectedFiles(selectedFiles: Set<string>): Set<s
   return parentDirectories;
 }
 
+function getDirectoriesForCurrentSelection(storeState: FileExplorerState): Set<string> {
+  const directories = getParentDirectoriesForSelectedFiles(storeState.selectedFilePaths);
+  if (storeState.selectionModel.mode !== 'query') {
+    return directories;
+  }
+
+  const coveredDirectoryPaths =
+    storeState.selectionModel.queryDescriptor?.coveredDirectoryPaths ?? [];
+  for (const directoryPath of coveredDirectoryPaths) {
+    directories.add(directoryPath);
+  }
+  return directories;
+}
+
 function getRestorationSkipReason(
   currentRootFolderId: string | null,
   isTreeLoading: boolean,
@@ -451,14 +465,18 @@ export function useExpandSelectedFileParentDirectories(
     setExpandedPaths,
     store,
   } = args;
+  const latestExpansionRequestRef = useRef(0);
 
   useEffect(() => {
+    latestExpansionRequestRef.current += 1;
+    const expansionRequestId = latestExpansionRequestRef.current;
+
     if (disabled || !currentRootFolderId || !isRestorationSettled) {
       return;
     }
 
     const storeState = store.getState();
-    const parentDirectories = getParentDirectoriesForSelectedFiles(storeState.selectedFilePaths);
+    const parentDirectories = getDirectoriesForCurrentSelection(storeState);
     if (parentDirectories.size === 0) {
       return;
     }
@@ -475,6 +493,9 @@ export function useExpandSelectedFileParentDirectories(
 
     void loadSpecificPaths(sortedParents)
       .then(() => {
+        if (latestExpansionRequestRef.current !== expansionRequestId) {
+          return;
+        }
         const latestExpanded = store.getState().expandedDirectoryPaths;
         setExpandedPaths(new Set([...latestExpanded, ...parentDirectories]));
       })
