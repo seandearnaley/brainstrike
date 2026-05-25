@@ -306,10 +306,15 @@ describe('SearchModeBar', () => {
       expect(status).toHaveAttribute('aria-live', 'polite');
     });
 
-    it('omits the live region when no search has been performed', () => {
+    it('renders an empty live region before any search so older AT can attach to it', () => {
+      // Older NVDA/JAWS may only announce mutations on live regions that
+      // existed at load time, so the container is always rendered (empty)
+      // and gets populated when results arrive.
       render(<SearchModeBar {...createProps()} />);
 
-      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('');
+      expect(status).toHaveAttribute('aria-live', 'polite');
     });
 
     it('collapses the expanded panel when Escape is pressed within it', () => {

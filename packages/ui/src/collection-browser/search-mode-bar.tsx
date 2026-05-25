@@ -119,12 +119,13 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     <div className={cn('bg-background', className)}>
       {/* Live region outside the trigger — button descendants are
           presentational in screen readers, so nested live regions
-          announce unreliably. */}
-      {resultLabel ? (
-        <span aria-live="polite" className="sr-only" role="status">
-          {resultLabel}
-        </span>
-      ) : null}
+          announce unreliably. Always rendered (with empty content when
+          there are no results) so older NVDA/JAWS announce the first
+          count change; some engines only track mutations on regions
+          that existed at load time. */}
+      <span aria-live="polite" className="sr-only" role="status">
+        {resultLabel ?? ''}
+      </span>
       <Button
         aria-controls={panelId}
         aria-expanded={isSearchExpanded}
