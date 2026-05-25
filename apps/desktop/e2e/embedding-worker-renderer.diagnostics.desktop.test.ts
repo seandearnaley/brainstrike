@@ -75,6 +75,43 @@ const {
   withTemporaryProcessEnv,
 } = shared;
 
+async function getFirstEmbeddedStressQuery(
+  page: Parameters<typeof getEmbeddingSetCounts>[0],
+  embeddingSetId: string
+): Promise<string | null> {
+  return await page.evaluate<string | null, string>(async (id) => {
+    const api = (
+      window as Window & {
+        electronAPI?: {
+          db?: {
+            query?: (
+              sql: string,
+              params?: unknown[]
+            ) => Promise<{ rows: Record<string, number | string | null>[] }>;
+          };
+        };
+      }
+    ).electronAPI;
+    if (!api?.db?.query) {
+      throw new Error('Database API not available');
+    }
+
+    const result = await api.db.query(
+      `SELECT c.content
+         FROM file_chunks c
+         INNER JOIN file_records fr ON fr.id = c.file_record_id
+         WHERE (fr.embedding_set_id = $1 OR c.embedding_set_id = $1)
+           AND c.content LIKE '%stress-file-%'
+           AND c.embedding IS NOT NULL
+         ORDER BY c.embedding_updated_at ASC NULLS LAST, c.id ASC
+         LIMIT 1`,
+      [id]
+    );
+    const row = result.rows[0] as { content?: string | null } | undefined;
+    return row?.content?.match(/stress-file-\d+-sentence-\d+/)?.[0] ?? null;
+  }, embeddingSetId);
+}
+
 test.describe('Embedding Host Renderer - diagnostics', () => {
   test('@desktop-embedding-diagnostic does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
     electronApp,
@@ -329,7 +366,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       await expect
         .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
-          timeout: 240_000,
+          timeout: 30_000,
         })
         .toMatchObject({
           fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
@@ -337,7 +374,23 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           embeddedChunks: expect.any(Number),
         });
 
-      const semanticQuery = 'stress-file-42-sentence-0';
+      let semanticQuery: string | null = null;
+      await expect
+        .poll(
+          async () => {
+            semanticQuery = await getFirstEmbeddedStressQuery(activeWindow, embeddingSetId);
+            return semanticQuery;
+          },
+          {
+            timeout: 240_000,
+          }
+        )
+        .not.toBeNull();
+
+      if (!semanticQuery) {
+        throw new Error('Timed out waiting for an embedded stress chunk to query');
+      }
+
       const semanticSearchBox = await getHybridSearchBox(activeWindow);
       const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
       const emptySemanticSearchMessage = collectionTreeRegion.getByText(
