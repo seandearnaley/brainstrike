@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-25T02:05:53.950Z",
+  "generatedAt": "2026-05-25T02:20:43.049Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
-  "nodeVersion": "v24.14.0",
+  "nodeVersion": "v22.22.1",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "0ee31d7d54a92e5ee22fd3ff9cae49f4c6fd1f92",
+  "testedHeadSha": "3d036f5063fe090b72f0384dddc4cf4ee71c9d67",
   "selection": {
     "base": "origin/main",
     "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "0ee31d7d54a92e5ee22fd3ff9cae49f4c6fd1f92",
+    "headSha": "3d036f5063fe090b72f0384dddc4cf4ee71c9d67",
     "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
+      ".ci/proof/latest.json",
       "docs/superpowers/plans/2026-05-25-bst-80-token-cache-worker-restart.md",
       "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
       "packages/token-cache/src/use-background-token-indexer.ts"
@@ -92,7 +93,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 607
+      "durationMs": 553
     }
   ]
 }
