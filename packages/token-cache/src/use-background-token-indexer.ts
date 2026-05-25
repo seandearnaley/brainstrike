@@ -31,10 +31,15 @@ const logger = createLogger('BackgroundTokenIndexer');
 const TERMINAL_WORKER_ERROR_KEY = '__worker__';
 const MAX_RECOVERABLE_WORKER_RESTARTS = 2;
 const RECOVERABLE_WORKER_RESTART_BACKOFF_MS = 250;
+const RECOVERABLE_WORKER_RESTART_STABILITY_MS = 5000;
 const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
   /^accurate token counting unavailable:/i,
   /tiktoken encoder failed to initialize/i,
 ];
+
+interface TimerRef {
+  current: ReturnType<typeof setTimeout> | null;
+}
 
 function normalizeTerminalErrorMessage(errorMessage: string): string {
   return errorMessage.trim().replace(/^error:\s*/i, '');
@@ -50,6 +55,26 @@ function isRecoverableWorkerMessageContext(context: string): boolean {
     return false;
   }
   return context !== 'worker.message.__init__' && context !== 'worker.message.__batch__';
+}
+
+function isRecoverableWorkerFailure(error: Error, context: string): boolean {
+  if (isTerminalTokenizerError(error.message)) {
+    return false;
+  }
+  return (
+    context === 'ready-timeout' ||
+    context === 'worker.onerror' ||
+    context === 'worker.addEventListener(error)' ||
+    context === 'worker.onmessageerror' ||
+    isRecoverableWorkerMessageContext(context)
+  );
+}
+
+function clearTimerRef(timerRef: TimerRef): void {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
 }
 
 function extractTerminalTokenizerErrorFromWorkerLog(logMessage: WorkerLog): string | null {
@@ -313,6 +338,7 @@ export function useBackgroundTokenIndexer({
   const workerMessageCleanupRef = useRef<(() => void) | null>(null);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartStabilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
   const terminalWorkerFailureRef = useRef<Error | null>(null);
   const recoverableRestartCountRef = useRef(0);
@@ -413,20 +439,6 @@ export function useBackgroundTokenIndexer({
     }
   }, []);
 
-  const clearReadinessTimer = useCallback(() => {
-    if (readinessTimerRef.current) {
-      clearTimeout(readinessTimerRef.current);
-      readinessTimerRef.current = null;
-    }
-  }, []);
-
-  const clearRestartTimer = useCallback(() => {
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-  }, []);
-
   const disposeCurrentWorker = useCallback(() => {
     const worker = workerRef.current;
     const runtime = workerRuntimeRef.current;
@@ -438,23 +450,11 @@ export function useBackgroundTokenIndexer({
     runtime?.resetReady();
     runtime?.clearFailure();
     runtime?.dispose();
-    clearReadinessTimer();
+    clearTimerRef(readinessTimerRef);
+    clearTimerRef(restartStabilityTimerRef);
     if (worker) {
       worker.terminate();
     }
-  }, [clearReadinessTimer]);
-
-  const isRecoverableWorkerFailure = useCallback((error: Error, context: string) => {
-    if (isTerminalTokenizerError(error.message)) {
-      return false;
-    }
-    return (
-      context === 'ready-timeout' ||
-      context === 'worker.onerror' ||
-      context === 'worker.addEventListener(error)' ||
-      context === 'worker.onmessageerror' ||
-      isRecoverableWorkerMessageContext(context)
-    );
   }, []);
 
   const failWorker = useCallback(
@@ -489,13 +489,12 @@ export function useBackgroundTokenIndexer({
       pendingFilesRef.current.clear();
       rejectAllPendingBatchTrackers(failure);
 
-      clearRestartTimer();
+      clearTimerRef(restartTimerRef);
       disposeCurrentWorker();
 
       logWorkerErrorOnce(failure, context);
     },
     [
-      clearRestartTimer,
       disposeCurrentWorker,
       emitTerminalIndexingError,
       logWorkerErrorOnce,
@@ -536,7 +535,7 @@ export function useBackgroundTokenIndexer({
         pendingFilesDropped: pendingCount,
       });
 
-      clearRestartTimer();
+      clearTimerRef(restartTimerRef);
       restartTimerRef.current = setTimeout(() => {
         restartTimerRef.current = null;
         if (!isMountedRef.current) {
@@ -552,12 +551,7 @@ export function useBackgroundTokenIndexer({
 
       return true;
     },
-    [
-      clearRestartTimer,
-      disposeCurrentWorker,
-      isRecoverableWorkerFailure,
-      rejectAllPendingBatchTrackers,
-    ]
+    [disposeCurrentWorker, rejectAllPendingBatchTrackers]
   );
 
   const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
@@ -636,12 +630,18 @@ export function useBackgroundTokenIndexer({
             runtime.clearFailure();
             runtime.markReady();
             terminalWorkerFailureRef.current = null;
-            // A ready worker closes the current failure cycle; future independent
-            // recoverable failures get a fresh bounded restart budget.
-            recoverableRestartCountRef.current = 0;
+            if (recoverableRestartCountRef.current > 0) {
+              // Keep ready-crash loops on the same bounded restart budget until
+              // the restarted worker has remained usable for a full stability window.
+              clearTimerRef(restartStabilityTimerRef);
+              restartStabilityTimerRef.current = setTimeout(() => {
+                restartStabilityTimerRef.current = null;
+                recoverableRestartCountRef.current = 0;
+              }, RECOVERABLE_WORKER_RESTART_STABILITY_MS);
+            }
             workerFailureHandledRef.current = false;
             setIsReady(true);
-            clearReadinessTimer();
+            clearTimerRef(readinessTimerRef);
             settleReady();
             return;
           }
@@ -747,7 +747,7 @@ export function useBackgroundTokenIndexer({
         workerInitPromiseRef.current = null;
       }
     }
-  }, [clearReadinessTimer, failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
+  }, [failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
   useEffect(() => {
     ensureWorkerReadyRef.current = ensureWorkerReady;
     return () => {
@@ -768,7 +768,7 @@ export function useBackgroundTokenIndexer({
     return () => {
       isMountedRef.current = false;
       logger.debug('Terminating worker');
-      clearRestartTimer();
+      clearTimerRef(restartTimerRef);
       workerFailureHandledRef.current = false;
       workerErrorLoggedRef.current = false;
       terminalWorkerFailureRef.current = null;
@@ -778,13 +778,7 @@ export function useBackgroundTokenIndexer({
       );
       disposeCurrentWorker();
     };
-  }, [
-    autoStart,
-    clearRestartTimer,
-    disposeCurrentWorker,
-    ensureWorkerReady,
-    rejectAllPendingBatchTrackers,
-  ]);
+  }, [autoStart, disposeCurrentWorker, ensureWorkerReady, rejectAllPendingBatchTrackers]);
 
   /**
    * Handle result from worker.
