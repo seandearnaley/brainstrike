@@ -293,6 +293,38 @@ describe('createWorkerpoolAdapter', () => {
       expect(opts.maxWorkers).toBeGreaterThanOrEqual(1);
     });
 
+    it('uses the CPU/WASM default when the caller selects wasm on a WebGPU-capable browser', () => {
+      setWorkerSupport();
+      const navRef = globalThis.navigator as Navigator & { hardwareConcurrency?: number };
+      const previousHardwareConcurrency = Object.getOwnPropertyDescriptor(
+        navRef,
+        'hardwareConcurrency'
+      );
+      Object.defineProperty(navRef, 'hardwareConcurrency', {
+        configurable: true,
+        value: 8,
+      });
+      try {
+        withNavigatorGpu(true, () => {
+          createWorkerpoolAdapter({
+            defaultDeviceHint: 'wasm',
+            workerUrl: TEST_WORKER_URL,
+          });
+        });
+      } finally {
+        if (previousHardwareConcurrency) {
+          Object.defineProperty(navRef, 'hardwareConcurrency', previousHardwareConcurrency);
+        } else {
+          delete navRef.hardwareConcurrency;
+        }
+      }
+
+      const lastCall = workerpoolMocks.poolSpy.mock.calls.at(-1);
+      const opts = lastCall?.[1] as { maxWorkers: number };
+      expect(opts.maxWorkers).toBeGreaterThan(1);
+      expect(opts.maxWorkers).toBeLessThanOrEqual(4);
+    });
+
     it('respects an explicit maxWorkers override regardless of WebGPU presence', () => {
       setWorkerSupport();
       withNavigatorGpu(true, () => {

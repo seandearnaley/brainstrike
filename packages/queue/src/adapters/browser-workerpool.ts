@@ -53,8 +53,11 @@ function hasWebGPUSupport(): boolean {
  *
  * Callers can still override with `options.maxWorkers`.
  */
-function deviceAwareDefaultMaxWorkers(hardwareConcurrency: number): number {
-  if (hasWebGPUSupport()) {
+function deviceAwareDefaultMaxWorkers(
+  hardwareConcurrency: number,
+  deviceHint: WorkerpoolAdapterOptions['defaultDeviceHint']
+): number {
+  if ((deviceHint ?? (hasWebGPUSupport() ? 'webgpu' : 'wasm')) === 'webgpu' && hasWebGPUSupport()) {
     return 1;
   }
   return Math.max(1, Math.min(hardwareConcurrency - 1, DEFAULT_CPU_WORKERS_CAP));
@@ -105,7 +108,10 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   // WebGPU (single worker, since each one pins a GPU device + model copy)
   // or only CPU/WASM (a small handful of workers capped on memory).
   // Source: https://developer.mozilla.org/docs/Web/API/NavigatorConcurrentHardware/hardwareConcurrency
-  const defaultMaxWorkers = deviceAwareDefaultMaxWorkers(hardwareConcurrency);
+  const defaultMaxWorkers = deviceAwareDefaultMaxWorkers(
+    hardwareConcurrency,
+    options.defaultDeviceHint
+  );
   const maxWorkers = Math.max(
     1,
     Math.min(options.maxWorkers ?? defaultMaxWorkers, DEFAULT_MAX_WORKERS_CAP)
