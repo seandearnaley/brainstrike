@@ -59,26 +59,19 @@ Tests are designed to run in parallel using Playwright sharding.
 *   **Isolation:** Each shard runs a separate instance of the Electron app.
 *   **Port Management:** Unique debugging ports are assigned to avoid collisions between shards running on the same host (crucial for `act` and some CI runners).
 
-### 4.2. Local Debugging (`pnpm ci:local`)
-A local CI simulation script (`scripts/local-ci.sh`) allows developers to run the E2E suite in an environment closely matching GitHub Actions (using `act` and Docker) before pushing changes.
+### 4.2. Local Debugging
+Run Playwright package scripts directly for local E2E debugging.
 
-### 4.3. PR Cloud Lane Routing
+### 4.3. PR E2E Routing
 
-PRs no longer run every cloud E2E lane by default.
+PR E2E uses dedicated GitHub Actions smoke workflows:
 
-- `ci:browser` runs browser Vitest lanes.
-- `ci:web-e2e` runs web functional, stateful, and destructive E2E lanes.
-- `ci:desktop` runs desktop regression E2E.
-- `ci:embedding` runs desktop embedding E2E groups.
-- `ci:coverage` runs cloud unit coverage.
-- `ci:full` expands to all cloud risk lanes.
+- `Web E2E` runs on every PR.
+- `Desktop E2E` runs on every PR.
 
-The labels are selected by `pnpm ci:select`. Removing a selected label does not
-bypass CI; `pnpm ci:verify-proof` recomputes the selection and fails the PR
-Sentinel when required labels are missing.
-
-The full matrix remains available on `main`, nightly schedule, and manual
-workflow dispatch.
+The full web and desktop matrices remain available on nightly schedule and
+manual workflow dispatch. Desktop scheduled/manual full regression includes the
+embedding-host E2E job; normal PR smoke does not.
 
 ## 5. Best Practices
 
@@ -93,10 +86,6 @@ workflow dispatch.
 *   **"Waiting for debugger to disconnect":** Usually indicates a port collision. Check `electron-fixture.ts` port assignment logic.
 *   **App fails to start:** Check `dist/main.js` exists (run `pnpm build`). Verify dependencies are installed.
 *   **Selectors failing:** The UI might not be fully rendered. Ensure `waitForAppReady` helper is used.
-
-
-
-
 
 
 

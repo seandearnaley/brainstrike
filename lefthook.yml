@@ -42,14 +42,6 @@ pre-commit:
       # filter does the package resolution via turbo's --filter flag).
       run: pnpm turbo run type-check --filter="[HEAD]"
 
-pre-push:
-  jobs:
-    - name: ci-selector-guard
-      # Default PR target is main. Set CI_SELECTOR_BASE=origin/<target> for
-      # release-branch or stacked-branch pushes so the local guard compares the
-      # same base the PR proof will use.
-      run: pnpm ci:selector-guard --base "${CI_SELECTOR_BASE:-origin/main}" --head HEAD
-
 commit-msg:
   jobs:
     - name: lint-msg
