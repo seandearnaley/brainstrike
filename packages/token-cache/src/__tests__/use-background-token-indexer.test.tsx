@@ -86,10 +86,14 @@ async function waitForWorker(): Promise<MockWorker> {
 
 async function markWorkerReady(): Promise<MockWorker> {
   const worker = await waitForWorker();
+  await markSpecificWorkerReady(worker);
+  return worker;
+}
+
+async function markSpecificWorkerReady(worker: MockWorker): Promise<void> {
   act(() => {
     worker.emitEvent('message', { data: { type: 'ready' } } as MessageEvent);
   });
-  return worker;
 }
 
 describe('useBackgroundTokenIndexer', () => {
@@ -292,7 +296,7 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
-  it('routes worker.onerror through the terminal fail path', async () => {
+  it('routes worker.onerror through the recoverable restart path', async () => {
     const onFileError = vi.fn();
 
     renderHook(() =>
@@ -315,29 +319,144 @@ describe('useBackgroundTokenIndexer', () => {
       );
     });
 
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining('(worker.onerror): Worker runtime error: runtime boom')
-    );
-    expect(mockEmitIndexingError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        compositeKey: '__worker__',
-        errorMessage: expect.stringContaining(
-          '(worker.onerror): Worker runtime error: runtime boom'
-        ),
-      })
-    );
-    expect(mockLogger.error.mock.calls).toContainEqual([
-      'Background token indexer entered failed state',
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(mockLogger.warn.mock.calls).toContainEqual([
+      'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
         context: 'worker.onerror',
         error: expect.stringContaining('Worker runtime error: runtime boom'),
       }),
     ]);
-    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).not.toHaveBeenCalled();
   });
 
-  it('routes worker error events through the terminal fail path', async () => {
+  it('restarts after one recoverable worker runtime error and accepts later indexing', async () => {
+    const onFileError = vi.fn();
+    const onFileIndexed = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+        onFileIndexed,
+      })
+    );
+
+    await waitFor(() => expect(mockWorkers).toHaveLength(1));
+
+    await act(async () => {
+      mockWorkers[0]!.onerror?.(
+        new ErrorEvent('error', {
+          message: 'runtime boom',
+          filename: 'background-indexer.worker.js',
+          lineno: 17,
+          colno: 3,
+        })
+      );
+    });
+
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockWorkers[0]!.terminate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    await waitFor(() => expect(mockWorkers).toHaveLength(2));
+    await markSpecificWorkerReady(mockWorkers[1]!);
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|recovered.txt', folderId: 'folder', filePath: 'recovered.txt' },
+      ]);
+    });
+
+    await waitFor(() => expect(mockWorkers[1]!.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[1]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: false,
+          compositeKey: 'folder|@|recovered.txt',
+          folderId: 'folder',
+          filePath: 'recovered.txt',
+          contentHash: 'hash',
+          fileSize: 128,
+          mode: 'accurate',
+          tokenCount: 99,
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(onFileIndexed).toHaveBeenCalledWith('folder|@|recovered.txt', 99, 128);
+    expect(onFileError).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a terminal worker error after repeated recoverable restart failures', async () => {
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await waitFor(() => expect(mockWorkers).toHaveLength(1));
+
+    for (const index of [0, 1]) {
+      await act(async () => {
+        mockWorkers[index]!.emitEvent(
+          'error',
+          new ErrorEvent('error', {
+            message: `recoverable boom ${index + 1}`,
+            filename: 'background-indexer.worker.js',
+          })
+        );
+      });
+      expect(onFileError).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      });
+      await waitFor(() => expect(mockWorkers).toHaveLength(index + 2));
+    }
+
+    await act(async () => {
+      mockWorkers[2]!.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'recoverable boom 3',
+          filename: 'background-indexer.worker.js',
+        })
+      );
+    });
+
+    await waitFor(() =>
+      expect(onFileError).toHaveBeenCalledWith(
+        '__worker__',
+        expect.stringContaining(
+          '(worker.addEventListener(error)): Worker error event: recoverable boom 3'
+        )
+      )
+    );
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: recoverable boom 3'),
+      })
+    );
+  });
+
+  it('routes worker error events through the recoverable restart path', async () => {
     const onFileError = vi.fn();
 
     renderHook(() =>
@@ -361,23 +480,11 @@ describe('useBackgroundTokenIndexer', () => {
       );
     });
 
-    await waitFor(() => {
-      expect(onFileError).toHaveBeenCalledWith(
-        '__worker__',
-        expect.stringContaining('(worker.addEventListener(error)): Worker error event: event boom')
-      );
-    });
-    expect(mockEmitIndexingError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        compositeKey: '__worker__',
-        errorMessage: expect.stringContaining(
-          '(worker.addEventListener(error)): Worker error event: event boom'
-        ),
-      })
-    );
-    expect(mockLogger.error).toHaveBeenCalledTimes(1);
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      'Background token indexer entered failed state',
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
         context: 'worker.addEventListener(error)',
         error: expect.stringContaining('Worker error event: event boom'),
@@ -385,7 +492,7 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
-  it('logs one terminal worker failure with structured ErrorEvent fields', async () => {
+  it('logs one recoverable worker failure with structured ErrorEvent fields', async () => {
     const onFileError = vi.fn();
     const eventError = new Error('worker script exploded');
     eventError.stack = 'Error: worker script exploded\n    at background-indexer.worker.js:22:9';
@@ -412,9 +519,9 @@ describe('useBackgroundTokenIndexer', () => {
       );
     });
 
-    expect(mockLogger.error).toHaveBeenCalledTimes(1);
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      'Background token indexer entered failed state',
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
         context: 'worker.addEventListener(error)',
         error: expect.stringContaining('Worker error event: event boom'),
@@ -428,10 +535,10 @@ describe('useBackgroundTokenIndexer', () => {
         eventErrorStack: eventError.stack,
       })
     );
-    expect(mockLogger.error.mock.calls[0]?.[1]).not.toHaveProperty('terminalWorkerErrorDetails');
+    expect(mockLogger.warn.mock.calls[0]?.[1]).not.toHaveProperty('terminalWorkerErrorDetails');
   });
 
-  it('omits unknown ErrorEvent location fields from terminal worker failure logs', async () => {
+  it('omits unknown ErrorEvent location fields from recoverable worker failure logs', async () => {
     const onFileError = vi.fn();
 
     renderHook(() =>
@@ -454,8 +561,8 @@ describe('useBackgroundTokenIndexer', () => {
       );
     });
 
-    expect(mockLogger.error).toHaveBeenCalledTimes(1);
-    const logMetadata = mockLogger.error.mock.calls[0]?.[1];
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    const logMetadata = mockLogger.warn.mock.calls[0]?.[1];
     expect(logMetadata).toEqual(
       expect.objectContaining({
         context: 'worker.addEventListener(error)',
@@ -468,7 +575,7 @@ describe('useBackgroundTokenIndexer', () => {
     expect(logMetadata).not.toHaveProperty('colno');
   });
 
-  it('deduplicates terminal worker failure when both error handlers fire', async () => {
+  it('deduplicates recoverable worker failure when both error handlers fire', async () => {
     const onFileError = vi.fn();
 
     renderHook(() =>
@@ -500,23 +607,19 @@ describe('useBackgroundTokenIndexer', () => {
       );
     });
 
-    expect(onFileError).toHaveBeenCalledTimes(1);
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining('(worker.onerror): Worker runtime error: runtime boom')
-    );
-    expect(mockEmitIndexingError).toHaveBeenCalledTimes(1);
-    expect(mockEmitIndexingError).toHaveBeenCalledWith(
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
-        compositeKey: '__worker__',
-        errorMessage: expect.stringContaining(
-          '(worker.onerror): Worker runtime error: runtime boom'
-        ),
+        context: 'worker.onerror',
+        error: expect.stringContaining('Worker runtime error: runtime boom'),
       })
     );
   });
 
-  it('routes worker.onmessageerror through the terminal fail path', async () => {
+  it('routes worker.onmessageerror through the recoverable restart path', async () => {
     const onFileError = vi.fn();
 
     renderHook(() =>
@@ -535,23 +638,11 @@ describe('useBackgroundTokenIndexer', () => {
       } as MessageEvent);
     });
 
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining(
-        '(worker.onmessageerror): Worker message channel error (onmessageerror)'
-      )
-    );
-    expect(mockEmitIndexingError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        compositeKey: '__worker__',
-        errorMessage: expect.stringContaining(
-          '(worker.onmessageerror): Worker message channel error (onmessageerror)'
-        ),
-      })
-    );
-    expect(mockLogger.error).toHaveBeenCalledTimes(1);
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      'Background token indexer entered failed state',
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
         context: 'worker.onmessageerror',
         error: 'Worker message channel error (onmessageerror)',
@@ -559,7 +650,7 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
-  it('routes readiness timeout through the terminal fail path', async () => {
+  it('routes readiness timeout through the recoverable restart path', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();
 
@@ -575,20 +666,10 @@ describe('useBackgroundTokenIndexer', () => {
       vi.advanceTimersByTime(5000);
     });
 
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining('(ready-timeout): Worker did not signal ready within 5s')
-    );
-    expect(mockEmitIndexingError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        compositeKey: '__worker__',
-        errorMessage: expect.stringContaining(
-          '(ready-timeout): Worker did not signal ready within 5s'
-        ),
-      })
-    );
-    expect(mockLogger.error.mock.calls).toContainEqual([
-      'Background token indexer entered failed state',
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(mockLogger.warn.mock.calls).toContainEqual([
+      'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
         context: 'ready-timeout',
         error: 'Worker did not signal ready within 5s',

@@ -29,6 +29,8 @@ import type { TokenCacheEntry, TokenCountingMode } from './types';
 
 const logger = createLogger('BackgroundTokenIndexer');
 const TERMINAL_WORKER_ERROR_KEY = '__worker__';
+const MAX_RECOVERABLE_WORKER_RESTARTS = 2;
+const RECOVERABLE_WORKER_RESTART_BACKOFF_MS = 250;
 const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
   /^accurate token counting unavailable:/i,
   /tiktoken encoder failed to initialize/i,
@@ -300,9 +302,13 @@ export function useBackgroundTokenIndexer({
   const workerErrorLoggedRef = useRef(false);
   const workerFailureHandledRef = useRef(false);
   const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
+  const ensureWorkerReadyRef = useRef<(() => Promise<Worker>) | null>(null);
   const workerMessageCleanupRef = useRef<(() => void) | null>(null);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
+  const terminalWorkerFailureRef = useRef<Error | null>(null);
+  const recoverableRestartCountRef = useRef(0);
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
 
   // Track pending files to enable cancellation
@@ -400,6 +406,50 @@ export function useBackgroundTokenIndexer({
     }
   }, []);
 
+  const clearReadinessTimer = useCallback(() => {
+    if (readinessTimerRef.current) {
+      clearTimeout(readinessTimerRef.current);
+      readinessTimerRef.current = null;
+    }
+  }, []);
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
+
+  const disposeCurrentWorker = useCallback(() => {
+    const worker = workerRef.current;
+    const runtime = workerRuntimeRef.current;
+    workerRef.current = null;
+    workerRuntimeRef.current = null;
+    workerInitPromiseRef.current = null;
+    workerMessageCleanupRef.current?.();
+    workerMessageCleanupRef.current = null;
+    runtime?.resetReady();
+    runtime?.clearFailure();
+    runtime?.dispose();
+    clearReadinessTimer();
+    if (worker) {
+      worker.terminate();
+    }
+  }, [clearReadinessTimer]);
+
+  const isRecoverableWorkerFailure = useCallback((error: Error, context: string) => {
+    if (isTerminalTokenizerError(error.message)) {
+      return false;
+    }
+    return (
+      context === 'ready-timeout' ||
+      context === 'worker.onerror' ||
+      context === 'worker.addEventListener(error)' ||
+      context === 'worker.onmessageerror' ||
+      context.startsWith('worker.message.')
+    );
+  }, []);
+
   const failWorker = useCallback(
     (error: unknown, context: string) => {
       // CRITICAL: terminal worker failure is latched. Duplicate failure signals
@@ -415,6 +465,7 @@ export function useBackgroundTokenIndexer({
         : error instanceof Error
           ? error
           : new Error(`Background token indexer failure: ${formatErrorMessage(error)}`);
+      terminalWorkerFailureRef.current = failure;
       runtime?.resetReady();
       setIsReady(false);
       setIsIndexing(false);
@@ -431,28 +482,79 @@ export function useBackgroundTokenIndexer({
       pendingFilesRef.current.clear();
       rejectAllPendingBatchTrackers(failure);
 
-      if (readinessTimerRef.current) {
-        clearTimeout(readinessTimerRef.current);
-        readinessTimerRef.current = null;
-      }
-
-      if (workerRef.current) {
-        workerRef.current.terminate();
-        workerRef.current = null;
-      }
-      workerMessageCleanupRef.current?.();
-      workerMessageCleanupRef.current = null;
-      if (runtime) {
-        runtime.dispose();
-      }
+      clearRestartTimer();
+      disposeCurrentWorker();
 
       logWorkerErrorOnce(failure, context);
     },
-    [emitTerminalIndexingError, logWorkerErrorOnce, rejectAllPendingBatchTrackers]
+    [
+      clearRestartTimer,
+      disposeCurrentWorker,
+      emitTerminalIndexingError,
+      logWorkerErrorOnce,
+      rejectAllPendingBatchTrackers,
+    ]
+  );
+
+  const scheduleRecoverableWorkerRestart = useCallback(
+    (error: Error, context: string): boolean => {
+      if (workerFailureHandledRef.current) {
+        return true;
+      }
+      if (!isRecoverableWorkerFailure(error, context)) {
+        return false;
+      }
+      if (recoverableRestartCountRef.current >= MAX_RECOVERABLE_WORKER_RESTARTS) {
+        return false;
+      }
+
+      workerFailureHandledRef.current = true;
+      recoverableRestartCountRef.current += 1;
+      terminalWorkerFailureRef.current = null;
+
+      const pendingCount = pendingFilesRef.current.size;
+      pendingFilesRef.current.clear();
+      rejectAllPendingBatchTrackers(error);
+      setIsReady(false);
+      setIsIndexing(false);
+      setProgress(null);
+      disposeCurrentWorker();
+
+      logger.warn('Background token indexer restarting after recoverable worker failure', {
+        attempt: recoverableRestartCountRef.current,
+        maxAttempts: MAX_RECOVERABLE_WORKER_RESTARTS,
+        context,
+        ...getTerminalWorkerErrorDetails(error),
+        error: error.message,
+        pendingFilesDropped: pendingCount,
+      });
+
+      clearRestartTimer();
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
+        if (!isMountedRef.current) {
+          return;
+        }
+        void ensureWorkerReadyRef.current?.().catch((restartError: unknown) => {
+          logger.warn('Background token indexer restart attempt failed', {
+            error: formatErrorMessage(restartError),
+          });
+        });
+      }, RECOVERABLE_WORKER_RESTART_BACKOFF_MS);
+
+      return true;
+    },
+    [
+      clearRestartTimer,
+      disposeCurrentWorker,
+      isRecoverableWorkerFailure,
+      rejectAllPendingBatchTrackers,
+    ]
   );
 
   const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
-    const workerFailure = workerRuntimeRef.current?.getFailure() ?? null;
+    const workerFailure =
+      terminalWorkerFailureRef.current ?? workerRuntimeRef.current?.getFailure() ?? null;
     if (workerFailure) {
       throw workerFailure;
     }
@@ -471,10 +573,13 @@ export function useBackgroundTokenIndexer({
         worker = createWorkerInstance(workerUrl);
       } catch (error) {
         const normalizedError = error instanceof Error ? error : new Error(String(error));
-        failWorker(normalizedError, 'createWorkerInstance');
+        if (!scheduleRecoverableWorkerRestart(normalizedError, 'createWorkerInstance')) {
+          failWorker(normalizedError, 'createWorkerInstance');
+        }
         throw normalizedError;
       }
       workerRef.current = worker;
+      workerFailureHandledRef.current = false;
       const runtime = createWorkerRuntimeClient(worker, {
         createErrorFromEvent: (event) =>
           attachTerminalWorkerErrorDetails(
@@ -482,7 +587,9 @@ export function useBackgroundTokenIndexer({
             createTerminalWorkerErrorDetails(event)
           ),
         onFailure: (failure) => {
-          failWorker(failure, 'worker.addEventListener(error)');
+          if (!scheduleRecoverableWorkerRestart(failure, 'worker.addEventListener(error)')) {
+            failWorker(failure, 'worker.addEventListener(error)');
+          }
         },
       });
       workerRuntimeRef.current = runtime;
@@ -495,6 +602,10 @@ export function useBackgroundTokenIndexer({
         };
 
         const settleFailure = (error: Error, context: string): void => {
+          if (scheduleRecoverableWorkerRestart(error, context)) {
+            reject(error);
+            return;
+          }
           failWorker(error, context);
           reject(error);
         };
@@ -514,12 +625,11 @@ export function useBackgroundTokenIndexer({
           if (message.type === 'ready') {
             runtime.clearFailure();
             runtime.markReady();
+            terminalWorkerFailureRef.current = null;
+            recoverableRestartCountRef.current = 0;
             workerFailureHandledRef.current = false;
             setIsReady(true);
-            if (readinessTimerRef.current) {
-              clearTimeout(readinessTimerRef.current);
-              readinessTimerRef.current = null;
-            }
+            clearReadinessTimer();
             settleReady();
             return;
           }
@@ -625,7 +735,8 @@ export function useBackgroundTokenIndexer({
         workerInitPromiseRef.current = null;
       }
     }
-  }, [failWorker, workerUrl]);
+  }, [clearReadinessTimer, failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
+  ensureWorkerReadyRef.current = ensureWorkerReady;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -638,29 +749,22 @@ export function useBackgroundTokenIndexer({
     return () => {
       isMountedRef.current = false;
       logger.debug('Terminating worker');
-      const worker = workerRef.current;
-      workerRef.current = null;
-      workerInitPromiseRef.current = null;
-      workerMessageCleanupRef.current?.();
-      workerMessageCleanupRef.current = null;
-      const runtime = workerRuntimeRef.current;
-      workerRuntimeRef.current = null;
+      clearRestartTimer();
       workerFailureHandledRef.current = false;
-      runtime?.resetReady();
-      runtime?.clearFailure();
-      runtime?.dispose();
+      terminalWorkerFailureRef.current = null;
+      recoverableRestartCountRef.current = 0;
       rejectAllPendingBatchTrackers(
         new Error('Background token indexer worker terminated during cleanup')
       );
-      if (readinessTimerRef.current) {
-        clearTimeout(readinessTimerRef.current);
-        readinessTimerRef.current = null;
-      }
-      if (worker) {
-        worker.terminate();
-      }
+      disposeCurrentWorker();
     };
-  }, [autoStart, ensureWorkerReady, rejectAllPendingBatchTrackers]);
+  }, [
+    autoStart,
+    clearRestartTimer,
+    disposeCurrentWorker,
+    ensureWorkerReady,
+    rejectAllPendingBatchTrackers,
+  ]);
 
   /**
    * Handle result from worker.
@@ -795,7 +899,8 @@ export function useBackgroundTokenIndexer({
       await ensureWorkerReady();
 
       // CRITICAL: No skip/degraded fallback path. Worker unavailability is a hard failure.
-      const workerFailure = workerRuntimeRef.current?.getFailure() ?? null;
+      const workerFailure =
+        terminalWorkerFailureRef.current ?? workerRuntimeRef.current?.getFailure() ?? null;
       if (workerFailure) {
         const message =
           `Background token indexer unavailable: ${workerFailure.message}. ` +
@@ -904,7 +1009,7 @@ export function useBackgroundTokenIndexer({
         pendingFilesRef.current.clear();
         rejectAllPendingBatchTrackers(normalizedError);
         const droppedCount = Math.max(requestedFiles, pendingBeforeClear);
-        if (!workerRuntimeRef.current?.isFailed()) {
+        if (!(terminalWorkerFailureRef.current || workerRuntimeRef.current?.isFailed())) {
           emitTerminalIndexingError(
             `Background token indexer failed before dispatch: ${normalizedError.message}. ` +
               `Requested files dropped: ${droppedCount}.`
