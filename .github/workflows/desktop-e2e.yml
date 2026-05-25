@@ -96,7 +96,7 @@ jobs:
 
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_regression == true)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
