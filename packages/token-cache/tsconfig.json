@@ -24,6 +24,9 @@
       "path": "../text-splitter"
     },
     {
+      "path": "../utils"
+    },
+    {
       "path": "../worker-runtime"
     }
   ]

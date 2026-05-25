@@ -874,6 +874,9 @@ importers:
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       tiktoken:
         specifier: ^1.0.22
         version: 1.0.22
@@ -1919,9 +1922,9 @@ importers:
 
   packages/text-splitter:
     dependencies:
-      tiktoken:
-        specifier: ^1.0.22
-        version: 1.0.22
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@types/node':
         specifier: ^25.6.0
@@ -2159,9 +2162,6 @@ importers:
 
   packages/utils:
     dependencies:
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

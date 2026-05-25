@@ -2,7 +2,6 @@
   "name": "@brainstrike/utils",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "minimatch": "^10.2.5",
     "pino": "^10.3.1",
@@ -38,6 +37,16 @@
       "types": "./dist/token-counting-heuristics.d.ts",
       "import": "./dist/token-counting-heuristics.mjs",
       "require": "./dist/token-counting-heuristics.js"
+    },
+    "./token-constants": {
+      "types": "./dist/token-constants.d.ts",
+      "import": "./dist/token-constants.mjs",
+      "require": "./dist/token-constants.js"
+    },
+    "./token-utils-accurate-lite": {
+      "types": "./dist/token-utils-accurate-lite.d.ts",
+      "import": "./dist/token-utils-accurate-lite.mjs",
+      "require": "./dist/token-utils-accurate-lite.js"
     },
     "./logger": {
       "types": "./dist/logger.d.ts",

@@ -1,20 +1,20 @@
 /**
  * Utility functions for estimating token counts for large language models.
  *
- * Accurate tiktoken runtime logic is owned by
- * @brainstrike/text-splitter/token-utils-accurate-lite so worker and utility
- * call paths cannot drift independently.
+ * Accurate tiktoken runtime logic is owned by ./token-utils-accurate-lite so
+ * worker and utility call paths cannot drift independently.
  */
+
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   countTokensAccurate as countTokensAccurateStrict,
   supportsAccurateTokenCounting as supportsAccurateTokenCountingStrict,
-} from '@brainstrike/text-splitter/token-utils-accurate-lite';
-import { createLogger } from '@brainstrike/utils/logger';
+} from './token-utils-accurate-lite';
 
 export {
   ACCURATE_TOKEN_ENCODING,
   ACCURATE_TOKEN_MODEL_HINT,
-} from '@brainstrike/text-splitter/token-constants';
+} from './token-constants';
 export {
   countTokensHeuristic,
   estimateTokenCost,
