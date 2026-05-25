@@ -48,6 +48,17 @@ test('tooling changes select checks and affected unit tests without e2e', () => 
   assert.equal(plan.jobs.unit_affected, true);
   assert.equal(plan.jobs.web_e2e_pr, false);
   assert.equal(plan.jobs.desktop_e2e_pr, false);
+  assert.equal(plan.unitProofMode, 'affected-packages');
+});
+
+test('isolated unit test changes keep changed-file unit mode', () => {
+  const plan = planFor(['packages/utils/src/__tests__/token-counting-boundary.test.ts']);
+
+  assert.equal(plan.risk.category, 'isolated-unit-test-only');
+  assert.equal(plan.jobs.unit_affected, true);
+  assert.equal(plan.unitProofMode, 'changed-unit-tests');
+  assert.deepEqual(plan.webE2eMatrix, { include: [] });
+  assert.deepEqual(plan.desktopE2eMatrix, { include: [] });
 });
 
 test('file explorer changes select only the file explorer web lane', () => {
@@ -125,6 +136,7 @@ test('renderGithubOutputs emits machine-readable job switches and matrices', () 
   assert.match(outputs, /^required-jobs-json=\["plan","docs-static"\]$/m);
   assert.match(outputs, /^run-docs-static=true$/m);
   assert.match(outputs, /^run-unit-affected=false$/m);
+  assert.match(outputs, /^unit-proof-mode=affected-packages$/m);
   assert.match(outputs, /^web-e2e-matrix=\{"include":\[\]\}$/m);
   assert.doesNotMatch(outputs, /ci:prove/);
   assert.doesNotMatch(outputs, /ci:verify-proof/);

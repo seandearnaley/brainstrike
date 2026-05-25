@@ -170,7 +170,10 @@ test('workflow contract fails when isolated changed unit tests expand to Turbo a
   const source = workflowSource.replace(
     unitAffected,
     unitAffected
-      .replace(/      - name: Detect selected unit proof mode[\s\S]*?\n\n      - name: Run affected unit tests/, '      - name: Run affected unit tests')
+      .replace(
+        '          UNIT_PROOF_MODE: ${{ needs.plan.outputs.unit-proof-mode }}',
+        '          UNIT_PROOF_MODE: affected-packages'
+      )
       .replace(
         '            node scripts/run-changed-unit-tests.mjs --base "origin/${GITHUB_BASE_REF}" --head HEAD',
         '            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo'
@@ -178,8 +181,7 @@ test('workflow contract fails when isolated changed unit tests expand to Turbo a
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /must detect changed-unit-test proof mode/);
-  assert.match(failures, /must use the tested unit proof mode detector/);
+  assert.match(failures, /must read changed-unit-test mode from CI Plan/);
   assert.match(failures, /must run changed unit test files directly/);
 });
 
@@ -562,60 +564,58 @@ test('workflow contract fails when stateful E2E waits on determine-matrix', () =
   );
 });
 
-test('workflow contract requires PR Sentinel to verify local proof', () => {
+test('workflow contract requires CI Plan to compute PR routing', () => {
   const prGate = extractJob(workflowSource, 'required-pr-gate');
   assert.ok(prGate);
   const source = workflowSource
-    .replace(/  pr-sentinel:[\s\S]*?\n  checks:/, '  checks:')
-    .replace(prGate, prGate.replace('\n      - pr-sentinel\n', '\n'));
+    .replace(/  plan:[\s\S]*?\n  docs-static:/, '  docs-static:')
+    .replace(prGate, prGate.replace('\n      - plan\n', '\n'));
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /Missing pr-sentinel job/);
-  assert.match(failures, /Required PR Gate must depend on pr-sentinel/);
+  assert.match(failures, /Missing plan job/);
+  assert.match(failures, /Required PR Gate must depend on plan/);
 });
 
-test('workflow contract requires PR Sentinel to verify the pull request head', () => {
+test('workflow contract requires CI Plan to use the pull request head and base', () => {
   const source = workflowSource
     .replace(
-      'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+      "PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}",
       'PR_HEAD_SHA: ${{ github.sha }}'
     )
-    .replace('--head "$PR_HEAD_SHA"', '--head "$GITHUB_SHA"');
+    .replace('--head "$PR_HEAD_SHA" --base "origin/${GITHUB_BASE_REF}"', '--head "$GITHUB_SHA" --base origin/main');
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /pull request head SHA/);
-  assert.match(failures, /must not verify proof against GITHUB_SHA/);
+  assert.match(failures, /must compute PR risk from the pull request head/);
 });
 
-test('workflow contract requires selected risk labels to gate matching cloud jobs', () => {
+test('workflow contract requires selected CI Plan outputs to gate matching cloud jobs', () => {
   const browserTests = extractJob(workflowSource, 'browser-tests');
   assert.ok(browserTests);
 
   const source = workflowSource.replace(
     browserTests,
     browserTests.replace(
-      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:browser')",
-      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')"
+      "needs.plan.outputs.run-browser-tests == 'true'",
+      "needs.plan.outputs.run-web-e2e-pr == 'true'"
     )
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Browser Vitest must run on PRs labeled ci:browser/
+    /Browser Vitest must use CI Plan output run-browser-tests/
   );
 });
 
-test('workflow contract reruns pull request checks when CI labels change', () => {
+test('workflow contract rejects label-triggered pull request reruns', () => {
   const source = workflowSource
-    .replace('      - labeled\n', '')
-    .replace('      - unlabeled\n', '');
+    .replace('      - ready_for_review\n', '      - ready_for_review\n      - labeled\n      - unlabeled\n');
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /pull_request trigger must include labeled/);
-  assert.match(failures, /pull_request trigger must include unlabeled/);
+  assert.match(failures, /must not rerun on labeled/);
+  assert.match(failures, /must not rerun on unlabeled/);
 });
 
-test('workflow contract requires Required PR Gate to use expanded lanes', () => {
+test('workflow contract requires Required PR Gate to use planned required jobs', () => {
   const requiredPrGate = extractJob(workflowSource, 'required-pr-gate');
   assert.ok(requiredPrGate);
 
@@ -623,14 +623,14 @@ test('workflow contract requires Required PR Gate to use expanded lanes', () => 
     requiredPrGate,
     requiredPrGate
       .replace(
-        '          REQUIRED_EXPANDED_LANES: ${{ needs.pr-sentinel.outputs.expanded-lanes }}\n',
+        '          REQUIRED_JOBS_JSON: ${{ needs.plan.outputs.required-jobs-json }}\n',
         ''
       )
       .replace('        run: node scripts/ci-required-pr-gate.mjs', "        run: echo 'Required PR gate passed.'")
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /must read expanded lanes/);
+  assert.match(failures, /must read required jobs from CI Plan outputs/);
   assert.match(failures, /must use the tested gate script/);
 });
 
@@ -652,18 +652,18 @@ test('workflow contract requires Required PR Gate to checkout the repo', () => {
   );
 });
 
-test('workflow contract fails when a mapped web lane is missing from required gate needs', () => {
+test('workflow contract fails when a planned job is missing from required gate needs', () => {
   const requiredPrGate = extractJob(workflowSource, 'required-pr-gate');
   assert.ok(requiredPrGate);
 
   const source = workflowSource.replace(
     requiredPrGate,
-    requiredPrGate.replace('\n      - web-e2e-smoke-pr', '')
+    requiredPrGate.replace('\n      - web-e2e-pr', '')
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must depend on web-e2e-smoke-pr/
+    /Required PR Gate must depend on web-e2e-pr/
   );
 });
 
@@ -739,12 +739,15 @@ test('workflow contract fails when static checks run on unconfirmed manual dispa
 
   const source = workflowSource.replace(
     checks,
-    checks.replace("github.event_name != 'workflow_dispatch'", "github.event_name == 'workflow_dispatch'")
+    checks.replace(
+      "(github.event_name == 'workflow_dispatch' && inputs.release_proof == 'full-release')",
+      "github.event_name == 'workflow_dispatch'"
+    )
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Checks \(static\) must not run on unconfirmed manual workflow_dispatch events/
+    /Checks \(static\) must require release_proof=full-release/
   );
 });
 
@@ -810,37 +813,36 @@ test('workflow contract fails when main smoke jobs do not run on push', () => {
   assert.ok(desktopSmoke);
 
   const source = workflowSource
-    .replace(webSmoke, webSmoke.replace("github.event_name == 'push' ||\n      ", ''))
-    .replace(desktopSmoke, desktopSmoke.replace("github.event_name == 'push' ||\n      ", ''));
+    .replace(webSmoke, webSmoke.replace("if: github.event_name == 'push'", 'if: ${{ false }}'))
+    .replace(desktopSmoke, desktopSmoke.replace("if: github.event_name == 'push'", 'if: ${{ false }}'));
 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /Web E2E Smoke must remain available for the main push smoke gate/);
   assert.match(failures, /Desktop E2E Smoke must remain available for the main push smoke gate/);
 });
 
-test('workflow contract fails when PR heavy jobs run without risk labels', () => {
-  const e2e = extractJob(workflowSource, 'e2e');
-  assert.ok(e2e);
+test('workflow contract fails when PR web E2E runs without CI Plan output', () => {
+  const webPr = extractJob(workflowSource, 'web-e2e-pr');
+  assert.ok(webPr);
 
   const source = workflowSource.replace(
-    e2e,
-    e2e.replace(/contains\(join\(github\.event\.pull_request\.labels\.\*\.name, ','\), 'ci:full'\) \|\|\n\s+contains\(join\(github\.event\.pull_request\.labels\.\*\.name, ','\), 'ci:web-e2e'\)/, "github.event_name == 'pull_request'")
+    webPr,
+    webPr.replace("needs.plan.outputs.run-web-e2e-pr == 'true'", "github.event_name == 'pull_request'")
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /Functional E2E must run on PRs labeled ci:full/);
-  assert.match(failures, /Functional E2E must run on PRs labeled ci:web-e2e/);
+  assert.match(failures, /Web E2E PR must use CI Plan output run-web-e2e-pr/);
 });
 
-test('workflow contract fails when the aggregate PR gate requires skipped jobs', () => {
+test('workflow contract fails when the aggregate PR gate misses planned jobs', () => {
   const prGate = extractJob(workflowSource, 'required-pr-gate');
   assert.ok(prGate);
 
-  const source = workflowSource.replace(prGate, prGate.replace('\n      - e2e\n', '\n'));
+  const source = workflowSource.replace(prGate, prGate.replace('\n      - docs-static\n', '\n'));
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must depend on e2e/
+    /Required PR Gate must depend on docs-static/
   );
 });
 
@@ -892,63 +894,56 @@ test('workflow contract fails when optional code quality runs on every main push
   );
 });
 
-test('workflow contract fails when a narrow desktop lane job drops its label gate', () => {
-  const ipcReset = extractJob(workflowSource, 'desktop-e2e-ipc-reset-pr');
-  assert.ok(ipcReset);
-
-  const source = workflowSource.replace(
-    ipcReset,
-    ipcReset.replace(
-      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset')",
-      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop')"
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /PR desktop IPC reset must run on PRs labeled ci:desktop-ipc-reset/
-  );
-});
-
-test('workflow contract fails when PR desktop E2E is smoke-only', () => {
+test('workflow contract fails when desktop PR lane drops its CI Plan gate', () => {
   const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
   assert.ok(desktopPr);
 
   const source = workflowSource.replace(
     desktopPr,
-    desktopPr
-      .replace('name: Desktop E2E Regression', 'name: Desktop E2E Smoke')
-      .replace('--project=regression', '--project=smoke')
+    desktopPr.replace("needs.plan.outputs.run-desktop-e2e-pr == 'true'", "github.event_name == 'pull_request'")
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /PR desktop E2E must run the regression Playwright project/
+    /Desktop E2E PR must use CI Plan output run-desktop-e2e-pr/
+  );
+});
+
+test('workflow contract fails when PR desktop E2E stops using the planned matrix', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr.replace('matrix: ${{ fromJSON(needs.plan.outputs.desktop-e2e-matrix) }}', 'matrix:\n        lane: [desktop-smoke]')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Desktop E2E PR must use the CI Plan desktop matrix/
   );
 });
 
 test('workflow contract fails when desktop regression runs multiple workers per shard', () => {
-  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
   const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
-  assert.ok(desktopPr);
   assert.ok(desktopMain);
 
-  const source = workflowSource
-    .replace(desktopPr, desktopPr.replace('--workers=1', '--workers=2'))
-    .replace(desktopMain, desktopMain.replace('--workers=1', '--workers=2'));
+  const source = workflowSource.replace(
+    desktopMain,
+    desktopMain.replace('--workers=1', '--workers=2')
+  );
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /PR desktop E2E must keep one worker per shard/);
   assert.match(failures, /Main desktop E2E must keep one worker per shard/);
 });
 
 test('workflow contract fails when desktop regression retries are reintroduced', () => {
-  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
-  assert.ok(desktopPr);
+  const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
+  assert.ok(desktopMain);
 
   const source = workflowSource.replace(
-    desktopPr,
-    desktopPr.replace(' --retries=0 --max-failures=1', '')
+    desktopMain,
+    desktopMain.replace(' --retries=0 --max-failures=1', '')
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
@@ -967,7 +962,7 @@ test('workflow contract fails when desktop regression jobs reintroduce the Playw
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /desktop regression job must not depend on the MCR Playwright container image/
+    /Desktop E2E PR must not depend on the MCR Playwright container image/
   );
 });
 
@@ -977,12 +972,12 @@ test('workflow contract fails when desktop regression jobs reintroduce apt or su
 
   const source = workflowSource.replace(
     desktopPr,
-    desktopPr.replace('echo "Starting Playwright regression tests..."', 'sudo apt-get update')
+    desktopPr.replace('echo "Starting selected desktop lane: ${{ matrix.lane }}"', 'sudo apt-get update')
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /desktop regression job must not run apt-get/);
-  assert.match(failures, /desktop regression job must not require sudo/);
+  assert.match(failures, /Desktop E2E PR must not run apt-get/);
+  assert.match(failures, /Desktop E2E PR must not require sudo/);
 });
 
 test('workflow contract fails when desktop regression global timeout is removed', () => {
@@ -1028,7 +1023,7 @@ test('workflow contract does not accept desktop regression timeout lines outside
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
-    /desktop regression job timeout must stay at 20 minutes/
+    /Desktop E2E PR job timeout must stay at 20 minutes/
   );
 });
 
@@ -1047,100 +1042,6 @@ test('workflow contract allows stricter desktop regression global timeout', () =
   );
 });
 
-test('workflow contract fails when desktop embedding retries are reintroduced', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr.replace(' --retries=0 --max-failures=1', '')
-  );
-
-  const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /desktop embedding E2E must disable Playwright retries/);
-  assert.match(failures, /desktop embedding E2E must fail fast on the first failure/);
-});
-
-test('workflow contract fails when desktop embedding jobs reintroduce the Playwright container', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr.replace('runs-on: ubuntu-latest', 'runs-on: ubuntu-latest\n    container:\n      image: mcr.microsoft.com/playwright:v1.59.1-noble')
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /desktop embedding job must not depend on the MCR Playwright container image/
-  );
-});
-
-test('workflow contract fails when desktop embedding jobs reintroduce apt or sudo', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr.replace(
-      'echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"',
-      'sudo apt-get update'
-    )
-  );
-
-  const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /desktop embedding job must not run apt-get/);
-  assert.match(failures, /desktop embedding job must not require sudo/);
-});
-
-test('workflow contract fails when desktop embedding global timeout is removed', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr.replace(' --global-timeout=720000', '')
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /desktop embedding E2E must cap Playwright runtime at 12 minutes/
-  );
-});
-
-test('workflow contract fails when broad desktop embedding core lane is reintroduced', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr.replace('@desktop-embedding-lifecycle', '@desktop-embedding-core')
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /must not reintroduce the broad @desktop-embedding-core lane/
-  );
-});
-
-test('workflow contract fails when diagnostic desktop embedding crash lanes are required', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr.replace(
-      '          - group: mixed\n            display: 106\n            grep: "@desktop-embedding-mixed"',
-      '          - group: mixed\n            display: 106\n            grep: "@desktop-embedding-mixed"\n          - group: crash-a\n            display: 107\n            grep: "@desktop-embedding-crash-a"'
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /must keep diagnostic @desktop-embedding-crash-a out of required lanes/
-  );
-});
-
 test('workflow contract fails when mixed embedding spec coverage drops crash-a file', () => {
   const source = workflowSource.replaceAll(
     ' e2e/embedding-worker-renderer.crash-a.desktop.test.ts',
@@ -1151,22 +1052,6 @@ test('workflow contract fails when mixed embedding spec coverage drops crash-a f
     validateWorkflowContracts(source).join('\n'),
     /desktop embedding E2E must include split spec e2e\/embedding-worker-renderer\.crash-a\.desktop\.test\.ts/
   );
-});
-
-test('workflow contract fails when desktop embedding timeout is widened', () => {
-  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
-  assert.ok(desktopEmbeddingPr);
-
-  const source = workflowSource.replace(
-    desktopEmbeddingPr,
-    desktopEmbeddingPr
-      .replace('timeout-minutes: 15', 'timeout-minutes: 40')
-      .replace('timeout-minutes: 12', 'timeout-minutes: 35')
-  );
-
-  const failures = validateWorkflowContracts(source).join('\n');
-  assert.match(failures, /desktop embedding job timeout must stay at 15 minutes/);
-  assert.match(failures, /desktop embedding test step timeout must stay at 12 minutes/);
 });
 
 test('workflow contract fails when desktop PR and main shard totals diverge', () => {

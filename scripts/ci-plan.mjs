@@ -26,6 +26,9 @@ export const PLAN_JOB_IDS = [
   'merge-reports',
 ];
 
+export const UNIT_PROOF_MODE_CHANGED_TESTS = 'changed-unit-tests';
+export const UNIT_PROOF_MODE_AFFECTED_PACKAGES = 'affected-packages';
+
 export const JOBS_BY_LANE = new Map([
   ['docs-static', ['docs-static']],
   ['unit', ['unit_affected']],
@@ -197,6 +200,12 @@ function buildRisk(selection) {
   };
 }
 
+function resolveUnitProofMode(selection) {
+  return selection.proofCommands.includes('changed-unit-tests')
+    ? UNIT_PROOF_MODE_CHANGED_TESTS
+    : UNIT_PROOF_MODE_AFFECTED_PACKAGES;
+}
+
 export function buildCiPlan(input) {
   const selection = buildSelection(input);
   const isDocsOnly = selection.riskProfile.category === 'docs-only';
@@ -239,6 +248,7 @@ export function buildCiPlan(input) {
     lanes,
     requiredJobs,
     jobs: buildJobs(selectedJobIds),
+    unitProofMode: resolveUnitProofMode(selection),
     webE2eMatrix,
     desktopE2eMatrix,
     localCommands: selection.commands.map((command) => ({ ...command })),
@@ -263,6 +273,7 @@ export function renderGithubOutputs(plan) {
     lines.push(`${githubOutputKey(jobId)}=${plan.jobs[planJobKey(jobId)] ? 'true' : 'false'}`);
   }
 
+  lines.push(`unit-proof-mode=${plan.unitProofMode}`);
   lines.push(`web-e2e-matrix=${compactJson(plan.webE2eMatrix)}`);
   lines.push(`desktop-e2e-matrix=${compactJson(plan.desktopE2eMatrix)}`);
   return `${lines.join('\n')}\n`;
