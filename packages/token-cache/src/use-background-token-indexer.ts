@@ -63,7 +63,7 @@ function isRecoverableWorkerFailure(error: Error, context: string): boolean {
 }
 
 function clearTimerRef(timerRef: TimerRef): void {
-  if (timerRef.current) {
+  if (timerRef.current !== null) {
     clearTimeout(timerRef.current);
     timerRef.current = null;
   }
@@ -528,7 +528,6 @@ export function useBackgroundTokenIndexer({
         pendingFilesDropped: pendingCount,
       });
 
-      clearTimerRef(restartTimerRef);
       restartTimerRef.current = setTimeout(() => {
         restartTimerRef.current = null;
         if (!isMountedRef.current) {
@@ -626,6 +625,7 @@ export function useBackgroundTokenIndexer({
             if (recoverableRestartCountRef.current > 0) {
               // Keep ready-crash loops on the same bounded restart budget until
               // the restarted worker has remained usable for a full stability window.
+              // Failures after that window are treated as independent transient failures.
               clearTimerRef(restartStabilityTimerRef);
               restartStabilityTimerRef.current = setTimeout(() => {
                 restartStabilityTimerRef.current = null;
