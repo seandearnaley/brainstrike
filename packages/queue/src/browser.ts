@@ -36,6 +36,8 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
 
   let loadedAdapter: QueueAdapter | null = null;
   let adapterPromise: Promise<QueueAdapter> | null = null;
+  let canceled = false;
+  let disposed = false;
   let paused = false;
   const listeners = new Map<ProgressListener, (() => void) | null>();
 
@@ -47,6 +49,12 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
   };
 
   const ensureAdapter = async (): Promise<QueueAdapter> => {
+    if (disposed) {
+      throw new Error('Adapter has been disposed');
+    }
+    if (canceled) {
+      throw new Error('Adapter has been canceled');
+    }
     if (loadedAdapter) {
       return loadedAdapter;
     }
@@ -98,11 +106,26 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
       return adapter.addBulk(tasks, addOptions);
     },
     async cancel() {
+      canceled = true;
       const adapter = await getBootstrappedAdapterOrNull();
       if (!adapter) {
         return;
       }
       await adapter.cancel();
+    },
+    async dispose() {
+      disposed = true;
+      const adapter = await getBootstrappedAdapterOrNull();
+      if (!adapter) {
+        return;
+      }
+      // Prefer the adapter's explicit dispose when present; older adapters
+      // without one fall back to cancel(), which has the same terminate semantics.
+      if (adapter.dispose) {
+        await adapter.dispose();
+      } else {
+        await adapter.cancel();
+      }
     },
     async drain() {
       const adapter = await getBootstrappedAdapterOrNull();

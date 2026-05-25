@@ -57,8 +57,21 @@ import type {
   DatabaseFileChunkSummary,
   DatabaseFileRecordSummary,
 } from '../use-database-demo-data';
+import { CollectionEmbeddingCoverageBanner } from './embedding-coverage-notice';
 
 const logger = createLogger('CollectionBrowserView');
+
+function SearchErrorBanner({ message }: { message: string | null }) {
+  if (!message) {
+    return null;
+  }
+  return (
+    <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
+      {message}
+    </div>
+  );
+}
+
 type NodeIdPrefix = Extract<CollectionNodeType, 'collection' | 'file' | 'chunk' | 'embedding'>;
 const NODE_ID_PREFIXES = [
   'collection',
@@ -104,6 +117,8 @@ function parseNodeId(nodeId: string): {
 export interface CollectionBrowserViewProps {
   /** Active collection ID */
   activeCollectionId: string | null;
+  /** Display name for embedding coverage notices */
+  activeCollectionName?: string;
   /** File chunks */
   chunks: DatabaseFileChunkSummary[];
   /** Height of the browser */
@@ -287,6 +302,7 @@ export function CollectionBrowserView({
   chunks,
   pendingChunkIds,
   activeCollectionId,
+  activeCollectionName,
   isLoading = false,
   height = 500,
   onFileSelect,
@@ -1080,12 +1096,12 @@ export function CollectionBrowserView({
         semanticQuery={semanticQuery}
       />
 
-      {/* Error message display */}
-      {searchError && (
-        <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
-          {searchError}
-        </div>
-      )}
+      <SearchErrorBanner message={searchError} />
+
+      <CollectionEmbeddingCoverageBanner
+        activeCollectionId={activeCollectionId}
+        {...(activeCollectionName ? { activeCollectionName } : {})}
+      />
 
       <CollectionBrowserToolbar
         filters={filters}

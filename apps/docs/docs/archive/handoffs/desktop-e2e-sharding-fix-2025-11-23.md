@@ -57,7 +57,7 @@ function createLaunchOptions(..., debugPort?: number) {
 1. **Run Local CI Verification:**
    Execute the local CI script to confirm the fix works in the `act` container environment:
    ```bash
-   pnpm ci:local -j desktop-e2e
+   pnpm test:e2e:desktop
    ```
    *Expected Result:* Both shards should launch Electron without colliding.
 
@@ -68,7 +68,6 @@ function createLaunchOptions(..., debugPort?: number) {
 - **Worker Fixture Scope:** In Playwright `scope: 'worker'` fixtures, the 3rd argument is `workerInfo` (type `WorkerInfo`), NOT `testInfo`.
 - **Shard Info Location:** `WorkerInfo` does not have a `shard` property directly. Shard info is located in `workerInfo.config.shard`.
 - **Port Isolation:** When debugging parallel process crashes, always suspect resource collisions (ports, user data dirs) first. Explicitly assigning resources based on worker/shard index is a robust fix.
-
 
 
 
