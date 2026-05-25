@@ -59,6 +59,10 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         }
       }
       if (e.key === 'Escape') {
+        // preventDefault marks the event so the panel's document-level
+        // collapse handler skips it. Lets us add custom text-input controls
+        // later without relying on a tagName check at the listener.
+        e.preventDefault();
         e.currentTarget.blur();
       }
     },
@@ -72,19 +76,14 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   const panelRef = React.useRef<HTMLElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
-  // useId() produces stable, collision-free ids so multiple SearchModeBar
-  // instances on the same page don't clash on aria-controls/aria-labelledby.
+  // useId-suffixed so multiple SearchModeBar instances don't collide.
   const reactId = React.useId();
   const triggerId = `hybrid-search-trigger-${reactId}`;
   const panelId = `hybrid-search-panel-${reactId}`;
 
-  // Escape inside the expanded panel collapses it. If focus is in the query
-  // input, the input's own Escape handler (blur) runs first and we leave the
-  // panel alone so the user doesn't lose their typed query with their focus.
-  // Using a document-level listener keeps the panel element itself free of
-  // event handlers, satisfying a11y lint rules around non-interactive nodes.
-  // After collapse, focus returns to the trigger button so keyboard users
-  // aren't dropped onto <body> when their focused control disappears.
+  // Escape collapses the panel and restores focus to the trigger. The query
+  // input preventDefaults its own Escape (blur first) so defaultPrevented is
+  // the primary gate; the tagName check is defense-in-depth.
   React.useEffect(() => {
     if (!isSearchExpanded) {
       return;
@@ -118,11 +117,9 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
   return (
     <div className={cn('bg-background', className)}>
-      {/* Live region lives OUTSIDE the trigger button. Live-region semantics
-          on descendants of an interactive control are unreliable across
-          screen readers (button descendants are exposed as presentational),
-          so we keep this as a visually-hidden sibling that announces
-          independently. */}
+      {/* Live region outside the trigger — button descendants are
+          presentational in screen readers, so nested live regions
+          announce unreliably. */}
       {resultLabel ? (
         <span aria-live="polite" className="sr-only" role="status">
           {resultLabel}
@@ -160,10 +157,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       </Button>
 
       {isSearchExpanded && (
-        // <section> + aria-labelledby promotes the panel to a landmark named
-        // by its trigger, giving screen reader users a navigable region.
-        // Escape-to-collapse is wired up via a document-level keydown listener
-        // (see effect above) so the panel itself stays free of event handlers.
+        // <section> + aria-labelledby = a landmark named by its trigger.
+        // Escape handling lives in the document-level effect above.
         <section
           aria-labelledby={triggerId}
           className="overflow-hidden"
