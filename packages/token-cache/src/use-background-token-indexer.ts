@@ -50,13 +50,6 @@ function isTerminalTokenizerError(errorMessage: string): boolean {
   return TERMINAL_TOKENIZER_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-function isRecoverableWorkerMessageContext(context: string): boolean {
-  if (!context.startsWith('worker.message.')) {
-    return false;
-  }
-  return context !== 'worker.message.__init__' && context !== 'worker.message.__batch__';
-}
-
 function isRecoverableWorkerFailure(error: Error, context: string): boolean {
   if (isTerminalTokenizerError(error.message)) {
     return false;
@@ -65,8 +58,7 @@ function isRecoverableWorkerFailure(error: Error, context: string): boolean {
     context === 'ready-timeout' ||
     context === 'worker.onerror' ||
     context === 'worker.addEventListener(error)' ||
-    context === 'worker.onmessageerror' ||
-    isRecoverableWorkerMessageContext(context)
+    context === 'worker.onmessageerror'
   );
 }
 
@@ -450,6 +442,7 @@ export function useBackgroundTokenIndexer({
     runtime?.resetReady();
     runtime?.clearFailure();
     runtime?.dispose();
+    clearTimerRef(restartTimerRef);
     clearTimerRef(readinessTimerRef);
     clearTimerRef(restartStabilityTimerRef);
     if (worker) {
@@ -749,6 +742,8 @@ export function useBackgroundTokenIndexer({
     }
   }, [failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
   useEffect(() => {
+    // Restart timers need the latest startup callback without making the
+    // restart scheduler depend directly on ensureWorkerReady.
     ensureWorkerReadyRef.current = ensureWorkerReady;
     return () => {
       if (ensureWorkerReadyRef.current === ensureWorkerReady) {
