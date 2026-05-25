@@ -169,8 +169,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   }) => (
     <div data-testid="search-mode-bar">
       <button
+        // Match production's dynamic aria-label (4e65c86b4 BST-519 a11y polish).
+        // Without this, downstream tests pass against the mock instead of
+        // verifying the real component's behavior.
         aria-expanded={isSearchExpanded ? 'true' : 'false'}
-        aria-label="Hybrid search"
+        aria-label={isSearchExpanded ? 'Collapse hybrid search' : 'Expand hybrid search'}
         onClick={() => onSearchExpandedChange?.(!isSearchExpanded)}
         type="button"
       >
@@ -412,7 +415,7 @@ describe('CollectionBrowserView', () => {
 
     expect(screen.queryByTestId('search-config-panel')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Hybrid search' }));
+    await user.click(screen.getByRole('button', { name: /^expand hybrid search$/i }));
 
     expect(screen.getByTestId('search-mode-bar')).toContainElement(
       screen.getByTestId('search-config-panel')
@@ -440,7 +443,7 @@ describe('CollectionBrowserView', () => {
       <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
     );
 
-    expect(screen.getByRole('button', { name: 'Hybrid search' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^expand hybrid search$/i })).toBeInTheDocument();
     expect(screen.getByTestId('search-mode-bar')).toBeInTheDocument();
   });
 
