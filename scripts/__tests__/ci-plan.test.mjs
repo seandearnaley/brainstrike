@@ -151,3 +151,12 @@ test('parsePlanArgs accepts explicit file lists for deterministic fixture tests'
     head: 'HEAD',
   });
 });
+
+test('parsePlanArgs maps github output flag to the writer option', () => {
+  assert.deepEqual(parsePlanArgs(['--github-output', '/tmp/github-output']), {
+    base: 'origin/main',
+    eventName: 'pull_request',
+    githubOutput: '/tmp/github-output',
+    head: 'HEAD',
+  });
+});

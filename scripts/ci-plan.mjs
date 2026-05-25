@@ -309,6 +309,8 @@ function parseFlag(args, index, seen, options) {
     options.eventName = value;
   } else if (flag === '--files') {
     options.files = parseFiles(value);
+  } else if (flag === '--github-output') {
+    options.githubOutput = value;
   } else {
     options[flag.slice(2)] = value;
   }

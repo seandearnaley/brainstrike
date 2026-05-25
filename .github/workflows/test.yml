@@ -116,6 +116,9 @@ jobs:
       - name: Summarize CI plan
         run: |
           node <<'NODE'
+          if (!process.env.CI_PLAN_JSON) {
+            throw new Error('CI Plan step did not publish plan-json output; check ci-plan --github-output handling.');
+          }
           const plan = JSON.parse(process.env.CI_PLAN_JSON);
           console.log(JSON.stringify(plan, null, 2));
           const lines = [
