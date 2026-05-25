@@ -167,6 +167,9 @@ jobs:
     needs: coverage
     if: failure() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    # gh issue create / comment are sub-second under normal conditions; cap at
+    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
+    timeout-minutes: 5
     permissions:
       issues: write
       contents: read
