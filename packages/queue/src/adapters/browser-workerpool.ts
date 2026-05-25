@@ -57,7 +57,9 @@ function deviceAwareDefaultMaxWorkers(
   hardwareConcurrency: number,
   deviceHint: WorkerpoolAdapterOptions['defaultDeviceHint']
 ): number {
-  if ((deviceHint ?? (hasWebGPUSupport() ? 'webgpu' : 'wasm')) === 'webgpu' && hasWebGPUSupport()) {
+  const hasWebGpu = hasWebGPUSupport();
+  const effectiveDeviceHint = deviceHint ?? (hasWebGpu ? 'webgpu' : 'wasm');
+  if (effectiveDeviceHint === 'webgpu' && hasWebGpu) {
     return 1;
   }
   return Math.max(1, Math.min(hardwareConcurrency - 1, DEFAULT_CPU_WORKERS_CAP));
@@ -128,7 +130,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   const pool: Pool = workerpool.pool(workerScript, poolOptions);
 
   let paused = false;
-  let canceled = false;
+  let terminalState: 'active' | 'canceled' | 'disposed' = 'active';
   const resumeWaiters: Array<() => void> = [];
   const cancelWaiters: Array<() => void> = [];
   const emitter = new ProgressEmitter<WorkerEvent>();
@@ -297,17 +299,40 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     return stats ? { pendingTasks: stats.pendingTasks } : undefined;
   };
 
+  const assertAcceptingWork = (): void => {
+    if (terminalState === 'canceled') {
+      throw new Error('Adapter has been canceled');
+    }
+    if (terminalState === 'disposed') {
+      throw new Error('Adapter has been disposed');
+    }
+  };
+
+  const terminateInternal = async (nextState: 'canceled' | 'disposed'): Promise<void> => {
+    if (terminalState !== 'active') {
+      return;
+    }
+    terminalState = nextState;
+    paused = true;
+    logger.debug(`Workerpool adapter ${nextState === 'canceled' ? 'canceling' : 'disposing'}`, {
+      activeTasks,
+    });
+    await pool.terminate(true);
+    if (activeTasks > 0) {
+      await new Promise<void>((resolve) => {
+        cancelWaiters.push(resolve);
+      });
+    }
+    logger.debug(`Workerpool adapter ${nextState}`);
+  };
+
   return {
     async add(task, opts) {
-      if (canceled) {
-        throw new Error('Adapter has been canceled');
-      }
+      assertAcceptingWork();
       return execute(task, opts);
     },
     async addBulk(tasks, opts) {
-      if (canceled) {
-        throw new Error('Adapter has been canceled');
-      }
+      assertAcceptingWork();
       const promises = tasks.map((task) => execute(task, opts));
       return Promise.all(promises);
     },
@@ -330,42 +355,10 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       }
     },
     async cancel() {
-      if (canceled) {
-        return;
-      }
-      canceled = true;
-      paused = true; // Prevent new tasks
-      logger.debug('Workerpool adapter canceling', { activeTasks });
-
-      // Terminate the pool (cancels pending and running tasks)
-      await pool.terminate(true);
-
-      // Wait for active tasks to complete their cleanup
-      if (activeTasks > 0) {
-        await new Promise<void>((resolve) => {
-          cancelWaiters.push(resolve);
-        });
-      }
-
-      logger.debug('Workerpool adapter canceled');
+      await terminateInternal('canceled');
     },
     async dispose() {
-      // dispose() and cancel() share termination semantics — the canceled
-      // flag (and its associated terminate-once guard) keeps dispose
-      // idempotent without a separate code path.
-      if (canceled) {
-        return;
-      }
-      canceled = true;
-      paused = true;
-      logger.debug('Workerpool adapter disposing', { activeTasks });
-      await pool.terminate(true);
-      if (activeTasks > 0) {
-        await new Promise<void>((resolve) => {
-          cancelWaiters.push(resolve);
-        });
-      }
-      logger.debug('Workerpool adapter disposed');
+      await terminateInternal('disposed');
     },
     async drain() {
       if (activeTasks === 0) {
