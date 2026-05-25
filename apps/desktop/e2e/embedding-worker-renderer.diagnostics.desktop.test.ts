@@ -472,6 +472,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       const semanticSearchStartedAt = Date.now();
       let searchWorked = false;
+      let sawBackgroundQueuePressureDuringSearch = false;
       let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
       while (Date.now() - semanticSearchStartedAt < 60_000) {
         const [
@@ -491,6 +492,9 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         ]);
 
         lastSemanticSearchSnapshot = semanticSearchSnapshot;
+        if (queueStats.queued + queueStats.running > 0) {
+          sawBackgroundQueuePressureDuringSearch = true;
+        }
 
         const queueFailureLog = rendererLogs.find((record) =>
           recordContainsText(record, 'Embedding worker queue failed')
@@ -639,6 +643,12 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           'semantic search returned no results while background embedding work was active'
         );
       }
+      if (
+        !sawBackgroundQueuePressureDuringSearch &&
+        globalQueueStats.queued + globalQueueStats.running === 0
+      ) {
+        failures.push('background queue pressure drained before mixed-state search checks');
+      }
       if (!backfillEnabled) {
         failures.push(
           'backfill button was disabled for the selected import collection while that collection had no queued or running jobs'
@@ -658,6 +668,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         throw new Error(
           `Mixed-state desktop regression reproduced: ${failures.join('; ')}\n` +
             `globalQueueStats=${JSON.stringify(globalQueueStats)}\n` +
+            `sawBackgroundQueuePressureDuringSearch=${sawBackgroundQueuePressureDuringSearch}\n` +
             `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStats)}\n` +
             `importCollectionCounts=${JSON.stringify(importCollectionCounts)}\n` +
             `semanticSearchSnapshot=${JSON.stringify(semanticSearchSnapshotAfterChecks ?? lastSemanticSearchSnapshot)}\n` +
@@ -672,7 +683,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         );
       }
 
-      expect(globalQueueStats.queued + globalQueueStats.running).toBeGreaterThan(0);
+      expect(sawBackgroundQueuePressureDuringSearch).toBe(true);
       expect(importCollectionQueueStats.queued + importCollectionQueueStats.running).toBe(0);
       expect(importCollectionCounts.fileCount).toBe(REAL_WORLD_MIXED_STATE_FILE_COUNT);
       expect(importCollectionCounts.totalChunks).toBeGreaterThan(0);

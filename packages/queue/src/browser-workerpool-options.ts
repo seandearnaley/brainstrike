@@ -1,4 +1,7 @@
+import type { EmbeddingDeviceHint } from './types';
+
 export interface WorkerpoolAdapterOptions {
+  readonly defaultDeviceHint?: EmbeddingDeviceHint;
   readonly maxQueueSize?: number;
   readonly maxWorkers?: number;
   /**
