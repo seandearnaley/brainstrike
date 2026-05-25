@@ -117,11 +117,16 @@ jobs:
       # `turbo run test --affected`. `!./` excludes the root workspace
       # (which would otherwise run its root-level `test` script that
       # delegates back to turbo over every workspace, defeating the scoping).
+      # --if-present skips packages that don't define a `test` script (e.g.
+      # apps/docs). Turbo silently skipped them via its task graph; pnpm
+      # errors without this flag. Per https://pnpm.io/cli/run:
+      # "Use the --if-present flag to avoid exiting with a non-zero exit
+      # code when the script is undefined."
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" run test
+        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" run --if-present test
 
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
@@ -181,7 +186,9 @@ jobs:
           COVERAGE: "true"
           NODE_ENV: test
           BASE_REF: ${{ github.base_ref }}
-        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" run test:coverage
+        # --if-present skips packages that don't define `test:coverage`.
+        # See the Unit step comment above for the rationale.
+        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" run --if-present test:coverage
 
       - name: Prepare coverage workspace
         id: coverage
