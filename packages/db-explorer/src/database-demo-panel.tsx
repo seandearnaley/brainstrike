@@ -193,6 +193,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
+  const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
+  const activeCollectionName = useMemo(() => {
+    if (!activeCollectionId) {
+      return;
+    }
+    const match = cachedCollections.find((collection) => collection.id === activeCollectionId);
+    return match?.name ?? match?.modelKey ?? undefined;
+  }, [activeCollectionId, cachedCollections]);
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
@@ -702,6 +710,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               <DatabaseDemoSemanticSearchTestHookBridge />
               <CollectionBrowserView
                 activeCollectionId={activeCollectionId}
+                {...(activeCollectionName ? { activeCollectionName } : {})}
                 chunks={chunks}
                 height="100%"
                 isLoading={refreshing}

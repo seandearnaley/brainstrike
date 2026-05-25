@@ -13,6 +13,7 @@ import {
   type ContextPackerResult,
   type PackedContextChunk,
 } from '../context-packer';
+import { formatRetrievalCoverageNote } from '../retrieval-coverage-summary';
 import type { RuntimeData } from '../types';
 import type { RetrievalContextInput } from './schemas';
 import { RetrievalContextInputSchema } from './schemas';
@@ -360,6 +361,45 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
     .join('\n\n---\n\n');
 }
 
+function buildAffectedFilePaths(
+  skippedSourceRangeChunks: readonly SkippedSourceRangeChunk[],
+  fileMap: Map<string, FileRecordInfo>
+): Map<string, string> {
+  const paths = new Map<string, string>();
+  for (const chunk of skippedSourceRangeChunks) {
+    if (paths.has(chunk.fileRecordId)) {
+      continue;
+    }
+    const fileInfo = fileMap.get(chunk.fileRecordId);
+    const label = fileInfo?.path ?? fileInfo?.name;
+    if (label) {
+      paths.set(chunk.fileRecordId, label);
+    }
+  }
+  return paths;
+}
+
+function buildContextWithCoverageNote(
+  contextText: string,
+  packed: ContextPackerResult,
+  skippedSourceRangeChunks: readonly SkippedSourceRangeChunk[],
+  fileMap: Map<string, FileRecordInfo>
+): string {
+  const coverageNote = formatRetrievalCoverageNote({
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    skippedSourceRangeChunks,
+    skippedForTokenBudget: packed.skipped,
+    affectedFilePaths: buildAffectedFilePaths(skippedSourceRangeChunks, fileMap),
+  });
+  if (!coverageNote) {
+    return contextText;
+  }
+  if (!contextText) {
+    return coverageNote;
+  }
+  return `${coverageNote}\n\n---\n\n${contextText}`;
+}
+
 function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResultChunk[] {
   return chunks.map((chunk) => ({
     id: chunk.id,
@@ -465,8 +505,13 @@ async function runRetrieval(
   const packer = new ContextPacker(packerOptions);
   const packed: ContextPackerResult = packer.pack(chunkInputs);
 
-  // Format context for display
-  const contextText = formatContext(packed.chunks);
+  // Format context for display, with a concise coverage note when results were truncated
+  const contextText = buildContextWithCoverageNote(
+    formatContext(packed.chunks),
+    packed,
+    skippedSourceRangeChunks,
+    fileMap
+  );
 
   deps.logger?.debug('Context packed', {
     totalTokens: packed.totalTokens,
