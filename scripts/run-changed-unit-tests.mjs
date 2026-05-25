@@ -31,13 +31,58 @@ export function isUnitTestFile(filePath) {
   );
 }
 
+function isWorkspaceUnitRelevantFile(filePath) {
+  const normalized = normalizePath(filePath);
+  if (!/^(apps|packages)\//.test(normalized) || normalized.includes('/e2e/')) {
+    return false;
+  }
+  const parts = normalized.split('/');
+  if (parts.length < 3) {
+    return false;
+  }
+  const relativePath = parts.slice(2).join('/');
+  if (
+    relativePath.startsWith('coverage/') ||
+    relativePath.startsWith('dist/') ||
+    relativePath.startsWith('docs/')
+  ) {
+    return false;
+  }
+  return !/\.(html|md|mdx|txt)$/.test(relativePath);
+}
+
 async function defaultRunner(command, args, options = {}) {
   const { stderr, stdout } = await execFileAsync(command, args, {
     cwd: options.cwd,
     encoding: 'utf8',
+    env: options.env ? { ...process.env, ...options.env } : process.env,
     maxBuffer: 1024 * 1024 * 50,
   });
   return `${stdout}${stderr}`;
+}
+
+function unitTestEnv() {
+  return {
+    CI: 'false',
+    COVERAGE: 'false',
+    TURBO_TEST_MODE: 'unit',
+  };
+}
+
+function buildDependencyArgs(commands) {
+  const filters = [
+    ...new Set(commands.map((command) => `${command.owner}^...`)),
+  ].sort((left, right) => left.localeCompare(right));
+  return [
+    'turbo',
+    'run',
+    'build',
+    ...filters.flatMap((filter) => ['--filter', filter]),
+    '--concurrency=16',
+    '--summarize',
+    '--log-order=grouped',
+    '--cache-dir=.turbo',
+  ];
 }
 
 async function readJson(filePath) {
@@ -85,7 +130,15 @@ export async function planChangedUnitTests(files, options = {}) {
   )) {
     const workspace = await resolveWorkspace(rootDir, workspaceRoot);
     commands.push({
-      args: ['--filter', workspace.name, 'exec', 'vitest', 'run', ...relativeFiles.sort()],
+      args: [
+        '--filter',
+        workspace.name,
+        'exec',
+        'vitest',
+        'run',
+        '--coverage.enabled=false',
+        ...relativeFiles.sort(),
+      ],
       command: 'pnpm',
       files: [...relativeFiles].sort(),
       owner: workspace.name,
@@ -93,6 +146,42 @@ export async function planChangedUnitTests(files, options = {}) {
     });
   }
   return commands;
+}
+
+export async function planChangedWorkspaceUnitTests(files, options = {}) {
+  const rootDir = options.cwd ?? process.cwd();
+  const normalizedFiles = files.map((filePath) => normalizePath(filePath));
+  const changedTestCommands = await planChangedUnitTests(normalizedFiles, options);
+  const fullTestWorkspaces = new Set();
+
+  for (const filePath of normalizedFiles) {
+    if (!isWorkspaceUnitRelevantFile(filePath) || isUnitTestFile(filePath)) {
+      continue;
+    }
+    const workspaceRoot = workspaceRootForFile(filePath);
+    fullTestWorkspaces.add(workspaceRoot);
+  }
+
+  const fullTestCommands = [];
+  for (const workspaceRoot of [...fullTestWorkspaces].sort((left, right) =>
+    left.localeCompare(right)
+  )) {
+    const workspace = await resolveWorkspace(rootDir, workspaceRoot);
+    fullTestCommands.push({
+      args: ['--filter', workspace.name, 'test'],
+      command: 'pnpm',
+      files: [],
+      owner: workspace.name,
+      workspaceRoot,
+    });
+  }
+
+  const testOnlyCommands = changedTestCommands.filter(
+    (command) => !fullTestWorkspaces.has(command.workspaceRoot)
+  );
+  return [...testOnlyCommands, ...fullTestCommands].sort((left, right) =>
+    left.workspaceRoot.localeCompare(right.workspaceRoot)
+  );
 }
 
 function readFlagValue(args, name) {
@@ -111,10 +200,11 @@ export function parseChangedUnitTestArgs(args = process.argv.slice(2)) {
   const base = readFlagValue(args, '--base');
   const head = readFlagValue(args, '--head') ?? 'HEAD';
   const dryRun = args.includes('--dry-run');
+  const changedWorkspaces = args.includes('--changed-workspaces');
   if (!base) {
     throw new Error('--base is required');
   }
-  return { base, dryRun, head };
+  return { base, changedWorkspaces, dryRun, head };
 }
 
 async function changedFiles({ base, head, runner }) {
@@ -132,7 +222,9 @@ async function changedFiles({ base, head, runner }) {
 export async function runChangedUnitTests(options) {
   const runner = options.runner ?? defaultRunner;
   const files = options.files ?? (await changedFiles({ ...options, runner }));
-  const commands = await planChangedUnitTests(files, { cwd: options.cwd });
+  const commands = options.changedWorkspaces
+    ? await planChangedWorkspaceUnitTests(files, { cwd: options.cwd })
+    : await planChangedUnitTests(files, { cwd: options.cwd });
   if (commands.length === 0) {
     console.log('No changed unit test files selected.');
     return 0;
@@ -141,9 +233,15 @@ export async function runChangedUnitTests(options) {
     console.log(JSON.stringify({ commands }, null, 2));
     return 0;
   }
+  console.log('Building internal dependencies for selected unit workspaces.');
+  await runner('pnpm', buildDependencyArgs(commands), {
+    cwd: options.cwd,
+    env: unitTestEnv(),
+  });
   for (const command of commands) {
-    console.log(`Running ${command.owner}: ${command.files.join(', ')}`);
-    await runner(command.command, command.args, { cwd: options.cwd });
+    const target = command.files.length > 0 ? command.files.join(', ') : 'workspace test';
+    console.log(`Running ${command.owner}: ${target}`);
+    await runner(command.command, command.args, { cwd: options.cwd, env: unitTestEnv() });
   }
   return 0;
 }
