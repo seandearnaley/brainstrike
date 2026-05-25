@@ -435,6 +435,15 @@ describe('CollectionBrowserView', () => {
     );
   });
 
+  it('keeps hybrid search discoverable when no collection is selected', () => {
+    render(
+      <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Hybrid search' })).toBeInTheDocument();
+    expect(screen.getByTestId('search-mode-bar')).toBeInTheDocument();
+  });
+
   it('prioritizes the no-collection empty state over stale semantic search state', () => {
     semanticSearchMock.state = {
       error: null,
