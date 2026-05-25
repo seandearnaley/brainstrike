@@ -512,8 +512,8 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         // Trigger button's aria-label is dynamic — "Expand hybrid search" /
-        // "Collapse hybrid search" (a11y polish in 4e65c86b4) — so match by
-        // a case-insensitive regex covering both expanded and collapsed states.
+        // "Collapse hybrid search" — so match by a case-insensitive regex
+        // covering both expanded and collapsed states.
         expect(screen.getByRole('button', { name: /hybrid search/i })).toBeInTheDocument();
       });
 

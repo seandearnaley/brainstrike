@@ -243,6 +243,10 @@ describe('SearchConfigPanel', () => {
   it('does not animate the advanced options visibility toggle', () => {
     renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
+    // Regression guard: jsdom can't observe visual behavior, so we assert the
+    // absence of the previously-applied transition classes that the `hidden`
+    // attribute would conflict with. If transitions are reintroduced, pair
+    // them with coordinated JS that defers `hidden` until transition end.
     const content = document.getElementById('search-config-content');
     expect(content).not.toHaveClass('transition-all');
     expect(content).not.toHaveClass('duration-200');

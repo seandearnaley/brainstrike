@@ -156,67 +156,66 @@ export const SearchModeBar = React.memo(function SearchModeBar({
           )}
         </span>
       </Button>
-      {isSearchExpanded && (
-        // <section> + aria-labelledby = a landmark named by its trigger.
-        // Escape handling lives in the document-level effect above.
-        <section
-          aria-labelledby={triggerId}
-          className="overflow-hidden"
-          data-testid="hybrid-search-panel"
-          id={panelId}
-          ref={panelRef}
-        >
-          <div className="space-y-2 px-3 pb-3">
-            <p className="text-muted-foreground text-xs">
-              Ask in natural language, then tune hybrid search when exact terms should carry more or
-              less weight.
-            </p>
+      {/* Always rendered (with `hidden` when collapsed) so the trigger's
+          aria-controls={panelId} always references a real element. */}
+      <section
+        aria-labelledby={triggerId}
+        className="overflow-hidden"
+        data-testid="hybrid-search-panel"
+        hidden={!isSearchExpanded}
+        id={panelId}
+        ref={panelRef}
+      >
+        <div className="space-y-2 px-3 pb-3">
+          <p className="text-muted-foreground text-xs">
+            Ask in natural language, then tune hybrid search when exact terms should carry more or
+            less weight.
+          </p>
 
-            <div data-testid="hybrid-search-controls">
-              <div className="flex min-w-0 items-stretch" data-testid="hybrid-search-input-group">
-                <div className="relative min-w-0 flex-1">
-                  <Input
-                    aria-label="Hybrid search query"
-                    className="h-9 rounded-r-none border-r-0 pr-8 text-xs"
-                    disabled={isSearching}
-                    maxLength={10_000}
-                    onChange={handleSemanticInputChange}
-                    onKeyDown={handleSemanticKeyDown}
-                    placeholder="Describe what you want to find... (Cmd+Enter)"
-                    value={semanticQuery}
-                  />
-                  {semanticQuery && !isSearching && (
-                    <Button
-                      aria-label="Clear query"
-                      className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
-                      onClick={handleClearSemanticQuery}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-                <Button
-                  className="h-9 shrink-0 rounded-l-none px-2.5"
-                  disabled={isSearching || !semanticQuery.trim()}
-                  onClick={onSemanticSearch}
-                  size="sm"
-                >
-                  {isSearching ? (
-                    <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  <span>Query</span>
-                </Button>
+          <div data-testid="hybrid-search-controls">
+            <div className="flex min-w-0 items-stretch" data-testid="hybrid-search-input-group">
+              <div className="relative min-w-0 flex-1">
+                <Input
+                  aria-label="Hybrid search query"
+                  className="h-9 rounded-r-none border-r-0 pr-8 text-xs"
+                  disabled={isSearching}
+                  maxLength={10_000}
+                  onChange={handleSemanticInputChange}
+                  onKeyDown={handleSemanticKeyDown}
+                  placeholder="Describe what you want to find... (Cmd+Enter)"
+                  value={semanticQuery}
+                />
+                {semanticQuery && !isSearching && (
+                  <Button
+                    aria-label="Clear query"
+                    className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
+                    onClick={handleClearSemanticQuery}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
+              <Button
+                className="h-9 shrink-0 rounded-l-none px-2.5"
+                disabled={isSearching || !semanticQuery.trim()}
+                onClick={onSemanticSearch}
+                size="sm"
+              >
+                {isSearching ? (
+                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                <span>Query</span>
+              </Button>
             </div>
-
-            {advancedOptions}
           </div>
-        </section>
-      )}
+
+          {advancedOptions}
+        </div>
+      </section>
     </div>
   );
 });

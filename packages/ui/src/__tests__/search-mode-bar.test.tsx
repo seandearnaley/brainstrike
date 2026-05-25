@@ -86,13 +86,15 @@ describe('SearchModeBar', () => {
     expect(panel.id).toBe(controlsId);
   });
 
-  it('unmounts the hybrid-search-panel when collapsed; aria-expanded carries the state', () => {
+  it('keeps the hybrid-search-panel in the DOM with hidden when collapsed so aria-controls stays valid', () => {
     render(<SearchModeBar {...createProps({ isSearchExpanded: false })} />);
 
     const trigger = screen.getByRole('button', { name: /expand hybrid search/i });
+    const panel = screen.getByTestId('hybrid-search-panel');
 
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByTestId('hybrid-search-panel')).not.toBeInTheDocument();
+    expect(panel).not.toBeVisible();
+    expect(panel.id).toBe(trigger.getAttribute('aria-controls'));
   });
 
   it('disables Loader2 spin animation under reduced motion', () => {
