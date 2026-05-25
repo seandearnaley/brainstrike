@@ -19,6 +19,7 @@ const {
   getNodeMock,
   setExpandedPathsMock,
   storeMock,
+  useExpandSelectedFileParentDirectoriesMock,
   useExpandedPathRestorationMock,
   useFileTreeMock,
 } = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ const {
   getNodeMock: vi.fn(),
   setExpandedPathsMock: vi.fn(),
   storeMock: vi.fn(),
+  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useExpandedPathRestorationMock: vi.fn(),
   useFileTreeMock: vi.fn(),
 }));
@@ -48,6 +50,7 @@ vi.mock('../shell/file-explorer-provider', () => ({
 
 vi.mock('../use-expanded-path-restoration', () => ({
   useExpandedPathRestoration: useExpandedPathRestorationMock,
+  useExpandSelectedFileParentDirectories: useExpandSelectedFileParentDirectoriesMock,
 }));
 
 vi.mock('../tree/use-file-tree-context', () => ({
@@ -157,7 +160,7 @@ describe('FileTreeProvider', () => {
       fileTree: [],
       isTreeLoading: false,
       loadSpecificPaths: expect.any(Function),
-      restorationKey: 'selection:0',
+      restorationKey: '/workspace',
       setExpandedPaths: setExpandedPathsMock,
       store: storeMock,
     });

@@ -58,9 +58,7 @@ describe('useSelectionManager', () => {
       selectedFilePaths: new Set(['file1.ts']),
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
-
-    const onSelectionLimitExceeded = vi.fn();
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.selectedFilesList).toEqual(['file1.ts']);
 
@@ -77,7 +75,7 @@ describe('useSelectionManager', () => {
     const { store } = createMockStore({ selectedFilePaths });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.effectiveSelection).toBe(selectedFilePaths);
     expect(result.current.isRulesMode).toBe(false);
@@ -97,7 +95,7 @@ describe('useSelectionManager', () => {
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.isRulesMode).toBe(true);
     expect(result.current.effectiveSelection.size).toBe(2);
@@ -121,7 +119,7 @@ describe('useSelectionManager', () => {
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.effectiveSelection).toBe(selectedFilePaths);
   });
@@ -142,7 +140,7 @@ describe('useSelectionManager', () => {
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.effectiveSelection).toBe(selectedFilePaths);
   });
@@ -184,7 +182,7 @@ describe('useSelectionManager', () => {
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.isQueryMode).toBe(true);
     expect(result.current.selectedCount).toBe(2);
@@ -226,7 +224,7 @@ describe('useSelectionManager', () => {
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+    const { result } = renderHook(() => useSelectionManager());
 
     expect(result.current.isQueryMode).toBe(true);
     expect(result.current.selectedCount).toBe(600);

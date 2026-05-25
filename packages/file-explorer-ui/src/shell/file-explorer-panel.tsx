@@ -281,9 +281,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     (s) => s.addMultipleSelectedFilesChunked
   );
   const { selectedCount, selectedFilePaths, selectedFilesList, setSelectedFilesFromList } =
-    useSelectionManager({
-      onSelectionLimitExceeded: handleSelectionLimitError,
-    });
+    useSelectionManager();
 
   // Wrapper for recursive folder selection that binds store actions
   // This allows FileExplorerSidebar to call with just the node

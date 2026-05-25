@@ -32,25 +32,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
@@ -81,9 +70,13 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      # dbus-run-session provides an ephemeral D-Bus session bus so
+      # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
+      # Failed to connect to the bus` for every process. dbus-run-session
+      # is provided by the `dbus` package (pre-installed on ubuntu-latest).
       - name: Run full desktop regression
         working-directory: apps/desktop
-        run: pnpm run test:e2e:lane:full-regression
+        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression
 
       - name: Upload desktop traces
         if: failure()
@@ -103,25 +96,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          cache: 'pnpm'
 
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
@@ -152,11 +134,13 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      # dbus-run-session wraps Electron so Chromium's D-Bus connect attempts
+      # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
       - name: Run desktop embedding regression
         working-directory: apps/desktop
         run: |
           unset NO_COLOR
-          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn pnpm exec xvfb-maybe pnpm exec playwright test \
+          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
             e2e/embedding-worker-renderer.smoke.desktop.test.ts \
             e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
             e2e/embedding-worker-renderer.memory.desktop.test.ts \
