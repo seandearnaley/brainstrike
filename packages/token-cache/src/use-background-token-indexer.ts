@@ -535,6 +535,7 @@ export function useBackgroundTokenIndexer({
         if (!isMountedRef.current) {
           return;
         }
+        workerFailureHandledRef.current = false;
         void ensureWorkerReadyRef.current?.().catch((restartError: unknown) => {
           logger.warn('Background token indexer restart attempt failed', {
             error: formatErrorMessage(restartError),
@@ -573,6 +574,8 @@ export function useBackgroundTokenIndexer({
         worker = createWorkerInstance(workerUrl);
       } catch (error) {
         const normalizedError = error instanceof Error ? error : new Error(String(error));
+        // Worker constructor failures are treated as deterministic terminal failures.
+        // The restart scheduler is still checked first to preserve duplicate-signal latching.
         if (!scheduleRecoverableWorkerRestart(normalizedError, 'createWorkerInstance')) {
           failWorker(normalizedError, 'createWorkerInstance');
         }
@@ -751,6 +754,7 @@ export function useBackgroundTokenIndexer({
       logger.debug('Terminating worker');
       clearRestartTimer();
       workerFailureHandledRef.current = false;
+      workerErrorLoggedRef.current = false;
       terminalWorkerFailureRef.current = null;
       recoverableRestartCountRef.current = 0;
       rejectAllPendingBatchTrackers(

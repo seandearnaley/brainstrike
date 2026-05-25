@@ -456,6 +456,52 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
+  it('surfaces a terminal worker error when a recoverable restart cannot create a new worker', async () => {
+    class RestartThrowingWorker extends MockWorker {
+      constructor(url: string | URL, opts?: WorkerOptions) {
+        if (mockWorkers.length > 0) {
+          throw new Error('restart constructor failed');
+        }
+        super(url, opts);
+      }
+    }
+
+    vi.stubGlobal('Worker', RestartThrowingWorker as unknown as typeof Worker);
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await waitFor(() => expect(mockWorkers).toHaveLength(1));
+
+    await act(async () => {
+      mockWorkers[0]!.onerror?.(
+        new ErrorEvent('error', {
+          message: 'runtime boom',
+          filename: 'background-indexer.worker.js',
+        })
+      );
+    });
+
+    expect(onFileError).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    await waitFor(() =>
+      expect(onFileError).toHaveBeenCalledWith(
+        '__worker__',
+        expect.stringContaining('(createWorkerInstance): restart constructor failed')
+      )
+    );
+  });
+
   it('routes worker error events through the recoverable restart path', async () => {
     const onFileError = vi.fn();
 
@@ -707,6 +753,35 @@ describe('useBackgroundTokenIndexer', () => {
         errorMessage: expect.stringContaining('(createWorkerInstance): worker constructor failed'),
       })
     );
+  });
+
+  it('resets the worker error log latch when the worker lifecycle is cleaned up', async () => {
+    class ThrowingWorker {
+      constructor() {
+        throw new Error('worker constructor failed');
+      }
+    }
+
+    vi.stubGlobal('Worker', ThrowingWorker as unknown as typeof Worker);
+    const onFileError = vi.fn();
+
+    const { rerender } = renderHook(
+      ({ autoStart }: { autoStart: boolean }) =>
+        useBackgroundTokenIndexer({
+          autoStart,
+          store: null,
+          mode: 'accurate',
+          onFileError,
+        }),
+      { initialProps: { autoStart: true } }
+    );
+
+    await waitFor(() => expect(mockLogger.error).toHaveBeenCalledTimes(1));
+
+    rerender({ autoStart: false });
+    rerender({ autoStart: true });
+
+    await waitFor(() => expect(mockLogger.error).toHaveBeenCalledTimes(2));
   });
 
   it('does not duplicate terminal telemetry when worker creation fails during indexFiles', async () => {
