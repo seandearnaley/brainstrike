@@ -190,7 +190,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: >
           pnpm turbo run test:coverage
-          --filter="...[origin/${BASE_REF}]"
+          --filter="[origin/${BASE_REF}]"
           --concurrency=4
           --summarize
           --log-order=grouped
