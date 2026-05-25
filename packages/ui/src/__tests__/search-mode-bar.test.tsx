@@ -289,6 +289,12 @@ describe('SearchModeBar', () => {
       const loader = container.querySelector(
         '.lucide-loader-circle, .lucide-loader2, .lucide-loader-2'
       );
+      // Named assertion so a future lucide rename surfaces "expected one of …"
+      // instead of a confusing "received null".
+      expect(
+        loader,
+        'Expected one of: .lucide-loader-circle, .lucide-loader2, .lucide-loader-2'
+      ).not.toBeNull();
       expect(loader).toHaveAttribute('aria-hidden', 'true');
     });
 
