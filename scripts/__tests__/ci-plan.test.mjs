@@ -147,6 +147,13 @@ test('desktop full regression plan shards the serial Playwright suite', () => {
   }
 });
 
+test('full-risk desktop plan assigns each concurrent lane a unique display', () => {
+  const plan = planFor(['turbo.jsonc']);
+  const displays = plan.desktopE2eMatrix.include.map((entry) => entry.display);
+
+  assert.equal(new Set(displays).size, displays.length);
+});
+
 test('desktop embedding plan preserves current regression spec coverage', () => {
   const plan = planFor(['packages/embeddings/src/worker/embedding-worker.ts']);
   const [entry] = plan.desktopE2eMatrix.include;

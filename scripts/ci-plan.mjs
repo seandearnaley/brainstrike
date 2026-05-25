@@ -106,9 +106,9 @@ const DESKTOP_LANE_DISPLAYS = new Map([
   ['desktop-ipc-reset', 108],
   ['desktop-runtime-hosts', 109],
   ['desktop-db-storage', 110],
-  ['desktop-full-regression', 111],
-  ['desktop-embedding-diagnostics', 112],
-  ['desktop-llm-host-recovery', 113],
+  ['desktop-embedding-diagnostics', 111],
+  ['desktop-llm-host-recovery', 112],
+  ['desktop-full-regression', 120],
 ]);
 
 const DESKTOP_FULL_REGRESSION_SHARD_TOTAL = 4;
