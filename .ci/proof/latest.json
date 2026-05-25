@@ -1,22 +1,24 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-25T02:53:38.892Z",
+  "generatedAt": "2026-05-25T03:43:20.803Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v24.14.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "b4b9524e08a601774c6d29e3f871122a0b0680c9",
+  "testedHeadSha": "6e0e4bdd82408467e52073f228b695b21ef4e5e4",
   "selection": {
     "base": "origin/main",
     "baseSha": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "head": "HEAD",
-    "headSha": "b4b9524e08a601774c6d29e3f871122a0b0680c9",
+    "headSha": "6e0e4bdd82408467e52073f228b695b21ef4e5e4",
     "mergeBase": "8363b4c5950f529e03b59cd1e8ace30d59b30ac7",
     "files": [
+      ".ci/proof/latest.json",
       ".github/actions/setup-monorepo/action.yml",
       ".github/workflows/performance.yml",
+      ".github/workflows/test.yml",
       ".nvmrc",
       "README.md",
       "apps/desktop/package.json",
@@ -29,6 +31,7 @@
       "docs/dependency-version-updates-report.md",
       "docs/superpowers/plans/2026-05-25-bst-552-node-24-runtime.md",
       "package.json",
+      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
       "scripts/check-ci-workflow-contracts.mjs",
       "scripts/generate-dependency-update-report.mjs"
     ],
@@ -171,7 +174,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 559
+      "durationMs": 551
     },
     {
       "name": "full-local-suite",
@@ -180,7 +183,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1129805
+      "durationMs": 1141546
     }
   ]
 }
