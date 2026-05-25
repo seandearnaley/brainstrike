@@ -29,6 +29,36 @@ function isWorkerEvent(value: unknown): value is WorkerEvent {
 }
 
 const DEFAULT_MAX_WORKERS_CAP = 8;
+// Conservative ceiling for CPU/WASM defaults — multiple workers each load
+// their own model copy, so on typical laptops more than 4 pushes memory hard.
+const DEFAULT_CPU_WORKERS_CAP = 4;
+
+/**
+ * Lightweight WebGPU presence probe. Avoids actually requesting an adapter
+ * (which would warm a GPU device just to count workers) — we only need the
+ * sniff to choose a default.
+ */
+function hasWebGPUSupport(): boolean {
+  return typeof navigator !== 'undefined' && 'gpu' in navigator;
+}
+
+/**
+ * Device-aware default worker count.
+ *
+ * - WebGPU available → 1 worker. Each WebGPU worker loads a full model and
+ *   pins a GPU device, so multiple workers multiply memory pressure and can
+ *   destabilize the shared device.
+ * - WebGPU absent → up to {@link DEFAULT_CPU_WORKERS_CAP} workers, sized by
+ *   `hardwareConcurrency - 1` (leaving a core for the main thread).
+ *
+ * Callers can still override with `options.maxWorkers`.
+ */
+function deviceAwareDefaultMaxWorkers(hardwareConcurrency: number): number {
+  if (hasWebGPUSupport()) {
+    return 1;
+  }
+  return Math.max(1, Math.min(hardwareConcurrency - 1, DEFAULT_CPU_WORKERS_CAP));
+}
 
 function attachAbort(
   signal: AbortSignal | undefined,
@@ -70,11 +100,15 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     throw new Error('createWorkerpoolAdapter requires an explicit workerUrl.');
   }
   const hardwareConcurrency = estimateHardwareConcurrency();
-  // MDN documents `navigator.hardwareConcurrency` as the number of logical cores. This allows us to size the pool conservatively.
+  // MDN documents `navigator.hardwareConcurrency` as the number of logical
+  // cores. We default conservatively based on whether the device exposes
+  // WebGPU (single worker, since each one pins a GPU device + model copy)
+  // or only CPU/WASM (a small handful of workers capped on memory).
   // Source: https://developer.mozilla.org/docs/Web/API/NavigatorConcurrentHardware/hardwareConcurrency
+  const defaultMaxWorkers = deviceAwareDefaultMaxWorkers(hardwareConcurrency);
   const maxWorkers = Math.max(
     1,
-    Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), DEFAULT_MAX_WORKERS_CAP)
+    Math.min(options.maxWorkers ?? defaultMaxWorkers, DEFAULT_MAX_WORKERS_CAP)
   );
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
@@ -308,6 +342,24 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       }
 
       logger.debug('Workerpool adapter canceled');
+    },
+    async dispose() {
+      // dispose() and cancel() share termination semantics — the canceled
+      // flag (and its associated terminate-once guard) keeps dispose
+      // idempotent without a separate code path.
+      if (canceled) {
+        return;
+      }
+      canceled = true;
+      paused = true;
+      logger.debug('Workerpool adapter disposing', { activeTasks });
+      await pool.terminate(true);
+      if (activeTasks > 0) {
+        await new Promise<void>((resolve) => {
+          cancelWaiters.push(resolve);
+        });
+      }
+      logger.debug('Workerpool adapter disposed');
     },
     async drain() {
       if (activeTasks === 0) {

@@ -104,6 +104,19 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
       }
       await adapter.cancel();
     },
+    async dispose() {
+      const adapter = await getBootstrappedAdapterOrNull();
+      if (!adapter) {
+        return;
+      }
+      // Prefer the adapter's explicit dispose when present; older adapters
+      // without one fall back to cancel(), which has the same terminate semantics.
+      if (adapter.dispose) {
+        await adapter.dispose();
+      } else {
+        await adapter.cancel();
+      }
+    },
     async drain() {
       const adapter = await getBootstrappedAdapterOrNull();
       if (!adapter) {

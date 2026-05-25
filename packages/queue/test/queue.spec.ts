@@ -231,6 +231,104 @@ describe('createWorkerpoolAdapter', () => {
     await expect(adapter.add(minimalTask)).rejects.toThrow('Adapter has been canceled');
   });
 
+  describe('device-aware default sizing (BST-86)', () => {
+    function withNavigatorGpu<T>(hasGpu: boolean, body: () => T): T {
+      const navRef = globalThis.navigator as
+        | (Navigator & { gpu?: unknown })
+        | undefined;
+      const hadOwn = navRef ? Object.hasOwn(navRef, 'gpu') : false;
+      const previous = navRef ? (navRef as { gpu?: unknown }).gpu : undefined;
+      try {
+        if (navRef) {
+          if (hasGpu) {
+            (navRef as { gpu?: unknown }).gpu = {} as unknown;
+          } else {
+            // Delete to test the absence path. Some engines define gpu as
+            // non-configurable; in that case the test runs against whatever
+            // the platform reports and still exercises the code path.
+            try {
+              delete (navRef as { gpu?: unknown }).gpu;
+            } catch {
+              (navRef as { gpu?: unknown }).gpu = undefined;
+            }
+          }
+        }
+        return body();
+      } finally {
+        if (navRef) {
+          if (hadOwn) {
+            (navRef as { gpu?: unknown }).gpu = previous;
+          } else {
+            try {
+              delete (navRef as { gpu?: unknown }).gpu;
+            } catch {
+              (navRef as { gpu?: unknown }).gpu = undefined;
+            }
+          }
+        }
+      }
+    }
+
+    it('defaults to 1 worker when WebGPU is available (avoid model-copy memory spikes)', () => {
+      setWorkerSupport();
+      withNavigatorGpu(true, () => {
+        createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
+      });
+
+      expect(workerpoolMocks.poolSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ maxWorkers: 1 })
+      );
+    });
+
+    it('caps default workers at 4 when WebGPU is unavailable (safer on typical laptops)', () => {
+      setWorkerSupport();
+      withNavigatorGpu(false, () => {
+        createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
+      });
+
+      const lastCall = workerpoolMocks.poolSpy.mock.calls.at(-1);
+      const opts = lastCall?.[1] as { maxWorkers: number };
+      expect(opts.maxWorkers).toBeLessThanOrEqual(4);
+      expect(opts.maxWorkers).toBeGreaterThanOrEqual(1);
+    });
+
+    it('respects an explicit maxWorkers override regardless of WebGPU presence', () => {
+      setWorkerSupport();
+      withNavigatorGpu(true, () => {
+        createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL, maxWorkers: 3 });
+      });
+
+      expect(workerpoolMocks.poolSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ maxWorkers: 3 })
+      );
+    });
+  });
+
+  describe('dispose() lifecycle (BST-86)', () => {
+    it('exposes dispose() that terminates the pool and rejects subsequent adds', async () => {
+      setWorkerSupport();
+      const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
+
+      expect(typeof adapter.dispose).toBe('function');
+      await adapter.dispose?.();
+
+      expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+      await expect(adapter.add(minimalTask)).rejects.toThrow(/canceled|disposed/i);
+    });
+
+    it('is idempotent — calling dispose() twice resolves without re-terminating', async () => {
+      setWorkerSupport();
+      const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
+
+      await adapter.dispose?.();
+      await expect(adapter.dispose?.()).resolves.toBeUndefined();
+
+      expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('cancels execution for pre-aborted and runtime-aborted signals', async () => {
     setWorkerSupport();
     let resolveExec: ((value: unknown) => void) | undefined;
