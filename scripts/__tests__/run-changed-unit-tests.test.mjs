@@ -118,7 +118,6 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
         ],
         command: 'pnpm',
         env: {
-          CI: 'false',
           COVERAGE: 'false',
           TURBO_TEST_MODE: 'unit',
         },
@@ -135,7 +134,6 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
         ],
         command: 'pnpm',
         env: {
-          CI: 'false',
           COVERAGE: 'false',
           TURBO_TEST_MODE: 'unit',
         },
