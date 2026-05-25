@@ -57,7 +57,7 @@ export function verifyRequiredPrGate({ needs, requiredJobs }) {
   }
 
   for (const [name, job] of Object.entries(needs)) {
-    if (TERMINAL_FAILURE_RESULTS.has(job.result)) {
+    if (!required.has(name) && TERMINAL_FAILURE_RESULTS.has(job.result)) {
       failures.push(`${name}: ${job.result}`);
     }
   }

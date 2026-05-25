@@ -81,6 +81,16 @@ test('verifyRequiredPrGate catches failed unselected jobs', () => {
   assert.match(failures.join('\n'), /prepare-web: failure/);
 });
 
+test('verifyRequiredPrGate reports selected terminal failures once', () => {
+  assert.deepEqual(
+    verifyRequiredPrGate({
+      needs: needsWith({ checks: { result: 'failure' } }),
+      requiredJobs: ['plan', 'checks'],
+    }),
+    ['checks: failure']
+  );
+});
+
 test('verifyRequiredPrGate fails closed if an unselected job ran', () => {
   const failures = verifyRequiredPrGate({
     needs: needsWith({ unit_coverage: { result: 'success' } }),
