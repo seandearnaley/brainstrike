@@ -106,6 +106,25 @@ test('runChangedUnitTests executes only the selected workspace unit commands', a
     assert.deepEqual(calls, [
       {
         args: [
+          'turbo',
+          'run',
+          'build',
+          '--filter',
+          '@brainstrike/utils^...',
+          '--concurrency=16',
+          '--summarize',
+          '--log-order=grouped',
+          '--cache-dir=.turbo',
+        ],
+        command: 'pnpm',
+        env: {
+          CI: 'false',
+          COVERAGE: 'false',
+          TURBO_TEST_MODE: 'unit',
+        },
+      },
+      {
+        args: [
           '--filter',
           '@brainstrike/utils',
           'exec',

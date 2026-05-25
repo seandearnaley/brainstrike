@@ -67,6 +67,22 @@ function unitTestEnv() {
   };
 }
 
+function buildDependencyArgs(commands) {
+  const filters = [
+    ...new Set(commands.map((command) => `${command.owner}^...`)),
+  ].sort((left, right) => left.localeCompare(right));
+  return [
+    'turbo',
+    'run',
+    'build',
+    ...filters.flatMap((filter) => ['--filter', filter]),
+    '--concurrency=16',
+    '--summarize',
+    '--log-order=grouped',
+    '--cache-dir=.turbo',
+  ];
+}
+
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
 }
@@ -217,6 +233,11 @@ export async function runChangedUnitTests(options) {
     console.log(JSON.stringify({ commands }, null, 2));
     return 0;
   }
+  console.log('Building internal dependencies for selected unit workspaces.');
+  await runner('pnpm', buildDependencyArgs(commands), {
+    cwd: options.cwd,
+    env: unitTestEnv(),
+  });
   for (const command of commands) {
     const target = command.files.length > 0 ? command.files.join(', ') : 'workspace test';
     console.log(`Running ${command.owner}: ${target}`);
