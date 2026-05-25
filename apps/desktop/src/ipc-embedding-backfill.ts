@@ -303,7 +303,9 @@ export async function runDesktopEmbeddingBackfill(params: {
         },
         progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
         progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
-        queueCapacityTimeoutMs: DESKTOP_EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+        ...(source === 'background-indexing'
+          ? { queueCapacityTimeoutMs: DESKTOP_EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS }
+          : {}),
       }
     );
     return { requestId: backfillRequestId };

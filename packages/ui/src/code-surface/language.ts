@@ -1,5 +1,4 @@
-import { LanguageDescription } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import type { LanguageSupport } from '@codemirror/language';
 
 export interface CodeSurfaceLanguageInput {
   readonly language?: string | undefined;
@@ -7,17 +6,58 @@ export interface CodeSurfaceLanguageInput {
 }
 
 export interface CodeSurfaceLanguageResolution {
-  readonly description: LanguageDescription | null;
   readonly label: string;
+  readonly loadSupport: (() => Promise<LanguageSupport | null>) | null;
   readonly source: 'explicit' | 'filename' | 'fallback';
 }
 
 const PLAIN_TEXT_LANGUAGE_NAMES = new Set(['plain', 'plaintext', 'plain text', 'text', 'txt']);
 const FALLBACK_LANGUAGE: CodeSurfaceLanguageResolution = {
-  description: null,
   label: 'Plain Text',
+  loadSupport: null,
   source: 'fallback',
 };
+const EXPLICIT_LANGUAGE_LABELS = new Map<string, string>([
+  ['c#', 'C#'],
+  ['c++', 'C++'],
+  ['go', 'Go'],
+  ['java', 'Java'],
+  ['javascript', 'JavaScript'],
+  ['jsx', 'JSX'],
+  ['kotlin', 'Kotlin'],
+  ['markdown', 'Markdown'],
+  ['php', 'PHP'],
+  ['python', 'Python'],
+  ['ruby', 'Ruby'],
+  ['rust', 'Rust'],
+  ['sql', 'SQL'],
+  ['swift', 'Swift'],
+  ['tsx', 'TSX'],
+  ['typescript', 'TypeScript'],
+]);
+const EXTENSION_LANGUAGE_LABELS = new Map<string, string>([
+  ['cs', 'C#'],
+  ['cpp', 'C++'],
+  ['go', 'Go'],
+  ['java', 'Java'],
+  ['js', 'JavaScript'],
+  ['json', 'JSON'],
+  ['jsx', 'JSX'],
+  ['kt', 'Kotlin'],
+  ['md', 'Markdown'],
+  ['php', 'PHP'],
+  ['py', 'Python'],
+  ['rb', 'Ruby'],
+  ['rs', 'Rust'],
+  ['sh', 'Shell'],
+  ['sql', 'SQL'],
+  ['swift', 'Swift'],
+  ['ts', 'TypeScript'],
+  ['tsx', 'TSX'],
+  ['xml', 'XML'],
+  ['yaml', 'YAML'],
+  ['yml', 'YAML'],
+]);
 
 export function resolveCodeSurfaceLanguage(
   input: CodeSurfaceLanguageInput
@@ -27,11 +67,11 @@ export function resolveCodeSurfaceLanguage(
     if (PLAIN_TEXT_LANGUAGE_NAMES.has(explicitLanguage)) {
       return { ...FALLBACK_LANGUAGE, source: 'explicit' };
     }
-    const explicitMatch = LanguageDescription.matchLanguageName(languages, explicitLanguage, true);
-    if (explicitMatch) {
+    const explicitLabel = EXPLICIT_LANGUAGE_LABELS.get(explicitLanguage);
+    if (explicitLabel) {
       return {
-        description: explicitMatch,
-        label: explicitMatch.name,
+        label: explicitLabel,
+        loadSupport: () => loadLanguageSupport({ language: explicitLanguage }),
         source: 'explicit',
       };
     }
@@ -39,11 +79,11 @@ export function resolveCodeSurfaceLanguage(
 
   const filename = input.path?.trim();
   if (filename) {
-    const filenameMatch = LanguageDescription.matchFilename(languages, filename);
-    if (filenameMatch) {
+    const filenameLabel = resolveFilenameLanguageLabel(filename);
+    if (filenameLabel) {
       return {
-        description: filenameMatch,
-        label: filenameMatch.name,
+        label: filenameLabel,
+        loadSupport: () => loadLanguageSupport({ path: filename }),
         source: 'filename',
       };
     }
@@ -55,4 +95,25 @@ export function resolveCodeSurfaceLanguage(
 function normalizeLanguageName(language: string | undefined): string | null {
   const normalized = language?.trim().toLowerCase();
   return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function resolveFilenameLanguageLabel(filename: string): string | null {
+  const extension = filename.split('.').pop()?.toLowerCase();
+  return extension ? (EXTENSION_LANGUAGE_LABELS.get(extension) ?? null) : null;
+}
+
+async function loadLanguageSupport(
+  input: CodeSurfaceLanguageInput
+): Promise<LanguageSupport | null> {
+  const [{ LanguageDescription }, { languages }] = await Promise.all([
+    import('@codemirror/language'),
+    import('@codemirror/language-data'),
+  ]);
+  const explicitLanguage = normalizeLanguageName(input.language);
+  const description = explicitLanguage
+    ? LanguageDescription.matchLanguageName(languages, explicitLanguage, true)
+    : input.path
+      ? LanguageDescription.matchFilename(languages, input.path)
+      : null;
+  return description ? description.load() : null;
 }

@@ -123,7 +123,7 @@ function readCalibrationCommandResult(result, sourcePath) {
   }
   const currentCommand = LOCAL_CI_COMMANDS[result.name];
   if (!currentCommand) {
-    throw new Error(`${sourcePath} references unknown local local command ${result.name}`);
+    throw new Error(`${sourcePath} references unknown local command ${result.name}`);
   }
   return {
     command: currentCommand.command,

@@ -52,6 +52,8 @@ export const JOBS_BY_LANE = new Map([
   ['desktop-llm-host-recovery', ['prepare-desktop', 'desktop-e2e-pr']],
 ]);
 
+// Lane commands are a closed, hardcoded allowlist. Do not compose these from
+// PR metadata, labels, changed file paths, or other user-controlled input.
 const WEB_LANE_COMMANDS = new Map([
   ['critical-smoke', 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke'],
   ['web-smoke', 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke'],

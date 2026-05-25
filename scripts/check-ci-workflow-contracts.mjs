@@ -1068,8 +1068,14 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       webE2ePr,
-      'run: ${{ matrix.command }}',
-      'Web E2E PR must execute the selected lane command from CI Plan.',
+      'E2E_COMMAND: ${{ matrix.command }}',
+      'Web E2E PR must receive the selected lane command from CI Plan.',
+      failures
+    );
+    requireIncludes(
+      webE2ePr,
+      'run: bash -euo pipefail -c "$E2E_COMMAND"',
+      'Web E2E PR must execute the selected lane command through the shell-safe env entrypoint.',
       failures
     );
     requireIncludes(
@@ -1119,8 +1125,14 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopPr,
-      '${{ matrix.command }}',
-      'Desktop E2E PR must execute the selected lane command from CI Plan.',
+      'E2E_COMMAND: ${{ matrix.command }}',
+      'Desktop E2E PR must receive the selected lane command from CI Plan.',
+      failures
+    );
+    requireIncludes(
+      desktopPr,
+      'bash -euo pipefail -c "$E2E_COMMAND"',
+      'Desktop E2E PR must execute the selected lane command through the shell-safe env entrypoint.',
       failures
     );
     requireIncludes(

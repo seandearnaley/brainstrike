@@ -1050,7 +1050,9 @@ jobs:
 
       - name: Run selected web E2E lane
         timeout-minutes: ${{ matrix.timeoutMinutes }}
-        run: ${{ matrix.command }}
+        run: bash -euo pipefail -c "$E2E_COMMAND"
+        env:
+          E2E_COMMAND: ${{ matrix.command }}
 
       - name: Upload selected web traces on failure
         if: failure()
@@ -1438,7 +1440,7 @@ jobs:
           # same Xvfb/container.
           echo "Starting selected desktop lane: ${{ matrix.lane }}"
           unset NO_COLOR
-          ${{ matrix.command }}
+          bash -euo pipefail -c "$E2E_COMMAND"
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -1448,6 +1450,7 @@ jobs:
           NODE_ENV: "test"
           CI: "true"
           RUN_SALT: ${{ github.run_id }}
+          E2E_COMMAND: ${{ matrix.command }}
           ELECTRON_ENABLE_STACK_DUMPING: "false"
           ELECTRON_DISABLE_GPU: "1"
 

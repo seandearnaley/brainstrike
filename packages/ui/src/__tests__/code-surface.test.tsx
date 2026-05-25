@@ -47,6 +47,34 @@ describe('CodeSurface', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('does not report controlled value synchronization as a user edit', async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <CodeSurface
+        editable={true}
+        onChange={onChange}
+        path="src/example.ts"
+        testId="controlled-preview"
+        value="const answer = 41;"
+      />
+    );
+
+    expect(await screen.findByTestId('controlled-preview')).toHaveTextContent('const answer = 41;');
+
+    rerender(
+      <CodeSurface
+        editable={true}
+        onChange={onChange}
+        path="src/example.ts"
+        testId="controlled-preview"
+        value="const answer = 42;"
+      />
+    );
+
+    expect(await screen.findByTestId('controlled-preview')).toHaveTextContent('const answer = 42;');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('restores initial scroll position after CodeMirror has measured layout', async () => {
     const animationFrames: FrameRequestCallback[] = [];
     const requestAnimationFrame = vi

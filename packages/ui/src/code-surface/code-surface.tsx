@@ -1,6 +1,12 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+} from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
@@ -44,6 +50,7 @@ interface CodeSurfaceCallbacks {
 const MONO_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 const logger = createLogger('CodeSurface');
+const externalValueSyncAnnotation = Annotation.define<boolean>();
 
 const BASE_EXTENSIONS: Extension[] = [
   highlightSpecialChars(),
@@ -121,7 +128,6 @@ export function CodeSurface({
   const editableCompartmentRef = useRef(new Compartment());
   const wrappingCompartmentRef = useRef(new Compartment());
   const contentAttributesCompartmentRef = useRef(new Compartment());
-  const applyingExternalValueRef = useRef(false);
   const callbacksRef = useRef<CodeSurfaceCallbacks>({
     onChange,
     onScrollTopChange,
@@ -171,7 +177,10 @@ export function CodeSurface({
           ),
           languageCompartmentRef.current.of([]),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged && !applyingExternalValueRef.current) {
+            const isExternalValueSync = update.transactions.some(
+              (transaction) => transaction.annotation(externalValueSyncAnnotation) === true
+            );
+            if (update.docChanged && !isExternalValueSync) {
               callbacksRef.current.onChange?.(update.state.doc.toString());
             }
             if (update.selectionSet) {
@@ -218,19 +227,15 @@ export function CodeSurface({
     if (currentValue === value) {
       return;
     }
-    applyingExternalValueRef.current = true;
-    try {
-      view.dispatch({
-        changes: {
-          from: 0,
-          insert: value,
-          to: currentValue.length,
-        },
-        selection: EditorSelection.cursor(0),
-      });
-    } finally {
-      applyingExternalValueRef.current = false;
-    }
+    view.dispatch({
+      annotations: externalValueSyncAnnotation.of(true),
+      changes: {
+        from: 0,
+        insert: value,
+        to: currentValue.length,
+      },
+      selection: EditorSelection.cursor(0),
+    });
   }, [value]);
 
   useEffect(() => {
@@ -274,21 +279,21 @@ export function CodeSurface({
     }
     let cancelled = false;
 
-    if (!resolvedLanguage.description) {
+    if (!resolvedLanguage.loadSupport) {
       view.dispatch({
         effects: languageCompartmentRef.current.reconfigure([]),
       });
       return;
     }
 
-    void resolvedLanguage.description
-      .load()
+    void resolvedLanguage
+      .loadSupport()
       .then((support) => {
         if (cancelled || viewRef.current !== view) {
           return;
         }
         view.dispatch({
-          effects: languageCompartmentRef.current.reconfigure(support),
+          effects: languageCompartmentRef.current.reconfigure(support ?? []),
         });
       })
       .catch((error: unknown) => {
