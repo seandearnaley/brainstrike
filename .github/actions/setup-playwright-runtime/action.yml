@@ -34,9 +34,25 @@ runs:
 
     - name: Install Playwright runtime
       shell: bash
+      env:
+        PLAYWRIGHT_INSTALL_BROWSERS: ${{ inputs.browsers }}
       run: |
         set -euo pipefail
-        pnpm exec playwright install --with-deps ${{ inputs.browsers }}
+        read -r -a requested_browsers <<< "$PLAYWRIGHT_INSTALL_BROWSERS"
+        if [ "${#requested_browsers[@]}" -eq 0 ]; then
+          echo "At least one Playwright browser must be requested." >&2
+          exit 1
+        fi
+        for browser in "${requested_browsers[@]}"; do
+          case "$browser" in
+            chromium|chromium-headless-shell|firefox|webkit|chrome|chrome-beta|msedge|msedge-beta) ;;
+            *)
+              echo "Unsupported Playwright browser: $browser" >&2
+              exit 1
+              ;;
+          esac
+        done
+        pnpm exec playwright install --with-deps "${requested_browsers[@]}"
 
     - name: Verify Playwright runtime
       shell: bash

@@ -1647,6 +1647,40 @@ export function validateWorkflowContracts(source) {
     }
   }
 
+  const docsStatic = extractJob(source, 'docs-static');
+  if (docsStatic) {
+    requireIncludes(
+      docsStatic,
+      'fetch-depth: 0',
+      'Docs Static checkout must fetch enough history for explicit diff validation.',
+      failures
+    );
+    requireIncludes(
+      docsStatic,
+      'DOCS_DIFF_BASE_SHA',
+      'Docs Static must use an explicit base SHA for git diff --check.',
+      failures
+    );
+    requireIncludes(
+      docsStatic,
+      'DOCS_DIFF_HEAD_SHA',
+      'Docs Static must use an explicit head SHA for git diff --check.',
+      failures
+    );
+    requireIncludes(
+      docsStatic,
+      'git diff --check "$DOCS_DIFF_BASE_SHA" "$DOCS_DIFF_HEAD_SHA"',
+      'Docs Static must run git diff --check against explicit base and head refs.',
+      failures
+    );
+    requireNotIncludes(
+      docsStatic,
+      'git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md',
+      'Docs Static must not run git diff --check without explicit refs on a clean CI checkout.',
+      failures
+    );
+  }
+
   const requiredPrGate = extractJob(source, 'required-pr-gate');
   if (!requiredPrGate) {
     failures.push('Missing required-pr-gate job.');
@@ -2034,6 +2068,13 @@ export function validateSetupDesktopE2EContracts(source) {
 
 export function validateSetupPlaywrightRuntimeContracts(source) {
   const failures = [];
+  const installRuntimeStep =
+    extractBlock(
+      source,
+      /^\s{4}- name: Install Playwright runtime\s*$/m,
+      /\n\s{4}- name: /
+    ) ?? '';
+  const installRuntimeRun = installRuntimeStep.match(/run:\s*\|([\s\S]*)/)?.[1] ?? '';
 
   requireIncludes(
     source,
@@ -2069,6 +2110,24 @@ export function validateSetupPlaywrightRuntimeContracts(source) {
     source,
     'pnpm exec playwright install --with-deps',
     'Setup Playwright runtime must install browsers and system dependencies inside the job.',
+    failures
+  );
+  requireIncludes(
+    installRuntimeStep,
+    'PLAYWRIGHT_INSTALL_BROWSERS: ${{ inputs.browsers }}',
+    'Setup Playwright runtime must pass requested browsers through an environment variable.',
+    failures
+  );
+  requireIncludes(
+    installRuntimeRun,
+    'requested_browsers',
+    'Setup Playwright runtime must validate requested browser names before invoking Playwright.',
+    failures
+  );
+  requireNotIncludes(
+    installRuntimeRun,
+    '${{ inputs.browsers }}',
+    'Setup Playwright runtime must not interpolate action input directly into shell.',
     failures
   );
   requireIncludes(

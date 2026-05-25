@@ -149,9 +149,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Verify docs diff
-        run: git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md
+        env:
+          DOCS_DIFF_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DOCS_DIFF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DOCS_DIFF_BASE_SHA" ]; then
+            echo "Docs diff check requires a base SHA." >&2
+            exit 1
+          fi
+          git diff --check "$DOCS_DIFF_BASE_SHA" "$DOCS_DIFF_HEAD_SHA" -- docs apps/docs README.md AGENTS.md CLAUDE.md
 
   # Fast-fail static checks. Unit coverage is a separate job so browser/E2E
   # preparation can start as soon as lint/type/build validation passes.
