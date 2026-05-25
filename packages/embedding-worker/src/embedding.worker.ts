@@ -1089,7 +1089,7 @@ async function processEmbeddings(
   }
   const packed = packVectorsContiguous(vectors);
   const success = buildSuccessResult(context, state, packed.vectors);
-  return new Transfer(success, [packed.buffer]) as unknown as EmbedWorkerSuccess;
+  return new Transfer(success, packed.transferList) as unknown as EmbedWorkerSuccess;
 }
 
 /**
@@ -1102,22 +1102,37 @@ async function processEmbeddings(
  * is skipped and the original arrays are returned with their own buffers as
  * a defensive fallback.
  */
+function getTransferableBuffers(vectors: readonly Float32Array[]): ArrayBuffer[] {
+  const buffers: ArrayBuffer[] = [];
+  const seen = new Set<ArrayBuffer>();
+  for (const vector of vectors) {
+    const buffer = vector.buffer;
+    if (!(buffer instanceof ArrayBuffer) || seen.has(buffer)) {
+      continue;
+    }
+    seen.add(buffer);
+    buffers.push(buffer);
+  }
+  return buffers;
+}
+
 function packVectorsContiguous(vectors: readonly Float32Array[]): {
-  buffer: ArrayBuffer;
+  transferList: ArrayBuffer[];
   vectors: Float32Array[];
 } {
   const first = vectors[0];
   if (!first) {
-    const empty = new Float32Array(0);
-    return { buffer: empty.buffer, vectors: [] };
+    return { transferList: [], vectors: [] };
   }
   const dim = first.length;
   for (const vector of vectors) {
     if (vector.length !== dim) {
       // Uneven dimensions shouldn't happen in normal flows, but fall back
       // to per-vector buffers rather than silently dropping dimensions.
-      const flatFallback = new Float32Array(0);
-      return { buffer: flatFallback.buffer, vectors: vectors.slice() };
+      return {
+        transferList: getTransferableBuffers(vectors),
+        vectors: vectors.slice(),
+      };
     }
   }
   const flat = new Float32Array(vectors.length * dim);
@@ -1131,7 +1146,7 @@ function packVectorsContiguous(vectors: readonly Float32Array[]): {
   for (let i = 0; i < vectors.length; i += 1) {
     views.push(flat.subarray(i * dim, (i + 1) * dim));
   }
-  return { buffer: flat.buffer, vectors: views };
+  return { transferList: [flat.buffer], vectors: views };
 }
 
 function postStreamEvent(

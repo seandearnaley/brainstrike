@@ -441,6 +441,28 @@ describe('embedding worker runtime', () => {
       expect(transferList[0]).toBeInstanceOf(ArrayBuffer);
     });
 
+    it('transfers original vector buffers when uneven dimensions skip packing', async () => {
+      const shortVector = Float32Array.from([0.5, 0.5]);
+      const longVector = Float32Array.from([0.25, 0.25, 0.25]);
+      pipelineMock.mockResolvedValue(async () => [shortVector, longVector]);
+      const runEmbedding = await loadWorker();
+
+      const result = await runEmbedding({
+        type: 'embed',
+        id: 'pack-uneven-transfer',
+        model: 'bge-m3',
+        texts: ['a', 'b'],
+        deviceHint: 'wasm',
+      });
+
+      expect(result.vectors.map((vector) => vector.length)).toEqual([2, 3]);
+      expect(result.vectors[0]?.buffer).not.toBe(result.vectors[1]?.buffer);
+      expect(transferMock).toHaveBeenCalledTimes(1);
+      const call = transferMock.mock.calls[0] as readonly unknown[];
+      const transferList = call[1] as readonly ArrayBuffer[];
+      expect(transferList).toEqual(result.vectors.map((vector) => vector.buffer));
+    });
+
     it('does not invoke Transfer when there are no vectors to return', async () => {
       pipelineMock.mockResolvedValue(async () => new Float32Array([0.1, 0.2]));
       const runEmbedding = await loadWorker();
