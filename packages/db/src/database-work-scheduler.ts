@@ -1,3 +1,5 @@
+import { normalizeDbQueryFeatureArea, recordDbQueryTelemetry } from './db-query-telemetry.js';
+
 export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
 export interface DatabaseWorkOptions {
@@ -511,6 +513,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       serviceP50Ms: calculatePercentile(serviceSamples, 0.5),
       serviceP95Ms: calculatePercentile(serviceSamples, 0.95),
       totalServiceMs: current.totalServiceMs + serviceMs,
+    });
+    recordDbQueryTelemetry({
+      durationMs: serviceMs,
+      event: 'db.query',
+      featureArea: normalizeDbQueryFeatureArea(task.label),
+      priority: task.priority,
     });
   }
 }

@@ -590,4 +590,30 @@ describe('DatabaseWorkScheduler', () => {
 
     expect(scheduled.onLeaderChange).toBe(scheduled.onLeaderChange);
   });
+
+  it('emits coarse DB query telemetry when scheduled work completes', async () => {
+    const { addLogListener, configureLogger, LogLevel, resetLogger } = await import(
+      '@brainstrike/utils/logger'
+    );
+    configureLogger({ console: false, level: LogLevel.DEBUG });
+    const records: unknown[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+      await scheduler.run(async () => 'ok', {
+        label: 'live query refresh',
+        priority: 'foreground',
+      });
+    } finally {
+      unsubscribe();
+      resetLogger();
+    }
+
+    expect(records.some((record) => JSON.stringify(record).includes('db.query'))).toBe(true);
+    expect(records.some((record) => JSON.stringify(record).includes('live-query'))).toBe(true);
+    expect(records.some((record) => JSON.stringify(record).includes('SELECT'))).toBe(false);
+  });
 });
