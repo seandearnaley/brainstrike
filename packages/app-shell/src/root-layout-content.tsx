@@ -31,6 +31,11 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { DatabasePanel } from './database-panel';
+import {
+  createRendererLongTaskObserver,
+  normalizeRendererRoute,
+  type RendererLongTaskTelemetryContext,
+} from './diagnostics/renderer-long-task-telemetry';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
@@ -287,6 +292,22 @@ export function RootLayoutContent({
     panelState,
     setState,
   });
+  const longTaskContextRef = useRef<RendererLongTaskTelemetryContext>({
+    route: 'explorer',
+    feature: 'explorer',
+  });
+
+  useEffect(() => {
+    longTaskContextRef.current = {
+      route: normalizeRendererRoute(activeTab === 'explorer' ? '/' : `/${activeTab}`),
+      feature: activeTab,
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
+    const dispose = createRendererLongTaskObserver(() => longTaskContextRef.current);
+    return dispose;
+  }, []);
 
   return (
     <AppLayout
