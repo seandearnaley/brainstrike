@@ -118,7 +118,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
       handleRefreshError: vi.fn(),
       handleBrowserCompatibilityError: vi.fn(),
       handleDirectorySelectError: handleDirectorySelectErrorMock,
-      handleSelectionLimitError: handleSelectionLimitErrorMock,
     })),
   };
 });
@@ -131,7 +130,6 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
 let showToastMock: ReturnType<typeof vi.fn>;
 let handleDirectorySelectErrorMock: ReturnType<typeof vi.fn>;
-let handleSelectionLimitErrorMock: ReturnType<typeof vi.fn>;
 let setFiltersMock: ReturnType<typeof vi.fn>;
 let applyFileFiltersMock: ReturnType<typeof vi.fn>;
 let handleRootDirectorySelectMock: ReturnType<typeof vi.fn>;
@@ -287,7 +285,6 @@ describe('FileExplorerPanel', () => {
 
     showToastMock = vi.fn();
     handleDirectorySelectErrorMock = vi.fn();
-    handleSelectionLimitErrorMock = vi.fn();
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
@@ -545,7 +542,6 @@ describe('FileExplorerPanel', () => {
       handleBrowserCompatibilityError: handleBrowserCompatibilityErrorMock,
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),
-      handleSelectionLimitError: vi.fn(),
     });
 
     const user = userEvent.setup();
@@ -616,7 +612,6 @@ describe('FileExplorerPanel', () => {
       handleBrowserCompatibilityError: vi.fn(),
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),
-      handleSelectionLimitError: vi.fn(),
     });
 
     const user = userEvent.setup();

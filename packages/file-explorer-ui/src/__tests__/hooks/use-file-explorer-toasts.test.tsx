@@ -9,7 +9,6 @@ const mockShowToast = vi.fn();
 const mockHandleRefreshError = vi.fn();
 const mockHandleBrowserCompatibilityError = vi.fn();
 const mockHandleDirectorySelectError = vi.fn();
-const mockHandleSelectionLimitError = vi.fn();
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({
@@ -18,7 +17,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleRefreshError: mockHandleRefreshError,
     handleBrowserCompatibilityError: mockHandleBrowserCompatibilityError,
     handleDirectorySelectError: mockHandleDirectorySelectError,
-    handleSelectionLimitError: mockHandleSelectionLimitError,
   }),
   useAdapters: () => ({
     storageAdapter: {
@@ -61,7 +59,6 @@ describe('useFileExplorerToasts', () => {
     expect(result.current.handleRefreshError).toBeDefined();
     expect(result.current.handleBrowserCompatibilityError).toBeDefined();
     expect(result.current.handleDirectorySelectError).toBeDefined();
-    expect(result.current.handleSelectionLimitError).toBeDefined();
   });
 
   it('should return isRefreshing as false initially', () => {
@@ -361,15 +358,6 @@ describe('useFileExplorerToasts', () => {
   });
 
   describe('passthrough functions', () => {
-    it('should expose handleSelectionLimitError from toast manager', () => {
-      const params = createMockParams();
-      const { result } = renderHook(() => useFileExplorerToasts(params), {
-        wrapper: createWrapper(),
-      });
-
-      expect(result.current.handleSelectionLimitError).toBe(mockHandleSelectionLimitError);
-    });
-
     it('should expose handleRefreshError from toast manager', () => {
       const params = createMockParams();
       const { result } = renderHook(() => useFileExplorerToasts(params), {

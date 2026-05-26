@@ -23,7 +23,6 @@ import { useCallback } from 'react';
  *  - `handleRefreshError`: Handles generic refresh errors.
  *  - `handleBrowserCompatibilityError`: Handles browser compatibility issue toasts.
  *  - `handleDirectorySelectError`: Handles errors during directory selection.
- *  - `handleSelectionLimitError`: Handles toasts for selection limits.
  */
 const logger = createLogger('ToastManager');
 
@@ -120,11 +119,6 @@ export const useToastManager = () => {
     [showToast]
   );
 
-  // Selection cap is expected behavior; SelectionCounter already surfaces limit state.
-  const handleSelectionLimitError = useCallback(() => {
-    // Intentionally no toast — hitting the cap during bulk/partial selection is not an error.
-  }, []);
-
   return {
     toast,
     showToast,
@@ -132,6 +126,5 @@ export const useToastManager = () => {
     handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
-    handleSelectionLimitError,
   };
 };
