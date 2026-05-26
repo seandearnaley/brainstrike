@@ -347,7 +347,7 @@ describe('createWorkerpoolAdapter', () => {
       await adapter.dispose?.();
 
       expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
-      await expect(adapter.add(minimalTask)).rejects.toThrow(/canceled|disposed/i);
+      await expect(adapter.add(minimalTask)).rejects.toThrow('Adapter has been disposed');
     });
 
     it('is idempotent — calling dispose() twice resolves without re-terminating', async () => {
@@ -358,6 +358,24 @@ describe('createWorkerpoolAdapter', () => {
       await expect(adapter.dispose?.()).resolves.toBeUndefined();
 
       expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps cancel and dispose terminal states distinct', async () => {
+      setWorkerSupport();
+      const canceledAdapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
+      await canceledAdapter.cancel();
+
+      expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+      await expect(canceledAdapter.add(minimalTask)).rejects.toThrow('Adapter has been canceled');
+
+      workerpoolMocks.terminate.mockClear();
+      const disposedAdapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
+      await disposedAdapter.dispose?.();
+
+      expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+      await expect(disposedAdapter.addBulk([minimalTask])).rejects.toThrow(
+        'Adapter has been disposed'
+      );
     });
   });
 

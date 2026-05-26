@@ -11,7 +11,7 @@ export default defineConfig((options) => ({
   target: 'es2020',
   platform: 'browser', // Force browser-compatible output (no require())
   // Bundle heavy dependencies into the worker to avoid ESM resolution issues
-  noExternal: ['@babel/parser', '@brainstrike/text-splitter', 'tiktoken'],
+  noExternal: ['@babel/parser', '@brainstrike/text-splitter', '@brainstrike/utils', 'tiktoken'],
   loader: {
     // Use dataurl to inline WASM as base64, avoiding file:// fetch issues in Electron
     // and eliminating the need to copy WASM files alongside bundled workers

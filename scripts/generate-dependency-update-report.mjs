@@ -6,10 +6,14 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import semver from 'semver';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
+
+function readRootPackageJson() {
+  const rootPkgPath = path.join(root, 'package.json');
+  return JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
+}
 
 function runOutdatedJson() {
   const result = spawnSync('pnpm', ['outdated', '-r', '--json'], {
@@ -32,8 +36,7 @@ function runOutdatedJson() {
 
 function workspacePackages() {
   const out = [];
-  const rootPkgPath = path.join(root, 'package.json');
-  const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
+  const rootPkg = readRootPackageJson();
   out.push({
     path: '.',
     name: rootPkg.name ?? 'root',
@@ -66,15 +69,38 @@ function workspacePackages() {
   return out;
 }
 
+function parseSemver(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?/.exec(version.replace(/^[~^]/, ''));
+  if (!match) {
+    return null;
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    pre: match[4] ?? null,
+  };
+}
+
 function bumpKind(current, latest) {
   if (!(current && latest) || current === latest) {
     return '—';
   }
-  try {
-    return semver.diff(current, latest) ?? 'prerelease';
-  } catch {
+  const c = parseSemver(current);
+  const l = parseSemver(latest);
+  if (!(c && l)) {
     return 'non-semver';
   }
+  if (c.major !== l.major) {
+    return 'major';
+  }
+  if (c.minor !== l.minor) {
+    return 'minor';
+  }
+  if (c.patch !== l.patch) {
+    return 'patch';
+  }
+  return 'prerelease';
 }
 
 function main() {
@@ -103,12 +129,17 @@ function main() {
   const upToDate = rows.filter((r) => !(r.outdated || r.isDeprecated));
 
   const date = new Date().toISOString().slice(0, 10);
+  // Read root manifest once so engine/packageManager fields can't drift from
+  // what's actually declared (avoids manual find-and-replace on every Node bump).
+  const rootPkg = readRootPackageJson();
+  const nodeEngine = rootPkg.engines?.node ?? 'unknown';
+  const packageManager = rootPkg.packageManager ?? 'unknown';
   let md = '';
   md += '# Dependency version update report\n\n';
   md += `**Generated:** ${date}  \n`;
   md += '**Monorepo:** brainstrike (pnpm workspaces + Turborepo)  \n';
-  md += '**Tooling:** `pnpm@10.33.0` (see root `package.json` `packageManager`)  \n';
-  md += '**Node engine (declared):** `22.x` (root `package.json` `engines`)  \n\n';
+  md += `**Tooling:** \`${packageManager}\` (see root \`package.json\` \`packageManager\`)  \n`;
+  md += `**Node engine (declared):** \`${nodeEngine}\` (root \`package.json\` \`engines\`)  \n\n`;
 
   md += '## Methodology\n\n';
   md +=

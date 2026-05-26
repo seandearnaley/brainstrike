@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { SearchModeBar } from '../collection-browser/search-mode-bar';
@@ -23,7 +24,7 @@ describe('SearchModeBar', () => {
   it('renders a collapsed hybrid search trigger with explanatory copy', () => {
     render(<SearchModeBar {...createProps()} />);
 
-    expect(screen.getByRole('button', { name: /hybrid search/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /expand hybrid search/i })).toHaveAttribute(
       'aria-expanded',
       'false'
     );
@@ -49,9 +50,62 @@ describe('SearchModeBar', () => {
     const onSearchExpandedChange = vi.fn();
     render(<SearchModeBar {...createProps({ onSearchExpandedChange })} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /hybrid search/i }));
+    fireEvent.click(screen.getByRole('button', { name: /expand hybrid search/i }));
 
     expect(onSearchExpandedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('toggles hybrid search panel with Enter and Space on the trigger', async () => {
+    const user = userEvent.setup();
+    const onSearchExpandedChange = vi.fn();
+    const { rerender } = render(<SearchModeBar {...createProps({ onSearchExpandedChange })} />);
+
+    const expandTrigger = screen.getByRole('button', { name: /expand hybrid search/i });
+    expandTrigger.focus();
+    await user.keyboard('{Enter}');
+    expect(onSearchExpandedChange).toHaveBeenCalledWith(true);
+
+    onSearchExpandedChange.mockClear();
+    rerender(
+      <SearchModeBar {...createProps({ isSearchExpanded: true, onSearchExpandedChange })} />
+    );
+    const collapseTrigger = screen.getByRole('button', { name: /collapse hybrid search/i });
+    collapseTrigger.focus();
+    await user.keyboard(' ');
+    expect(onSearchExpandedChange).toHaveBeenCalledWith(false);
+  });
+
+  it('binds aria-controls to the rendered panel id when expanded', () => {
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true })} />);
+
+    const trigger = screen.getByRole('button', { name: /collapse hybrid search/i });
+    const panel = screen.getByTestId('hybrid-search-panel');
+
+    const controlsId = trigger.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+    expect(panel.id).toBe(controlsId);
+  });
+
+  it('keeps the hybrid-search-panel in the DOM with hidden when collapsed so aria-controls stays valid', () => {
+    render(<SearchModeBar {...createProps({ isSearchExpanded: false })} />);
+
+    const trigger = screen.getByRole('button', { name: /expand hybrid search/i });
+    const panel = screen.getByTestId('hybrid-search-panel');
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(panel).not.toBeVisible();
+    expect(panel.id).toBe(trigger.getAttribute('aria-controls'));
+  });
+
+  it('disables Loader2 spin animation under reduced motion', () => {
+    render(
+      <SearchModeBar
+        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', isSearching: true })}
+      />
+    );
+
+    const spinner = screen.getByRole('button', { name: 'Query' }).querySelector('svg');
+    expect(spinner).toHaveClass('motion-reduce:animate-none');
   });
 
   it('renders hybrid search input when expanded', () => {

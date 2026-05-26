@@ -23,10 +23,8 @@ import { useCallback } from 'react';
  *  - `handleRefreshError`: Handles generic refresh errors.
  *  - `handleBrowserCompatibilityError`: Handles browser compatibility issue toasts.
  *  - `handleDirectorySelectError`: Handles errors during directory selection.
- *  - `handleSelectionLimitError`: Handles toasts for selection limits.
  */
 const logger = createLogger('ToastManager');
-const SELECTION_LIMIT_TOAST_DURATION_MS = 4000;
 
 export const useToastManager = () => {
   const { toast } = useToast();
@@ -121,15 +119,6 @@ export const useToastManager = () => {
     [showToast]
   );
 
-  const handleSelectionLimitError = useCallback(() => {
-    toast({
-      title: FileExplorerStrings.error.title,
-      description: FileExplorerStrings.error.selectionLimitExceeded,
-      duration: SELECTION_LIMIT_TOAST_DURATION_MS,
-      variant: 'destructive',
-    });
-  }, [toast]);
-
   return {
     toast,
     showToast,
@@ -137,6 +126,5 @@ export const useToastManager = () => {
     handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
-    handleSelectionLimitError,
   };
 };

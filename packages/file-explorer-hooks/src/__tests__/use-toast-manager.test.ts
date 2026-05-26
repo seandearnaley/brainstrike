@@ -204,21 +204,6 @@ describe('useToastManager', () => {
     });
   });
 
-  describe('handleSelectionLimitError', () => {
-    it('shows selection limit exceeded toast', () => {
-      const { result } = setup();
-
-      result.current.handleSelectionLimitError();
-
-      expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
-        description: FileExplorerStrings.error.selectionLimitExceeded,
-        duration: 4000,
-        variant: 'destructive',
-      });
-    });
-  });
-
   describe('memoization', () => {
     it('uses latest toast implementation across callbacks after re-render', () => {
       const { result, rerender } = setup();
@@ -246,9 +231,8 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(new Error('Generic'));
       result.current.handleBrowserCompatibilityError('Reason');
       result.current.handleDirectorySelectError(new Error('Select'));
-      result.current.handleSelectionLimitError();
 
-      expect(nextToast).toHaveBeenCalledTimes(6);
+      expect(nextToast).toHaveBeenCalledTimes(5);
       expect(initialToast).toHaveBeenCalledTimes(1);
     });
   });

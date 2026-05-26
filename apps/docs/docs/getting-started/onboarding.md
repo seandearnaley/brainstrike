@@ -9,7 +9,7 @@ This is the fastest path to a productive local environment.
 
 ## 1. Prerequisites
 
-- Node.js `22.x`
+- Node.js `24.x`
 - pnpm `10.x`
 - Git
 - Optional: Docker Desktop (for local CI simulation)

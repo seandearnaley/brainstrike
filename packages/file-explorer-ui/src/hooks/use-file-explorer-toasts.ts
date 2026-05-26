@@ -24,7 +24,6 @@ export function useFileExplorerToasts({
     handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
-    handleSelectionLimitError,
   } = useToastManager();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -85,7 +84,6 @@ export function useFileExplorerToasts({
     handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
-    handleSelectionLimitError,
     isRefreshing,
     handleRefresh,
     handleDirectorySelect,

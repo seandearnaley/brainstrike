@@ -78,7 +78,8 @@ export default defineConfig({
       process.env['LOCAL_FIRST_DB'] ?? process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
     ),
     'process.browser': true,
-    'process.version': '"v22.0.0"',
+    // Browser-only shim that tracks the repo Node target for dependencies probing process.version.
+    'process.version': '"v24.0.0"',
     'process.platform': '"browser"',
   },
   plugins: [
@@ -256,6 +257,18 @@ export default defineConfig({
       '@brainstrike/text-splitter/chunking-core': path.resolve(
         __dirname,
         '../../packages/text-splitter/src/chunking-core.ts'
+      ),
+      '@brainstrike/text-splitter/token-counting-heuristics': path.resolve(
+        __dirname,
+        '../../packages/text-splitter/src/token-counting-heuristics.ts'
+      ),
+      '@brainstrike/text-splitter/token-constants': path.resolve(
+        __dirname,
+        '../../packages/text-splitter/src/token-constants.ts'
+      ),
+      '@brainstrike/text-splitter/token-utils-accurate-lite': path.resolve(
+        __dirname,
+        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
       ),
       '@brainstrike/text-splitter': path.resolve(
         __dirname,

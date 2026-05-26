@@ -395,10 +395,7 @@ export function AssistantUiPanelWrapper({
     (s) => s.removeMultipleSelectedFiles
   );
   const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
-  const handleSelectionLimitExceeded = useCallback(() => {}, []);
-  const { effectiveSelection } = useSelectionManager({
-    onSelectionLimitExceeded: handleSelectionLimitExceeded,
-  });
+  const { effectiveSelection } = useSelectionManager();
   const effectiveSelectionRef = useRef(effectiveSelection);
   const workspaceContextSnapshot = useWorkspaceContextCurationStore(
     (state) => state.contextSnapshot

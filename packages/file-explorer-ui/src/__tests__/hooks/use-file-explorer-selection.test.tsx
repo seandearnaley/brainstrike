@@ -9,11 +9,7 @@ const mockSelectedFilePaths = new Set<string>();
 const mockHandleSelectionChange = vi.fn();
 
 vi.mock('../../shell/use-selection-manager-context', () => ({
-  useSelectionManager: ({
-    onSelectionLimitExceeded: _onSelectionLimitExceeded,
-  }: {
-    onSelectionLimitExceeded: () => void;
-  }) => ({
+  useSelectionManager: () => ({
     selectedFilePaths: mockSelectedFilePaths,
     handleSelectionChange: mockHandleSelectionChange,
   }),
@@ -39,7 +35,6 @@ const createMockFileNode = (
 describe('useFileExplorerSelection', () => {
   const createMockParams = (overrides = {}) => ({
     quickFilteredTree: null,
-    onSelectionLimitExceeded: vi.fn(),
     ...overrides,
   });
 
@@ -231,8 +226,7 @@ describe('useFileExplorerSelection', () => {
     ];
 
     const { result, rerender } = renderHook(
-      ({ quickFilteredTree }) =>
-        useFileExplorerSelection({ quickFilteredTree, onSelectionLimitExceeded: vi.fn() }),
+      ({ quickFilteredTree }) => useFileExplorerSelection({ quickFilteredTree }),
       { initialProps: { quickFilteredTree: initialTree }, wrapper: createWrapper() }
     );
 

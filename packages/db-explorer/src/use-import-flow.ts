@@ -53,15 +53,7 @@ export function useImportFlow({
   const [showImportProgress, setShowImportProgress] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const { fileContents, fileTree, unfilteredFileTree } = useFileExplorer();
-  const { selectedFilePaths } = useSelectionManager({
-    onSelectionLimitExceeded: () => {
-      toast({
-        title: 'Selection Limit Reached',
-        description: 'You have reached the maximum number of files that can be selected.',
-        variant: 'destructive',
-      });
-    },
-  });
+  const { selectedFilePaths } = useSelectionManager();
 
   const onImportCompleteRef = useRef(onImportComplete);
   onImportCompleteRef.current = onImportComplete;

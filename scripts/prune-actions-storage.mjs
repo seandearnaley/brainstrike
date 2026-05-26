@@ -150,17 +150,38 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 30s per-request ceiling so a hung GitHub API call can't push the workflow
+// against its job-level timeout (the pagination loop and the retry loop both
+// rely on individual calls returning in bounded time).
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function requestJson(url, token, init = {}, attempts = 3) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const response = await fetch(url, {
-      ...init,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-        ...(init.headers ?? {}),
-      },
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(init.headers ?? {}),
+        },
+      });
+    } catch (error) {
+      // Includes AbortError from the per-request timeout above and any
+      // transient network failure. Retry the same way we'd retry a 5xx.
+      const transient = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+      if (transient && attempt < attempts) {
+        console.warn(
+          `${init.method ?? 'GET'} ${url} aborted after ${REQUEST_TIMEOUT_MS}ms; retrying (${attempt}/${attempts})`
+        );
+        await delay(1000 * attempt);
+        continue;
+      }
+      throw error;
+    }
     if (response.ok) {
       if (response.status === 204) {
         return null;

@@ -22,9 +22,9 @@ function collectSourceFiles(directory: string): string[] {
 }
 
 describe('utils token counting boundary', () => {
-  it('does not import indexing-owned text splitter code', () => {
+  it('does not import indexing-domain text-splitter code', () => {
     const forbiddenImportPattern =
-      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:\/|['"])/;
+      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:['"]|\/)/;
     const violatingFiles = collectSourceFiles(UTILS_SRC_ROOT)
       .filter((filePath) => forbiddenImportPattern.test(readFileSync(filePath, 'utf8')))
       .map((filePath) => path.relative(UTILS_SRC_ROOT, filePath));

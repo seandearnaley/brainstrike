@@ -158,13 +158,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
       </Button>
 
       {/* Collapsible content - compact layout */}
-      <div
-        className={cn(
-          'overflow-hidden transition-all duration-200 ease-out',
-          isExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
-        )}
-        id="search-config-content"
-      >
+      <div className="overflow-hidden" hidden={!isExpanded} id="search-config-content">
         <div className="space-y-2 p-3 pt-1.5">
           {/* Row 1: Retrieval Mode Toggle */}
           <div className="flex items-center gap-2">
