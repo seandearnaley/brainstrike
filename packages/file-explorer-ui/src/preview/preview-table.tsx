@@ -20,6 +20,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
 } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
@@ -381,16 +382,82 @@ const SortHeaderButton = memo<SortHeaderButtonProps>(function SortHeaderButtonCo
 });
 SortHeaderButton.displayName = 'SortHeaderButton';
 
+// External store so HeaderSelectionCheckbox can subscribe via
+// useSyncExternalStore without adding selection state to the groupedColumns
+// memo deps. setSnapshot is render-safe (pure mutation); notify fires from
+// an effect to satisfy React's no-setState-during-render rule.
+interface HeaderSelectionStore {
+  getSnapshot: () => boolean;
+  notify: () => void;
+  setSnapshot: (next: boolean) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+function createHeaderSelectionStore(initial: boolean): HeaderSelectionStore {
+  let state = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => state,
+    notify: () => {
+      // Snapshot listeners before iteration — if a listener synchronously
+      // triggers a React state update that unmounts a sibling subscriber,
+      // the underlying Set would mutate mid-loop. Matches the pattern used
+      // in Zustand/Redux internals.
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    setSnapshot: (next) => {
+      state = next;
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+interface HeaderSelectionCheckboxProps {
+  label: string;
+  onDeselectAll: () => void;
+  onSelectAll: () => void;
+  store: HeaderSelectionStore;
+}
+
+// memo so re-renders of the parent don't cascade through the checkbox when
+// none of its props changed — defense-in-depth in case a future refactor
+// moves the callsite outside the memoized column definition.
+const HeaderSelectionCheckbox = memo(function HeaderSelectionCheckbox({
+  label,
+  onDeselectAll,
+  onSelectAll,
+  store,
+}: HeaderSelectionCheckboxProps) {
+  const isComplete = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Checkbox
+        aria-label={label}
+        checked={isComplete}
+        onCheckedChange={(checked) => (checked ? onSelectAll() : onDeselectAll())}
+        title={label}
+      />
+    </div>
+  );
+});
+
 interface GroupedColumnBuilderArgs {
   columnVisibility: ColumnVisibility;
   groupedTreeColumnId: GroupColumnId | null;
   handleGroupDeselectAllStable: (group: GroupedData<TableRowData>) => void;
   handleGroupSelectAllStable: (group: GroupedData<TableRowData>) => void;
-  headerSelectableFiles: TableRowData[];
+  headerSelectableFilesRef: MutableRefObject<TableRowData[]>;
   headerSelectionLabel: string;
+  headerSelectionStore: HeaderSelectionStore;
   isGroupFullySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
   isGroupPartiallySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
-  isHeaderSelectionComplete: boolean;
   onDeselectAllStable: () => void;
   onFileClickStable: (compositeKey: string) => void;
   onSelectAllOnPageStable: (items: TableRowData[]) => void;
@@ -418,8 +485,8 @@ function createGroupedCheckboxColumn({
   handleGroupDeselectAllStable,
   handleGroupSelectAllStable,
   headerSelectionLabel,
-  headerSelectableFiles,
-  isHeaderSelectionComplete,
+  headerSelectableFilesRef,
+  headerSelectionStore,
   isGroupFullySelectedRef,
   isGroupPartiallySelectedRef,
   onDeselectAllStable,
@@ -431,8 +498,8 @@ function createGroupedCheckboxColumn({
   | 'handleGroupDeselectAllStable'
   | 'handleGroupSelectAllStable'
   | 'headerSelectionLabel'
-  | 'headerSelectableFiles'
-  | 'isHeaderSelectionComplete'
+  | 'headerSelectableFilesRef'
+  | 'headerSelectionStore'
   | 'isGroupFullySelectedRef'
   | 'isGroupPartiallySelectedRef'
   | 'onDeselectAllStable'
@@ -450,16 +517,12 @@ function createGroupedCheckboxColumn({
     maxWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
     resizable: false,
     header: (
-      <div className="flex h-full items-center justify-center">
-        <Checkbox
-          aria-label={headerSelectionLabel}
-          checked={isHeaderSelectionComplete}
-          onCheckedChange={(checked) =>
-            checked ? onSelectAllOnPageStable(headerSelectableFiles) : onDeselectAllStable()
-          }
-          title={headerSelectionLabel}
-        />
-      </div>
+      <HeaderSelectionCheckbox
+        label={headerSelectionLabel}
+        onDeselectAll={onDeselectAllStable}
+        onSelectAll={() => onSelectAllOnPageStable(headerSelectableFilesRef.current)}
+        store={headerSelectionStore}
+      />
     ),
     className: PREVIEW_CHECKBOX_CELL_CLASS,
     headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
@@ -898,6 +961,12 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const isGroupPartiallySelectedRef = useRef(isGroupPartiallySelected);
   isGroupPartiallySelectedRef.current = isGroupPartiallySelected;
 
+  // Stable per-component store so HeaderSelectionCheckbox can subscribe via
+  // useSyncExternalStore — lets the header reflect selection changes
+  // without invalidating the groupedColumns memo.
+  const headerSelectionStore = useMemo(() => createHeaderSelectionStore(false), []);
+  const headerSelectableFilesRef = useRef<TableRowData[]>([]);
+
   const groupedTree = useMemo(
     () =>
       buildGroupedTreeNodes({
@@ -970,15 +1039,22 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     groupingConfig === 'none'
       ? 'Select all files on current page'
       : 'Select all files in grouped results';
-  const isHeaderSelectionComplete = useMemo(
-    () => isAllSelected(headerSelectableFiles),
-    [headerSelectableFiles, isAllSelected]
-  );
+  headerSelectableFilesRef.current = headerSelectableFiles;
+  const isHeaderSelectionComplete = isAllSelected(headerSelectableFiles);
+  // Sync the latest snapshot during render (safe — closure-state mutation,
+  // no listener calls) so useSyncExternalStore reads the correct value on
+  // the immediately-following HeaderSelectionCheckbox render. Listener
+  // notification happens in the post-commit effect below to satisfy
+  // React's "no setState while rendering another component" rule.
+  headerSelectionStore.setSnapshot(isHeaderSelectionComplete);
+  useEffect(() => {
+    headerSelectionStore.notify();
+  }, [headerSelectionStore, isHeaderSelectionComplete]);
 
-  // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
-  // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
-  // This favors correctness (no stale group summary/header state) over memo hit rate.
-  // If profiling shows this as a hotspot, split static structure from reactive cell state.
+  // Selection-driven state flows through refs + a useSyncExternalStore-backed
+  // header checkbox, so this memo stays stable across pure-selection re-renders.
+  // Only structural deltas (columnVisibility, sort/group config, etc.) rebuild
+  // the columns array.
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(
     () =>
       buildGroupedColumns({
@@ -987,8 +1063,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         handleGroupDeselectAllStable,
         handleGroupSelectAllStable,
         headerSelectionLabel,
-        headerSelectableFiles,
-        isHeaderSelectionComplete,
+        headerSelectableFilesRef,
+        headerSelectionStore,
         isGroupFullySelectedRef,
         isGroupPartiallySelectedRef,
         onDeselectAllStable,
@@ -1008,8 +1084,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       handleGroupDeselectAllStable,
       handleGroupSelectAllStable,
       headerSelectionLabel,
-      headerSelectableFiles,
-      isHeaderSelectionComplete,
+      headerSelectionStore,
       onDeselectAllStable,
       onFileClickStable,
       onSelectAllOnPageStable,

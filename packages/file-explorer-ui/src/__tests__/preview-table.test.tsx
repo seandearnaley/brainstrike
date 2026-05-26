@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { FC } from 'react';
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewTable } from '../preview/preview-table';
 import type { ColumnVisibility } from '../preview/use-preview-panel-persistence';
 import type { GroupedData, TableRowData } from '../utils/grouping-configs';
@@ -706,6 +707,112 @@ describe('PreviewTable grouped mode', () => {
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(screen.getByText('trailing-file.tsx')).toBeInTheDocument();
     expect(screen.queryByText('large-file-0.ts')).not.toBeInTheDocument();
+  });
+});
+
+// Performance contract: the grouped columns memo must NOT rebuild on a
+// pure-selection change. Selection toggles fire on every checkbox click in
+// the primary file-explorer surface — rebuilding all columns each time
+// blows the React commit budget at scale. This describe block locks the
+// memo identity contract in via a TreeTable mock that captures the
+// `columns` prop reference per render.
+describe('PreviewTable grouped columns memo stability', () => {
+  const columnsCaptures: unknown[] = [];
+
+  beforeEach(() => {
+    columnsCaptures.length = 0;
+    vi.doMock('@brainstrike/ui', async () => {
+      const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
+      return {
+        ...actual,
+        TreeTable: ((props: { columns: unknown }) => {
+          columnsCaptures.push(props.columns);
+          return (actual.TreeTable as FC<{ columns: unknown }>)(props);
+        }) as typeof actual.TreeTable,
+      };
+    });
+  });
+
+  afterEach(() => {
+    vi.doUnmock('@brainstrike/ui');
+    vi.resetModules();
+  });
+
+  // Stable inputs hoisted outside the render harness so identity-equality
+  // across re-renders is preserved (otherwise fresh array refs would
+  // invalidate the memo for reasons unrelated to selection).
+  const stableGroupedData = [DEFAULT_GROUP];
+  const stableVisibleFiles = [FILE_ONE, FILE_TWO];
+  const stableCollapsedGroups = new Set<string>();
+  const stableCurrentPageData: TableRowData[] = [];
+  const stableHandlers = {
+    handleGroupDeselectAll: vi.fn(),
+    handleGroupSelectAll: vi.fn(),
+    onDeselectAll: vi.fn(),
+    onFileClick: vi.fn(),
+    onSelectAllOnPage: vi.fn(),
+    onSort: vi.fn(),
+    onToggleSelection: vi.fn(),
+    toggleGroupCollapse: vi.fn(),
+  };
+  const stablePagination = { startIndex: 0, endIndex: 20 };
+
+  function makeProps(previewSelections: Set<string>) {
+    return {
+      collapsedGroups: stableCollapsedGroups,
+      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
+      currentPageData: stableCurrentPageData,
+      groupedData: stableGroupedData,
+      groupingConfig: 'directory',
+      ...stableHandlers,
+      // isAllSelected reflects actual selection so isHeaderSelectionComplete
+      // flips correctly across renders. Function identity changes per
+      // render but that's fine — only the boolean result feeds the memo.
+      isAllSelected: (items: TableRowData[]) =>
+        items.length > 0 && items.every((item) => previewSelections.has(item.compositeKey)),
+      isGroupFullySelected: () => false,
+      isGroupPartiallySelected: () => false,
+      pagination: stablePagination,
+      previewSelections,
+      sortDirection: 'asc' as const,
+      sortField: 'path' as const,
+      visibleFilesOnPage: stableVisibleFiles,
+    };
+  }
+
+  it('keeps the columns array reference stable when only individual rows are toggled', async () => {
+    vi.resetModules();
+    const { PreviewTable: MockedPreviewTable } = await import('../preview/preview-table');
+
+    const { rerender } = render(<MockedPreviewTable {...makeProps(new Set<string>())} />);
+    expect(columnsCaptures.length).toBeGreaterThan(0);
+    const initial = columnsCaptures.at(-1);
+
+    // Single-row toggle: not all files selected → isHeaderSelectionComplete
+    // stays false. This case should already be stable.
+    rerender(<MockedPreviewTable {...makeProps(new Set<string>([FILE_ONE.compositeKey]))} />);
+
+    expect(columnsCaptures.at(-1)).toBe(initial);
+  });
+
+  it('keeps the columns array reference stable when selection flips header-completion state', async () => {
+    vi.resetModules();
+    const { PreviewTable: MockedPreviewTable } = await import('../preview/preview-table');
+
+    const { rerender } = render(<MockedPreviewTable {...makeProps(new Set<string>())} />);
+    expect(columnsCaptures.length).toBeGreaterThan(0);
+    const initial = columnsCaptures.at(-1);
+
+    // Flip to "all selected" — production code's isHeaderSelectionComplete
+    // boolean flips false → true. The header checkbox does need to render
+    // the new state, but that should not require rebuilding all columns.
+    rerender(
+      <MockedPreviewTable
+        {...makeProps(new Set<string>([FILE_ONE.compositeKey, FILE_TWO.compositeKey]))}
+      />
+    );
+
+    expect(columnsCaptures.at(-1)).toBe(initial);
   });
 });
 
