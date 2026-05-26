@@ -67,10 +67,7 @@ interface BatchFaultState {
   firstError: unknown;
 }
 
-// Per-item count with per-item fault tolerance. Wraps the synchronous
-// counter so a single bad input (e.g. wasm encoder edge fault) degrades
-// to heuristic for that item without aborting the batch. Availability
-// mode-mixing is decided by the caller before this is invoked.
+// Wraps sync counter with per-item fault tolerance, degrading to heuristic.
 function countItem(
   text: string,
   counter: SyncAccurateCounter | null,

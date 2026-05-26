@@ -390,29 +390,8 @@ export async function countTokensAccurate(text: string): Promise<number> {
 
 export type SyncAccurateCounter = (text: string) => number;
 
-/**
- * Resolves the tiktoken encoder once and returns a synchronous counter closure.
- *
- * Callers that count tokens for many texts in a batch should resolve once at
- * the top of the loop and then call the returned closure per text — this
- * avoids the per-item microtask + cached-promise probe overhead that
- * `countTokensAccurate` incurs.
- *
- * Returns `null` when the encoder is unavailable in the current runtime;
- * callers should fall back to a heuristic for the entire batch so that
- * availability is all-or-nothing. Per-item encoding faults (the closure
- * throwing on a specific input) are a separate concern — callers may
- * degrade individual items to heuristic without mixing availability modes.
- *
- * Lifetime: the closure captures the resolved encoder by reference. If
- * `disposeAccurateTokenCountingRuntime()` is called while the closure is
- * still in use (e.g. factory reset during a long batch), the closure will
- * throw or return garbage. Callers should wrap each invocation in a
- * per-item try/catch and degrade to heuristic (which `calculateGroupTokens`
- * does). Re-resolve via this function for each new batch.
- *
- * @see calculateGroupTokens for the canonical usage pattern.
- */
+/** Resolve encoder once; returned closure is sync. Throws/returns garbage if
+ *  runtime is disposed mid-batch — callers must try/catch per item. */
 export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
   const encoder = await resolveEncoder();
   if (!encoder) {
