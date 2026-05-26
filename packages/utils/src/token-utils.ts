@@ -94,7 +94,7 @@ async function resolveBatchCounter(): Promise<SyncAccurateCounter | null> {
   try {
     return await getAccurateTokenCounter();
   } catch (error) {
-    logTiktokenFailure('tiktoken count failed; falling back to heuristic', error);
+    logTiktokenFailure('tiktoken batch resolve failed; falling back to heuristic', error);
     return null;
   }
 }
@@ -116,12 +116,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   }
 
   const counter = await resolveBatchCounter();
-  // `logTiktokenFailure` is gated by a module-level once-only flag, which
-  // in a batch hides degradation scope (and silently drops isolated faults
-  // entirely after the flag has been tripped). Track per-item faults
-  // locally — including the first error object — and log a batch-end
-  // summary that bypasses the once-only gate so operators can tell
-  // one-off from systemic and still see the underlying error detail.
+  // Track per-item faults locally; batch-end summary bypasses the once-only gate.
   const faultState: BatchFaultState = { count: 0, firstError: undefined };
   let total = 0;
   let lastYield = performance.now();
