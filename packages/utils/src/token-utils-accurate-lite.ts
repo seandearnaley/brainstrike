@@ -6,8 +6,14 @@ const DEFAULT_MODEL = ACCURATE_TOKEN_MODEL_HINT;
 const DEFAULT_ENCODING = ACCURATE_TOKEN_ENCODING;
 const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
 
+// tiktoken's wasm-bindgen encoder exposes both `encode` (special-token aware)
+// and `encode_ordinary` (plain text). We only use `encode_ordinary` for
+// arbitrary content tokenization; `encode` exists in the interface because
+// some encoder factories surface it but it's not required by this module.
 interface EncoderInstance {
-  encode: EncodeFn;
+  encode?: EncodeFn;
+  // biome-ignore lint/style/useNamingConvention: tiktoken wasm-bindgen API
+  encode_ordinary: EncodeFn;
   free?: () => void;
 }
 
@@ -49,16 +55,14 @@ function normalizeErrorMessage(error: unknown): string {
 }
 
 function toResolvedEncoder(encoder: EncoderInstance): ResolvedEncoder {
-  const encodeOrdinary = (encoder as unknown as Record<string, unknown>)['encode_ordinary'];
-  if (typeof encodeOrdinary !== 'function') {
+  if (typeof encoder.encode_ordinary !== 'function') {
     throw new Error('tiktoken encoder missing encode_ordinary');
   }
   const resolvedEncoder: ResolvedEncoder = {
     // File contents must be tokenized as ordinary text. Special-token aware
     // prompt encoding is not valid for arbitrary source files.
     // wasm-bindgen encoder methods require the original instance as `this`.
-    encodeContent: (text: string) =>
-      (encodeOrdinary as (this: EncoderInstance, text: string) => Uint32Array).call(encoder, text),
+    encodeContent: (text: string) => encoder.encode_ordinary.call(encoder, text),
   };
   if (typeof encoder.free === 'function') {
     resolvedEncoder.dispose = () => encoder.free?.();
