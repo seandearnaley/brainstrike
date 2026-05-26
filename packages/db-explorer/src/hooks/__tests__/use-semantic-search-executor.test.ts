@@ -592,4 +592,115 @@ describe('useSemanticSearchExecutor', () => {
       expect(callArgs).not.toHaveProperty('selectionSnapshotId');
     });
   });
+
+  describe('WebGPU recovery (visible-renderer backgrounding)', () => {
+    function setDocumentHidden(hidden: boolean): void {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        get: () => hidden,
+      });
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (hidden ? 'hidden' : 'visible'),
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+
+    it('disposes the cached embedder when the document becomes hidden so the next search re-initializes', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const file = createMockFileRecord('file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([file]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      await result.current!('first query', createSearchConfig(), 'set-1');
+      expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(1);
+      const firstInstance = MockSimpleEmbeddingService.mock.instances[0] as {
+        dispose: ReturnType<typeof vi.fn>;
+      };
+
+      // Background the renderer — visible-renderer cannot disable Chromium
+      // throttling, so it must dispose the cached WebGPU-backed embedder.
+      setDocumentHidden(true);
+      expect(firstInstance.dispose).toHaveBeenCalledTimes(1);
+
+      // Returning to foreground and running another search should rebuild
+      // the embedder fresh rather than reuse the now-stale GPU device.
+      setDocumentHidden(false);
+      await result.current!('second query', createSearchConfig(), 'set-1');
+      expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(2);
+    });
+
+    it('recovers transparently when an embedQuery throws a device-loss error by re-initializing and retrying once', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const file = createMockFileRecord('file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([file]);
+
+      const initializeWithModel = vi.fn().mockResolvedValue(undefined);
+      const generateQueryEmbedding = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('WebGPU device was lost: Device.Destroyed'))
+        .mockResolvedValue({ embedding: new Array(1024).fill(0.5) });
+      MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+        Object.assign(this, {
+          initializeWithModel,
+          generateQueryEmbedding,
+          dispose: vi.fn(),
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      // Single user-facing call; recovery is internal.
+      const searchResults = await result.current!('query', createSearchConfig(), 'set-1');
+
+      expect(searchResults).toHaveLength(1);
+      // Two embedder instances: the failed one + a fresh one for the retry.
+      expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(2);
+      expect(generateQueryEmbedding).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not re-init the embedder for unrelated embedding errors (so transient app errors do not thrash the model)', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const file = createMockFileRecord('file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([file]);
+
+      const initializeWithModel = vi.fn().mockResolvedValue(undefined);
+      const generateQueryEmbedding = vi.fn().mockRejectedValueOnce(new Error('out of memory'));
+      MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+        Object.assign(this, {
+          initializeWithModel,
+          generateQueryEmbedding,
+          dispose: vi.fn(),
+        });
+      });
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      await expect(result.current!('q', createSearchConfig(), 'set-1')).rejects.toThrow(
+        'out of memory'
+      );
+      // Should NOT have rebuilt the embedder — the cap on retry-on-device-loss
+      // is exactly one fresh re-init per device-loss error class.
+      expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(1);
+    });
+  });
 });
