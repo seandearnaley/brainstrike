@@ -462,15 +462,16 @@ export function useSemanticSearchExecutor({
   // visibilitychange-hidden, and post-device-loss recovery so each path
   // releases the WebGPU GPUDevice the same way.
   //
-  // Also clears initializingPromiseRef so a subsequent ensureEmbedderReady
-  // call starts a fresh init rather than awaiting the in-flight one. The
-  // in-flight init will still complete (its promise lives on in closures)
-  // and assign to embedderRef.current, but the next ensureEmbedderReady
-  // will see embedderRef.current is null (we just cleared it) and start
-  // a new init. The orphaned embedder gets garbage collected.
+  // Intentionally does NOT clear `initializingPromiseRef`: that ref is the
+  // dedup gate in `ensureEmbedderReady`, and clearing it during an in-flight
+  // init lets a concurrent caller spawn a second model load while the first
+  // is still running. Soft-overwrite semantic instead — if dispose runs
+  // while an init is in flight, the init completes and writes a (possibly
+  // stale-GPU) embedder into `embedderRef.current`. The next search will
+  // either reuse it (cheap if still valid) or hit a device-loss error which
+  // routes through the retry path in `searchExecutor` to rebuild fresh.
   const disposeCachedEmbedder = useCallback(async (reason: string): Promise<void> => {
     const embedder = embedderRef.current;
-    initializingPromiseRef.current = null;
     if (!embedder) {
       return;
     }

@@ -600,9 +600,11 @@ describe('useSemanticSearchExecutor', () => {
     let originalVisibilityStateDescriptor: PropertyDescriptor | undefined;
 
     beforeEach(() => {
-      originalHiddenDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+      // Save own-property descriptors so afterEach can restore symmetrically:
+      // setDocumentHidden defines on the instance, so we save/restore there.
+      originalHiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
       originalVisibilityStateDescriptor = Object.getOwnPropertyDescriptor(
-        Document.prototype,
+        document,
         'visibilityState'
       );
     });
