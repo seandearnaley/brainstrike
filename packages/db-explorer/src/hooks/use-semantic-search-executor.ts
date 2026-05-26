@@ -134,6 +134,28 @@ async function createLocalEmbedder(
   };
 }
 
+// WebGPU device-loss recovery (visible-renderer only): we cannot disable
+// Chromium background throttling on the visible window (per AGENTS.md), so
+// a cached embedder's GPU device can be invalidated after backgrounding.
+// Pattern-match the error text instead of relying on a typed exception
+// because the loss surfaces through transformers.js / ONNX Runtime Web as
+// a plain Error with one of these message fragments.
+const DEVICE_LOSS_ERROR_FRAGMENTS = [
+  'webgpu device was lost',
+  'device.destroyed',
+  'device was lost',
+  'gpudevice is lost',
+  'gpudevice was destroyed',
+];
+
+function isDeviceLossError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const lower = error.message.toLowerCase();
+  return DEVICE_LOSS_ERROR_FRAGMENTS.some((fragment) => lower.includes(fragment));
+}
+
 interface RetrievalFilterOptions {
   filePaths?: string[];
   selectionSnapshotId?: string;
@@ -427,23 +449,55 @@ export function useSemanticSearchExecutor({
 
   useEnsureModelRegistry({ db });
 
+  // Dispose + null the cached embedder. Shared by unmount cleanup,
+  // visibilitychange-hidden, and post-device-loss recovery so each path
+  // releases the WebGPU GPUDevice the same way.
+  const disposeCachedEmbedder = useCallback(async (reason: string): Promise<void> => {
+    const embedder = embedderRef.current;
+    if (!embedder) {
+      return;
+    }
+    embedderRef.current = null;
+    currentModelKeyRef.current = null;
+    if (!embedder.dispose) {
+      return;
+    }
+    try {
+      await Promise.resolve(embedder.dispose());
+      logger.debug('Disposed cached embedder', { reason });
+    } catch (error: unknown) {
+      logger.error('Failed to dispose embedder', {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      void disposeCachedEmbedder('unmount');
+    },
+    [disposeCachedEmbedder]
+  );
+
+  // Visible-renderer can't disable Chromium throttling — when the document
+  // is hidden the renderer may be frozen and the WebGPU device invalidated.
+  // Dispose proactively so the next user-triggered search rebuilds a fresh
+  // embedder rather than crashing on a stale GPUDevice.
   useEffect(() => {
-    const cleanup = () => {
-      const embedder = embedderRef.current;
-      embedderRef.current = null;
-      currentModelKeyRef.current = null;
-      if (embedder?.dispose) {
-        // Wrap disposal in try-catch to prevent unhandled rejections
-        // and log errors for debugging resource cleanup issues
-        Promise.resolve(embedder.dispose()).catch((error: unknown) => {
-          logger.error('Failed to dispose embedder during cleanup', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const onVisibilityChange = (): void => {
+      if (document.hidden) {
+        void disposeCachedEmbedder('document-hidden');
       }
     };
-    return cleanup;
-  }, []);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [disposeCachedEmbedder]);
 
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const getEmbeddingSetModelInfo = useCallback(
@@ -629,9 +683,26 @@ export function useSemanticSearchExecutor({
       const embedder = await ensureEmbedderReady(modelInfo);
       logger.info('Embedder ready');
 
-      // Generate query embedding
+      // Generate query embedding. If the cached embedder's GPUDevice was
+      // invalidated (e.g. visible renderer was backgrounded then resumed
+      // before the visibilitychange dispose ran), rebuild once and retry.
+      // Capped at one retry — non-device-loss errors propagate untouched
+      // so transient app errors don't thrash the model load.
       logger.info('Generating query embedding...');
-      const { embedding } = await embedder.embedQuery(query);
+      let embedding: number[];
+      try {
+        ({ embedding } = await embedder.embedQuery(query));
+      } catch (error) {
+        if (!isDeviceLossError(error)) {
+          throw error;
+        }
+        logger.warn('WebGPU device loss detected; rebuilding embedder and retrying once', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await disposeCachedEmbedder('device-loss');
+        const refreshed = await ensureEmbedderReady(modelInfo);
+        ({ embedding } = await refreshed.embedQuery(query));
+      }
       logger.info('Query embedding generated', { embeddingLength: embedding.length });
 
       // Build retrieval filter options (BST-172, BST-175)
@@ -668,7 +739,7 @@ export function useSemanticSearchExecutor({
         fileRepository
       );
     },
-    [chunkRepository, fileRepository, getModelInfo, ensureEmbedderReady]
+    [chunkRepository, fileRepository, getModelInfo, ensureEmbedderReady, disposeCachedEmbedder]
   );
 
   const hasExecutor = Boolean(chunkRepository && fileRepository);
