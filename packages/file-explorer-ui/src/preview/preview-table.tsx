@@ -382,17 +382,10 @@ const SortHeaderButton = memo<SortHeaderButtonProps>(function SortHeaderButtonCo
 });
 SortHeaderButton.displayName = 'SortHeaderButton';
 
-// Stable external store that lets the header checkbox re-render in isolation
-// when `isHeaderSelectionComplete` flips, without invalidating the
-// groupedColumns memo. Without this, every selection toggle that changes the
-// "all visible files selected" status would rebuild every column on every
-// click — death by a thousand cuts in the primary file-explorer surface.
-//
-// State update (`setSnapshot`) is separated from listener notification
-// (`notify`) so the parent can sync the latest value during render (safe
-// pure mutation) and trigger subscribers from a post-commit effect.
-// Calling listeners during render would violate React's "no setState while
-// rendering another component" rule.
+// External store so HeaderSelectionCheckbox can subscribe via
+// useSyncExternalStore without adding selection state to the groupedColumns
+// memo deps. setSnapshot is render-safe (pure mutation); notify fires from
+// an effect to satisfy React's no-setState-during-render rule.
 interface HeaderSelectionStore {
   getSnapshot: () => boolean;
   notify: () => void;
@@ -433,7 +426,10 @@ interface HeaderSelectionCheckboxProps {
   store: HeaderSelectionStore;
 }
 
-function HeaderSelectionCheckbox({
+// memo so re-renders of the parent don't cascade through the checkbox when
+// none of its props changed — defense-in-depth in case a future refactor
+// moves the callsite outside the memoized column definition.
+const HeaderSelectionCheckbox = memo(function HeaderSelectionCheckbox({
   label,
   onDeselectAll,
   onSelectAll,
@@ -450,7 +446,7 @@ function HeaderSelectionCheckbox({
       />
     </div>
   );
-}
+});
 
 interface GroupedColumnBuilderArgs {
   columnVisibility: ColumnVisibility;
