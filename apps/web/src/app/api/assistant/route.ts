@@ -58,7 +58,7 @@ export async function POST(req: Request): Promise<Response> {
     return new Response(
       JSON.stringify({
         error: 'agent_stream_init_failed',
-        message: error instanceof Error ? error.message : String(error),
+        message: 'Assistant stream initialization failed',
       }),
       {
         status: 502,

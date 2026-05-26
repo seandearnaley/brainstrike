@@ -87,6 +87,7 @@ describe('assistant route', () => {
     expect(res.status).toBe(502);
     const payload = await res.json();
     expect(payload).toMatchObject({ error: 'agent_stream_init_failed' });
+    expect(payload.message).toBe('Assistant stream initialization failed');
   });
 
   it('creates a new session when provider is enabled', async () => {

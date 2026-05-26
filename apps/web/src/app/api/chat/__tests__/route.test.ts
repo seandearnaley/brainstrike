@@ -242,6 +242,6 @@ describe('chat route schema', () => {
     const payload = await res.json();
     expect(payload.error).toBe('agent_stream_init_failed');
     expect(payload.code).toBe('mastra_agent_missing_api_key');
-    expect(payload.message).toContain('mastra_agent_missing_api_key');
+    expect(payload.message).toBe('Assistant stream initialization failed');
   });
 });

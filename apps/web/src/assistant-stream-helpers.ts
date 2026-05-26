@@ -60,7 +60,7 @@ export async function handleChatEndpoint(
     res.end(
       JSON.stringify({
         error: 'agent_stream_init_failed',
-        message: error instanceof Error ? error.message : String(error),
+        message: 'Assistant stream initialization failed',
       })
     );
     return;
@@ -124,7 +124,7 @@ export async function handleAssistantEndpoint(
     res.end(
       JSON.stringify({
         error: 'agent_stream_init_failed',
-        message: error instanceof Error ? error.message : String(error),
+        message: 'Assistant stream initialization failed',
       })
     );
     return;

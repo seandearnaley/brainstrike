@@ -224,7 +224,7 @@ function createErrorResponse(err: unknown): Response {
       JSON.stringify({
         error: 'agent_stream_init_failed',
         code: err.code,
-        message: err.message,
+        message: 'Assistant stream initialization failed',
       }),
       {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
