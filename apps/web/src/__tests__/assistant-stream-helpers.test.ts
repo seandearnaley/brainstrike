@@ -137,7 +137,10 @@ describe('assistant-stream-helpers', () => {
     await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
 
     expect(res.status).toBe(502);
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'agent_stream_init_failed' });
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'agent_stream_init_failed',
+      message: 'Assistant stream initialization failed',
+    });
   });
 
   it('creates a new assistant session for streaming', async () => {

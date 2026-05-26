@@ -1,11 +1,13 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { isMastraAgentError, toAiSdkStyleStream } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/utils/logger';
 import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
+const logger = createLogger('WebChatRoute');
 
 interface RateLimitEntry {
   blockedUntil?: number;
@@ -220,11 +222,11 @@ export function __resetRateLimiterForTests(): void {
 
 function createErrorResponse(err: unknown): Response {
   if (isMastraAgentError(err)) {
+    logger.error('Failed to initialize chat stream', { code: err.code, error: err.message });
     return new Response(
       JSON.stringify({
         error: 'agent_stream_init_failed',
-        code: err.code,
-        message: err.message,
+        message: 'Assistant stream initialization failed',
       }),
       {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
