@@ -465,7 +465,7 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
-  it('keeps the restart budget until a restarted worker remains ready long enough', async () => {
+  it('caps restarts within the sliding window even when restarted workers briefly succeed', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();
 
@@ -512,6 +512,60 @@ describe('useBackgroundTokenIndexer', () => {
         '(worker.addEventListener(error)): Worker error event: recoverable boom 3'
       )
     );
+  });
+
+  it('resets the restart budget once failures age out of the sliding window', async () => {
+    vi.useFakeTimers();
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    expect(mockWorkers).toHaveLength(1);
+
+    // Burn the full budget: 2 recoverable failures + restarts, then verify
+    // the worker is alive (cap not yet hit; the 3rd is the terminal one).
+    for (const index of [0, 1]) {
+      await act(async () => {
+        mockWorkers[index]!.emitEvent(
+          'error',
+          new ErrorEvent('error', {
+            message: `pre-window recoverable boom ${index + 1}`,
+            filename: 'background-indexer.worker.js',
+          })
+        );
+      });
+      await runPendingTimers();
+      expect(mockWorkers).toHaveLength(index + 2);
+      await markSpecificWorkerReady(mockWorkers[index + 1]!);
+    }
+    expect(onFileError).not.toHaveBeenCalled();
+
+    // Age both recorded restarts past the 60s sliding window. The next
+    // recoverable failure should be treated as transient and accepted.
+    await act(async () => {
+      vi.advanceTimersByTime(60_000 + 1);
+    });
+
+    await act(async () => {
+      mockWorkers[2]!.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'post-window recoverable boom',
+          filename: 'background-indexer.worker.js',
+        })
+      );
+    });
+    await runPendingTimers();
+
+    // Budget reset: a new worker was created instead of escalating to terminal.
+    expect(mockWorkers).toHaveLength(4);
+    expect(onFileError).not.toHaveBeenCalled();
   });
 
   it('surfaces a terminal worker error when a recoverable restart cannot create a new worker', async () => {

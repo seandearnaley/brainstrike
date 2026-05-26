@@ -32,7 +32,25 @@ const TERMINAL_WORKER_ERROR_KEY = '__worker__';
 // Tunable only if future environments show different restart characteristics.
 const MAX_RECOVERABLE_WORKER_RESTARTS = 2;
 const RECOVERABLE_WORKER_RESTART_BACKOFF_MS = 250;
-const RECOVERABLE_WORKER_RESTART_STABILITY_MS = 5000;
+// Sliding-window budget: up to MAX_RECOVERABLE_WORKER_RESTARTS restarts in
+// any RECOVERABLE_WORKER_RESTART_WINDOW_MS window. A flapping worker that
+// fails every 30s no longer restarts indefinitely — after the cap is hit
+// inside the window, the next failure escalates to terminal. Outside the
+// window, transient failures still get a fresh budget.
+const RECOVERABLE_WORKER_RESTART_WINDOW_MS = 60_000;
+
+type RecoverableWorkerContext =
+  | 'ready-timeout'
+  | 'worker.onerror'
+  | 'worker.addEventListener(error)'
+  | 'worker.onmessageerror';
+
+const RECOVERABLE_WORKER_CONTEXTS: ReadonlySet<RecoverableWorkerContext> = new Set([
+  'ready-timeout',
+  'worker.onerror',
+  'worker.addEventListener(error)',
+  'worker.onmessageerror',
+]);
 const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
   /^accurate token counting unavailable:/i,
   /tiktoken encoder failed to initialize/i,
@@ -56,12 +74,21 @@ function isRecoverableWorkerFailure(error: Error, context: string): boolean {
     return false;
   }
   // createWorkerInstance is intentionally excluded: constructor failures are deterministic.
-  return (
-    context === 'ready-timeout' ||
-    context === 'worker.onerror' ||
-    context === 'worker.addEventListener(error)' ||
-    context === 'worker.onmessageerror'
-  );
+  return RECOVERABLE_WORKER_CONTEXTS.has(context as RecoverableWorkerContext);
+}
+
+// Prunes restart timestamps older than the sliding window in-place and
+// returns the count of restarts still in the budget window.
+function pruneRestartHistory(history: number[], now: number): number {
+  const cutoff = now - RECOVERABLE_WORKER_RESTART_WINDOW_MS;
+  while (history.length > 0) {
+    const head = history[0];
+    if (head === undefined || head >= cutoff) {
+      break;
+    }
+    history.shift();
+  }
+  return history.length;
 }
 
 function clearTimerRef(timerRef: TimerRef): void {
@@ -334,10 +361,12 @@ export function useBackgroundTokenIndexer({
   const workerMessageCleanupRef = useRef<(() => void) | null>(null);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const restartStabilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
   const terminalWorkerFailureRef = useRef<Error | null>(null);
-  const recoverableRestartCountRef = useRef(0);
+  // Sliding window of restart timestamps; replaces a single count + stability
+  // timer so flapping workers can't restart indefinitely by spacing failures
+  // just past a fixed reset interval.
+  const recoverableRestartHistoryRef = useRef<number[]>([]);
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
 
   // Track pending files to enable cancellation
@@ -465,7 +494,6 @@ export function useBackgroundTokenIndexer({
     runtime?.dispose();
     clearTimerRef(restartTimerRef);
     clearTimerRef(readinessTimerRef);
-    clearTimerRef(restartStabilityTimerRef);
     if (worker) {
       worker.terminate();
     }
@@ -528,12 +556,15 @@ export function useBackgroundTokenIndexer({
       if (!isRecoverableWorkerFailure(error, context)) {
         return false;
       }
-      if (recoverableRestartCountRef.current >= MAX_RECOVERABLE_WORKER_RESTARTS) {
+      const history = recoverableRestartHistoryRef.current;
+      const now = Date.now();
+      const inWindow = pruneRestartHistory(history, now);
+      if (inWindow >= MAX_RECOVERABLE_WORKER_RESTARTS) {
         return false;
       }
 
       markWorkerFailureHandled(workerGeneration);
-      recoverableRestartCountRef.current += 1;
+      history.push(now);
       terminalWorkerFailureRef.current = null;
 
       const pendingCount = pendingFilesRef.current.size;
@@ -545,8 +576,9 @@ export function useBackgroundTokenIndexer({
       disposeCurrentWorker();
 
       logger.warn('Background token indexer restarting after recoverable worker failure', {
-        attempt: recoverableRestartCountRef.current,
+        attempt: history.length,
         maxAttempts: MAX_RECOVERABLE_WORKER_RESTARTS,
+        windowMs: RECOVERABLE_WORKER_RESTART_WINDOW_MS,
         context,
         ...getTerminalWorkerErrorDetails(error),
         error: error.message,
@@ -561,13 +593,20 @@ export function useBackgroundTokenIndexer({
         clearWorkerFailureHandled();
         const startWorker = ensureWorkerReadyRef.current;
         if (!startWorker) {
-          logger.debug('Background token indexer restart skipped: no startup callback available');
+          // Effect cleanup raced ahead of the restart timer. Surface a
+          // terminal failure rather than leaving the worker in silent limbo
+          // — consumers gate on getWorkerFailure(), so they need a signal.
+          failWorker(
+            new Error('Background token indexer restart skipped: no startup callback available'),
+            'restart-timer.no-startup-callback',
+            workerGeneration
+          );
           return;
         }
-        void startWorker().catch((restartError: unknown) => {
-          logger.warn('Background token indexer restart attempt failed', {
-            error: formatErrorMessage(restartError),
-          });
+        // failWorker already logs at error level on failure inside startWorker;
+        // swallow the rejection here to avoid a duplicate warn entry.
+        void startWorker().catch(() => {
+          // Surfaced through getWorkerFailure() + state.
         });
       }, RECOVERABLE_WORKER_RESTART_BACKOFF_MS);
 
@@ -576,6 +615,7 @@ export function useBackgroundTokenIndexer({
     [
       clearWorkerFailureHandled,
       disposeCurrentWorker,
+      failWorker,
       isWorkerFailureHandled,
       markWorkerFailureHandled,
       rejectAllPendingBatchTrackers,
@@ -673,18 +713,10 @@ export function useBackgroundTokenIndexer({
             runtime.clearFailure();
             runtime.markReady();
             terminalWorkerFailureRef.current = null;
-            if (recoverableRestartCountRef.current > 0) {
-              // Keep ready-crash loops on the same bounded restart budget until
-              // the restarted worker has remained usable for a full stability window.
-              // Failures after that window are treated as independent transient failures.
-              // If the timer callback wins the event-loop turn, the next failure starts
-              // a new transient window by design.
-              clearTimerRef(restartStabilityTimerRef);
-              restartStabilityTimerRef.current = setTimeout(() => {
-                restartStabilityTimerRef.current = null;
-                recoverableRestartCountRef.current = 0;
-              }, RECOVERABLE_WORKER_RESTART_STABILITY_MS);
-            }
+            // Restart budget is sliding-window: no reset on ready. The window
+            // naturally ages out old restarts (see pruneRestartHistory), so a
+            // worker that genuinely stabilizes gets a fresh budget after the
+            // window elapses; a flapping worker hits the cap and escalates.
             clearWorkerFailureHandled();
             setIsReady(true);
             clearTimerRef(readinessTimerRef);
@@ -820,7 +852,7 @@ export function useBackgroundTokenIndexer({
       clearWorkerFailureHandled();
       workerErrorLoggedRef.current = false;
       terminalWorkerFailureRef.current = null;
-      recoverableRestartCountRef.current = 0;
+      recoverableRestartHistoryRef.current = [];
       rejectAllPendingBatchTrackers(
         new Error('Background token indexer worker terminated during cleanup')
       );
