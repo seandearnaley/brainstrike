@@ -169,8 +169,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   }) => (
     <div data-testid="search-mode-bar">
       <button
+        // Match production's dynamic aria-label so downstream tests verify
+        // the real component's behavior instead of the mock.
         aria-expanded={isSearchExpanded ? 'true' : 'false'}
-        aria-label="Hybrid search"
+        aria-label={isSearchExpanded ? 'Collapse hybrid search' : 'Expand hybrid search'}
         onClick={() => onSearchExpandedChange?.(!isSearchExpanded)}
         type="button"
       >
@@ -412,7 +414,7 @@ describe('CollectionBrowserView', () => {
 
     expect(screen.queryByTestId('search-config-panel')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Hybrid search' }));
+    await user.click(screen.getByRole('button', { name: /^expand hybrid search$/i }));
 
     expect(screen.getByTestId('search-mode-bar')).toContainElement(
       screen.getByTestId('search-config-panel')
@@ -433,6 +435,15 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('search-mode-bar')).not.toContainElement(
       screen.getByTestId('collection-browser-toolbar')
     );
+  });
+
+  it('keeps hybrid search discoverable when no collection is selected', () => {
+    render(
+      <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
+    );
+
+    expect(screen.getByRole('button', { name: /^expand hybrid search$/i })).toBeInTheDocument();
+    expect(screen.getByTestId('search-mode-bar')).toBeInTheDocument();
   });
 
   it('prioritizes the no-collection empty state over stale semantic search state', () => {

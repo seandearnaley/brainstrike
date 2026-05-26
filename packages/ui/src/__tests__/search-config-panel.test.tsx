@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SearchConfigPanel } from '../collection-browser/search-config-panel';
 import type { SearchConfig, SearchConfigPanelProps } from '../collection-browser/types';
@@ -205,6 +206,51 @@ describe('SearchConfigPanel', () => {
 
     const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-controls', 'search-config-content');
+  });
+
+  it('keeps search-config-content in the DOM when collapsed for aria-controls', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: false })} />);
+
+    const content = document.getElementById('search-config-content');
+    expect(content).toBeInTheDocument();
+    expect(content).toHaveAttribute('hidden');
+  });
+
+  it('toggles advanced options with Enter and Space on the trigger', async () => {
+    const user = userEvent.setup();
+    const onExpandedChange = vi.fn();
+    const { rerender } = renderWithProviders(
+      <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: false })} />
+    );
+
+    const expandTrigger = screen.getByRole('button', { name: /expand advanced options/i });
+    expandTrigger.focus();
+    await user.keyboard('{Enter}');
+    expect(onExpandedChange).toHaveBeenCalledWith(true);
+
+    onExpandedChange.mockClear();
+    rerender(
+      <TestWrapper>
+        <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: true })} />
+      </TestWrapper>
+    );
+    const collapseTrigger = screen.getByRole('button', { name: /collapse advanced options/i });
+    collapseTrigger.focus();
+    await user.keyboard(' ');
+    expect(onExpandedChange).toHaveBeenCalledWith(false);
+  });
+
+  it('does not animate the advanced options visibility toggle', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+
+    // Regression guard: jsdom can't observe visual behavior, so we assert the
+    // absence of the previously-applied transition classes that the `hidden`
+    // attribute would conflict with. If transitions are reintroduced, pair
+    // them with coordinated JS that defers `hidden` until transition end.
+    const content = document.getElementById('search-config-content');
+    expect(content).not.toHaveClass('transition-all');
+    expect(content).not.toHaveClass('duration-200');
+    expect(content).not.toHaveClass('ease-out');
   });
 
   // === Hybrid Search Tests (BST-294) ===
