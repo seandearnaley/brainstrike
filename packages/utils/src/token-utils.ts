@@ -62,6 +62,38 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
 }
 
+// Per-item count with per-item fault tolerance. Wraps the synchronous
+// counter so a single bad input (e.g. wasm encoder edge fault) degrades
+// to heuristic for that item without aborting the batch. Availability
+// mode-mixing is decided by the caller before this is invoked.
+function countItem(
+  text: string,
+  counter: SyncAccurateCounter | null,
+  faultState: { count: number }
+): number {
+  if (!counter) {
+    return countTokensHeuristic(text);
+  }
+  try {
+    return counter(text);
+  } catch (error) {
+    if (faultState.count === 0) {
+      logTiktokenFailure('tiktoken encode failed; falling back to heuristic', error);
+    }
+    faultState.count += 1;
+    return countTokensHeuristic(text);
+  }
+}
+
+async function resolveBatchCounter(): Promise<SyncAccurateCounter | null> {
+  try {
+    return await getAccurateTokenCounter();
+  } catch (error) {
+    logTiktokenFailure('tiktoken count failed; falling back to heuristic', error);
+    return null;
+  }
+}
+
 /**
  * Calculate the total token count for a batch of texts.
  *
@@ -78,17 +110,11 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
     return 0;
   }
 
-  // Resolve the encoder once at the top of the batch. If accurate counting
-  // is unavailable (or the encoder throws during init), the entire batch
-  // uses the heuristic — no availability mode-mixing across items.
-  let counter: SyncAccurateCounter | null;
-  try {
-    counter = await getAccurateTokenCounter();
-  } catch (error) {
-    logTiktokenFailure('tiktoken count failed; falling back to heuristic', error);
-    counter = null;
-  }
-
+  const counter = await resolveBatchCounter();
+  // `logTiktokenFailure` is gated by a module-level once-only flag, which
+  // in a batch hides degradation scope. Track per-item faults locally and
+  // log a batch-end summary so operators can tell one-off from systemic.
+  const faultState = { count: 0 };
   let total = 0;
   let lastYield = performance.now();
   const YieldThresholdMs = 5;
@@ -97,20 +123,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   for (let i = 0; i < textCount; i++) {
     const text = texts[i];
     if (text) {
-      if (counter) {
-        // Wrap the per-item encode call so a single bad input (e.g. wasm
-        // encoder edge fault) degrades to heuristic for that item rather
-        // than aborting the entire batch. Availability is still all-or-
-        // nothing (decided above); only encoding faults degrade per item.
-        try {
-          total += counter(text);
-        } catch (error) {
-          logTiktokenFailure('tiktoken encode failed; falling back to heuristic', error);
-          total += countTokensHeuristic(text);
-        }
-      } else {
-        total += countTokensHeuristic(text);
-      }
+      total += countItem(text, counter, faultState);
     }
 
     // Yield every 20 items if time threshold exceeded to avoid blocking the event loop.
@@ -121,6 +134,13 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
         lastYield = performance.now();
       }
     }
+  }
+
+  if (faultState.count > 1) {
+    logger.warn('tiktoken per-item encode failures degraded to heuristic in batch', {
+      faultCount: faultState.count,
+      batchSize: textCount,
+    });
   }
   return total;
 }

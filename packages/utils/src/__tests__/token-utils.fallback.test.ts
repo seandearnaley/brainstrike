@@ -242,6 +242,38 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     expect(result).toBe(first.length + countTokensHeuristic(second) + third.length);
   });
 
+  it('emits a batch-end summary when multiple items degrade to heuristic', async () => {
+    vi.resetModules();
+    const accurate = await import('../token-utils-accurate-lite');
+    vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue(() => {
+      throw new Error('every item faults');
+    });
+    const utilsLogger = await import('@brainstrike/utils/logger');
+    const warnSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
+      trace: vi.fn(),
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      child: vi.fn(),
+    } as unknown as ReturnType<typeof utilsLogger.createLogger>);
+
+    const { calculateGroupTokens } = await import('../token-utils');
+    await calculateGroupTokens(['a', 'b', 'c', 'd']);
+
+    // First call to createLogger inside token-utils returned our mock; pull
+    // the warn() spy off it and assert the summary fired with the fault count.
+    const mockLogger = warnSpy.mock.results[0]?.value as {
+      warn: ReturnType<typeof vi.fn>;
+    };
+    const summaryCall = mockLogger.warn.mock.calls.find(([msg]) =>
+      String(msg).includes('per-item encode failures degraded to heuristic in batch')
+    );
+    expect(summaryCall).toBeDefined();
+    expect(summaryCall?.[1]).toMatchObject({ faultCount: 4, batchSize: 4 });
+  });
+
   it('should produce consistent results for the same input', async () => {
     const { countTokensAccurate } = await import('../token-utils');
 
