@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/file-explorer-hooks';
 import {
   Button,
+  CodeSurface,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -777,19 +778,10 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
 
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
-  const preRef = useRef<HTMLPreElement | null>(null);
 
-  // biome-ignore lint/plugin: DOM scroll-restore effect — restores per-tab scroll offset on switch
-  useEffect(() => {
-    const el = preRef.current;
-    if (el) {
-      el.scrollTop = getScrollTop(tab.compositeKey);
-    }
-  }, [tab.compositeKey, getScrollTop]);
-
-  const onScroll = useCallback(
-    (e: React.UIEvent<HTMLPreElement>) => {
-      setScrollTop(tab.compositeKey, e.currentTarget.scrollTop);
+  const handleScrollTopChange = useCallback(
+    (scrollTop: number) => {
+      setScrollTop(tab.compositeKey, scrollTop);
     },
     [setScrollTop, tab.compositeKey]
   );
@@ -861,14 +853,16 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   const { text, truncated } = getDisplayContent(content);
 
   return (
-    <pre
-      className="h-full overflow-auto whitespace-pre-wrap bg-muted/40 p-4 font-mono text-sm"
-      data-truncated={truncated ? 'true' : 'false'}
-      onScroll={onScroll}
-      ref={preRef}
-    >
-      {text}
-    </pre>
+    <CodeSurface
+      ariaLabel={`Source preview for ${path}`}
+      initialScrollTop={getScrollTop(tab.compositeKey)}
+      key={tab.compositeKey}
+      onScrollTopChange={handleScrollTopChange}
+      path={path}
+      testId="file-code-surface"
+      truncated={truncated}
+      value={text}
+    />
   );
 }
 

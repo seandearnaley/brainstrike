@@ -13,6 +13,7 @@ export * from './badge';
 export * from './button';
 export * from './card';
 export * from './checkbox';
+export * from './code-surface';
 export * from './collection-browser';
 export * from './collection-picker';
 export * from './data-table';
