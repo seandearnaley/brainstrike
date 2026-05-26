@@ -1,6 +1,6 @@
 # Dependency version update report
 
-**Generated:** 2026-04-20  
+**Generated:** 2026-05-25  
 **Monorepo:** brainstrike (pnpm workspaces + Turborepo)  
 **Tooling:** `pnpm@10.33.0` (see root `package.json` `packageManager`)  
 **Node engine (declared):** `24.x` (root `package.json` `engines`)  

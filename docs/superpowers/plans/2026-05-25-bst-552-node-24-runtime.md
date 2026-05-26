@@ -10,8 +10,11 @@
 
 - Update `.nvmrc`, app `.nvmrc`, root/app engine declarations, CI cache prefixes, docs, and generated dependency report copy to Node 24.
 - Update the CI workflow contract so stale `node22` Turborepo cache prefixes fail validation.
-- Widen the affected-unit cloud timeout contract for cold Node 24 full-risk runs after PR CI timed out in `@brainstrike/desktop:test`.
 - Keep the web `process.version` define as a browser shim, updated to the repo Node target with an inline rationale.
+
+## Out of scope (handled separately)
+
+- Affected-unit cloud timeout widening shipped in #1068 (Unit job 30→45 min, explicit `--workspace-concurrency=4`); not included in this PR's diff.
 
 ## Verification
 
