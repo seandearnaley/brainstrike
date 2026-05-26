@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { FC } from 'react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewTable } from '../preview/preview-table';
@@ -724,13 +725,10 @@ describe('PreviewTable grouped columns memo stability', () => {
       const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
       return {
         ...actual,
-        TreeTable: (props: { columns: unknown }) => {
+        TreeTable: ((props: { columns: unknown }) => {
           columnsCaptures.push(props.columns);
-          const PassThrough = actual.TreeTable as unknown as (
-            p: typeof props
-          ) => ReturnType<typeof actual.TreeTable>;
-          return PassThrough(props) as unknown as null;
-        },
+          return (actual.TreeTable as FC<{ columns: unknown }>)(props);
+        }) as typeof actual.TreeTable,
       };
     });
   });
