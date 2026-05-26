@@ -62,6 +62,11 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
 }
 
+interface BatchFaultState {
+  count: number;
+  firstError: unknown;
+}
+
 // Per-item count with per-item fault tolerance. Wraps the synchronous
 // counter so a single bad input (e.g. wasm encoder edge fault) degrades
 // to heuristic for that item without aborting the batch. Availability
@@ -69,7 +74,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
 function countItem(
   text: string,
   counter: SyncAccurateCounter | null,
-  faultState: { count: number }
+  faultState: BatchFaultState
 ): number {
   if (!counter) {
     return countTokensHeuristic(text);
@@ -78,7 +83,7 @@ function countItem(
     return counter(text);
   } catch (error) {
     if (faultState.count === 0) {
-      logTiktokenFailure('tiktoken encode failed; falling back to heuristic', error);
+      faultState.firstError = error;
     }
     faultState.count += 1;
     return countTokensHeuristic(text);
@@ -114,9 +119,10 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   // `logTiktokenFailure` is gated by a module-level once-only flag, which
   // in a batch hides degradation scope (and silently drops isolated faults
   // entirely after the flag has been tripped). Track per-item faults
-  // locally and log a batch-end summary so operators can tell one-off
-  // from systemic.
-  const faultState = { count: 0 };
+  // locally — including the first error object — and log a batch-end
+  // summary that bypasses the once-only gate so operators can tell
+  // one-off from systemic and still see the underlying error detail.
+  const faultState: BatchFaultState = { count: 0, firstError: null };
   let total = 0;
   let lastYield = performance.now();
   const YieldThresholdMs = 5;
@@ -138,15 +144,15 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
     }
   }
 
-  // Always log when any item degraded — the >0 threshold (rather than >1)
-  // ensures operators see isolated faults even when `logTiktokenFailure`'s
-  // module-level once-only flag has already been tripped by a prior call.
-  // Mild redundancy with the first-fault log is the right tradeoff vs
-  // silently swallowing a single fault after module warmup.
+  // Always log when any item degraded. Bypasses logTiktokenFailure's
+  // module-level once-only flag, so operators see error detail per batch
+  // (not per module lifetime) — important for diagnosing encoding faults
+  // that change shape over time.
   if (faultState.count > 0) {
     logger.warn('tiktoken per-item encode failures degraded to heuristic in batch', {
       faultCount: faultState.count,
       batchSize: textCount,
+      firstError: faultState.firstError,
     });
   }
   return total;

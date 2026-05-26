@@ -257,7 +257,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
       return text.length;
     });
     const utilsLogger = await import('@brainstrike/utils/logger');
-    const warnSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
+    const createLoggerSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
       trace: vi.fn(),
       debug: vi.fn(),
       info: vi.fn(),
@@ -274,16 +274,20 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     // future refactor defers logger creation (e.g. lazy init), this
     // assertion fails loudly instead of the test silently passing because
     // the mock never intercepted the real call.
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(createLoggerSpy).toHaveBeenCalledTimes(1);
 
-    const mockLogger = warnSpy.mock.results[0]?.value as {
+    const mockLogger = createLoggerSpy.mock.results[0]?.value as {
       warn: ReturnType<typeof vi.fn>;
     };
     const summaryCall = mockLogger.warn.mock.calls.find(([msg]) =>
       String(msg).includes('per-item encode failures degraded to heuristic in batch')
     );
     expect(summaryCall).toBeDefined();
-    expect(summaryCall?.[1]).toMatchObject({ faultCount: 1, batchSize: 4 });
+    expect(summaryCall?.[1]).toMatchObject({
+      faultCount: 1,
+      batchSize: 4,
+      firstError: expect.objectContaining({ message: 'synthetic isolated fault' }),
+    });
   });
 
   it('should produce consistent results for the same input', async () => {
