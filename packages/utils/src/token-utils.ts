@@ -65,6 +65,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
 interface BatchFaultState {
   count: number;
   firstError: unknown;
+  lastError: unknown;
 }
 
 // Wraps sync counter with per-item fault tolerance, degrading to heuristic.
@@ -82,6 +83,7 @@ function countItem(
     if (faultState.count === 0) {
       faultState.firstError = error;
     }
+    faultState.lastError = error;
     faultState.count += 1;
     return countTokensHeuristic(text);
   }
@@ -114,7 +116,11 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
 
   const counter = await resolveBatchCounter();
   // Track per-item faults locally; batch-end summary bypasses the once-only gate.
-  const faultState: BatchFaultState = { count: 0, firstError: undefined };
+  const faultState: BatchFaultState = {
+    count: 0,
+    firstError: undefined,
+    lastError: undefined,
+  };
   let total = 0;
   let lastYield = performance.now();
   const YieldThresholdMs = 5;
@@ -145,6 +151,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
       faultCount: faultState.count,
       batchSize: textCount,
       firstError: faultState.firstError,
+      lastError: faultState.lastError,
     });
   }
   return total;

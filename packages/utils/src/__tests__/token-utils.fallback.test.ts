@@ -248,11 +248,14 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     let faultCallIndex = 0;
     vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
       faultCallIndex += 1;
-      // Only the 2nd call faults; tests the >0 threshold (catches isolated
-      // faults that would otherwise be swallowed after logTiktokenFailure's
-      // once-only flag has been tripped earlier in the module lifetime).
+      // Items 2 and 4 fault with different errors so we can verify both
+      // firstError and lastError surface in the summary log (operators
+      // need both ends when fault characteristics shift mid-batch).
       if (faultCallIndex === 2) {
-        throw new Error('synthetic isolated fault');
+        throw new Error('first synthetic fault');
+      }
+      if (faultCallIndex === 4) {
+        throw new Error('last synthetic fault');
       }
       return text.length;
     });
@@ -284,9 +287,10 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     );
     expect(summaryCall).toBeDefined();
     expect(summaryCall?.[1]).toMatchObject({
-      faultCount: 1,
+      faultCount: 2,
       batchSize: 4,
-      firstError: expect.objectContaining({ message: 'synthetic isolated fault' }),
+      firstError: expect.objectContaining({ message: 'first synthetic fault' }),
+      lastError: expect.objectContaining({ message: 'last synthetic fault' }),
     });
   });
 
