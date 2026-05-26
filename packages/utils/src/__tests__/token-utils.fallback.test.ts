@@ -206,6 +206,94 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     }
   });
 
+  it('calculateGroupTokens resolves the encoder once per batch (not per item)', async () => {
+    vi.resetModules();
+    const accurate = await import('../token-utils-accurate-lite');
+    const counterSpy = vi.spyOn(accurate, 'getAccurateTokenCounter');
+
+    const { calculateGroupTokens } = await import('../token-utils');
+    const texts = Array.from({ length: 50 }, (_, i) => `batch entry ${i}`);
+
+    const result = await calculateGroupTokens(texts);
+
+    expect(counterSpy).toHaveBeenCalledTimes(1);
+    // Also assert the closure actually counted something — catches regressions
+    // where single-resolve works but the sync counter silently returns 0.
+    expect(result).toBeGreaterThan(0);
+  });
+
+  it('falls back to heuristic for a single bad input instead of aborting the batch', async () => {
+    vi.resetModules();
+    const accurate = await import('../token-utils-accurate-lite');
+    let callIndex = 0;
+    vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
+      callIndex += 1;
+      if (callIndex === 2) {
+        throw new Error('synthetic encode fault');
+      }
+      return text.length;
+    });
+
+    const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils');
+    const [first, second, third] = ['alpha', 'beta', 'gamma'] as const;
+
+    const result = await calculateGroupTokens([first, second, third]);
+
+    expect(result).toBe(first.length + countTokensHeuristic(second) + third.length);
+  });
+
+  it('emits a batch-end summary whenever any item degrades to heuristic', async () => {
+    vi.resetModules();
+    const accurate = await import('../token-utils-accurate-lite');
+    let faultCallIndex = 0;
+    vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
+      faultCallIndex += 1;
+      // Items 2 and 4 fault with different errors so we can verify both
+      // firstError and lastError surface in the summary log (operators
+      // need both ends when fault characteristics shift mid-batch).
+      if (faultCallIndex === 2) {
+        throw new Error('first synthetic fault');
+      }
+      if (faultCallIndex === 4) {
+        throw new Error('last synthetic fault');
+      }
+      return text.length;
+    });
+    const utilsLogger = await import('@brainstrike/utils/logger');
+    const createLoggerSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
+      trace: vi.fn(),
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      child: vi.fn(),
+    } as unknown as ReturnType<typeof utilsLogger.createLogger>);
+
+    const { calculateGroupTokens } = await import('../token-utils');
+    await calculateGroupTokens(['a', 'b', 'c', 'd']);
+
+    // Guard: createLogger('TokenUtils') is called at module scope. If a
+    // future refactor defers logger creation (e.g. lazy init), this
+    // assertion fails loudly instead of the test silently passing because
+    // the mock never intercepted the real call.
+    expect(createLoggerSpy).toHaveBeenCalledTimes(1);
+
+    const mockLogger = createLoggerSpy.mock.results[0]?.value as {
+      warn: ReturnType<typeof vi.fn>;
+    };
+    const summaryCall = mockLogger.warn.mock.calls.find(([msg]) =>
+      String(msg).includes('per-item encode failures degraded to heuristic in batch')
+    );
+    expect(summaryCall).toBeDefined();
+    expect(summaryCall?.[1]).toMatchObject({
+      faultCount: 2,
+      batchSize: 4,
+      firstError: expect.objectContaining({ message: 'first synthetic fault' }),
+      lastError: expect.objectContaining({ message: 'last synthetic fault' }),
+    });
+  });
+
   it('should produce consistent results for the same input', async () => {
     const { countTokensAccurate } = await import('../token-utils');
 

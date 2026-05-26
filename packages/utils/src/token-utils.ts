@@ -8,6 +8,8 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   countTokensAccurate as countTokensAccurateStrict,
+  getAccurateTokenCounter,
+  type SyncAccurateCounter,
   supportsAccurateTokenCounting as supportsAccurateTokenCountingStrict,
 } from './token-utils-accurate-lite';
 
@@ -60,11 +62,51 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
 }
 
+interface BatchFaultState {
+  count: number;
+  firstError: unknown;
+  lastError: unknown;
+}
+
+// Wraps sync counter with per-item fault tolerance, degrading to heuristic.
+function countItem(
+  text: string,
+  counter: SyncAccurateCounter | null,
+  faultState: BatchFaultState
+): number {
+  if (!counter) {
+    return countTokensHeuristic(text);
+  }
+  try {
+    return counter(text);
+  } catch (error) {
+    if (faultState.count === 0) {
+      faultState.firstError = error;
+    }
+    faultState.lastError = error;
+    faultState.count += 1;
+    return countTokensHeuristic(text);
+  }
+}
+
+async function resolveBatchCounter(): Promise<SyncAccurateCounter | null> {
+  try {
+    return await getAccurateTokenCounter();
+  } catch (error) {
+    logTiktokenFailure('tiktoken batch resolve failed; falling back to heuristic', error);
+    return null;
+  }
+}
+
 /**
- * Calculate token count for a group of texts
+ * Calculate the total token count for a batch of texts.
+ *
+ * Resolves the tiktoken encoder once at the top of the batch; availability
+ * is all-or-nothing (the entire batch uses accurate counts or the entire
+ * batch uses the heuristic). Per-item encoding faults degrade gracefully
+ * to heuristic for the affected item only.
  *
  * @param texts - Array of text strings
- * @param useHeuristic - Whether to use the faster heuristic method
  * @returns Total token count for all texts
  */
 export async function calculateGroupTokens(texts: string[]): Promise<number> {
@@ -72,6 +114,13 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
     return 0;
   }
 
+  const counter = await resolveBatchCounter();
+  // Track per-item faults locally; batch-end summary bypasses the once-only gate.
+  const faultState: BatchFaultState = {
+    count: 0,
+    firstError: undefined,
+    lastError: undefined,
+  };
   let total = 0;
   let lastYield = performance.now();
   const YieldThresholdMs = 5;
@@ -80,7 +129,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   for (let i = 0; i < textCount; i++) {
     const text = texts[i];
     if (text) {
-      total += await countTokensAccurate(text);
+      total += countItem(text, counter, faultState);
     }
 
     // Yield every 20 items if time threshold exceeded to avoid blocking the event loop.
@@ -91,6 +140,19 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
         lastYield = performance.now();
       }
     }
+  }
+
+  // Always log when any item degraded. Bypasses logTiktokenFailure's
+  // module-level once-only flag, so operators see error detail per batch
+  // (not per module lifetime) — important for diagnosing encoding faults
+  // that change shape over time.
+  if (faultState.count > 0) {
+    logger.warn('tiktoken per-item encode failures degraded to heuristic in batch', {
+      faultCount: faultState.count,
+      batchSize: textCount,
+      firstError: faultState.firstError,
+      lastError: faultState.lastError,
+    });
   }
   return total;
 }

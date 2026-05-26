@@ -387,3 +387,15 @@ export async function countTokensAccurate(text: string): Promise<number> {
     throw new Error(`Accurate token counting failed: ${message}`);
   }
 }
+
+export type SyncAccurateCounter = (text: string) => number;
+
+/** Resolve encoder once; returned closure is sync. Throws/returns garbage if
+ *  runtime is disposed mid-batch — callers must try/catch per item. */
+export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
+  const encoder = await resolveEncoder();
+  if (!encoder) {
+    return null;
+  }
+  return (text: string) => encoder.encodeContent(text).length;
+}
