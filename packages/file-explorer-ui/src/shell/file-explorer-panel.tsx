@@ -272,7 +272,6 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
-    handleSelectionLimitError,
   } = useToastManager();
 
   // Get store actions for recursive folder selection
@@ -857,7 +856,6 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={handleSelectionLimitError}
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}

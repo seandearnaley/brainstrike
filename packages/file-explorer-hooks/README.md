@@ -20,9 +20,7 @@ import { useFileExplorerStore } from '@brainstrike/file-explorer'; // Assuming t
 
 function MyFileExplorerComponent() {
   const { rootDirectoryHandle, selectRootDirectory, isFileSystemAccessSupported } = useFileSystem();
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
-    onSelectionLimitExceeded: () => console.warn('Selection limit reached!'),
-  });
+  const { selectedFilePaths, handleSelectionChange } = useSelectionManager();
   const { maxSelectionCount } = useFileExplorerStore(); // Example from store
 
   // ... component logic ...
