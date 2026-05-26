@@ -8,6 +8,7 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   countTokensAccurate as countTokensAccurateStrict,
+  getAccurateTokenCounter,
   supportsAccurateTokenCounting as supportsAccurateTokenCountingStrict,
 } from './token-utils-accurate-lite';
 
@@ -72,6 +73,17 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
     return 0;
   }
 
+  // Resolve the encoder once at the top of the batch. If accurate counting
+  // is unavailable (or the encoder throws during init), the entire batch
+  // uses the heuristic — no per-item mode mixing across items.
+  let counter: ((text: string) => number) | null;
+  try {
+    counter = await getAccurateTokenCounter();
+  } catch (error) {
+    logTiktokenFailure('tiktoken count failed; falling back to heuristic', error);
+    counter = null;
+  }
+
   let total = 0;
   let lastYield = performance.now();
   const YieldThresholdMs = 5;
@@ -80,7 +92,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   for (let i = 0; i < textCount; i++) {
     const text = texts[i];
     if (text) {
-      total += await countTokensAccurate(text);
+      total += counter ? counter(text) : countTokensHeuristic(text);
     }
 
     // Yield every 20 items if time threshold exceeded to avoid blocking the event loop.

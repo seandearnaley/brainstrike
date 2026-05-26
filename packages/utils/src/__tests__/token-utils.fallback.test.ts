@@ -206,6 +206,19 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     }
   });
 
+  it('calculateGroupTokens resolves the encoder once per batch (not per item)', async () => {
+    vi.resetModules();
+    const accurate = await import('../token-utils-accurate-lite');
+    const counterSpy = vi.spyOn(accurate, 'getAccurateTokenCounter');
+
+    const { calculateGroupTokens } = await import('../token-utils');
+    const texts = Array.from({ length: 50 }, (_, i) => `batch entry ${i}`);
+
+    await calculateGroupTokens(texts);
+
+    expect(counterSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('should produce consistent results for the same input', async () => {
     const { countTokensAccurate } = await import('../token-utils');
 

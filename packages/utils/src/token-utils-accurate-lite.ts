@@ -387,3 +387,26 @@ export async function countTokensAccurate(text: string): Promise<number> {
     throw new Error(`Accurate token counting failed: ${message}`);
   }
 }
+
+export type SyncAccurateCounter = (text: string) => number;
+
+/**
+ * Resolves the tiktoken encoder once and returns a synchronous counter closure.
+ *
+ * Callers that count tokens for many texts in a batch should resolve once at
+ * the top of the loop and then call the returned closure per text — this
+ * avoids the per-item microtask + cached-promise probe overhead that
+ * `countTokensAccurate` incurs.
+ *
+ * Returns `null` when the encoder is unavailable in the current runtime;
+ * callers should fall back to a heuristic for the entire batch (rather than
+ * mixing accurate + heuristic counts across items, which silently produces
+ * inconsistent totals).
+ */
+export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
+  const encoder = await resolveEncoder();
+  if (!encoder) {
+    return null;
+  }
+  return (text: string) => encoder.encodeContent(text).length;
+}
