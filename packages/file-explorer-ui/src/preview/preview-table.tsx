@@ -387,8 +387,15 @@ SortHeaderButton.displayName = 'SortHeaderButton';
 // groupedColumns memo. Without this, every selection toggle that changes the
 // "all visible files selected" status would rebuild every column on every
 // click — death by a thousand cuts in the primary file-explorer surface.
+//
+// State update (`setSnapshot`) is separated from listener notification
+// (`notify`) so the parent can sync the latest value during render (safe
+// pure mutation) and trigger subscribers from a post-commit effect.
+// Calling listeners during render would violate React's "no setState while
+// rendering another component" rule.
 interface HeaderSelectionStore {
   getSnapshot: () => boolean;
+  notify: () => void;
   setSnapshot: (next: boolean) => void;
   subscribe: (listener: () => void) => () => void;
 }
@@ -398,14 +405,13 @@ function createHeaderSelectionStore(initial: boolean): HeaderSelectionStore {
   const listeners = new Set<() => void>();
   return {
     getSnapshot: () => state,
-    setSnapshot: (next) => {
-      if (state === next) {
-        return;
-      }
-      state = next;
+    notify: () => {
       for (const listener of listeners) {
         listener();
       }
+    },
+    setSnapshot: (next) => {
+      state = next;
     },
     subscribe: (listener) => {
       listeners.add(listener);
@@ -1035,11 +1041,15 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       : 'Select all files in grouped results';
   headerSelectableFilesRef.current = headerSelectableFiles;
   const isHeaderSelectionComplete = isAllSelected(headerSelectableFiles);
-  // Sync the boolean into the subscription store so HeaderSelectionCheckbox
-  // re-renders in isolation when it flips. Done in render (not useEffect) so
-  // first paint matches the source-of-truth — useSyncExternalStore reads
-  // snapshot during render, and setSnapshot is a no-op when value is equal.
+  // Sync the latest snapshot during render (safe — closure-state mutation,
+  // no listener calls) so useSyncExternalStore reads the correct value on
+  // the immediately-following HeaderSelectionCheckbox render. Listener
+  // notification happens in the post-commit effect below to satisfy
+  // React's "no setState while rendering another component" rule.
   headerSelectionStore.setSnapshot(isHeaderSelectionComplete);
+  useEffect(() => {
+    headerSelectionStore.notify();
+  }, [headerSelectionStore, isHeaderSelectionComplete]);
 
   // Selection-driven state flows through refs + a useSyncExternalStore-backed
   // header checkbox, so this memo stays stable across pure-selection re-renders.
