@@ -16,7 +16,7 @@ import {
   setLogLevel,
 } from '@brainstrike/utils';
 import { renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
 
 const mockDb = {
@@ -594,6 +594,32 @@ describe('useSemanticSearchExecutor', () => {
   });
 
   describe('WebGPU recovery (visible-renderer backgrounding)', () => {
+    // Save originals so the property descriptors don't leak across test files
+    // when vitest shares a jsdom instance.
+    let originalHiddenDescriptor: PropertyDescriptor | undefined;
+    let originalVisibilityStateDescriptor: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      originalHiddenDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+      originalVisibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+        Document.prototype,
+        'visibilityState'
+      );
+    });
+
+    afterEach(() => {
+      if (originalHiddenDescriptor) {
+        Object.defineProperty(document, 'hidden', originalHiddenDescriptor);
+      } else {
+        Reflect.deleteProperty(document, 'hidden');
+      }
+      if (originalVisibilityStateDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalVisibilityStateDescriptor);
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    });
+
     function setDocumentHidden(hidden: boolean): void {
       Object.defineProperty(document, 'hidden', {
         configurable: true,
@@ -606,7 +632,8 @@ describe('useSemanticSearchExecutor', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     }
 
-    it('disposes the cached embedder when the document becomes hidden so the next search re-initializes', async () => {
+    it('disposes the cached WebGPU embedder when the document becomes hidden so the next search re-initializes', async () => {
+      useVectorPreferencesStore.setState({ devicePref: 'webgpu' });
       const chunk = createMockChunk('chunk-1', 'file-1');
       const file = createMockFileRecord('file-1');
       const chunkRepo = createMockChunkRepository([chunk]);
@@ -635,6 +662,36 @@ describe('useSemanticSearchExecutor', () => {
       setDocumentHidden(false);
       await result.current!('second query', createSearchConfig(), 'set-1');
       expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT dispose a WASM embedder on hidden (no GPUDevice to invalidate; avoids costly model reload)', async () => {
+      // Default devicePref is 'wasm' in beforeEach.
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const file = createMockFileRecord('file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([file]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      await result.current!('first query', createSearchConfig(), 'set-1');
+      const firstInstance = MockSimpleEmbeddingService.mock.instances[0] as {
+        dispose: ReturnType<typeof vi.fn>;
+      };
+
+      setDocumentHidden(true);
+
+      // WASM has no GPUDevice, so disposing on hidden would force an
+      // unnecessary model reload on the next search.
+      expect(firstInstance.dispose).not.toHaveBeenCalled();
+
+      setDocumentHidden(false);
+      await result.current!('second query', createSearchConfig(), 'set-1');
+      expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(1);
     });
 
     it('recovers transparently when an embedQuery throws a device-loss error by re-initializing and retrying once', async () => {
