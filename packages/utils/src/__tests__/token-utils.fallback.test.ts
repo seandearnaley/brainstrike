@@ -242,11 +242,19 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     expect(result).toBe(first.length + countTokensHeuristic(second) + third.length);
   });
 
-  it('emits a batch-end summary when multiple items degrade to heuristic', async () => {
+  it('emits a batch-end summary whenever any item degrades to heuristic', async () => {
     vi.resetModules();
     const accurate = await import('../token-utils-accurate-lite');
-    vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue(() => {
-      throw new Error('every item faults');
+    let faultCallIndex = 0;
+    vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
+      faultCallIndex += 1;
+      // Only the 2nd call faults; tests the >0 threshold (catches isolated
+      // faults that would otherwise be swallowed after logTiktokenFailure's
+      // once-only flag has been tripped earlier in the module lifetime).
+      if (faultCallIndex === 2) {
+        throw new Error('synthetic isolated fault');
+      }
+      return text.length;
     });
     const utilsLogger = await import('@brainstrike/utils/logger');
     const warnSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
@@ -262,8 +270,12 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     const { calculateGroupTokens } = await import('../token-utils');
     await calculateGroupTokens(['a', 'b', 'c', 'd']);
 
-    // First call to createLogger inside token-utils returned our mock; pull
-    // the warn() spy off it and assert the summary fired with the fault count.
+    // Guard: createLogger('TokenUtils') is called at module scope. If a
+    // future refactor defers logger creation (e.g. lazy init), this
+    // assertion fails loudly instead of the test silently passing because
+    // the mock never intercepted the real call.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
     const mockLogger = warnSpy.mock.results[0]?.value as {
       warn: ReturnType<typeof vi.fn>;
     };
@@ -271,7 +283,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
       String(msg).includes('per-item encode failures degraded to heuristic in batch')
     );
     expect(summaryCall).toBeDefined();
-    expect(summaryCall?.[1]).toMatchObject({ faultCount: 4, batchSize: 4 });
+    expect(summaryCall?.[1]).toMatchObject({ faultCount: 1, batchSize: 4 });
   });
 
   it('should produce consistent results for the same input', async () => {

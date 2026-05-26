@@ -403,6 +403,13 @@ export type SyncAccurateCounter = (text: string) => number;
  * availability is all-or-nothing. Per-item encoding faults (the closure
  * throwing on a specific input) are a separate concern — callers may
  * degrade individual items to heuristic without mixing availability modes.
+ *
+ * Lifetime: the closure captures the resolved encoder by reference. If
+ * `disposeAccurateTokenCountingRuntime()` is called while the closure is
+ * still in use (e.g. factory reset during a long batch), the closure will
+ * throw or return garbage. Callers should wrap each invocation in a
+ * per-item try/catch and degrade to heuristic (which `calculateGroupTokens`
+ * does). Re-resolve via this function for each new batch.
  */
 export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
   const encoder = await resolveEncoder();

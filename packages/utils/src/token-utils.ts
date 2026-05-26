@@ -112,8 +112,10 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
 
   const counter = await resolveBatchCounter();
   // `logTiktokenFailure` is gated by a module-level once-only flag, which
-  // in a batch hides degradation scope. Track per-item faults locally and
-  // log a batch-end summary so operators can tell one-off from systemic.
+  // in a batch hides degradation scope (and silently drops isolated faults
+  // entirely after the flag has been tripped). Track per-item faults
+  // locally and log a batch-end summary so operators can tell one-off
+  // from systemic.
   const faultState = { count: 0 };
   let total = 0;
   let lastYield = performance.now();
@@ -136,7 +138,12 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
     }
   }
 
-  if (faultState.count > 1) {
+  // Always log when any item degraded — the >0 threshold (rather than >1)
+  // ensures operators see isolated faults even when `logTiktokenFailure`'s
+  // module-level once-only flag has already been tripped by a prior call.
+  // Mild redundancy with the first-fault log is the right tradeoff vs
+  // silently swallowing a single fault after module warmup.
+  if (faultState.count > 0) {
     logger.warn('tiktoken per-item encode failures degraded to heuristic in batch', {
       faultCount: faultState.count,
       batchSize: textCount,
