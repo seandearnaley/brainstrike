@@ -399,9 +399,10 @@ export type SyncAccurateCounter = (text: string) => number;
  * `countTokensAccurate` incurs.
  *
  * Returns `null` when the encoder is unavailable in the current runtime;
- * callers should fall back to a heuristic for the entire batch (rather than
- * mixing accurate + heuristic counts across items, which silently produces
- * inconsistent totals).
+ * callers should fall back to a heuristic for the entire batch so that
+ * availability is all-or-nothing. Per-item encoding faults (the closure
+ * throwing on a specific input) are a separate concern — callers may
+ * degrade individual items to heuristic without mixing availability modes.
  */
 export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
   const encoder = await resolveEncoder();

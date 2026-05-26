@@ -63,10 +63,14 @@ export async function countTokensAccurate(text: string): Promise<number> {
 }
 
 /**
- * Calculate token count for a group of texts
+ * Calculate the total token count for a batch of texts.
+ *
+ * Resolves the tiktoken encoder once at the top of the batch; availability
+ * is all-or-nothing (the entire batch uses accurate counts or the entire
+ * batch uses the heuristic). Per-item encoding faults degrade gracefully
+ * to heuristic for the affected item only.
  *
  * @param texts - Array of text strings
- * @param useHeuristic - Whether to use the faster heuristic method
  * @returns Total token count for all texts
  */
 export async function calculateGroupTokens(texts: string[]): Promise<number> {
