@@ -20,6 +20,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
 } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
@@ -381,16 +382,76 @@ const SortHeaderButton = memo<SortHeaderButtonProps>(function SortHeaderButtonCo
 });
 SortHeaderButton.displayName = 'SortHeaderButton';
 
+// Stable external store that lets the header checkbox re-render in isolation
+// when `isHeaderSelectionComplete` flips, without invalidating the
+// groupedColumns memo. Without this, every selection toggle that changes the
+// "all visible files selected" status would rebuild every column on every
+// click — death by a thousand cuts in the primary file-explorer surface.
+interface HeaderSelectionStore {
+  getSnapshot: () => boolean;
+  setSnapshot: (next: boolean) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+function createHeaderSelectionStore(initial: boolean): HeaderSelectionStore {
+  let state = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => state,
+    setSnapshot: (next) => {
+      if (state === next) {
+        return;
+      }
+      state = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+interface HeaderSelectionCheckboxProps {
+  label: string;
+  onDeselectAll: () => void;
+  onSelectAll: () => void;
+  store: HeaderSelectionStore;
+}
+
+function HeaderSelectionCheckbox({
+  label,
+  onDeselectAll,
+  onSelectAll,
+  store,
+}: HeaderSelectionCheckboxProps) {
+  const isComplete = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Checkbox
+        aria-label={label}
+        checked={isComplete}
+        onCheckedChange={(checked) => (checked ? onSelectAll() : onDeselectAll())}
+        title={label}
+      />
+    </div>
+  );
+}
+
 interface GroupedColumnBuilderArgs {
   columnVisibility: ColumnVisibility;
   groupedTreeColumnId: GroupColumnId | null;
   handleGroupDeselectAllStable: (group: GroupedData<TableRowData>) => void;
   handleGroupSelectAllStable: (group: GroupedData<TableRowData>) => void;
-  headerSelectableFiles: TableRowData[];
+  headerSelectableFilesRef: MutableRefObject<TableRowData[]>;
   headerSelectionLabel: string;
+  headerSelectionStore: HeaderSelectionStore;
   isGroupFullySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
   isGroupPartiallySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
-  isHeaderSelectionComplete: boolean;
   onDeselectAllStable: () => void;
   onFileClickStable: (compositeKey: string) => void;
   onSelectAllOnPageStable: (items: TableRowData[]) => void;
@@ -418,8 +479,8 @@ function createGroupedCheckboxColumn({
   handleGroupDeselectAllStable,
   handleGroupSelectAllStable,
   headerSelectionLabel,
-  headerSelectableFiles,
-  isHeaderSelectionComplete,
+  headerSelectableFilesRef,
+  headerSelectionStore,
   isGroupFullySelectedRef,
   isGroupPartiallySelectedRef,
   onDeselectAllStable,
@@ -431,8 +492,8 @@ function createGroupedCheckboxColumn({
   | 'handleGroupDeselectAllStable'
   | 'handleGroupSelectAllStable'
   | 'headerSelectionLabel'
-  | 'headerSelectableFiles'
-  | 'isHeaderSelectionComplete'
+  | 'headerSelectableFilesRef'
+  | 'headerSelectionStore'
   | 'isGroupFullySelectedRef'
   | 'isGroupPartiallySelectedRef'
   | 'onDeselectAllStable'
@@ -450,16 +511,12 @@ function createGroupedCheckboxColumn({
     maxWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
     resizable: false,
     header: (
-      <div className="flex h-full items-center justify-center">
-        <Checkbox
-          aria-label={headerSelectionLabel}
-          checked={isHeaderSelectionComplete}
-          onCheckedChange={(checked) =>
-            checked ? onSelectAllOnPageStable(headerSelectableFiles) : onDeselectAllStable()
-          }
-          title={headerSelectionLabel}
-        />
-      </div>
+      <HeaderSelectionCheckbox
+        label={headerSelectionLabel}
+        onDeselectAll={onDeselectAllStable}
+        onSelectAll={() => onSelectAllOnPageStable(headerSelectableFilesRef.current)}
+        store={headerSelectionStore}
+      />
     ),
     className: PREVIEW_CHECKBOX_CELL_CLASS,
     headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
@@ -898,6 +955,12 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const isGroupPartiallySelectedRef = useRef(isGroupPartiallySelected);
   isGroupPartiallySelectedRef.current = isGroupPartiallySelected;
 
+  // Stable per-component store so HeaderSelectionCheckbox can subscribe via
+  // useSyncExternalStore — lets the header reflect selection changes
+  // without invalidating the groupedColumns memo.
+  const headerSelectionStore = useMemo(() => createHeaderSelectionStore(false), []);
+  const headerSelectableFilesRef = useRef<TableRowData[]>([]);
+
   const groupedTree = useMemo(
     () =>
       buildGroupedTreeNodes({
@@ -970,15 +1033,18 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     groupingConfig === 'none'
       ? 'Select all files on current page'
       : 'Select all files in grouped results';
-  const isHeaderSelectionComplete = useMemo(
-    () => isAllSelected(headerSelectableFiles),
-    [headerSelectableFiles, isAllSelected]
-  );
+  headerSelectableFilesRef.current = headerSelectableFiles;
+  const isHeaderSelectionComplete = isAllSelected(headerSelectableFiles);
+  // Sync the boolean into the subscription store so HeaderSelectionCheckbox
+  // re-renders in isolation when it flips. Done in render (not useEffect) so
+  // first paint matches the source-of-truth — useSyncExternalStore reads
+  // snapshot during render, and setSnapshot is a no-op when value is equal.
+  headerSelectionStore.setSnapshot(isHeaderSelectionComplete);
 
-  // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
-  // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
-  // This favors correctness (no stale group summary/header state) over memo hit rate.
-  // If profiling shows this as a hotspot, split static structure from reactive cell state.
+  // Selection-driven state flows through refs + a useSyncExternalStore-backed
+  // header checkbox, so this memo stays stable across pure-selection re-renders.
+  // Only structural deltas (columnVisibility, sort/group config, etc.) rebuild
+  // the columns array.
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(
     () =>
       buildGroupedColumns({
@@ -987,8 +1053,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         handleGroupDeselectAllStable,
         handleGroupSelectAllStable,
         headerSelectionLabel,
-        headerSelectableFiles,
-        isHeaderSelectionComplete,
+        headerSelectableFilesRef,
+        headerSelectionStore,
         isGroupFullySelectedRef,
         isGroupPartiallySelectedRef,
         onDeselectAllStable,
@@ -1008,8 +1074,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       handleGroupDeselectAllStable,
       handleGroupSelectAllStable,
       headerSelectionLabel,
-      headerSelectableFiles,
-      isHeaderSelectionComplete,
+      headerSelectionStore,
       onDeselectAllStable,
       onFileClickStable,
       onSelectAllOnPageStable,

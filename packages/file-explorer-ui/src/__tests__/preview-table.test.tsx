@@ -726,8 +726,10 @@ describe('PreviewTable grouped columns memo stability', () => {
         ...actual,
         TreeTable: (props: { columns: unknown }) => {
           columnsCaptures.push(props.columns);
-          // biome-ignore lint/suspicious/noExplicitAny: mock passthrough for test capture
-          return (actual.TreeTable as unknown as (p: any) => unknown)(props) as unknown as null;
+          const PassThrough = actual.TreeTable as unknown as (
+            p: typeof props
+          ) => ReturnType<typeof actual.TreeTable>;
+          return PassThrough(props) as unknown as null;
         },
       };
     });
