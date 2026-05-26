@@ -41,9 +41,16 @@ const DEFAULT_VECTOR_WEIGHT = 1.0;
 /** Default weight for FTS in hybrid mode */
 const DEFAULT_FTS_WEIGHT = 1.0;
 
+// `runtime` lets the visibility-change handler avoid disposing embedders
+// that can't suffer GPUDevice loss (hosted providers have no local model,
+// wasm runs on CPU). Re-initializing a 300MB WASM model on every
+// background/foreground cycle would be a real perf regression.
+type EmbedderRuntime = 'webgpu' | 'wasm' | 'hosted';
+
 interface SearchEmbedder {
   dispose?: () => Promise<void> | void;
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
+  runtime: EmbedderRuntime;
 }
 
 type EmbedderError =
@@ -93,6 +100,7 @@ async function createHostedEmbedder(
 
   const provider = providerResult.value;
   return {
+    runtime: 'hosted',
     embedQuery: async (text: string) => {
       const result = await provider.embed({ text, modelId });
       if (!result.ok) {
@@ -125,6 +133,7 @@ async function createLocalEmbedder(
   logger.info('Local model initialized');
 
   return {
+    runtime: devicePreference,
     embedQuery: async (text: string) => {
       logger.info('Generating query embedding with local model...');
       const result = await svc.generateQueryEmbedding(text);
@@ -449,9 +458,9 @@ export function useSemanticSearchExecutor({
 
   useEnsureModelRegistry({ db });
 
-  // Dispose + null the cached embedder. Shared by unmount cleanup,
-  // visibilitychange-hidden, and post-device-loss recovery so each path
-  // releases the WebGPU GPUDevice the same way.
+  // `initializingPromiseRef` is deliberately not cleared — clearing it
+  // would break ensureEmbedderReady's dedup gate. Stale embedders are
+  // recovered via the device-loss-retry path in `searchExecutor`.
   const disposeCachedEmbedder = useCallback(async (reason: string): Promise<void> => {
     const embedder = embedderRef.current;
     if (!embedder) {
@@ -484,14 +493,22 @@ export function useSemanticSearchExecutor({
   // is hidden the renderer may be frozen and the WebGPU device invalidated.
   // Dispose proactively so the next user-triggered search rebuilds a fresh
   // embedder rather than crashing on a stale GPUDevice.
+  //
+  // Gated to WebGPU-backed embedders: WASM has no GPUDevice and hosted
+  // providers hold only API client state, so disposing them on every
+  // background/foreground cycle is avoidable model-reload thrash.
   useEffect(() => {
     if (typeof document === 'undefined') {
       return;
     }
     const onVisibilityChange = (): void => {
-      if (document.hidden) {
-        void disposeCachedEmbedder('document-hidden');
+      if (!document.hidden) {
+        return;
       }
+      if (embedderRef.current?.runtime !== 'webgpu') {
+        return;
+      }
+      void disposeCachedEmbedder('document-hidden');
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
