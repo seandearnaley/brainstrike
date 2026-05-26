@@ -458,25 +458,9 @@ export function useSemanticSearchExecutor({
 
   useEnsureModelRegistry({ db });
 
-  // Dispose + null the cached embedder. Shared by unmount cleanup,
-  // visibilitychange-hidden, and post-device-loss recovery so each path
-  // releases the WebGPU GPUDevice the same way.
-  //
-  // Intentionally returns early when no embedder is cached. The only
-  // production trigger after that early return is the visibilitychange
-  // handler, which gates on `embedderRef.current?.runtime === 'webgpu'`
-  // and so cannot fire dispose while init is in-flight (embedderRef is
-  // null during init). Unmount is the other trigger, and there are no
-  // concurrent callers after unmount.
-  //
-  // The dispose nulls both `embedderRef` and `currentModelKeyRef` — the
-  // dedup gates in `ensureEmbedderReady` use `currentModelKeyRef` as part
-  // of their check, so a concurrent ensureEmbedderReady call after dispose
-  // will see neither cache nor in-flight match and start a fresh init.
-  // That's the intended recovery semantic for the device-loss path.
-  // `initializingPromiseRef` is deliberately untouched so the in-flight
-  // promise can still complete cleanly and assign refs; the next search
-  // either reuses it (cheap) or hits device-loss-retry in `searchExecutor`.
+  // `initializingPromiseRef` is deliberately not cleared — clearing it
+  // would break ensureEmbedderReady's dedup gate. Stale embedders are
+  // recovered via the device-loss-retry path in `searchExecutor`.
   const disposeCachedEmbedder = useCallback(async (reason: string): Promise<void> => {
     const embedder = embedderRef.current;
     if (!embedder) {
