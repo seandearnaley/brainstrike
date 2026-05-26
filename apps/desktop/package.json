@@ -118,7 +118,7 @@
     "zustand": "^5.0.12"
   },
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "main": "dist/main.js",
   "private": true,

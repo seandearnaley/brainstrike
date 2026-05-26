@@ -78,7 +78,8 @@ export default defineConfig({
       process.env['LOCAL_FIRST_DB'] ?? process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
     ),
     'process.browser': true,
-    'process.version': '"v22.0.0"',
+    // Browser-only shim that tracks the repo Node target for dependencies probing process.version.
+    'process.version': '"v24.0.0"',
     'process.platform': '"browser"',
   },
   plugins: [
