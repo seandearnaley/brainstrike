@@ -410,6 +410,8 @@ export type SyncAccurateCounter = (text: string) => number;
  * throw or return garbage. Callers should wrap each invocation in a
  * per-item try/catch and degrade to heuristic (which `calculateGroupTokens`
  * does). Re-resolve via this function for each new batch.
+ *
+ * @see calculateGroupTokens for the canonical usage pattern.
  */
 export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
   const encoder = await resolveEncoder();
