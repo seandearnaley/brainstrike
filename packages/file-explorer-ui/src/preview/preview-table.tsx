@@ -406,7 +406,11 @@ function createHeaderSelectionStore(initial: boolean): HeaderSelectionStore {
   return {
     getSnapshot: () => state,
     notify: () => {
-      for (const listener of listeners) {
+      // Snapshot listeners before iteration — if a listener synchronously
+      // triggers a React state update that unmounts a sibling subscriber,
+      // the underlying Set would mutate mid-loop. Matches the pattern used
+      // in Zustand/Redux internals.
+      for (const listener of [...listeners]) {
         listener();
       }
     },
