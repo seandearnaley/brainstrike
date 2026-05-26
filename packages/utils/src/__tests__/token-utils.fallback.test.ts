@@ -214,9 +214,32 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     const { calculateGroupTokens } = await import('../token-utils');
     const texts = Array.from({ length: 50 }, (_, i) => `batch entry ${i}`);
 
-    await calculateGroupTokens(texts);
+    const result = await calculateGroupTokens(texts);
 
     expect(counterSpy).toHaveBeenCalledTimes(1);
+    // Also assert the closure actually counted something — catches regressions
+    // where single-resolve works but the sync counter silently returns 0.
+    expect(result).toBeGreaterThan(0);
+  });
+
+  it('falls back to heuristic for a single bad input instead of aborting the batch', async () => {
+    vi.resetModules();
+    const accurate = await import('../token-utils-accurate-lite');
+    let callIndex = 0;
+    vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
+      callIndex += 1;
+      if (callIndex === 2) {
+        throw new Error('synthetic encode fault');
+      }
+      return text.length;
+    });
+
+    const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils');
+    const [first, second, third] = ['alpha', 'beta', 'gamma'] as const;
+
+    const result = await calculateGroupTokens([first, second, third]);
+
+    expect(result).toBe(first.length + countTokensHeuristic(second) + third.length);
   });
 
   it('should produce consistent results for the same input', async () => {

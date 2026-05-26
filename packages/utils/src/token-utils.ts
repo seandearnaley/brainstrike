@@ -9,6 +9,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import {
   countTokensAccurate as countTokensAccurateStrict,
   getAccurateTokenCounter,
+  type SyncAccurateCounter,
   supportsAccurateTokenCounting as supportsAccurateTokenCountingStrict,
 } from './token-utils-accurate-lite';
 
@@ -75,8 +76,8 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
 
   // Resolve the encoder once at the top of the batch. If accurate counting
   // is unavailable (or the encoder throws during init), the entire batch
-  // uses the heuristic — no per-item mode mixing across items.
-  let counter: ((text: string) => number) | null;
+  // uses the heuristic — no availability mode-mixing across items.
+  let counter: SyncAccurateCounter | null;
   try {
     counter = await getAccurateTokenCounter();
   } catch (error) {
@@ -92,7 +93,20 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   for (let i = 0; i < textCount; i++) {
     const text = texts[i];
     if (text) {
-      total += counter ? counter(text) : countTokensHeuristic(text);
+      if (counter) {
+        // Wrap the per-item encode call so a single bad input (e.g. wasm
+        // encoder edge fault) degrades to heuristic for that item rather
+        // than aborting the entire batch. Availability is still all-or-
+        // nothing (decided above); only encoding faults degrade per item.
+        try {
+          total += counter(text);
+        } catch (error) {
+          logTiktokenFailure('tiktoken encode failed; falling back to heuristic', error);
+          total += countTokensHeuristic(text);
+        }
+      } else {
+        total += countTokensHeuristic(text);
+      }
     }
 
     // Yield every 20 items if time threshold exceeded to avoid blocking the event loop.
