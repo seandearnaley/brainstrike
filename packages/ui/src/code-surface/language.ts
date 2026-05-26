@@ -36,24 +36,39 @@ const EXPLICIT_LANGUAGE_LABELS = new Map<string, string>([
   ['typescript', 'TypeScript'],
 ]);
 const EXTENSION_LANGUAGE_LABELS = new Map<string, string>([
+  ['c', 'C'],
+  ['cc', 'C++'],
   ['cs', 'C#'],
+  ['css', 'CSS'],
   ['cpp', 'C++'],
+  ['dart', 'Dart'],
   ['go', 'Go'],
+  ['h', 'C'],
+  ['hpp', 'C++'],
+  ['htm', 'HTML'],
+  ['html', 'HTML'],
   ['java', 'Java'],
   ['js', 'JavaScript'],
   ['json', 'JSON'],
   ['jsx', 'JSX'],
   ['kt', 'Kotlin'],
+  ['less', 'Less'],
+  ['lua', 'Lua'],
   ['md', 'Markdown'],
   ['php', 'PHP'],
   ['py', 'Python'],
   ['rb', 'Ruby'],
   ['rs', 'Rust'],
+  ['sass', 'Sass'],
+  ['scss', 'SCSS'],
   ['sh', 'Shell'],
   ['sql', 'SQL'],
+  ['svelte', 'Svelte'],
   ['swift', 'Swift'],
+  ['toml', 'TOML'],
   ['ts', 'TypeScript'],
   ['tsx', 'TSX'],
+  ['vue', 'Vue'],
   ['xml', 'XML'],
   ['yaml', 'YAML'],
   ['yml', 'YAML'],
@@ -87,6 +102,15 @@ export function resolveCodeSurfaceLanguage(
         source: 'filename',
       };
     }
+    // Label unknown but CodeMirror's matchFilename has a comprehensive
+    // registry that may still load grammar (e.g. for an extension we
+    // haven't curated a display label for). Better to show "Plain Text"
+    // with real highlighting than a labelled blank.
+    return {
+      label: FALLBACK_LANGUAGE.label,
+      loadSupport: () => loadLanguageSupport({ path: filename }),
+      source: 'filename',
+    };
   }
 
   return FALLBACK_LANGUAGE;
