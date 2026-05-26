@@ -122,7 +122,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   // locally — including the first error object — and log a batch-end
   // summary that bypasses the once-only gate so operators can tell
   // one-off from systemic and still see the underlying error detail.
-  const faultState: BatchFaultState = { count: 0, firstError: null };
+  const faultState: BatchFaultState = { count: 0, firstError: undefined };
   let total = 0;
   let lastYield = performance.now();
   const YieldThresholdMs = 5;
