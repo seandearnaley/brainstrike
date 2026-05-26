@@ -5,6 +5,8 @@ export default defineConfig({
     index: 'src/index.ts',
     'token-counting-heuristics': 'src/token-counting-heuristics.ts',
     'token-counting-runtime': 'src/token-counting-runtime.ts',
+    'token-constants': 'src/token-constants.ts',
+    'token-utils-accurate-lite': 'src/token-utils-accurate-lite.ts',
     logger: 'src/logger.ts',
     'logging-initializer': 'src/logging-initializer.ts',
     'logging-preferences': 'src/logging-preferences.ts',
@@ -43,6 +45,9 @@ export default defineConfig({
   sourcemap: true,
   target: 'es2020',
   outDir: 'dist',
+  loader: {
+    '.wasm': 'dataurl',
+  },
   external: [
     '@brainstrike/types',
     '@brainstrike/utils',

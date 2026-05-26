@@ -75,7 +75,7 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/lite/init', () => ({
       init: initSpy,
       Tiktoken: class FakeTiktoken {
-        encode(text: string): Uint32Array {
+        encode_ordinary(text: string): Uint32Array {
           return Uint32Array.from({ length: text.length }, (_value, index) => index);
         }
       },
@@ -108,7 +108,7 @@ describe('Token Utilities mocked runtime coverage', () => {
         throw new Error('model lookup failed');
       },
       get_encoding: () => ({
-        encode: (text: string) =>
+        encode_ordinary: (text: string) =>
           Uint32Array.from({ length: text.length + 1 }, (_value, index) => index),
       }),
     }));
@@ -169,7 +169,7 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/lite/init', () => ({
       init: async () => {},
       Tiktoken: class FakeTiktoken {
-        encode(text: string): Uint32Array {
+        encode_ordinary(text: string): Uint32Array {
           return Uint32Array.from({ length: text.length }, (_value, index) => index);
         }
       },

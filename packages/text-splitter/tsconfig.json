@@ -10,7 +10,19 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "baseUrl": ".",
+    "paths": {
+      "@brainstrike/utils/token-counting-heuristics": [
+        "../utils/dist/token-counting-heuristics.d.ts"
+      ],
+      "@brainstrike/utils/token-constants": [
+        "../utils/dist/token-constants.d.ts"
+      ],
+      "@brainstrike/utils/token-utils-accurate-lite": [
+        "../utils/dist/token-utils-accurate-lite.d.ts"
+      ]
+    }
   },
   "include": [
     "src/**/*"

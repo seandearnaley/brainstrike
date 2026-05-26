@@ -5,6 +5,7 @@
   "dependencies": {
     "@babel/parser": "^7.29.2",
     "@brainstrike/text-splitter": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "tiktoken": "^1.0.22",
     "web-tree-sitter": "^0.25.10"
   },

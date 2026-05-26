@@ -27,6 +27,15 @@
       "@brainstrike/utils": [
         "packages/utils/src"
       ],
+      "@brainstrike/utils/*": [
+        "packages/utils/src/*"
+      ],
+      "@brainstrike/text-splitter": [
+        "packages/text-splitter/src"
+      ],
+      "@brainstrike/text-splitter/*": [
+        "packages/text-splitter/src/*"
+      ],
       "@brainstrike/file-explorer": [
         "packages/file-explorer/src"
       ],
@@ -167,6 +176,9 @@
     },
     {
       "path": "./packages/types"
+    },
+    {
+      "path": "./packages/text-splitter"
     },
     {
       "path": "./packages/utils"
