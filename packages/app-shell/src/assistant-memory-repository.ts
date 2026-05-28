@@ -379,6 +379,14 @@ function toRunEventDataParts(runEvents: readonly AssistantRunEvent[]): Array<{
   }));
 }
 
+type AssistantHistoryLoadResult = Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>>;
+type AssistantHistoryMessagePart =
+  AssistantHistoryLoadResult['messages'][number]['message']['content'][number];
+type AssistantHistoryTextPart = Extract<AssistantHistoryMessagePart, { type: 'text' }>;
+type AssistantHistoryToolCallPart = Extract<AssistantHistoryMessagePart, { type: 'tool-call' }>;
+type AssistantHydratedContentPart = AssistantHistoryTextPart | AssistantHistoryToolCallPart;
+type AssistantHistoryRepositoryMessages = AssistantHistoryLoadResult['messages'];
+
 function extractText(value: unknown, seenObjects = new WeakSet<object>()): string {
   if (typeof value === 'string') {
     return value;
@@ -409,6 +417,178 @@ function extractText(value: unknown, seenObjects = new WeakSet<object>()): strin
   return extractText(content, seenObjects);
 }
 
+function readContentPartArray(value: unknown): readonly unknown[] | undefined {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  const parts = record['parts'];
+  if (Array.isArray(parts)) {
+    return parts;
+  }
+  const content = record['content'];
+  return Array.isArray(content) ? content : undefined;
+}
+
+function stringifyArgsText(args: unknown): string {
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return '{}';
+  }
+}
+
+function toHistoryToolCallPart(
+  record: Record<string, unknown>
+): AssistantHistoryToolCallPart | undefined {
+  const toolCallId = record['toolCallId'];
+  const toolName = record['toolName'];
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+    return;
+  }
+  if (typeof toolName !== 'string' || toolName.length === 0) {
+    return;
+  }
+  const args = (
+    record['args'] && typeof record['args'] === 'object' && !Array.isArray(record['args'])
+      ? record['args']
+      : {}
+  ) as AssistantHistoryToolCallPart['args'];
+  const argsText =
+    typeof record['argsText'] === 'string' ? record['argsText'] : stringifyArgsText(args);
+  return {
+    type: 'tool-call',
+    toolCallId,
+    toolName,
+    args,
+    argsText,
+    ...(Object.hasOwn(record, 'result') ? { result: record['result'] } : {}),
+    ...(typeof record['isError'] === 'boolean' ? { isError: record['isError'] } : {}),
+  };
+}
+
+function toTextHistoryContentParts(value: unknown): AssistantHistoryTextPart[] {
+  const text = extractText(value).trim();
+  return text ? [{ type: 'text', text }] : [];
+}
+
+function toAssistantHistoryContentParts(value: unknown): AssistantHydratedContentPart[] {
+  const rawParts = readContentPartArray(value);
+  if (!rawParts) {
+    return toTextHistoryContentParts(value);
+  }
+
+  const parts: AssistantHydratedContentPart[] = [];
+  for (const rawPart of rawParts) {
+    if (!rawPart || typeof rawPart !== 'object' || Array.isArray(rawPart)) {
+      continue;
+    }
+    const record = rawPart as Record<string, unknown>;
+    if (record['type'] === 'text' && typeof record['text'] === 'string') {
+      const text = record['text'].trim();
+      if (text) {
+        parts.push({ type: 'text', text });
+      }
+      continue;
+    }
+    if (record['type'] === 'tool-call') {
+      const toolPart = toHistoryToolCallPart(record);
+      if (toolPart) {
+        parts.push(toolPart);
+      }
+    }
+  }
+  return parts;
+}
+
+function appendAssistantHistoryMessage(args: {
+  latestAssistantMessageId: string | null;
+  message: AssistantHistoryMessage;
+  parentId: string | null;
+  repositoryMessages: AssistantHistoryRepositoryMessages;
+  runEventDataParts: ReturnType<typeof toRunEventDataParts>;
+  runEvents: readonly AssistantRunEvent[];
+}): boolean {
+  const content = toAssistantHistoryContentParts(args.message.content);
+  if (content.length === 0) {
+    return false;
+  }
+
+  const isLatestAssistantMessage =
+    args.runEvents.length > 0 && args.message.id === args.latestAssistantMessageId;
+  args.repositoryMessages.push({
+    parentId: args.parentId,
+    message: {
+      id: args.message.id,
+      role: 'assistant',
+      content: isLatestAssistantMessage ? [...args.runEventDataParts, ...content] : content,
+      createdAt: args.message.createdAt,
+      status: { type: 'complete', reason: 'stop' },
+      metadata: {
+        // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+        unstable_state: null,
+        // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+        unstable_annotations: [],
+        // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+        unstable_data: [],
+        steps: [],
+        custom: {},
+      },
+    },
+  });
+  return true;
+}
+
+function appendUserHistoryMessage(args: {
+  message: AssistantHistoryMessage;
+  parentId: string | null;
+  repositoryMessages: AssistantHistoryRepositoryMessages;
+}): boolean {
+  const content = toTextHistoryContentParts(args.message.content);
+  if (content.length === 0) {
+    return false;
+  }
+
+  args.repositoryMessages.push({
+    parentId: args.parentId,
+    message: {
+      id: args.message.id,
+      role: 'user',
+      content,
+      createdAt: args.message.createdAt,
+      attachments: [],
+      metadata: { custom: {} },
+    },
+  });
+  return true;
+}
+
+function appendSystemHistoryMessage(args: {
+  message: AssistantHistoryMessage;
+  parentId: string | null;
+  repositoryMessages: AssistantHistoryRepositoryMessages;
+}): boolean {
+  const textPart = toTextHistoryContentParts(args.message.content).at(0);
+  if (!textPart) {
+    return false;
+  }
+
+  args.repositoryMessages.push({
+    parentId: args.parentId,
+    message: {
+      id: args.message.id,
+      role: 'system',
+      content: [textPart],
+      createdAt: args.message.createdAt,
+      metadata: { custom: {} },
+    },
+  });
+  return true;
+}
+
 function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
@@ -421,7 +601,10 @@ function toHistoryRepository(
   const runEventDataParts = toRunEventDataParts(runEvents);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index];
-    if (candidate?.role === 'assistant' && extractText(candidate.content).trim()) {
+    if (
+      candidate?.role === 'assistant' &&
+      toAssistantHistoryContentParts(candidate.content).length > 0
+    ) {
       latestAssistantMessageId = candidate.id;
       break;
     }
@@ -432,62 +615,34 @@ function toHistoryRepository(
       continue;
     }
 
-    const text = extractText(message.content).trim();
-    if (!text) {
-      continue;
-    }
-
-    // This compatibility view attaches persisted run summaries to the latest
-    // assistant message until run records carry a durable message id.
-    const content = [{ type: 'text' as const, text }] as const;
+    let appended = false;
     if (message.role === 'assistant') {
-      const isLatestAssistantMessage =
-        runEvents.length > 0 && message.id === latestAssistantMessageId;
-      repositoryMessages.push({
+      // This compatibility view attaches persisted run summaries to the latest
+      // assistant message until run records carry a durable message id.
+      appended = appendAssistantHistoryMessage({
+        latestAssistantMessageId,
+        message,
         parentId,
-        message: {
-          id: message.id,
-          role: 'assistant',
-          content: isLatestAssistantMessage ? [...runEventDataParts, ...content] : content,
-          createdAt: message.createdAt,
-          status: { type: 'complete', reason: 'stop' },
-          metadata: {
-            // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
-            unstable_state: null,
-            // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
-            unstable_annotations: [],
-            // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
-            unstable_data: [],
-            steps: [],
-            custom: {},
-          },
-        },
+        repositoryMessages,
+        runEventDataParts,
+        runEvents,
       });
     } else if (message.role === 'user') {
-      repositoryMessages.push({
+      appended = appendUserHistoryMessage({
+        message,
         parentId,
-        message: {
-          id: message.id,
-          role: 'user',
-          content,
-          createdAt: message.createdAt,
-          attachments: [],
-          metadata: { custom: {} },
-        },
+        repositoryMessages,
       });
     } else {
-      repositoryMessages.push({
+      appended = appendSystemHistoryMessage({
+        message,
         parentId,
-        message: {
-          id: message.id,
-          role: 'system',
-          content,
-          createdAt: message.createdAt,
-          metadata: { custom: {} },
-        },
+        repositoryMessages,
       });
     }
-    parentId = message.id;
+    if (appended) {
+      parentId = message.id;
+    }
   }
 
   return {

@@ -110,6 +110,52 @@ describe('mcp-tool-loader', () => {
       expect(result['server1_remote_tool']).toBeDefined();
     });
 
+    it('bounds MCP tool output before Mastra sends it back to the model', async () => {
+      const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
+      const mockMcpTools: ToolsInput = {
+        'filesystem.search_files': {
+          id: 'filesystem.search_files',
+          description: 'search files',
+          execute: vi.fn(async () => oversizedOutput),
+        } as ToolsInput[string] & { execute: () => Promise<string> },
+      };
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+      const tool = result['filesystem_search_files'] as
+        | (ToolsInput[string] & { execute?: () => Promise<unknown> })
+        | undefined;
+
+      const output = await tool?.execute?.();
+      const serializedOutput = JSON.stringify(output);
+
+      expect(output).toMatchObject({
+        code: 'tool_result_too_large',
+        truncated: true,
+      });
+      expect((output as { error?: string }).error).toContain(
+        'filesystem.search_files returned too much output'
+      );
+      expect(serializedOutput.length).toBeLessThan(20_000);
+      expect(serializedOutput).not.toContain('needle-at-tail');
+    });
+
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },

@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { toJsonSafe } from './json';
+import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
 interface ToolState {
   lastInput?: unknown;
@@ -331,7 +332,7 @@ export class DataStreamMapper {
         yield* this.handleToolProgress(callId, chunk.payload);
         break;
       case 'success':
-        yield* this.handleToolSuccess(callId, chunk.payload);
+        yield* this.handleToolSuccess(toolName, callId, chunk.payload);
         break;
       case 'error':
         yield* this.handleToolError(callId, chunk.payload);
@@ -389,15 +390,38 @@ export class DataStreamMapper {
     }
   }
 
-  private *handleToolSuccess(callId: string, payload: unknown): Generator<EncodedChunk> {
+  private *handleToolSuccess(
+    toolName: string,
+    callId: string,
+    payload: unknown
+  ): Generator<EncodedChunk> {
+    const state = this.toolState.get(callId);
     const output = toJsonSafe(
       (payload as { output?: unknown; result?: unknown }).output ??
         (payload as { result?: unknown }).result
     );
+    const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
+    if (bounded.errorText) {
+      if (state) {
+        const args = toArgsObject(state.lastInput, state.pendingArgsText);
+        yield {
+          code: DataStreamCode.toolCall,
+          value: { toolCallId: callId, toolName: state.toolName, args },
+        } satisfies EncodedChunk;
+      }
+      this.toolState.delete(callId);
+      yield {
+        code: DataStreamCode.toolCallResult,
+        value: { toolCallId: callId, result: bounded.output, isError: true },
+      } satisfies EncodedChunk;
+      this.pendingToolErrorTexts.push(bounded.errorText);
+      this.startNewStepForNextText = true;
+      return;
+    }
     this.toolState.delete(callId);
     yield {
       code: DataStreamCode.toolCallResult,
-      value: { toolCallId: callId, result: output },
+      value: { toolCallId: callId, result: bounded.output },
     } satisfies EncodedChunk;
     this.startNewStepForNextText = true;
   }
@@ -427,8 +451,7 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCallResult,
       value: { toolCallId: callId, result: output, isError: true },
     } satisfies EncodedChunk;
-    const message = typeof output === 'string' ? output : 'Tool execution failed';
-    this.pendingToolErrorTexts.push(message);
+    this.pendingToolErrorTexts.push(readToolOutputErrorText(output));
     this.startNewStepForNextText = true;
   }
 

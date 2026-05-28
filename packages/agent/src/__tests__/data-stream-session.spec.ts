@@ -1001,6 +1001,70 @@ describe('AssistantDataStreamSession', () => {
       });
     });
 
+    it('turns oversized successful tool output into a bounded recoverable tool error', async () => {
+      const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool-event',
+          name: 'filesystem.search_files',
+          status: 'start',
+          payload: {
+            callId: 'call_files',
+            toolCallId: 'call_files',
+            input: { path: '.', pattern: '*.ts' },
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'filesystem.search_files',
+          status: 'success',
+          payload: {
+            callId: 'call_files',
+            toolCallId: 'call_files',
+            output: oversizedOutput,
+          },
+        },
+        { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        sessionId: 'oversized-tool-result-test',
+        messageId: 'msg-oversized-tool-result',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+      const toolResult = parsed.find((p) => p.code === 'a')?.value as
+        | {
+            isError?: boolean;
+            result?: {
+              code?: string;
+              error?: string;
+              preview?: string;
+            };
+            toolCallId?: string;
+          }
+        | undefined;
+      const textDelta = parsed.find((p) => p.code === '0');
+      const finishMessage = parsed.find((p) => p.code === 'd');
+      const serializedToolResult = JSON.stringify(toolResult);
+
+      expect(toolResult).toMatchObject({
+        toolCallId: 'call_files',
+        isError: true,
+        result: {
+          code: 'tool_result_too_large',
+        },
+      });
+      expect(toolResult?.result?.error).toContain(
+        'filesystem.search_files returned too much output'
+      );
+      expect(toolResult?.result?.preview).toContain('filesystem match');
+      expect(serializedToolResult.length).toBeLessThan(20_000);
+      expect(serializedToolResult).not.toContain('needle-at-tail');
+      expect(textDelta?.value).toContain('filesystem.search_files returned too much output');
+      expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
+    });
+
     it('emits a user-visible error + error-finish when the source iterator throws', async () => {
       // Regression: top-level provider errors used to surface as a synthetic
       // tool-event with no toolCallId, which the data-stream mapper silently

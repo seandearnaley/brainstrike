@@ -217,6 +217,68 @@ describe('createAssistantThreadHistoryAdapter', () => {
       { type: 'text', text: 'I used memory.' },
     ]);
   });
+
+  it('hydrates persisted assistant tool-call parts after reload', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: { content: 'Search files' },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+        },
+        {
+          id: 'message-2',
+          role: 'assistant',
+          content: {
+            parts: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call-files',
+                toolName: 'filesystem.search_files',
+                args: { path: '.', pattern: '*.ts' },
+                result: { matches: ['src/a.ts'] },
+                isError: false,
+              },
+              { type: 'text', text: 'I found one match.' },
+            ],
+          },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+    const assistant = history.messages.find((item) => item.message.id === 'message-2');
+
+    expect(assistant?.message.content).toEqual([
+      {
+        type: 'tool-call',
+        toolCallId: 'call-files',
+        toolName: 'filesystem.search_files',
+        args: { path: '.', pattern: '*.ts' },
+        argsText: '{"path":".","pattern":"*.ts"}',
+        result: { matches: ['src/a.ts'] },
+        isError: false,
+      },
+      { type: 'text', text: 'I found one match.' },
+    ]);
+  });
 });
 
 describe('createPgliteAssistantThreadRepository thread runs', () => {
