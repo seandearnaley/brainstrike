@@ -1,4 +1,5 @@
 import type { ThreadMessage } from '@assistant-ui/react';
+import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
@@ -11,6 +12,14 @@ import {
   extractTransportBodyData,
   selectTransportMessagesForMastraMemory,
 } from '../assistant-ui-panel/data-stream-runtime';
+
+vi.mock('@brainstrike/utils/string-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/string-utils')>();
+  return {
+    ...actual,
+    sliceCodePoints: vi.fn(actual.sliceCodePoints),
+  };
+});
 
 function message(id: string, role: ThreadMessage['role']): ThreadMessage {
   return {
@@ -450,12 +459,15 @@ describe('assistant-stream integration', () => {
     const onError = vi.fn();
     const encoder = new TextEncoder();
     let cancelCalled = false;
+    const sliceCodePointsMock = vi.mocked(sliceCodePoints);
+    sliceCodePointsMock.mockClear();
     globalThis.fetch = vi.fn(
       async () =>
         new Response(
           new ReadableStream<Uint8Array>({
             pull(controller) {
-              controller.enqueue(encoder.encode('x'.repeat(5000)));
+              controller.enqueue(encoder.encode('x'.repeat(3000)));
+              controller.enqueue(encoder.encode('y'.repeat(5000)));
               controller.enqueue(encoder.encode('tail-that-should-not-be-read'));
             },
             cancel() {
@@ -486,9 +498,16 @@ describe('assistant-stream integration', () => {
       } as unknown as Parameters<typeof adapter.run>[0])) {
         // The response fails before yielding.
       }
-    }).rejects.toThrow(`Status 500: ${'x'.repeat(4000)}...[truncated]`);
+    }).rejects.toThrow(`Status 500: ${'x'.repeat(3000)}${'y'.repeat(1000)}...[truncated]`);
 
     expect(cancelCalled).toBe(true);
+    expect(
+      Math.max(
+        ...sliceCodePointsMock.mock.calls.map(([value]) =>
+          typeof value === 'string' ? value.length : 0
+        )
+      )
+    ).toBe(5000);
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.not.stringContaining('tail-that-should-not-be-read') as string,

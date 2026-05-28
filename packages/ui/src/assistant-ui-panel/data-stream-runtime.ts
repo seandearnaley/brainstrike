@@ -139,6 +139,26 @@ function assertNoTransportFieldCollisions(
   );
 }
 
+function appendBoundedHttpErrorText(
+  currentText: string,
+  nextText: string
+): { readonly text: string; readonly truncated: boolean } {
+  if (!nextText) {
+    return { text: currentText, truncated: false };
+  }
+  const remainingChars = MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS - currentText.length;
+  if (remainingChars <= 0) {
+    return { text: currentText, truncated: true };
+  }
+  if (nextText.length <= remainingChars) {
+    return { text: `${currentText}${nextText}`, truncated: false };
+  }
+  return {
+    text: `${currentText}${sliceCodePoints(nextText, remainingChars)}`,
+    truncated: true,
+  };
+}
+
 async function readBoundedHttpErrorResponseText(response: Response): Promise<string> {
   if (!response.body) {
     return '';
@@ -148,22 +168,24 @@ async function readBoundedHttpErrorResponseText(response: Response): Promise<str
   let text = '';
   let truncated = false;
   try {
-    while (text.length <= MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS) {
+    while (!truncated) {
       const { done, value } = await reader.read();
-      if (done) {
-        text += decoder.decode();
-        break;
-      }
-      text += decoder.decode(value, { stream: true });
-      if (text.length > MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS) {
-        truncated = true;
-        try {
-          await reader.cancel();
-        } catch {
-          // Preserve the HTTP status failure as the primary error.
+      const decodedText = done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const appendResult = appendBoundedHttpErrorText(text, decodedText);
+      text = appendResult.text;
+      truncated = appendResult.truncated;
+      if (done || !truncated) {
+        if (done) {
+          break;
         }
-        break;
+        continue;
       }
+      try {
+        await reader.cancel();
+      } catch {
+        // Preserve the HTTP status failure as the primary error.
+      }
+      break;
     }
   } finally {
     reader.releaseLock();
@@ -171,7 +193,7 @@ async function readBoundedHttpErrorResponseText(response: Response): Promise<str
   if (!truncated) {
     return text;
   }
-  return `${sliceCodePoints(text, MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS)}...[truncated]`;
+  return `${text}...[truncated]`;
 }
 
 /**
