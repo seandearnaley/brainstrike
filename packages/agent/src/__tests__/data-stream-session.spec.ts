@@ -303,7 +303,7 @@ describe('AssistantDataStreamSession', () => {
     expect(resumedLines).toStrictEqual(expectedTail);
   });
 
-  it('annotates error finishes when tool fails', async () => {
+  it('keeps tool execution errors recoverable instead of ending the assistant message', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Working...' },
       {
@@ -322,12 +322,30 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const errorChunk = events.find((evt) => evt.code === '3');
-    expect(errorChunk?.value).toBe('boom');
+    expect(errorChunk).toBeUndefined();
+
+    const toolResult = events.find((evt) => evt.code === 'a')?.value as {
+      isError?: boolean;
+      result?: unknown;
+      toolCallId?: string;
+    };
+    expect(toolResult).toStrictEqual({
+      toolCallId: 'oops',
+      result: 'boom',
+      isError: true,
+    });
+
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+    expect(visibleText).toContain('Working...');
+    expect(visibleText).toContain("I couldn't complete the tool action because it failed: boom");
 
     const finish = events.at(-1)?.value as {
       finishReason: string;
     };
-    expect(finish?.finishReason).toBe('error');
+    expect(finish?.finishReason).toBe('unknown');
   });
 
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
@@ -693,7 +711,12 @@ describe('AssistantDataStreamSession', () => {
       const startToolCall = parsed.find((p) => p.code === 'b'); // StartToolCall
       const toolCall = parsed.find((p) => p.code === '9'); // ToolCall with args
       const toolResult = parsed.find((p) => p.code === 'a'); // ToolCallResult
-      const errorChunk = parsed.find((p) => p.code === '3'); // Error
+      const errorChunk = parsed.find((p) => p.code === '3'); // Message-level error
+      const fallbackText = parsed.find(
+        (p) =>
+          p.code === '0' &&
+          p.value === "I couldn't complete the tool action because it failed: Not connected"
+      );
 
       // Verify StartToolCall was emitted
       expect(startToolCall).toBeDefined();
@@ -721,20 +744,21 @@ describe('AssistantDataStreamSession', () => {
         isError: true,
       });
 
-      // Verify Error chunk was emitted
-      expect(errorChunk).toBeDefined();
-      const errorChunkEntry = assertDefined(errorChunk, 'Expected Error chunk');
-      expect(errorChunkEntry.value).toBe('Not connected');
+      // Tool execution errors should stay attached to the tool result instead
+      // of terminating the assistant message with a message-level error.
+      expect(errorChunk).toBeUndefined();
+      expect(fallbackText).toBeDefined();
+      const fallbackTextChunk = assertDefined(fallbackText, 'Expected visible recovery text');
 
-      // Verify correct order: StartToolCall -> ToolCall -> ToolCallResult -> Error
+      // Verify correct order: StartToolCall -> ToolCall -> ToolCallResult -> recovery text
       const startIdx = parsed.indexOf(startToolCallChunk);
       const toolIdx = parsed.indexOf(toolCallChunk);
       const resultIdx = parsed.indexOf(toolResultChunk);
-      const errorIdx = parsed.indexOf(errorChunkEntry);
+      const fallbackTextIdx = parsed.indexOf(fallbackTextChunk);
 
       expect(startIdx).toBeLessThan(toolIdx);
       expect(toolIdx).toBeLessThan(resultIdx);
-      expect(resultIdx).toBeLessThan(errorIdx);
+      expect(resultIdx).toBeLessThan(fallbackTextIdx);
     });
 
     it('handles tool error without explicit input in error payload', async () => {
@@ -874,7 +898,7 @@ describe('AssistantDataStreamSession', () => {
       });
     });
 
-    it('marks step as error when tool fails', async () => {
+    it('keeps the assistant message recoverable when a tool fails', async () => {
       const chunks: StreamChunk[] = [
         {
           type: 'tool-event',
@@ -911,19 +935,19 @@ describe('AssistantDataStreamSession', () => {
       const finishMessage = parsed.find((p) => p.code === 'd'); // FinishMessage
       const textDelta = parsed.find((p) => p.code === '0'); // TextDelta
 
-      // Step should be marked with error finish reason
+      // Step should remain complete/recoverable; only the tool result is an error.
       expect(finishStep).toBeDefined();
       expect(finishStep?.value).toMatchObject({
-        finishReason: 'error',
+        finishReason: 'unknown',
       });
       expect(textDelta?.value).toBe(
-        "I couldn't complete the request because a tool failed: Tool failed"
+        "I couldn't complete the tool action because it failed: Tool failed"
       );
 
-      // Message should also be marked as error
+      // Message should also remain complete/recoverable so the user can continue.
       expect(finishMessage).toBeDefined();
       expect(finishMessage?.value).toMatchObject({
-        finishReason: 'error',
+        finishReason: 'unknown',
       });
     });
 

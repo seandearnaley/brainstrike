@@ -29,7 +29,13 @@ const isIncompleteStatus = (
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const readResultErrorMessage = (result: ToolResult): string | undefined => {
+const readResultErrorMessage = (
+  result: ToolResult,
+  resultIsError: boolean | undefined
+): string | undefined => {
+  if (resultIsError && typeof result === 'string' && result.length > 0) {
+    return result;
+  }
   if (typeof result === 'string') {
     return;
   }
@@ -45,13 +51,17 @@ const readResultErrorMessage = (result: ToolResult): string | undefined => {
   if (record['isError'] === true) {
     return 'Tool execution failed.';
   }
+  if (resultIsError) {
+    return 'Tool execution failed.';
+  }
   return;
 };
 
 const resolveDisplayStatus = (
   status: ToolStatus,
   hasResult: boolean,
-  result: ToolResult
+  result: ToolResult,
+  resultIsError: boolean | undefined
 ): DisplayStatus => {
   if (status.type === 'running') {
     return 'running';
@@ -59,7 +69,7 @@ const resolveDisplayStatus = (
   if (status.type === 'incomplete') {
     return 'error';
   }
-  if (readResultErrorMessage(result)) {
+  if (readResultErrorMessage(result, resultIsError)) {
     return 'error';
   }
   if (hasResult) {
@@ -68,9 +78,13 @@ const resolveDisplayStatus = (
   return 'unknown';
 };
 
-const resolveErrorMessage = (status: ToolStatus, result: ToolResult): string | undefined => {
+const resolveErrorMessage = (
+  status: ToolStatus,
+  result: ToolResult,
+  resultIsError: boolean | undefined
+): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return readResultErrorMessage(result);
+    return readResultErrorMessage(result, resultIsError);
   }
 
   if (typeof status.error === 'string') {
@@ -122,18 +136,19 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   toolName,
   argsText,
   result,
+  isError: resultIsError,
   status,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const displayStatus = resolveDisplayStatus(status, hasResult, result);
+  const displayStatus = resolveDisplayStatus(status, hasResult, result, resultIsError);
   const statusIcon = STATUS_ICONS[displayStatus];
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
-  const errorMessage = resolveErrorMessage(status, result);
+  const errorMessage = resolveErrorMessage(status, result, resultIsError);
   const showDetails = !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 

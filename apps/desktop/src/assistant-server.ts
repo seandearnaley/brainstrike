@@ -1041,24 +1041,24 @@ async function getDesktopMastraMemory(
     memorySettings,
     runtimeData
   );
+  const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+  const observationalMemoryModel = observationalMemoryTarget
+    ? createProvider(
+        observationalMemoryTarget.provider,
+        observationalMemoryTarget.apiKey,
+        observationalMemoryTarget.model,
+        runtimeData
+      )
+    : undefined;
+  const embedder = semanticRecallEmbeddingTarget
+    ? createEmbeddingProvider(
+        semanticRecallEmbeddingTarget.provider,
+        semanticRecallEmbeddingTarget.apiKey,
+        semanticRecallEmbeddingTarget.model
+      )
+    : undefined;
   if (runId) {
     const database = await getDatabase();
-    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-    const observationalMemoryModel = observationalMemoryTarget
-      ? createProvider(
-          observationalMemoryTarget.provider,
-          observationalMemoryTarget.apiKey,
-          observationalMemoryTarget.model,
-          runtimeData
-        )
-      : undefined;
-    const embedder = semanticRecallEmbeddingTarget
-      ? createEmbeddingProvider(
-          semanticRecallEmbeddingTarget.provider,
-          semanticRecallEmbeddingTarget.apiKey,
-          semanticRecallEmbeddingTarget.model
-        )
-      : undefined;
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
     return createPgliteMastraMemory({
@@ -1083,22 +1083,6 @@ async function getDesktopMastraMemory(
   }
   const memoryPromise = (async () => {
     const database = await getDatabase();
-    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-    const observationalMemoryModel = observationalMemoryTarget
-      ? createProvider(
-          observationalMemoryTarget.provider,
-          observationalMemoryTarget.apiKey,
-          observationalMemoryTarget.model,
-          runtimeData
-        )
-      : undefined;
-    const embedder = semanticRecallEmbeddingTarget
-      ? createEmbeddingProvider(
-          semanticRecallEmbeddingTarget.provider,
-          semanticRecallEmbeddingTarget.apiKey,
-          semanticRecallEmbeddingTarget.model
-        )
-      : undefined;
     return createPgliteMastraMemory({
       database,
       ...(embedder ? { embedder } : {}),

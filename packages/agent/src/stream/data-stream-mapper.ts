@@ -162,6 +162,7 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private hasVisibleText = false;
   private lastErrorText: string | null = null;
+  private pendingToolErrorText: string | null = null;
   private startNewStepForNextText = false;
 
   constructor(messageId: string) {
@@ -224,6 +225,7 @@ export class DataStreamMapper {
     }
     const chunks: EncodedChunk[] = [];
     chunks.push(...this.emitVisibleFallbackIfNeeded());
+    chunks.push(...this.emitPendingToolErrorFallbackIfNeeded());
     chunks.push(...this.finalizeCurrentStep());
     const usage = this.currentStep?.usage ?? toDataStreamUsage();
     const reason = this.currentStep?.finishReason ?? 'unknown';
@@ -255,6 +257,7 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
+    this.pendingToolErrorText = null;
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
   }
@@ -378,7 +381,6 @@ export class DataStreamMapper {
   }
 
   private *handleToolError(callId: string, payload: unknown): Generator<EncodedChunk> {
-    this.markCurrentStepAsError();
     const output = toJsonSafe(
       (payload as { error?: unknown; result?: unknown }).error ??
         (payload as { result?: unknown }).result ??
@@ -402,7 +404,7 @@ export class DataStreamMapper {
     } satisfies EncodedChunk;
     const message = typeof output === 'string' ? output : 'Tool execution failed';
     this.lastErrorText = message;
-    yield { code: DataStreamCode.error, value: message } satisfies EncodedChunk;
+    this.pendingToolErrorText = message;
     this.startNewStepForNextText = true;
   }
 
@@ -422,6 +424,7 @@ export class DataStreamMapper {
       this.currentStep.finishReason = this.currentStep.status === 'error' ? 'error' : finishReason;
     }
     yield* this.emitVisibleFallbackIfNeeded();
+    yield* this.emitPendingToolErrorFallbackIfNeeded();
     yield* this.finalizeCurrentStep();
     yield {
       code: DataStreamCode.finishMessage,
@@ -500,6 +503,23 @@ export class DataStreamMapper {
     const errorText = this.lastErrorText ?? 'The assistant run failed before producing a response.';
     const visibleText = `I couldn't complete the request because a tool failed: ${errorText}`;
     yield* this.startStepIfNeeded();
+    this.hasVisibleText = true;
+    yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
+  }
+
+  private *emitPendingToolErrorFallbackIfNeeded(): Generator<EncodedChunk> {
+    if (!this.pendingToolErrorText) {
+      return;
+    }
+    if (this.startNewStepForNextText) {
+      yield* this.finalizeCurrentStep();
+      yield* this.startStepIfNeeded(true);
+      this.startNewStepForNextText = false;
+    } else {
+      yield* this.startStepIfNeeded();
+    }
+    const visibleText = `I couldn't complete the tool action because it failed: ${this.pendingToolErrorText}`;
+    this.pendingToolErrorText = null;
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
   }

@@ -13,6 +13,7 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
+import { useMemo } from 'react';
 
 type HeadersValue = Headers | Record<string, string>;
 
@@ -37,6 +38,26 @@ interface GenericTextPart {
 interface GenericMessageLike {
   readonly content?: readonly GenericTextPart[];
   readonly role?: unknown;
+}
+
+function toPartRecord(part: GenericTextPart): Record<string, unknown> {
+  if (!part || typeof part !== 'object' || Array.isArray(part)) {
+    return {};
+  }
+  return part as Record<string, unknown>;
+}
+
+function requireStringField(part: GenericTextPart, field: string, context: string): string {
+  const value = toPartRecord(part)[field];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Invalid ${context}: missing ${field}.`);
+  }
+  return value;
+}
+
+function optionalStringField(part: GenericTextPart, field: string): string | undefined {
+  const value = toPartRecord(part)[field];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function isMemoryBackedRequest(bodyValue: Record<string, unknown> | undefined): boolean {
@@ -79,11 +100,14 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
           content: content.map((part) =>
             part.type === 'text'
               ? part
-              : {
-                  type: 'file',
-                  data: String((part as { data?: unknown }).data ?? ''),
-                  mediaType: (part as { mediaType?: unknown }).mediaType,
-                }
+              : (() => {
+                  const record = toPartRecord(part);
+                  return {
+                    type: 'file',
+                    data: String(record['data'] ?? ''),
+                    mediaType: optionalStringField(part, 'mediaType'),
+                  };
+                })()
           ),
         };
       case 'assistant':
@@ -94,23 +118,26 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
               ? part
               : {
                   type: 'tool-call',
-                  toolCallId: (part as { toolCallId?: unknown }).toolCallId,
-                  toolName: (part as { toolName?: unknown }).toolName,
-                  input: (part as { args?: unknown }).args,
+                  toolCallId: requireStringField(part, 'toolCallId', 'assistant tool-call part'),
+                  toolName: requireStringField(part, 'toolName', 'assistant tool-call part'),
+                  input: toPartRecord(part)['args'],
                 }
           ),
         };
       case 'tool':
         return {
           role: 'tool',
-          content: content.map((part) => ({
-            type: 'tool-result',
-            toolCallId: (part as { toolCallId?: unknown }).toolCallId,
-            toolName: (part as { toolName?: unknown }).toolName,
-            output: (part as { isError?: unknown; result?: unknown }).isError
-              ? { type: 'error-json', value: (part as { result?: unknown }).result }
-              : { type: 'json', value: (part as { result?: unknown }).result },
-          })),
+          content: content.map((part) => {
+            const record = toPartRecord(part);
+            return {
+              type: 'tool-result',
+              toolCallId: requireStringField(part, 'toolCallId', 'tool result part'),
+              toolName: optionalStringField(part, 'toolName'),
+              output: record['isError']
+                ? { type: 'error-json', value: record['result'] }
+                : { type: 'json', value: record['result'] },
+            };
+          }),
         };
       default:
         return { role: item.role, content };
@@ -237,8 +264,35 @@ class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 }
 
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
-  const { adapters, maxSteps, unstable_humanToolNames, ...adapterOptions } = options;
-  return useLocalRuntime(new BrainstrikeDataStreamRuntimeAdapter(adapterOptions), {
+  const {
+    adapters,
+    api,
+    body,
+    credentials,
+    headers,
+    maxSteps,
+    onCancel,
+    onError,
+    onFinish,
+    onResponse,
+    unstable_humanToolNames,
+  } = options;
+  const chatModelAdapter = useMemo(
+    () =>
+      new BrainstrikeDataStreamRuntimeAdapter({
+        api,
+        ...(body === undefined ? {} : { body }),
+        ...(credentials === undefined ? {} : { credentials }),
+        ...(headers === undefined ? {} : { headers }),
+        ...(onCancel === undefined ? {} : { onCancel }),
+        ...(onError === undefined ? {} : { onError }),
+        ...(onFinish === undefined ? {} : { onFinish }),
+        ...(onResponse === undefined ? {} : { onResponse }),
+      }),
+    [api, body, credentials, headers, onCancel, onError, onFinish, onResponse]
+  );
+
+  return useLocalRuntime(chatModelAdapter, {
     ...(adapters ? { adapters } : {}),
     ...(maxSteps ? { maxSteps } : {}),
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.

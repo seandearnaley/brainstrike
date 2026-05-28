@@ -131,6 +131,22 @@ describe('ToolFallback', () => {
       ).toBeInTheDocument();
     });
 
+    it('shows assistant-stream isError tool results as failed tool cards', () => {
+      render(
+        <ToolFallback
+          {...mockBaseProps}
+          isError={true}
+          result='Function parameter parsing failed. "Unexpected end of JSON input"'
+          status={{ type: 'complete' }}
+        />
+      );
+
+      expect(screen.getByText(/Failed/)).toBeInTheDocument();
+      expect(
+        screen.getByText('Function parameter parsing failed. "Unexpected end of JSON input"')
+      ).toBeInTheDocument();
+    });
+
     it('shows error message from result when status.error is not a string', () => {
       render(
         <ToolFallback
