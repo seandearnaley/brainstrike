@@ -1114,6 +1114,50 @@ describe('assistant-server', () => {
       expect(firstMemory).not.toBe(secondMemory);
     });
 
+    it('deduplicates concurrent Mastra memory initialization while keychain resolution is pending', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const memorySettings = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      };
+      const resolveKeyCallbacks: Array<(value: string) => void> = [];
+      mockSecretsService.getKey.mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveKeyCallbacks.push(resolve);
+          })
+      );
+
+      const firstRequest = getDesktopMastraMemoryForTests(memorySettings);
+      const secondRequest = getDesktopMastraMemoryForTests(memorySettings);
+      await vi.waitFor(() => {
+        expect(resolveKeyCallbacks).toHaveLength(1);
+      });
+
+      for (const resolveKey of resolveKeyCallbacks) {
+        resolveKey('test-api-key');
+      }
+      const [firstMemory, secondMemory] = await Promise.all([firstRequest, secondRequest]);
+
+      expect(mockSecretsService.getKey).toHaveBeenCalledTimes(1);
+      expect(firstMemory).toBe(secondMemory);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps separate desktop Mastra memory instances keyed by runtime memory options', async () => {
       mockDesktopDatabase.exec.mockResolvedValue(undefined);
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');

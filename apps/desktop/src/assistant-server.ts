@@ -55,10 +55,12 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
-const desktopMastraMemoryPromises = new Map<
-  string,
-  Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
->();
+type DesktopMastraMemoryResult =
+  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
+type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
+
+const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
+const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'openai',
@@ -865,6 +867,25 @@ function buildDesktopMastraMemoryCacheKey({
   });
 }
 
+function buildDesktopMastraMemoryResolutionKey({
+  memoryOptions,
+  memorySettings,
+  observationalMemoryDescriptor,
+  semanticRecallEmbeddingDescriptor,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly observationalMemoryDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
+  readonly semanticRecallEmbeddingDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
+}): string {
+  return stableJsonStringify({
+    memoryOptions: memoryOptions ?? null,
+    memorySettings: memorySettings ?? null,
+    observationalMemoryDescriptor: observationalMemoryDescriptor ?? null,
+    semanticRecallEmbeddingDescriptor: semanticRecallEmbeddingDescriptor ?? null,
+  });
+}
+
 function createDesktopMastraMemoryCacheState({
   memoryOptions,
   memorySettings,
@@ -914,6 +935,13 @@ function createDesktopMastraMemoryCacheState({
     semanticRecallEmbeddingDescriptor,
     semanticRecallEmbeddingTarget,
   };
+}
+
+function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheState): boolean {
+  return Boolean(
+    (cacheState.observationalMemoryDescriptor && !cacheState.observationalMemoryTarget) ||
+      (cacheState.semanticRecallEmbeddingDescriptor && !cacheState.semanticRecallEmbeddingTarget)
+  );
 }
 
 function createDesktopMastraMemoryProviderBindings({
@@ -1172,7 +1200,7 @@ async function getDesktopMastraMemory(
   runId?: string | undefined,
   eventSink?: ((event: AssistantRunEvent) => void) | undefined,
   runtimeData?: RuntimeData | undefined
-): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
+): Promise<DesktopMastraMemoryResult> {
   const memoryOptions = runtimeData?.memory?.memoryOptions;
   const cacheState = createDesktopMastraMemoryCacheState({
     memoryOptions,
@@ -1184,6 +1212,66 @@ async function getDesktopMastraMemory(
     return cacheState.cachedPromise;
   }
 
+  if (!(runId || eventSink) && needsAsyncDesktopMemoryResolution(cacheState)) {
+    const resolutionKey = buildDesktopMastraMemoryResolutionKey({
+      memoryOptions,
+      memorySettings,
+      observationalMemoryDescriptor: cacheState.observationalMemoryDescriptor,
+      semanticRecallEmbeddingDescriptor: cacheState.semanticRecallEmbeddingDescriptor,
+    });
+    const pendingResolution = desktopMastraMemoryResolutionPromises.get(resolutionKey);
+    if (pendingResolution) {
+      return pendingResolution;
+    }
+    const pendingMemory = createDesktopMastraMemoryFromCacheState({
+      cacheState,
+      eventSink,
+      memoryOptions,
+      memorySettings,
+      runId,
+      runtimeData,
+    });
+    desktopMastraMemoryResolutionPromises.set(resolutionKey, pendingMemory);
+    void pendingMemory.then(
+      () => {
+        if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
+          desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+        }
+      },
+      () => {
+        if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
+          desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+        }
+      }
+    );
+    return pendingMemory;
+  }
+
+  return createDesktopMastraMemoryFromCacheState({
+    cacheState,
+    eventSink,
+    memoryOptions,
+    memorySettings,
+    runId,
+    runtimeData,
+  });
+}
+
+async function createDesktopMastraMemoryFromCacheState({
+  cacheState,
+  eventSink,
+  memoryOptions,
+  memorySettings,
+  runId,
+  runtimeData,
+}: {
+  readonly cacheState: DesktopMastraMemoryCacheState;
+  readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly runId: string | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+}): Promise<DesktopMastraMemoryResult> {
   const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
   const observationalMemoryTarget = cacheState.observationalMemoryTarget
     ? cacheState.observationalMemoryTarget
@@ -1230,9 +1318,6 @@ async function getDesktopMastraMemory(
   if (cachedPromise) {
     return cachedPromise;
   }
-  // Cache insertion is best-effort after async key resolution. A concurrent
-  // same-key miss can briefly create a duplicate memory promise, but avoiding a
-  // global lock keeps chat startup simple and the cache converges on insertion.
   const memoryPromise = (async () => {
     const database = await getDatabase();
     return createPgliteMastraMemory({
@@ -1285,11 +1370,12 @@ function sortJsonValue(value: unknown): unknown {
 
 export function resetDesktopMastraMemoryCacheForTests(): void {
   desktopMastraMemoryPromises.clear();
+  desktopMastraMemoryResolutionPromises.clear();
 }
 
 export async function getDesktopMastraMemoryForTests(
   memorySettings: RuntimeAssistantMemorySettings | undefined,
   runtimeData?: RuntimeData | undefined
-): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
+): Promise<DesktopMastraMemoryResult> {
   return getDesktopMastraMemory(memorySettings, undefined, undefined, runtimeData);
 }
