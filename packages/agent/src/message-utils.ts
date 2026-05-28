@@ -62,6 +62,7 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     'result',
     'message',
     'messages',
+    'type',
   ]);
 
   const pushScalar = (value: AssistantUiScalar | undefined): void => {

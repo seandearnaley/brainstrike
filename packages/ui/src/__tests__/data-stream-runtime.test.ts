@@ -326,6 +326,49 @@ describe('assistant-stream integration', () => {
     );
   });
 
+  it('strips text part metadata from hosted request messages', async () => {
+    let requestBody: unknown;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-test"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: {
+        callSettings: {},
+        config: {},
+        tools: {},
+      },
+      messages: [message('hello', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({
+        metadata: {},
+      }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // Consume the response so the request is fully exercised.
+    }
+
+    expect(requestBody).toMatchObject({
+      messages: [
+        {
+          role: 'user',
+          content: [{ text: 'hello' }],
+        },
+      ],
+    });
+    expect(JSON.stringify(requestBody)).not.toContain('"type":"text"');
+  });
+
   it('rejects runtime config fields that would override transport protocol data', async () => {
     const onError = vi.fn();
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({

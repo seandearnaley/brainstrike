@@ -93,6 +93,11 @@ function toUserFilePart(part: GenericTextPart): {
   };
 }
 
+function toHostedTextPart(part: GenericTextPart): { readonly text: string } {
+  const value = toPartRecord(part)['text'];
+  return { text: typeof value === 'string' ? value : '' };
+}
+
 function isMemoryBackedRequest(bodyValue: Record<string, unknown> | undefined): boolean {
   const data = bodyValue?.['data'];
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -201,18 +206,23 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
     const content = item.content ?? [];
     switch (item.role) {
       case 'system':
-        return { role: 'system', content };
+        return {
+          role: 'system',
+          content: content.map((part) => (part.type === 'text' ? toHostedTextPart(part) : part)),
+        };
       case 'user':
         return {
           role: 'user',
-          content: content.map((part) => (part.type === 'text' ? part : toUserFilePart(part))),
+          content: content.map((part) =>
+            part.type === 'text' ? toHostedTextPart(part) : toUserFilePart(part)
+          ),
         };
       case 'assistant':
         return {
           role: 'assistant',
           content: content.map((part) =>
             part.type === 'text'
-              ? part
+              ? toHostedTextPart(part)
               : {
                   type: 'tool-call',
                   toolCallId: requireStringField(part, 'toolCallId', 'assistant tool-call part'),
