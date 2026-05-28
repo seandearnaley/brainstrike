@@ -104,7 +104,7 @@ interface AssistantPreferencesActions {
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 export const ASSISTANT_PREFERENCES_STORE_NAME = 'assistant-preferences.v1' as const;
-export const ASSISTANT_PREFERENCES_STORE_VERSION = 5;
+export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
 const STORE_NAME = ASSISTANT_PREFERENCES_STORE_NAME;
 const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
 
@@ -370,37 +370,44 @@ function cloneModelList(models: readonly string[] | undefined): string[] {
 
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   openai: {
-    'gpt-4o': 'gpt-5.2',
-    'gpt-4o-mini': 'gpt-5.2-chat-latest',
-    'gpt-4-turbo': 'gpt-5.2-pro',
-    'gpt-3.5-turbo': 'gpt-5.2-chat-latest',
+    'gpt-4o': 'gpt-5.4',
+    'gpt-4o-mini': 'gpt-5.4-mini',
+    'gpt-4-turbo': 'gpt-5.4',
+    'gpt-3.5-turbo': 'gpt-5.4-mini',
+    // gpt-5.2-chat-latest dropped (docs: not recommended for API use).
+    'gpt-5.2-chat-latest': 'gpt-5.4',
   },
   anthropic: {
     'claude-3-5-haiku-latest': 'claude-haiku-4-5',
-    'claude-3-5-sonnet-latest': 'claude-sonnet-4-5',
-    'claude-3-opus-latest': 'claude-opus-4-5',
-    'claude-sonnet-4-20250514': 'claude-sonnet-4-5',
+    'claude-3-5-sonnet-latest': 'claude-sonnet-4-6',
+    'claude-3-opus-latest': 'claude-opus-4-8',
+    'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
     'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
-    'claude-opus-4-1-20250805': 'claude-opus-4-5',
-    'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
-    'claude-opus-4-5-20251101': 'claude-opus-4-5',
+    'claude-opus-4-1-20250805': 'claude-opus-4-8',
+    'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
+    'claude-opus-4-5-20251101': 'claude-opus-4-8',
+    // Superseded 4-5 generation aliases.
+    'claude-sonnet-4-5': 'claude-sonnet-4-6',
+    'claude-opus-4-5': 'claude-opus-4-8',
   },
   google: {
-    'gemini-2.5-flash': 'gemini-3-flash-preview',
-    'gemini-2.5-pro': 'gemini-3-pro-preview',
-    'gemini-2.0-pro': 'gemini-3-pro-preview',
-    'gemini-1.5-pro': 'gemini-3-pro-preview',
+    // gemini-2.5-flash / gemini-2.5-pro are now first-class models — do not
+    // remap them away.
+    'gemini-2.0-pro': 'gemini-2.5-pro',
+    'gemini-1.5-pro': 'gemini-2.5-pro',
+    'gemini-3-flash-preview': 'gemini-3.5-flash',
+    'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
   },
   openrouter: {
-    'openai/gpt-4o': 'openai/gpt-5.2',
-    'openai/gpt-4o-mini': 'openai/gpt-5.2',
-    'openai/gpt-4-turbo': 'openai/gpt-5.2',
-    'openai/gpt-3.5-turbo': 'openai/gpt-5.2',
-    'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.5',
-    'google/gemini-2.5-flash': 'google/gemini-3-flash-preview',
-    'google/gemini-2.5-pro': 'google/gemini-3-flash-preview',
-    'google/gemini-2.0-pro': 'google/gemini-3-flash-preview',
-    'google/gemini-1.5-pro': 'google/gemini-3-flash-preview',
+    'openai/gpt-4o': 'openai/gpt-5.4',
+    'openai/gpt-4o-mini': 'openai/gpt-5.4-mini',
+    'openai/gpt-4-turbo': 'openai/gpt-5.4',
+    'openai/gpt-3.5-turbo': 'openai/gpt-5.4-mini',
+    'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.6',
+    'anthropic/claude-sonnet-4.5': 'anthropic/claude-sonnet-4.6',
+    'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
+    'google/gemini-2.0-pro': 'google/gemini-2.5-flash',
+    'google/gemini-1.5-pro': 'google/gemini-2.5-flash',
   },
   local: {
     'LiquidAI/LFM2.5-1.2B-Instruct-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
