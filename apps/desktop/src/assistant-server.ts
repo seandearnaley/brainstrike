@@ -1230,6 +1230,9 @@ async function getDesktopMastraMemory(
   if (cachedPromise) {
     return cachedPromise;
   }
+  // Cache insertion is best-effort after async key resolution. A concurrent
+  // same-key miss can briefly create a duplicate memory promise, but avoiding a
+  // global lock keeps chat startup simple and the cache converges on insertion.
   const memoryPromise = (async () => {
     const database = await getDatabase();
     return createPgliteMastraMemory({

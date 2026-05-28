@@ -60,6 +60,19 @@ function optionalStringField(part: GenericTextPart, field: string): string | und
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function toUserFilePart(part: GenericTextPart): {
+  readonly data: string;
+  readonly mediaType: string | undefined;
+  readonly type: 'file';
+} {
+  const record = toPartRecord(part);
+  return {
+    type: 'file',
+    data: String(record['data'] ?? ''),
+    mediaType: optionalStringField(part, 'mediaType'),
+  };
+}
+
 function isMemoryBackedRequest(bodyValue: Record<string, unknown> | undefined): boolean {
   const data = bodyValue?.['data'];
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -105,6 +118,8 @@ export function selectTransportMessagesForMastraMemory(
       return [...systemMessages, ...messages.slice(index)];
     }
   }
+  // Pre-seeded threads without a user turn cannot be safely compacted by the
+  // current-turn rule, so preserve the full payload instead of dropping context.
   return messages;
 }
 
@@ -119,18 +134,7 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
       case 'user':
         return {
           role: 'user',
-          content: content.map((part) =>
-            part.type === 'text'
-              ? part
-              : (() => {
-                  const record = toPartRecord(part);
-                  return {
-                    type: 'file',
-                    data: String(record['data'] ?? ''),
-                    mediaType: optionalStringField(part, 'mediaType'),
-                  };
-                })()
-          ),
+          content: content.map((part) => (part.type === 'text' ? part : toUserFilePart(part))),
         };
       case 'assistant':
         return {
@@ -247,7 +251,7 @@ class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         : {}),
       ...context.callSettings,
       ...context.config,
-      ...bodyData,
+      ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
     };
 
     const response = await fetch(this.options.api, {

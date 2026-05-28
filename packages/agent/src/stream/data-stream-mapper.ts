@@ -420,6 +420,9 @@ export class DataStreamMapper {
     }
 
     this.toolState.delete(callId);
+    // Tool errors are recoverable at the assistant-message level. Consumers
+    // should use this tool result's isError flag rather than finishReason to
+    // detect failed tool execution.
     yield {
       code: DataStreamCode.toolCallResult,
       value: { toolCallId: callId, result: output, isError: true },
