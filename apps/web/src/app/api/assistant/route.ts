@@ -90,11 +90,34 @@ async function readJsonBodyWithLimit(req: Request): Promise<unknown> {
     throw new Error(REQUEST_BODY_TOO_LARGE);
   }
 
-  const rawBody = await req.text().catch(() => '');
-  if (new TextEncoder().encode(rawBody).byteLength > MAX_ASSISTANT_REQUEST_BODY_BYTES) {
-    throw new Error(REQUEST_BODY_TOO_LARGE);
+  const reader = req.body?.getReader();
+  if (!reader) {
+    return {};
   }
 
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    byteLength += value.byteLength;
+    if (byteLength > MAX_ASSISTANT_REQUEST_BODY_BYTES) {
+      await reader.cancel();
+      throw new Error(REQUEST_BODY_TOO_LARGE);
+    }
+    chunks.push(value);
+  }
+
+  const bodyBytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  const rawBody = new TextDecoder().decode(bodyBytes);
   if (rawBody.trim().length === 0) {
     return {};
   }

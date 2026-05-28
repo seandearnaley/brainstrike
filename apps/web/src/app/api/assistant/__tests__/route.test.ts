@@ -105,6 +105,30 @@ describe('assistant route', () => {
     expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
+  it('stops reading streamed assistant bodies once the size limit is exceeded', async () => {
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (pulls > 2) {
+          throw new Error('read past limit');
+        }
+        controller.enqueue(new Uint8Array(600_000).fill(120));
+      },
+    });
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body,
+        duplex: 'half',
+        method: 'POST',
+      } as RequestInit & { duplex: 'half' })
+    );
+    expect(res.status).toBe(413);
+    expect(pulls).toBe(2);
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
   it('creates a new session when provider is enabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       enabled: true,
