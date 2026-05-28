@@ -33,6 +33,7 @@ interface DataStreamUsage {
 }
 
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
+const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
@@ -128,7 +129,7 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
-      return 'Assistant stream ended without a normal stop signal.';
+      return MISSING_FINISH_ERROR_TEXT;
     case 'stop':
     case 'tool-calls':
     case 'error':
@@ -244,15 +245,21 @@ export class DataStreamMapper {
       return [];
     }
     const chunks: EncodedChunk[] = [];
+    this.pendingRunErrorText = MISSING_FINISH_ERROR_TEXT;
+    this.markCurrentStepAsError();
+    chunks.push({
+      code: DataStreamCode.error,
+      value: MISSING_FINISH_ERROR_TEXT,
+    });
     chunks.push(...this.emitVisibleFallbackIfNeeded());
     chunks.push(...this.emitPendingToolErrorFallbackIfNeeded());
+    const stepBeforeFinalize = this.currentStep;
     chunks.push(...this.finalizeCurrentStep());
-    const usage = this.currentStep?.usage ?? toDataStreamUsage();
-    const reason = this.currentStep?.finishReason ?? 'unknown';
+    const usage = stepBeforeFinalize?.usage ?? toDataStreamUsage();
     chunks.push({
       code: DataStreamCode.finishMessage,
       value: {
-        finishReason: this.currentStep?.status === 'error' ? 'error' : reason,
+        finishReason: 'error',
         usage,
         path: [],
       },
@@ -548,7 +555,10 @@ export class DataStreamMapper {
   }
 
   private *emitVisibleFallbackIfNeeded(): Generator<EncodedChunk> {
-    if (this.hasVisibleText || this.currentStep?.status !== 'error') {
+    if (
+      !this.pendingRunErrorText &&
+      (this.hasVisibleText || this.currentStep?.status !== 'error')
+    ) {
       return;
     }
     const errorText =

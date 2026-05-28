@@ -280,6 +280,32 @@ describe('AssistantDataStreamSession', () => {
     });
   });
 
+  it('emits a visible error when the source stream ends without a finish event', async () => {
+    const chunks: StreamChunk[] = [{ type: 'text-delta', value: 'Partial answer' }];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'missing-finish',
+      messageId: 'msg-missing-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const error = events.find((evt) => evt.code === '3')?.value;
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+
+    expect(error).toBe('Assistant stream ended without a normal stop signal.');
+    expect(visibleText).toContain('Partial answer');
+    expect(visibleText).toContain(
+      "I couldn't complete the assistant response: Assistant stream ended without a normal stop signal."
+    );
+    expect(events.at(-1)).toMatchObject({
+      code: 'd',
+      value: { finishReason: 'error' },
+    });
+  });
+
   it('supports resuming from Last-Event-ID', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'First ' },
