@@ -201,6 +201,14 @@ function withTransportCompactionMetadata(
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   constructor(private readonly options: BrainstrikeDataStreamRuntimeOptions) {}
 
+  private reportError(error: unknown): void {
+    try {
+      this.options.onError?.(error as Error);
+    } catch {
+      // Preserve the transport/model error as the runtime failure cause.
+    }
+  }
+
   async *run({
     messages,
     runConfig,
@@ -211,21 +219,6 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     unstable_parentId,
     unstable_getMessage,
   }: ChatModelRunOptions) {
-    const headersValue =
-      typeof this.options.headers === 'function'
-        ? await this.options.headers()
-        : this.options.headers;
-    const rawBodyValue =
-      typeof this.options.body === 'function' ? await this.options.body() : this.options.body;
-    const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
-    const transportMessages = selectTransportMessagesForMastraMemory(messages, bodyValue);
-    const compactedBodyValue = withTransportCompactionMetadata(
-      bodyValue,
-      messages.length,
-      transportMessages.length
-    );
-    const bodyData = extractTransportBodyData(compactedBodyValue);
-
     abortSignal.addEventListener(
       'abort',
       () => {
@@ -236,37 +229,51 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       { once: true }
     );
 
-    const headers = new Headers(headersValue);
-    headers.set('Content-Type', 'application/json');
-
-    const requestBody: Record<string, unknown> = {
-      messages: toLanguageModelMessages(transportMessages),
-      tools: toToolsJSONSchema(context.tools ?? {}),
-      ...(context.system ? { system: context.system } : {}),
-      // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
-      ...(unstable_assistantMessageId ? { unstable_assistantMessageId } : {}),
-      ...(unstable_threadId ? { threadId: unstable_threadId } : {}),
-      ...(unstable_parentId === undefined ? {} : { parentId: unstable_parentId }),
-      ...(runConfig === undefined ? {} : { runConfig }),
-      ...(unstable_getMessage().metadata.unstable_state
-        ? { state: unstable_getMessage().metadata.unstable_state }
-        : {}),
-      ...context.callSettings,
-      ...context.config,
-      ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
-    };
-
-    const response = await fetch(this.options.api, {
-      method: 'POST',
-      headers,
-      credentials: this.options.credentials ?? 'same-origin',
-      body: JSON.stringify(requestBody),
-      signal: abortSignal,
-    });
-
-    await this.options.onResponse?.(response);
-
     try {
+      const headersValue =
+        typeof this.options.headers === 'function'
+          ? await this.options.headers()
+          : this.options.headers;
+      const rawBodyValue =
+        typeof this.options.body === 'function' ? await this.options.body() : this.options.body;
+      const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
+      const transportMessages = selectTransportMessagesForMastraMemory(messages, bodyValue);
+      const compactedBodyValue = withTransportCompactionMetadata(
+        bodyValue,
+        messages.length,
+        transportMessages.length
+      );
+      const bodyData = extractTransportBodyData(compactedBodyValue);
+      const headers = new Headers(headersValue);
+      headers.set('Content-Type', 'application/json');
+
+      const requestBody: Record<string, unknown> = {
+        messages: toLanguageModelMessages(transportMessages),
+        tools: toToolsJSONSchema(context.tools ?? {}),
+        ...(context.system ? { system: context.system } : {}),
+        // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
+        ...(unstable_assistantMessageId ? { unstable_assistantMessageId } : {}),
+        ...(unstable_threadId ? { threadId: unstable_threadId } : {}),
+        ...(unstable_parentId === undefined ? {} : { parentId: unstable_parentId }),
+        ...(runConfig === undefined ? {} : { runConfig }),
+        ...(unstable_getMessage().metadata.unstable_state
+          ? { state: unstable_getMessage().metadata.unstable_state }
+          : {}),
+        ...context.callSettings,
+        ...context.config,
+        ...(Object.hasOwn(bodyData, 'data') ? { data: bodyData['data'] } : {}),
+      };
+
+      const response = await fetch(this.options.api, {
+        method: 'POST',
+        headers,
+        credentials: this.options.credentials ?? 'same-origin',
+        body: JSON.stringify(requestBody),
+        signal: abortSignal,
+      });
+
+      await this.options.onResponse?.(response);
+
       if (!response.ok) {
         throw new Error(`Status ${response.status}: ${await response.text()}`);
       }
@@ -286,11 +293,7 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       yield* asAsyncIterableStream(stream);
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
-      try {
-        this.options.onError?.(error as Error);
-      } catch {
-        // Preserve the transport/model error as the runtime failure cause.
-      }
+      this.reportError(error);
       throw error;
     }
   }

@@ -214,6 +214,79 @@ describe('assistant-stream integration', () => {
     }).rejects.toThrow('Status 500: server failed');
   });
 
+  it('reports request setup failures through onError', async () => {
+    const onError = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: {
+        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        messages: [],
+      },
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: {},
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The request fails before yielding.
+      }
+    }).rejects.toThrow('Assistant runtime body only supports top-level data');
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Assistant runtime body only supports top-level data'),
+      })
+    );
+  });
+
+  it('reports fetch failures through onError', async () => {
+    const onError = vi.fn();
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('Network request failed');
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: {},
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The request fails before yielding.
+      }
+    }).rejects.toThrow('Network request failed');
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Network request failed',
+      })
+    );
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',
