@@ -13,6 +13,8 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 const logger = createLogger('WebAssistantRoute');
+const MAX_ASSISTANT_REQUEST_BODY_BYTES = 1_000_000;
+const REQUEST_BODY_TOO_LARGE = 'request_body_too_large';
 
 export async function POST(req: Request): Promise<Response> {
   const lastEventId = req.headers.get('last-event-id');
@@ -23,7 +25,18 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
+  let body: unknown;
+  try {
+    body = await readJsonBodyWithLimit(req);
+  } catch (error) {
+    if (error instanceof Error && error.message === REQUEST_BODY_TOO_LARGE) {
+      return new Response(JSON.stringify({ error: 'request_body_too_large' }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+    throw error;
+  }
   const rawMessages = Array.isArray((body as Record<string, unknown>)['messages'])
     ? ((body as Record<string, unknown>)['messages'] as AssistantUiMessage[])
     : [];
@@ -69,4 +82,22 @@ export async function POST(req: Request): Promise<Response> {
 
   const session = assistantDataStreamSessions.create(agentStream);
   return session.createResponse();
+}
+
+async function readJsonBodyWithLimit(req: Request): Promise<unknown> {
+  const contentLength = Number(req.headers.get('content-length') ?? '0');
+  if (Number.isFinite(contentLength) && contentLength > MAX_ASSISTANT_REQUEST_BODY_BYTES) {
+    throw new Error(REQUEST_BODY_TOO_LARGE);
+  }
+
+  const rawBody = await req.text().catch(() => '');
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_ASSISTANT_REQUEST_BODY_BYTES) {
+    throw new Error(REQUEST_BODY_TOO_LARGE);
+  }
+
+  if (rawBody.trim().length === 0) {
+    return {};
+  }
+
+  return JSON.parse(rawBody);
 }

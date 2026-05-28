@@ -90,6 +90,21 @@ describe('assistant route', () => {
     expect(payload.message).toBe('Assistant stream initialization failed');
   });
 
+  it('rejects oversized assistant request bodies before starting a stream', async () => {
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ id: '1', role: 'user', text: 'x'.repeat(1_000_001) }],
+        }),
+      })
+    );
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'request_body_too_large' });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
   it('creates a new session when provider is enabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       enabled: true,
