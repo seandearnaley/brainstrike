@@ -6,6 +6,7 @@ import {
   createRandomId,
   resolveDataStreamSession,
 } from '../stream/data-stream';
+import { boundToolOutputForModel } from '../stream/tool-output-limits';
 
 interface Encoded {
   code: string;
@@ -1063,6 +1064,16 @@ describe('AssistantDataStreamSession', () => {
       expect(serializedToolResult).not.toContain('needle-at-tail');
       expect(textDelta?.value).toContain('filesystem.search_files returned too much output');
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
+    });
+
+    it('does not split surrogate pairs in oversized tool output previews', () => {
+      const output = `${'a'.repeat(7999)}🙂${'tail'.repeat(2000)}`;
+      const bounded = boundToolOutputForModel('filesystem.search_files', output).output as {
+        preview?: string;
+      };
+
+      expect(bounded.preview).toBe(`${'a'.repeat(7999)}🙂`);
+      expect(bounded.preview?.charCodeAt(bounded.preview.length - 1)).not.toBe(0xd8_3d);
     });
 
     it('emits a user-visible error + error-finish when the source iterator throws', async () => {

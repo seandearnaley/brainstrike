@@ -287,6 +287,83 @@ describe('assistant-stream integration', () => {
     );
   });
 
+  it('rejects runtime config fields that would override transport protocol data', async () => {
+    const onError = vi.fn();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: { messages: [] },
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The request fails before fetch because config collides with transport fields.
+      }
+    }).rejects.toThrow(
+      'Assistant runtime callSettings cannot override transport field(s): messages'
+    );
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Assistant runtime callSettings cannot override transport field(s): messages.',
+      })
+    );
+  });
+
+  it('does not let onResponse mask HTTP status failures', async () => {
+    const onError = vi.fn();
+    const onResponse = vi.fn(() => {
+      throw new Error('onResponse failed');
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response('server failed', {
+          status: 500,
+        })
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+      onResponse,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: {},
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The response fails before yielding.
+      }
+    }).rejects.toThrow('Status 500: server failed');
+
+    expect(onResponse).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Status 500: server failed',
+      })
+    );
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',

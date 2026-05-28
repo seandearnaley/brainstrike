@@ -18,6 +18,10 @@ function stringifyJsonSafe(value: unknown): string {
   }
 }
 
+function sliceCodePoints(value: string, maxCodePoints: number): string {
+  return Array.from(value).slice(0, maxCodePoints).join('');
+}
+
 export function readToolOutputErrorText(output: unknown): string {
   if (typeof output === 'string' && output.length > 0) {
     return output;
@@ -45,8 +49,8 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
 
   const preview =
     typeof jsonSafeOutput === 'string'
-      ? jsonSafeOutput.slice(0, TOOL_RESULT_PREVIEW_CHARS)
-      : serialized.slice(0, TOOL_RESULT_PREVIEW_CHARS);
+      ? sliceCodePoints(jsonSafeOutput, TOOL_RESULT_PREVIEW_CHARS)
+      : sliceCodePoints(serialized, TOOL_RESULT_PREVIEW_CHARS);
   const errorText = `${toolName} returned too much output (${serialized.length} serialized characters; limit ${MAX_TOOL_RESULT_SERIALIZED_CHARS}). Narrow the request or use a more specific query.`;
   return {
     errorText,

@@ -201,6 +201,45 @@ describe('mcp-tool-loader', () => {
       });
     });
 
+    it('executes wrapped MCP tools with the exposed cloned tool as this', async () => {
+      let receiver: unknown;
+      const tool = {
+        id: 'filesystem.search_files',
+        description: 'search files',
+        execute() {
+          receiver = this;
+          return 'ok';
+        },
+      } as ToolsInput[string] & { execute: () => string };
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({
+          'filesystem.search_files': tool,
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+      const wrappedTool = result['filesystem_search_files'] as
+        | (ToolsInput[string] & { execute?: () => Promise<unknown> })
+        | undefined;
+
+      expect(await wrappedTool?.execute?.()).toBe('ok');
+      expect(receiver).toBe(wrappedTool);
+    });
+
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },

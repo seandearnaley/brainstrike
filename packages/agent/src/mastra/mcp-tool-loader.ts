@@ -86,7 +86,7 @@ function wrapMcpToolOutputs(
     const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableTool;
     Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
-      const output = await Promise.resolve(Reflect.apply(originalExecute, tool, args));
+      const output = await Promise.resolve(Reflect.apply(originalExecute, cloned, args));
       return boundToolOutputForModel(originalToolName, output).output;
     };
     wrapped[toolId] = cloned;

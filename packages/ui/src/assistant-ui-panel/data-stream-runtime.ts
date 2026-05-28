@@ -18,6 +18,17 @@ import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { useMemo } from 'react';
 
 type HeadersValue = Headers | Record<string, string>;
+const RESERVED_TRANSPORT_FIELDS = new Set([
+  'data',
+  'messages',
+  'parentId',
+  'runConfig',
+  'state',
+  'system',
+  'threadId',
+  'tools',
+  'unstable_assistantMessageId',
+]);
 
 export type BrainstrikeDataStreamRuntimeOptions = {
   api: string;
@@ -98,6 +109,22 @@ export function extractTransportBodyData(
   }
 
   return Object.hasOwn(bodyValue, 'data') ? { data: bodyValue['data'] } : {};
+}
+
+function assertNoTransportFieldCollisions(
+  value: Record<string, unknown> | undefined,
+  sourceName: string
+): void {
+  if (!value) {
+    return;
+  }
+  const collisionKeys = Object.keys(value).filter((key) => RESERVED_TRANSPORT_FIELDS.has(key));
+  if (collisionKeys.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Assistant runtime ${sourceName} cannot override transport field(s): ${collisionKeys.join(', ')}.`
+  );
 }
 
 /**
@@ -244,6 +271,8 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         transportMessages.length
       );
       const bodyData = extractTransportBodyData(compactedBodyValue);
+      assertNoTransportFieldCollisions(context.callSettings, 'callSettings');
+      assertNoTransportFieldCollisions(context.config, 'config');
       const headers = new Headers(headersValue);
       headers.set('Content-Type', 'application/json');
 
@@ -272,14 +301,14 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         signal: abortSignal,
       });
 
-      await this.options.onResponse?.(response);
-
       if (!response.ok) {
         throw new Error(`Status ${response.status}: ${await response.text()}`);
       }
       if (!response.body) {
         throw new Error('Response body is null');
       }
+
+      await this.options.onResponse?.(response);
 
       const stream = response.body
         .pipeThrough(new DataStreamDecoder())

@@ -975,7 +975,7 @@ function createDesktopMastraMemoryProviderBindings({
 }
 
 function hashSecretForCacheKey(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+  return createHash('sha256').update(value).digest('hex');
 }
 
 async function collectAvailableProviders(): Promise<string[]> {
