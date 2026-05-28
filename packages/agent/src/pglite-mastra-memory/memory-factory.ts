@@ -86,6 +86,8 @@ function buildMastraMemoryOptions({
   return {
     ...memoryOptions,
     lastMessages: memoryOptions?.lastMessages ?? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+    // Hosted memory settings own provider-backed features; runtime options
+    // control Mastra's local window/working-memory behavior for this store.
     semanticRecall: semanticRecall
       ? true
       : buildSemanticRecallOption(memorySettings.semanticRecall),

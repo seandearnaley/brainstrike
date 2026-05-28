@@ -68,34 +68,21 @@ function isMemoryBackedRequest(bodyValue: Record<string, unknown> | undefined): 
   return Boolean((data as { memory?: unknown }).memory);
 }
 
-const TRANSPORT_BODY_PROTOCOL_KEYS = new Set([
-  'messages',
-  'parentId',
-  'runConfig',
-  'state',
-  'system',
-  'threadId',
-  'tools',
-  'unstable_assistantMessageId',
-]);
-
-export function assertNoTransportBodyProtocolCollisions(
+export function extractTransportBodyData(
   bodyValue: Record<string, unknown> | undefined
-): void {
+): Record<string, unknown> {
   if (!bodyValue) {
-    return;
+    return {};
   }
 
-  const collidingKeys = Object.keys(bodyValue).filter((key) =>
-    TRANSPORT_BODY_PROTOCOL_KEYS.has(key)
-  );
-  if (collidingKeys.length === 0) {
-    return;
+  const unsupportedKeys = Object.keys(bodyValue).filter((key) => key !== 'data');
+  if (unsupportedKeys.length > 0) {
+    throw new Error(
+      `Assistant runtime body only supports top-level data; unsupported field(s): ${unsupportedKeys.join(', ')}. Put app-specific values under data.`
+    );
   }
 
-  throw new Error(
-    `Assistant runtime body cannot override transport protocol field(s): ${collidingKeys.join(', ')}. Put app-specific values under data.`
-  );
+  return Object.hasOwn(bodyValue, 'data') ? { data: bodyValue['data'] } : {};
 }
 
 /**
@@ -231,7 +218,7 @@ class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       messages.length,
       transportMessages.length
     );
-    assertNoTransportBodyProtocolCollisions(compactedBodyValue);
+    const bodyData = extractTransportBodyData(compactedBodyValue);
 
     abortSignal.addEventListener(
       'abort',
@@ -260,7 +247,7 @@ class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         : {}),
       ...context.callSettings,
       ...context.config,
-      ...(compactedBodyValue ?? {}),
+      ...bodyData,
     };
 
     const response = await fetch(this.options.api, {

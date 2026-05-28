@@ -276,6 +276,9 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
+    // If the model continues with visible text after a tool error, treat that
+    // as model-owned recovery. The emitted tool-result chunk still carries the
+    // structured isError result for UI retry/error affordances.
     this.pendingToolErrorTexts = [];
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;

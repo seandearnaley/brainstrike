@@ -1,7 +1,13 @@
 import type { ThreadMessage } from '@assistant-ui/react';
+import {
+  AssistantMessageAccumulator,
+  DataStreamDecoder,
+  unstable_toolResultStream,
+} from 'assistant-stream';
+import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { describe, expect, it } from 'vitest';
 import {
-  assertNoTransportBodyProtocolCollisions,
+  extractTransportBodyData,
   selectTransportMessagesForMastraMemory,
 } from '../assistant-ui-panel/data-stream-runtime';
 
@@ -13,6 +19,42 @@ function message(id: string, role: ThreadMessage['role']): ThreadMessage {
     createdAt: new Date(0),
     metadata: { custom: {} },
   } as ThreadMessage;
+}
+
+function dataStreamFromLines(lines: readonly string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(`${line}\n`));
+      }
+      controller.close();
+    },
+  });
+}
+
+async function readAssistantStreamMessages(lines: readonly string[]): Promise<
+  readonly {
+    readonly content?: unknown;
+    readonly status?: unknown;
+  }[]
+> {
+  const stream = dataStreamFromLines(lines)
+    .pipeThrough(new DataStreamDecoder())
+    .pipeThrough(
+      unstable_toolResultStream({}, new AbortController().signal, () => {
+        throw new Error('Tool interrupt is not supported in data stream runtime');
+      })
+    )
+    .pipeThrough(new AssistantMessageAccumulator());
+  const messages: {
+    readonly content?: unknown;
+    readonly status?: unknown;
+  }[] = [];
+  for await (const nextMessage of asAsyncIterableStream(stream)) {
+    messages.push(nextMessage);
+  }
+  return messages;
 }
 
 describe('selectTransportMessagesForMastraMemory', () => {
@@ -54,6 +96,31 @@ describe('selectTransportMessagesForMastraMemory', () => {
     ).toEqual([currentUser, activeAssistant]);
   });
 
+  it('keeps multi-step tool workflow messages after the latest user message', () => {
+    const oldUser = message('old-user', 'user');
+    const oldAssistant = message('old-assistant', 'assistant');
+    const currentUser = message('new-user', 'user');
+    const firstToolCall = message('first-tool-call', 'assistant');
+    const firstToolResult = message('first-tool-result', 'assistant');
+    const secondToolCall = message('second-tool-call', 'assistant');
+    const secondToolResult = message('second-tool-result', 'assistant');
+    const messages = [
+      oldUser,
+      oldAssistant,
+      currentUser,
+      firstToolCall,
+      firstToolResult,
+      secondToolCall,
+      secondToolResult,
+    ];
+
+    expect(
+      selectTransportMessagesForMastraMemory(messages, {
+        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+      })
+    ).toEqual([currentUser, firstToolCall, firstToolResult, secondToolCall, secondToolResult]);
+  });
+
   it('keeps the transport payload bounded for long memory-backed threads', () => {
     const system = message('system', 'system');
     const historicalMessages = Array.from({ length: 200 }, (_, index) =>
@@ -70,25 +137,58 @@ describe('selectTransportMessagesForMastraMemory', () => {
   });
 });
 
-describe('assertNoTransportBodyProtocolCollisions', () => {
-  it('allows app-specific data payloads', () => {
-    expect(() =>
-      assertNoTransportBodyProtocolCollisions({
+describe('extractTransportBodyData', () => {
+  it('returns only the app-specific data payload', () => {
+    expect(
+      extractTransportBodyData({
         data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
-        provider: 'openai',
       })
-    ).not.toThrow();
+    ).toStrictEqual({
+      data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+    });
   });
 
-  it('rejects body values that would overwrite transport protocol fields', () => {
+  it('rejects body values outside the app-specific data payload', () => {
     expect(() =>
-      assertNoTransportBodyProtocolCollisions({
+      extractTransportBodyData({
         data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
         messages: [],
         system: 'override',
       })
     ).toThrow(
-      'Assistant runtime body cannot override transport protocol field(s): messages, system'
+      'Assistant runtime body only supports top-level data; unsupported field(s): messages, system'
     );
+  });
+});
+
+describe('assistant-stream integration', () => {
+  it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
+    const messages = await readAssistantStreamMessages([
+      'f:{"messageId":"msg-test"}',
+      'b:{"toolCallId":"call-1","toolName":"lookup"}',
+      'c:{"toolCallId":"call-1","argsTextDelta":"{\\"city\\":\\"SF\\"}"}',
+      '9:{"toolCallId":"call-1","toolName":"lookup","args":{"city":"SF"}}',
+      'a:{"toolCallId":"call-1","result":{"tempC":18}}',
+      '0:"Done"',
+      'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+    ]);
+    const lastMessage = messages.at(-1);
+    if (!lastMessage) {
+      throw new Error('Expected an accumulated assistant message.');
+    }
+
+    expect(lastMessage.status).toMatchObject({ type: 'complete', reason: 'stop' });
+    expect(lastMessage.content).toMatchObject([
+      {
+        type: 'tool-call',
+        state: 'result',
+        toolCallId: 'call-1',
+        toolName: 'lookup',
+        args: { city: 'SF' },
+        result: { tempC: 18 },
+        isError: false,
+      },
+      { type: 'text', text: 'Done' },
+    ]);
   });
 });

@@ -1188,6 +1188,45 @@ describe('assistant-server', () => {
       );
     });
 
+    it('reuses runtime-key Mastra memory without reading keychain or recreating providers', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const { createProvider } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const memorySettings = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      };
+      const runtimeData = {
+        apiKey: 'runtime-openai-key',
+        provider: 'openai',
+        memory: {
+          threadId: 'thread-a',
+          resourceId: 'workspace-a',
+        },
+      };
+
+      const firstMemory = await getDesktopMastraMemoryForTests(memorySettings, runtimeData);
+      const secondMemory = await getDesktopMastraMemoryForTests(memorySettings, runtimeData);
+
+      expect(firstMemory).toBe(secondMemory);
+      expect(mockSecretsService.getKey).not.toHaveBeenCalled();
+      expect(createProvider).toHaveBeenCalledTimes(1);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+    });
+
     it('reuses desktop Mastra memory for semantically identical settings with different key order', async () => {
       mockDesktopDatabase.exec.mockResolvedValue(undefined);
       const memorySettingsA = {
