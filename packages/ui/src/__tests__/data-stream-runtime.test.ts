@@ -1,6 +1,9 @@
 import type { ThreadMessage } from '@assistant-ui/react';
 import { describe, expect, it } from 'vitest';
-import { selectTransportMessagesForMastraMemory } from '../assistant-ui-panel/data-stream-runtime';
+import {
+  assertNoTransportBodyProtocolCollisions,
+  selectTransportMessagesForMastraMemory,
+} from '../assistant-ui-panel/data-stream-runtime';
 
 function message(id: string, role: ThreadMessage['role']): ThreadMessage {
   return {
@@ -64,5 +67,28 @@ describe('selectTransportMessagesForMastraMemory', () => {
         data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
       })
     ).toEqual([system, currentUser]);
+  });
+});
+
+describe('assertNoTransportBodyProtocolCollisions', () => {
+  it('allows app-specific data payloads', () => {
+    expect(() =>
+      assertNoTransportBodyProtocolCollisions({
+        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        provider: 'openai',
+      })
+    ).not.toThrow();
+  });
+
+  it('rejects body values that would overwrite transport protocol fields', () => {
+    expect(() =>
+      assertNoTransportBodyProtocolCollisions({
+        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        messages: [],
+        system: 'override',
+      })
+    ).toThrow(
+      'Assistant runtime body cannot override transport protocol field(s): messages, system'
+    );
   });
 });

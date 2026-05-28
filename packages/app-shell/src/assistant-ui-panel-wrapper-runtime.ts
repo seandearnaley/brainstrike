@@ -14,6 +14,10 @@ import {
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/assistant-contract/local-runtime';
 import {
+  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+} from '@brainstrike/assistant-contract/memory-settings';
+import {
   getProviderDefaultModel,
   getProviderDefinition,
   type ProviderModelDefinition,
@@ -703,15 +707,15 @@ export function buildAssistantMemoryOptions(
   const configuredLastMessages = buildNonNegativeIntegerSetting(settings?.memoryLastMessages);
   const lastMessages =
     configuredLastMessages === undefined
-      ? 40
+      ? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES
       : configuredLastMessages === 0
         ? false
         : configuredLastMessages;
   return {
     lastMessages,
     workingMemory: {
-      enabled: settings?.workingMemoryEnabled ?? true,
-      scope: 'resource',
+      ...DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+      enabled: settings?.workingMemoryEnabled ?? DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.enabled,
     },
   };
 }

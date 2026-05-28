@@ -680,60 +680,67 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
   return;
 }
 
-function parseObservationalMemoryModelTarget(modelTarget: string): {
+function parseModelTarget(
+  modelTarget: string,
+  {
+    allowedProviders,
+    formatLabel,
+    unsupportedProviderLabel,
+    disallowedProviderMessage,
+  }: {
+    readonly allowedProviders: ReadonlySet<SupportedProvider>;
+    readonly disallowedProviderMessage: (provider: SupportedProvider) => string;
+    readonly formatLabel: string;
+    readonly unsupportedProviderLabel: string;
+  }
+): {
   readonly model: string;
   readonly provider: SupportedProvider;
 } {
   const trimmed = modelTarget.trim();
   const separatorIndex = trimmed.indexOf('/');
   if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
-    throw new Error(
-      `Observational memory model target must use provider/model format; received "${modelTarget}".`
-    );
+    throw new Error(`${formatLabel} must use provider/model format; received "${modelTarget}".`);
   }
 
   const provider = trimmed.slice(0, separatorIndex).toLowerCase();
   const model = trimmed.slice(separatorIndex + 1).trim();
   if (!isSupportedProvider(provider)) {
     throw new Error(
-      `Unsupported observational memory provider "${provider}" in model target "${modelTarget}".`
+      `Unsupported ${unsupportedProviderLabel} provider "${provider}" in model target "${modelTarget}".`
     );
   }
-  if (!DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS.has(provider)) {
-    throw new Error(
-      `Desktop observational memory requires a hosted model provider; received "${provider}" in "${modelTarget}".`
-    );
+  if (!allowedProviders.has(provider)) {
+    throw new Error(disallowedProviderMessage(provider));
   }
 
   return { provider, model };
+}
+
+function parseObservationalMemoryModelTarget(modelTarget: string): {
+  readonly model: string;
+  readonly provider: SupportedProvider;
+} {
+  return parseModelTarget(modelTarget, {
+    allowedProviders: DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS,
+    formatLabel: 'Observational memory model target',
+    unsupportedProviderLabel: 'observational memory',
+    disallowedProviderMessage: (provider) =>
+      `Desktop observational memory requires a hosted model provider; received "${provider}" in "${modelTarget}".`,
+  });
 }
 
 function parseSemanticRecallEmbeddingModelTarget(modelTarget: string): {
   readonly model: string;
   readonly provider: SupportedProvider;
 } {
-  const trimmed = modelTarget.trim();
-  const separatorIndex = trimmed.indexOf('/');
-  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
-    throw new Error(
-      `Semantic recall embedding model target must use provider/model format; received "${modelTarget}".`
-    );
-  }
-
-  const provider = trimmed.slice(0, separatorIndex).toLowerCase();
-  const model = trimmed.slice(separatorIndex + 1).trim();
-  if (!isSupportedProvider(provider)) {
-    throw new Error(
-      `Unsupported semantic recall embedding provider "${provider}" in model target "${modelTarget}".`
-    );
-  }
-  if (!DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS.has(provider)) {
-    throw new Error(
-      `Desktop Mastra semantic recall currently supports hosted OpenAI and Google embedders; received "${provider}" in "${modelTarget}".`
-    );
-  }
-
-  return { provider, model };
+  return parseModelTarget(modelTarget, {
+    allowedProviders: DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS,
+    formatLabel: 'Semantic recall embedding model target',
+    unsupportedProviderLabel: 'semantic recall embedding',
+    disallowedProviderMessage: (provider) =>
+      `Desktop Mastra semantic recall currently supports hosted OpenAI and Google embedders; received "${provider}" in "${modelTarget}".`,
+  });
 }
 
 async function resolveDesktopObservationalMemoryModelTarget(

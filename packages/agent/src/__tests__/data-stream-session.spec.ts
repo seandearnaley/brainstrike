@@ -348,6 +348,42 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.finishReason).toBe('unknown');
   });
 
+  it('surfaces every pending tool execution error before finishing recoverably', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'tool-event',
+        name: 'first.tool',
+        status: 'error',
+        payload: { toolCallId: 'first', error: 'first failed' },
+      },
+      {
+        type: 'tool-event',
+        name: 'second.tool',
+        status: 'error',
+        payload: { toolCallId: 'second', error: 'second failed' },
+      },
+      { type: 'finish', usage: { promptTokens: 2, completionTokens: 0 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'multi-tool-err',
+      messageId: 'msg-multi-tool-err',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+
+    expect(events.filter((evt) => evt.code === 'a')).toHaveLength(2);
+    expect(visibleText).toContain(
+      "I couldn't complete some tool actions because they failed: first failed; second failed"
+    );
+    expect(events.find((evt) => evt.code === '3')).toBeUndefined();
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
+  });
+
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
     const chunks: StreamChunk[] = [
       {

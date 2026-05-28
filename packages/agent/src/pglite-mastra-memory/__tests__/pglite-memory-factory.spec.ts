@@ -1,3 +1,7 @@
+import {
+  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+} from '@brainstrike/assistant-contract/memory-settings';
 import { PGlite } from '@electric-sql/pglite';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
@@ -70,6 +74,18 @@ describe('createPgliteMastraMemory', () => {
           reflection: { observationTokens: 36_000 },
         },
         semanticRecall: false,
+      },
+    });
+  });
+
+  it('sources Mastra history and working-memory defaults from runtime assistant defaults', async () => {
+    await createPgliteMastraMemory({ database: db });
+
+    expect(memoryConstructorCalls).toHaveLength(1);
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      options: {
+        lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+        workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
       },
     });
   });

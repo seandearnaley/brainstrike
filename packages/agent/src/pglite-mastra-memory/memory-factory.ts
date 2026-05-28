@@ -1,12 +1,14 @@
+import {
+  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  type RuntimeAssistantMemorySettings,
+} from '@brainstrike/assistant-contract/memory-settings';
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { Memory } from '@mastra/memory';
-import {
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  type RuntimeAssistantMemorySettings,
-} from '../memory-settings';
 import type { AssistantRunEventSink } from '../run-events';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
@@ -83,11 +85,11 @@ function buildMastraMemoryOptions({
 }): MastraRuntimeMemoryOptions {
   return {
     ...memoryOptions,
-    lastMessages: memoryOptions?.lastMessages ?? 40,
+    lastMessages: memoryOptions?.lastMessages ?? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
     semanticRecall: semanticRecall
       ? true
       : buildSemanticRecallOption(memorySettings.semanticRecall),
-    workingMemory: memoryOptions?.workingMemory ?? { enabled: true, scope: 'resource' },
+    workingMemory: memoryOptions?.workingMemory ?? DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
     observationalMemory: buildObservationalMemoryOption(
       memorySettings.observationalMemory,
       observationalMemoryModel

@@ -787,6 +787,8 @@ export function createPgliteAssistantThreadRepository(
                SELECT id, role, content, "createdAt"
                FROM ${MASTRA_MEMORY_TABLES.messages}
                WHERE thread_id = $1 AND "resourceId" = $2
+               -- id is a deterministic tie-breaker for same-timestamp rows;
+               -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
                LIMIT $3
              ) AS recent_messages

@@ -33,9 +33,21 @@ interface DataStreamUsage {
 
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
+const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
+  "I couldn't complete some tool actions because they failed:";
 
 function formatVisibleFailure(prefix: string, errorText: string): string {
   return `${prefix} ${errorText}`;
+}
+
+function formatToolActionFailure(errors: readonly string[]): string {
+  if (errors.length === 1) {
+    return formatVisibleFailure(
+      TOOL_ACTION_FAILURE_VISIBLE_PREFIX,
+      errors[0] ?? 'Tool execution failed'
+    );
+  }
+  return formatVisibleFailure(TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX, errors.join('; '));
 }
 
 function toDataStreamUsage(raw?: {
@@ -169,7 +181,7 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private hasVisibleText = false;
   private pendingRunErrorText: string | null = null;
-  private pendingToolErrorText: string | null = null;
+  private pendingToolErrorTexts: string[] = [];
   private startNewStepForNextText = false;
 
   constructor(messageId: string) {
@@ -264,7 +276,7 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
-    this.pendingToolErrorText = null;
+    this.pendingToolErrorTexts = [];
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
   }
@@ -410,7 +422,7 @@ export class DataStreamMapper {
       value: { toolCallId: callId, result: output, isError: true },
     } satisfies EncodedChunk;
     const message = typeof output === 'string' ? output : 'Tool execution failed';
-    this.pendingToolErrorText = message;
+    this.pendingToolErrorTexts.push(message);
     this.startNewStepForNextText = true;
   }
 
@@ -517,7 +529,7 @@ export class DataStreamMapper {
   }
 
   private *emitPendingToolErrorFallbackIfNeeded(): Generator<EncodedChunk> {
-    if (!this.pendingToolErrorText) {
+    if (this.pendingToolErrorTexts.length === 0) {
       return;
     }
     if (this.startNewStepForNextText) {
@@ -527,11 +539,8 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
-    const visibleText = formatVisibleFailure(
-      TOOL_ACTION_FAILURE_VISIBLE_PREFIX,
-      this.pendingToolErrorText
-    );
-    this.pendingToolErrorText = null;
+    const visibleText = formatToolActionFailure(this.pendingToolErrorTexts);
+    this.pendingToolErrorTexts = [];
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
   }

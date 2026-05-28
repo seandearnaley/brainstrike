@@ -68,6 +68,41 @@ function isMemoryBackedRequest(bodyValue: Record<string, unknown> | undefined): 
   return Boolean((data as { memory?: unknown }).memory);
 }
 
+const TRANSPORT_BODY_PROTOCOL_KEYS = new Set([
+  'messages',
+  'parentId',
+  'runConfig',
+  'state',
+  'system',
+  'threadId',
+  'tools',
+  'unstable_assistantMessageId',
+]);
+
+export function assertNoTransportBodyProtocolCollisions(
+  bodyValue: Record<string, unknown> | undefined
+): void {
+  if (!bodyValue) {
+    return;
+  }
+
+  const collidingKeys = Object.keys(bodyValue).filter((key) =>
+    TRANSPORT_BODY_PROTOCOL_KEYS.has(key)
+  );
+  if (collidingKeys.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Assistant runtime body cannot override transport protocol field(s): ${collidingKeys.join(', ')}. Put app-specific values under data.`
+  );
+}
+
+/**
+ * When Mastra memory is active, Mastra owns durable conversation history.
+ * The transport sends system context plus the current turn, starting at the
+ * latest user message, so hosted providers do not receive duplicate history.
+ */
 export function selectTransportMessagesForMastraMemory(
   messages: readonly ThreadMessage[],
   bodyValue: Record<string, unknown> | undefined
@@ -196,6 +231,7 @@ class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       messages.length,
       transportMessages.length
     );
+    assertNoTransportBodyProtocolCollisions(compactedBodyValue);
 
     abortSignal.addEventListener(
       'abort',
