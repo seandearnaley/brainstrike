@@ -6,7 +6,7 @@ import {
   createRandomId,
   resolveDataStreamSession,
 } from '../stream/data-stream';
-import { boundToolOutputForModel } from '../stream/tool-output-limits';
+import { boundToolOutputForModel, TOOL_RESULT_TOO_LARGE_CODE } from '../stream/tool-output-limits';
 
 interface Encoded {
   code: string;
@@ -1110,6 +1110,33 @@ describe('AssistantDataStreamSession', () => {
           configurable: true,
           value: originalIterator,
         });
+      }
+    });
+
+    it('does not reprocess an already bounded oversized tool result', () => {
+      const originalStringify = JSON.stringify;
+      let stringifyCalls = 0;
+      const boundedResult = {
+        code: TOOL_RESULT_TOO_LARGE_CODE,
+        error: 'filesystem.search_files returned too much output',
+        maxLength: 12_000,
+        originalLength: 80_000,
+        preview: 'bounded preview',
+        truncated: true,
+      };
+      JSON.stringify = ((...args: Parameters<typeof JSON.stringify>) => {
+        stringifyCalls += 1;
+        return originalStringify(...args);
+      }) as typeof JSON.stringify;
+
+      try {
+        const bounded = boundToolOutputForModel('filesystem.search_files', boundedResult);
+
+        expect(bounded.output).toBe(boundedResult);
+        expect(bounded.errorText).toBe(boundedResult.error);
+        expect(stringifyCalls).toBe(0);
+      } finally {
+        JSON.stringify = originalStringify;
       }
     });
 

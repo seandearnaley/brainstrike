@@ -1240,6 +1240,7 @@ async function getDesktopMastraMemory(
       runId,
       runtimeData,
     });
+    evictOldestDesktopMastraMemoryResolutionPromise();
     desktopMastraMemoryResolutionPromises.set(resolutionKey, pendingMemory);
     void pendingMemory.then(
       () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory),
@@ -1346,6 +1347,16 @@ function evictOldestDesktopMastraMemoryPromise(): void {
   const oldestKey = desktopMastraMemoryPromises.keys().next().value;
   if (typeof oldestKey === 'string') {
     desktopMastraMemoryPromises.delete(oldestKey);
+  }
+}
+
+function evictOldestDesktopMastraMemoryResolutionPromise(): void {
+  if (desktopMastraMemoryResolutionPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+    return;
+  }
+  const oldestKey = desktopMastraMemoryResolutionPromises.keys().next().value;
+  if (typeof oldestKey === 'string') {
+    desktopMastraMemoryResolutionPromises.delete(oldestKey);
   }
 }
 

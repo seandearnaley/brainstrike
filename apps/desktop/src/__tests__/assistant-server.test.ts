@@ -1158,6 +1158,50 @@ describe('assistant-server', () => {
       expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
     });
 
+    it('bounds pending desktop Mastra memory keychain resolution entries', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const resolveKeyCallbacks: Array<(value: string) => void> = [];
+      mockSecretsService.getKey.mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveKeyCallbacks.push(resolve);
+          })
+      );
+      const createMemorySettings = (messageTokens: number) => ({
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      });
+      const pendingRequests = Array.from({ length: 17 }, (_, index) =>
+        getDesktopMastraMemoryForTests(createMemorySettings(10_000 + index))
+      );
+      await vi.waitFor(() => {
+        expect(mockSecretsService.getKey).toHaveBeenCalledTimes(17);
+      });
+
+      const evictedFirstRequest = getDesktopMastraMemoryForTests(createMemorySettings(10_000));
+      await vi.waitFor(() => {
+        expect(mockSecretsService.getKey).toHaveBeenCalledTimes(18);
+      });
+
+      for (const resolveKey of resolveKeyCallbacks) {
+        resolveKey('test-api-key');
+      }
+      await Promise.all([...pendingRequests, evictedFirstRequest]);
+    });
+
     it('keeps separate desktop Mastra memory instances keyed by runtime memory options', async () => {
       mockDesktopDatabase.exec.mockResolvedValue(undefined);
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');

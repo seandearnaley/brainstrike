@@ -31,6 +31,28 @@ function sliceCodePoints(value: string, maxCodePoints: number): string {
   return result;
 }
 
+function isBoundedOversizedToolOutput(output: unknown): output is {
+  readonly code: typeof TOOL_RESULT_TOO_LARGE_CODE;
+  readonly error: string;
+  readonly maxLength: number;
+  readonly originalLength: number;
+  readonly preview: string;
+  readonly truncated: true;
+} {
+  if (!output || typeof output !== 'object') {
+    return false;
+  }
+  const record = output as Record<string, unknown>;
+  return (
+    record['code'] === TOOL_RESULT_TOO_LARGE_CODE &&
+    typeof record['error'] === 'string' &&
+    typeof record['maxLength'] === 'number' &&
+    typeof record['originalLength'] === 'number' &&
+    typeof record['preview'] === 'string' &&
+    record['truncated'] === true
+  );
+}
+
 export function readToolOutputErrorText(output: unknown): string {
   if (typeof output === 'string' && output.length > 0) {
     return output;
@@ -50,6 +72,10 @@ export function readToolOutputErrorText(output: unknown): string {
 }
 
 export function boundToolOutputForModel(toolName: string, output: unknown): BoundedToolOutput {
+  if (isBoundedOversizedToolOutput(output)) {
+    return { errorText: output.error, output };
+  }
+
   const jsonSafeOutput = toJsonSafe(output);
   const serialized = stringifyJsonSafe(jsonSafeOutput);
   if (serialized.length <= MAX_TOOL_RESULT_SERIALIZED_CHARS) {
