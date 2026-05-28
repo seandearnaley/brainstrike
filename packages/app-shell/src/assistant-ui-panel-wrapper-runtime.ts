@@ -723,7 +723,9 @@ function resolveGoogleThinkingLevel(
   if (!value) {
     return;
   }
-  const isPro = Boolean(modelName?.includes('gemini-3-pro-preview'));
+  // Gemini 3.x Pro restricts thinking_level to low/high (no minimal/medium),
+  // unlike the Flash line. Matches gemini-3-pro-preview, gemini-3.1-pro-preview, etc.
+  const isPro = Boolean(modelName && /gemini-3(?:\.\d+)?-pro/.test(modelName));
   const allowed: readonly NonNullable<AssistantProviderSettings['googleThinkingLevel']>[] = isPro
     ? ['low', 'high']
     : ['minimal', 'low', 'medium', 'high'];

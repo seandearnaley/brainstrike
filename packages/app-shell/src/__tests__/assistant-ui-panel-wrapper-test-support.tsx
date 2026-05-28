@@ -41,8 +41,8 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
   preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
   testEnabledModels: new Set<string>([
     'gpt-5.2', // OpenAI default
-    'claude-sonnet-4-5', // Anthropic default
-    'gemini-3-flash-preview', // Google default
+    'claude-sonnet-4-6', // Anthropic default
+    'gemini-3.5-flash', // Google default
     'openai/gpt-5.2', // OpenRouter default
   ]),
 }));
@@ -53,19 +53,17 @@ vi.mock('@brainstrike/preferences', async () => {
 
   const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
     openai: testEnabledModels.has('gpt-5.2') ? ['gpt-5.2'] : [],
-    anthropic: testEnabledModels.has('claude-sonnet-4-5') ? ['claude-sonnet-4-5'] : [],
+    anthropic: testEnabledModels.has('claude-sonnet-4-6') ? ['claude-sonnet-4-6'] : [],
     google: [
-      testEnabledModels.has('gemini-3-flash-preview') ? 'gemini-3-flash-preview' : undefined,
-      testEnabledModels.has('gemini-3-pro-preview') ? 'gemini-3-pro-preview' : undefined,
+      testEnabledModels.has('gemini-3.5-flash') ? 'gemini-3.5-flash' : undefined,
+      testEnabledModels.has('gemini-3.1-pro-preview') ? 'gemini-3.1-pro-preview' : undefined,
     ].filter((modelId): modelId is string => Boolean(modelId)),
     openrouter: [
       testEnabledModels.has('openai/gpt-5.2') ? 'openai/gpt-5.2' : undefined,
-      testEnabledModels.has('anthropic/claude-sonnet-4.5')
-        ? 'anthropic/claude-sonnet-4.5'
+      testEnabledModels.has('anthropic/claude-sonnet-4.6')
+        ? 'anthropic/claude-sonnet-4.6'
         : undefined,
-      testEnabledModels.has('google/gemini-3-flash-preview')
-        ? 'google/gemini-3-flash-preview'
-        : undefined,
+      testEnabledModels.has('google/gemini-3.5-flash') ? 'google/gemini-3.5-flash' : undefined,
     ].filter((modelId): modelId is string => Boolean(modelId)),
   });
 
@@ -77,21 +75,21 @@ vi.mock('@brainstrike/preferences', async () => {
       capabilities: { type: 'llm' as const },
     },
     {
-      id: 'claude-sonnet-4-5',
+      id: 'claude-sonnet-4-6',
       providerId: 'anthropic',
-      isEnabled: testEnabledModels.has('claude-sonnet-4-5'),
+      isEnabled: testEnabledModels.has('claude-sonnet-4-6'),
       capabilities: { type: 'llm' as const },
     },
     {
-      id: 'gemini-3-flash-preview',
+      id: 'gemini-3.5-flash',
       providerId: 'google',
-      isEnabled: testEnabledModels.has('gemini-3-flash-preview'),
+      isEnabled: testEnabledModels.has('gemini-3.5-flash'),
       capabilities: { type: 'llm' as const },
     },
     {
-      id: 'gemini-3-pro-preview',
+      id: 'gemini-3.1-pro-preview',
       providerId: 'google',
-      isEnabled: testEnabledModels.has('gemini-3-pro-preview'),
+      isEnabled: testEnabledModels.has('gemini-3.1-pro-preview'),
       capabilities: { type: 'llm' as const },
     },
     {
@@ -101,15 +99,15 @@ vi.mock('@brainstrike/preferences', async () => {
       capabilities: { type: 'llm' as const },
     },
     {
-      id: 'anthropic/claude-sonnet-4.5',
+      id: 'anthropic/claude-sonnet-4.6',
       providerId: 'openrouter',
-      isEnabled: testEnabledModels.has('anthropic/claude-sonnet-4.5'),
+      isEnabled: testEnabledModels.has('anthropic/claude-sonnet-4.6'),
       capabilities: { type: 'llm' as const },
     },
     {
-      id: 'google/gemini-3-flash-preview',
+      id: 'google/gemini-3.5-flash',
       providerId: 'openrouter',
-      isEnabled: testEnabledModels.has('google/gemini-3-flash-preview'),
+      isEnabled: testEnabledModels.has('google/gemini-3.5-flash'),
       capabilities: { type: 'llm' as const },
     },
   ];
@@ -502,7 +500,7 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
       displayName: 'Anthropic',
       runtime: 'hosted',
       capabilities: { llm: true, embeddings: false, streaming: true },
-      models: [{ id: 'claude-sonnet-4-5', type: 'llm', default: true, supportsStreaming: true }],
+      models: [{ id: 'claude-sonnet-4-6', type: 'llm', default: true, supportsStreaming: true }],
     },
     google: {
       id: 'google',
@@ -510,8 +508,8 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
       runtime: 'hosted',
       capabilities: { llm: true, embeddings: true, streaming: true },
       models: [
-        { id: 'gemini-3-flash-preview', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'gemini-3-pro-preview', type: 'llm', supportsStreaming: true },
+        { id: 'gemini-3.5-flash', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'gemini-3.1-pro-preview', type: 'llm', supportsStreaming: true },
       ],
     },
     openrouter: {
@@ -521,8 +519,8 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
       capabilities: { llm: true, embeddings: false, streaming: true },
       models: [
         { id: 'openai/gpt-5.2', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'anthropic/claude-sonnet-4.5', type: 'llm', supportsStreaming: true },
-        { id: 'google/gemini-3-flash-preview', type: 'llm', supportsStreaming: true },
+        { id: 'anthropic/claude-sonnet-4.6', type: 'llm', supportsStreaming: true },
+        { id: 'google/gemini-3.5-flash', type: 'llm', supportsStreaming: true },
       ],
     },
     ollama: {
@@ -863,8 +861,8 @@ function resetTestEnabledModels() {
   // Default enabled models (those with default: true in the mock)
   testEnabledModels.add('gpt-5.2'); // OpenAI default
   testEnabledModels.add('openai/gpt-5.2'); // OpenRouter default
-  testEnabledModels.add('claude-sonnet-4-5'); // Anthropic default
-  testEnabledModels.add('gemini-3-flash-preview'); // Google default
+  testEnabledModels.add('claude-sonnet-4-6'); // Anthropic default
+  testEnabledModels.add('gemini-3.5-flash'); // Google default
 }
 
 beforeEach(() => {
