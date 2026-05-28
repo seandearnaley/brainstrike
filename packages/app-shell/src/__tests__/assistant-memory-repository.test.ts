@@ -279,6 +279,86 @@ describe('createAssistantThreadHistoryAdapter', () => {
       { type: 'text', text: 'I found one match.' },
     ]);
   });
+
+  it('hydrates separate persisted tool result rows back onto assistant tool calls', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: { content: 'Search files' },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+        },
+        {
+          id: 'message-2',
+          role: 'assistant',
+          content: {
+            parts: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call-files',
+                toolName: 'filesystem.search_files',
+                args: { path: '.', pattern: '*.ts' },
+              },
+            ],
+          },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+        },
+        {
+          id: 'message-3',
+          role: 'tool',
+          content: {
+            parts: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-files',
+                toolName: 'filesystem.search_files',
+                result: { matches: ['src/a.ts'] },
+                isError: false,
+              },
+            ],
+          },
+          createdAt: new Date('2026-04-24T12:00:02Z'),
+        },
+        {
+          id: 'message-4',
+          role: 'assistant',
+          content: { content: 'I found one match.' },
+          createdAt: new Date('2026-04-24T12:00:03Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+    const toolAssistant = history.messages.find((item) => item.message.id === 'message-2');
+
+    expect(toolAssistant?.message.content).toEqual([
+      {
+        type: 'tool-call',
+        toolCallId: 'call-files',
+        toolName: 'filesystem.search_files',
+        args: { path: '.', pattern: '*.ts' },
+        argsText: '{"path":".","pattern":"*.ts"}',
+        result: { matches: ['src/a.ts'] },
+        isError: false,
+      },
+    ]);
+  });
 });
 
 describe('createPgliteAssistantThreadRepository thread runs', () => {

@@ -284,6 +284,34 @@ describe('ToolFallback', () => {
       expect(screen.getByText(/Output/)).toBeInTheDocument();
       expect(screen.getByText('Simple string result')).toBeInTheDocument();
     });
+
+    it('bounds oversized tool output details before rendering', async () => {
+      const user = userEvent.setup();
+      render(
+        <ToolFallback
+          {...mockBaseProps}
+          result={{ output: 'x'.repeat(20_000) }}
+          status={{ type: 'complete' }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /expand details/i }));
+
+      expect(screen.getByText(/\.\.\.\[truncated\]$/).textContent?.length).toBeLessThan(13_000);
+    });
+
+    it('bounds oversized tool error messages before rendering', () => {
+      render(
+        <ToolFallback
+          {...mockBaseProps}
+          isError={true}
+          result={'x'.repeat(20_000)}
+          status={{ type: 'complete' }}
+        />
+      );
+
+      expect(screen.getByText(/\.\.\.\[truncated\]$/).textContent?.length).toBeLessThan(13_000);
+    });
   });
 
   describe('Accessibility', () => {

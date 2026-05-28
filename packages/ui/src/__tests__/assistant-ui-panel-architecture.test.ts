@@ -27,4 +27,18 @@ describe('assistant UI panel architecture', () => {
       'export const ControlsMenu'
     );
   });
+
+  it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const assistantMessageStart = source.indexOf('const AssistantMessage: FC');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar: FC');
+    const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
+    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought: FC');
+    const collapsedHistoryStart = source.indexOf('const COLLAPSED_HISTORY_VISIBLE_MESSAGES');
+    const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, collapsedHistoryStart);
+
+    expect(assistantMessageSource).toContain('ChainOfThought: LocalChainOfThought');
+    expect(localChainOfThoughtSource).toContain('tools: {');
+    expect(localChainOfThoughtSource).toContain('Fallback: ToolFallback');
+  });
 });

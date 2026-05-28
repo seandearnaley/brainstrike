@@ -9,6 +9,7 @@ type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
 type DisplayStatus = 'running' | 'error' | 'success' | 'unknown';
+const MAX_TOOL_DETAIL_TEXT_CHARS = 12_000;
 
 const STATUS_LABELS: Record<DisplayStatus, string> = {
   error: 'Failed',
@@ -110,18 +111,32 @@ const resolveErrorMessage = (
   return 'Tool incomplete: unknown';
 };
 
+function boundToolDetailText(value: string): string {
+  let result = '';
+  let codePoints = 0;
+  for (const codePoint of value) {
+    if (codePoints >= MAX_TOOL_DETAIL_TEXT_CHARS) {
+      return `${result}...[truncated]`;
+    }
+    result += codePoint;
+    codePoints += 1;
+  }
+  return value;
+}
+
 const formatResult = (result: ToolResult): string => {
-  if (typeof result === 'string') {
-    return result;
-  }
-  if (result === undefined) {
-    return '';
-  }
+  let text: string;
   try {
-    return JSON.stringify(result, null, 2);
+    text =
+      typeof result === 'string'
+        ? result
+        : result === undefined
+          ? ''
+          : JSON.stringify(result, null, 2);
   } catch {
-    return String(result);
+    text = String(result);
   }
+  return boundToolDetailText(text);
 };
 
 /**
@@ -149,6 +164,8 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
   const errorMessage = resolveErrorMessage(status, result, resultIsError);
+  const boundedErrorMessage = errorMessage ? boundToolDetailText(errorMessage) : undefined;
+  const boundedArgsText = argsText ? boundToolDetailText(argsText) : argsText;
   const showDetails = !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 
@@ -182,8 +199,8 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           {isRunning ? (
             <p className="mt-0.5 text-muted-foreground text-xs">Waiting for result</p>
           ) : null}
-          {isError && errorMessage ? (
-            <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
+          {isError && boundedErrorMessage ? (
+            <p className="mt-1 text-destructive text-xs">{boundedErrorMessage}</p>
           ) : null}
         </div>
         {showDetails && (
@@ -204,10 +221,10 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
       {showDetails && !isCollapsed && (
         <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
-          {argsText && (
+          {boundedArgsText && (
             <div className="px-4 py-2">
               <p className="mb-1 font-medium text-muted-foreground text-xs">Input</p>
-              <pre className="whitespace-pre-wrap text-xs">{argsText}</pre>
+              <pre className="whitespace-pre-wrap text-xs">{boundedArgsText}</pre>
             </div>
           )}
           {hasResult && !isError && (

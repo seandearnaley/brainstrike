@@ -386,6 +386,10 @@ type AssistantHistoryTextPart = Extract<AssistantHistoryMessagePart, { type: 'te
 type AssistantHistoryToolCallPart = Extract<AssistantHistoryMessagePart, { type: 'tool-call' }>;
 type AssistantHydratedContentPart = AssistantHistoryTextPart | AssistantHistoryToolCallPart;
 type AssistantHistoryRepositoryMessages = AssistantHistoryLoadResult['messages'];
+interface AssistantToolResultSnapshot {
+  readonly isError?: boolean;
+  readonly result?: unknown;
+}
 
 function extractText(value: unknown, seenObjects = new WeakSet<object>()): string {
   if (typeof value === 'string') {
@@ -442,7 +446,8 @@ function stringifyArgsText(args: unknown): string {
 }
 
 function toHistoryToolCallPart(
-  record: Record<string, unknown>
+  record: Record<string, unknown>,
+  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
 ): AssistantHistoryToolCallPart | undefined {
   const toolCallId = record['toolCallId'];
   const toolName = record['toolName'];
@@ -459,14 +464,21 @@ function toHistoryToolCallPart(
   ) as AssistantHistoryToolCallPart['args'];
   const argsText =
     typeof record['argsText'] === 'string' ? record['argsText'] : stringifyArgsText(args);
+  const persistedResult = toolResultsByCallId.get(toolCallId);
+  const hasInlineResult = Object.hasOwn(record, 'result');
+  const isError =
+    typeof record['isError'] === 'boolean' ? record['isError'] : persistedResult?.isError;
   return {
     type: 'tool-call',
     toolCallId,
     toolName,
     args,
     argsText,
-    ...(Object.hasOwn(record, 'result') ? { result: record['result'] } : {}),
-    ...(typeof record['isError'] === 'boolean' ? { isError: record['isError'] } : {}),
+    ...(hasInlineResult ? { result: record['result'] } : {}),
+    ...(hasInlineResult || !persistedResult || !Object.hasOwn(persistedResult, 'result')
+      ? {}
+      : { result: persistedResult.result }),
+    ...(isError === undefined ? {} : { isError }),
   };
 }
 
@@ -475,7 +487,10 @@ function toTextHistoryContentParts(value: unknown): AssistantHistoryTextPart[] {
   return text ? [{ type: 'text', text }] : [];
 }
 
-function toAssistantHistoryContentParts(value: unknown): AssistantHydratedContentPart[] {
+function toAssistantHistoryContentParts(
+  value: unknown,
+  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
+): AssistantHydratedContentPart[] {
   const rawParts = readContentPartArray(value);
   if (!rawParts) {
     return toTextHistoryContentParts(value);
@@ -495,13 +510,79 @@ function toAssistantHistoryContentParts(value: unknown): AssistantHydratedConten
       continue;
     }
     if (record['type'] === 'tool-call') {
-      const toolPart = toHistoryToolCallPart(record);
+      const toolPart = toHistoryToolCallPart(record, toolResultsByCallId);
       if (toolPart) {
         parts.push(toolPart);
       }
     }
   }
   return parts;
+}
+
+function toToolResultSnapshot(record: Record<string, unknown>): {
+  readonly snapshot: AssistantToolResultSnapshot;
+  readonly toolCallId: string;
+} | null {
+  const toolCallId = record['toolCallId'];
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+    return null;
+  }
+  const hasResult = Object.hasOwn(record, 'result');
+  const hasOutput = Object.hasOwn(record, 'output');
+  const hasError = Object.hasOwn(record, 'error');
+  if (!(hasResult || hasOutput || hasError || typeof record['isError'] === 'boolean')) {
+    return null;
+  }
+  return {
+    toolCallId,
+    snapshot: {
+      ...(hasResult
+        ? { result: record['result'] }
+        : hasOutput
+          ? { result: record['output'] }
+          : hasError
+            ? { result: record['error'] }
+            : {}),
+      ...(typeof record['isError'] === 'boolean'
+        ? { isError: record['isError'] }
+        : hasError
+          ? { isError: true }
+          : {}),
+    },
+  };
+}
+
+function readToolResultParts(value: unknown): readonly unknown[] {
+  const rawParts = readContentPartArray(value);
+  if (rawParts) {
+    return rawParts;
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? [value] : [];
+}
+
+function collectToolResults(
+  messages: readonly AssistantHistoryMessage[]
+): ReadonlyMap<string, AssistantToolResultSnapshot> {
+  const results = new Map<string, AssistantToolResultSnapshot>();
+  for (const message of messages) {
+    if (message.role !== 'tool') {
+      continue;
+    }
+    for (const rawPart of readToolResultParts(message.content)) {
+      if (!rawPart || typeof rawPart !== 'object' || Array.isArray(rawPart)) {
+        continue;
+      }
+      const record = rawPart as Record<string, unknown>;
+      if (record['type'] !== undefined && record['type'] !== 'tool-result') {
+        continue;
+      }
+      const toolResult = toToolResultSnapshot(record);
+      if (toolResult) {
+        results.set(toolResult.toolCallId, toolResult.snapshot);
+      }
+    }
+  }
+  return results;
 }
 
 function appendAssistantHistoryMessage(args: {
@@ -511,8 +592,9 @@ function appendAssistantHistoryMessage(args: {
   repositoryMessages: AssistantHistoryRepositoryMessages;
   runEventDataParts: ReturnType<typeof toRunEventDataParts>;
   runEvents: readonly AssistantRunEvent[];
+  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>;
 }): boolean {
-  const content = toAssistantHistoryContentParts(args.message.content);
+  const content = toAssistantHistoryContentParts(args.message.content, args.toolResultsByCallId);
   if (content.length === 0) {
     return false;
   }
@@ -599,11 +681,12 @@ function toHistoryRepository(
   let parentId: string | null = null;
   let latestAssistantMessageId: string | null = null;
   const runEventDataParts = toRunEventDataParts(runEvents);
+  const toolResultsByCallId = collectToolResults(messages);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index];
     if (
       candidate?.role === 'assistant' &&
-      toAssistantHistoryContentParts(candidate.content).length > 0
+      toAssistantHistoryContentParts(candidate.content, toolResultsByCallId).length > 0
     ) {
       latestAssistantMessageId = candidate.id;
       break;
@@ -626,6 +709,7 @@ function toHistoryRepository(
         repositoryMessages,
         runEventDataParts,
         runEvents,
+        toolResultsByCallId,
       });
     } else if (message.role === 'user') {
       appended = appendUserHistoryMessage({
