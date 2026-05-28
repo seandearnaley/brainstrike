@@ -1,3 +1,5 @@
+import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+
 import { toJsonSafe } from './json';
 
 export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
@@ -16,19 +18,6 @@ function stringifyJsonSafe(value: unknown): string {
   } catch {
     return String(value);
   }
-}
-
-function sliceCodePoints(value: string, maxCodePoints: number): string {
-  let result = '';
-  let codePoints = 0;
-  for (const codePoint of value) {
-    if (codePoints >= maxCodePoints) {
-      break;
-    }
-    result += codePoint;
-    codePoints += 1;
-  }
-  return result;
 }
 
 function isBoundedOversizedToolOutput(output: unknown): output is {

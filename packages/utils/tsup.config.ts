@@ -29,6 +29,7 @@ export default defineConfig({
     'report-generator': 'src/report-generator.ts',
     'safe-storage': 'src/safe-storage.ts',
     'selection-utils': 'src/selection-utils.ts',
+    'string-utils': 'src/string-utils.ts',
     'tree-generator': 'src/tree-generator.ts',
     'tree-operations': 'src/tree-operations.ts',
     'perf-timing': 'src/perf-timing.ts',

@@ -6,6 +6,7 @@ import type {
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/utils/logger';
+import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
@@ -131,19 +132,6 @@ function assertNoTransportFieldCollisions(
   throw new Error(
     `Assistant runtime ${sourceName} cannot override transport field(s): ${collisionKeys.join(', ')}.`
   );
-}
-
-function sliceCodePoints(value: string, maxCodePoints: number): string {
-  let result = '';
-  let codePoints = 0;
-  for (const codePoint of value) {
-    if (codePoints >= maxCodePoints) {
-      break;
-    }
-    result += codePoint;
-    codePoints += 1;
-  }
-  return result;
 }
 
 async function readBoundedHttpErrorResponseText(response: Response): Promise<string> {
@@ -389,6 +377,28 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   }
 }
 
+function createRuntimeRequestOptionsSnapshot(input: {
+  readonly api: string;
+  readonly body: BrainstrikeDataStreamRuntimeOptions['body'];
+  readonly credentials: BrainstrikeDataStreamRuntimeOptions['credentials'];
+  readonly headers: BrainstrikeDataStreamRuntimeOptions['headers'];
+  readonly onCancel: BrainstrikeDataStreamRuntimeOptions['onCancel'];
+  readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
+  readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
+  readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+}): BrainstrikeDataStreamRuntimeOptions {
+  return {
+    api: input.api,
+    ...(input.body === undefined ? {} : { body: input.body }),
+    ...(input.credentials === undefined ? {} : { credentials: input.credentials }),
+    ...(input.headers === undefined ? {} : { headers: input.headers }),
+    ...(input.onCancel === undefined ? {} : { onCancel: input.onCancel }),
+    ...(input.onError === undefined ? {} : { onError: input.onError }),
+    ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
+    ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+  };
+}
+
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
   const {
     adapters,
@@ -403,26 +413,18 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onResponse,
     unstable_humanToolNames,
   } = options;
-  const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>({
+  const requestOptions = createRuntimeRequestOptionsSnapshot({
     api,
-    ...(body === undefined ? {} : { body }),
-    ...(credentials === undefined ? {} : { credentials }),
-    ...(headers === undefined ? {} : { headers }),
-    ...(onCancel === undefined ? {} : { onCancel }),
-    ...(onError === undefined ? {} : { onError }),
-    ...(onFinish === undefined ? {} : { onFinish }),
-    ...(onResponse === undefined ? {} : { onResponse }),
+    body,
+    credentials,
+    headers,
+    onCancel,
+    onError,
+    onFinish,
+    onResponse,
   });
-  optionsRef.current = {
-    api,
-    ...(body === undefined ? {} : { body }),
-    ...(credentials === undefined ? {} : { credentials }),
-    ...(headers === undefined ? {} : { headers }),
-    ...(onCancel === undefined ? {} : { onCancel }),
-    ...(onError === undefined ? {} : { onError }),
-    ...(onFinish === undefined ? {} : { onFinish }),
-    ...(onResponse === undefined ? {} : { onResponse }),
-  };
+  const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
+  optionsRef.current = requestOptions;
   // Keep the runtime adapter identity stable across renders; it reads the
   // latest callbacks and request options through optionsRef at request time.
   const chatModelAdapter = useMemo(
