@@ -25,6 +25,7 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByTestId('assistant-run-timeline')).toBeInTheDocument();
     expect(screen.getByText('Memory configured')).toBeInTheDocument();
     expect(screen.getByText('Completed')).toBeInTheDocument();
+    expect(screen.queryByText('memory.configured')).not.toBeInTheDocument();
     expect(screen.queryByText('threadId')).not.toBeInTheDocument();
   });
 
@@ -107,7 +108,8 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByText('null')).toBeInTheDocument();
   });
 
-  it('renders millisecond durations and invalid timestamps without coercion', () => {
+  it('renders millisecond durations and expands invalid timestamps without coercion', async () => {
+    const user = userEvent.setup();
     render(
       <AssistantRunTimeline
         data={{
@@ -119,6 +121,9 @@ describe('AssistantRunTimeline', () => {
     );
 
     expect(screen.getByText('250ms')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
+
     expect(screen.getByText('not-a-date')).toBeInTheDocument();
   });
 

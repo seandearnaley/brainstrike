@@ -12,7 +12,6 @@ import {
   useLocalRuntime,
   useMessagePartReasoning,
 } from '@assistant-ui/react';
-import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type LocalLlmBackendFactory,
@@ -36,6 +35,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -53,6 +53,7 @@ import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantRunTimeline } from './assistant-run-timeline';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
+import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -267,7 +268,9 @@ const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const initializedRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const reasoningPanelId = useId();
+  const [isContinuation, setIsContinuation] = useState(false);
 
   useEffect(() => {
     if (initializedRef.current) {
@@ -277,30 +280,56 @@ const LocalChainOfThought: FC = () => {
     aui.chainOfThought().setCollapsed(true);
   }, [aui]);
 
+  useLayoutEffect(() => {
+    const previous = rootRef.current?.previousElementSibling;
+    setIsContinuation(Boolean(previous?.classList.contains('bs-chain-of-thought')));
+  }, []);
+
   return (
-    <ChainOfThoughtPrimitive.Root className="mb-3 block max-w-xl">
+    <ChainOfThoughtPrimitive.Root
+      className={cn(
+        'bs-chain-of-thought max-w-xl',
+        collapsed ? 'mr-1 mb-1 inline-block align-top' : 'mb-2 block'
+      )}
+      ref={rootRef}
+    >
       <button
         aria-controls={reasoningPanelId}
         aria-expanded={!collapsed}
-        aria-label={collapsed ? 'Show reasoning' : 'Hide reasoning'}
-        className="flex w-full items-center justify-between rounded-2xl border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-muted/35"
+        aria-label={
+          collapsed
+            ? isContinuation
+              ? 'Show additional reasoning'
+              : 'Show reasoning'
+            : isContinuation
+              ? 'Hide additional reasoning'
+              : 'Hide reasoning'
+        }
+        className={cn(
+          'inline-flex h-8 max-w-full items-center rounded-full border border-border/70 bg-muted/20 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35',
+          isContinuation ? 'w-8 justify-center px-0' : 'gap-2 px-2.5'
+        )}
         data-testid="local-chain-of-thought"
         onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
         type="button"
       >
-        <div>
-          <p className="font-medium text-foreground text-xs">Thinking</p>
-          <p className="text-[11px] text-muted-foreground">
-            {collapsed
-              ? 'Reasoning and tool activity are hidden from the final reply.'
-              : 'Inspect reasoning and tool activity before the final answer.'}
-          </p>
-        </div>
-        <Badge className="rounded-full px-2 py-0.5 text-[10px]" variant="secondary">
-          {collapsed ? 'Show reasoning' : 'Hide reasoning'}
-        </Badge>
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-sky-500" />
+        {isContinuation ? null : (
+          <>
+            <span className="truncate">Thinking</span>
+            {collapsed ? (
+              <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            )}
+          </>
+        )}
       </button>
-      <div className="bs-chain-of-thought-panel mt-2" hidden={collapsed} id={reasoningPanelId}>
+      <div
+        className="bs-chain-of-thought-panel mt-2 border-border/70 border-l pl-3"
+        hidden={collapsed}
+        id={reasoningPanelId}
+      >
         {collapsed ? null : (
           <ChainOfThoughtPrimitive.Parts
             components={{
@@ -614,9 +643,8 @@ const DataStreamRuntimeChat: FC<
     []
   );
 
-  const runtime = useDataStreamRuntime({
+  const runtime = useBrainstrikeDataStreamRuntime({
     api,
-    protocol: 'data-stream',
     ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
     body: async () => {
       if (preparedRequestRef.current) {

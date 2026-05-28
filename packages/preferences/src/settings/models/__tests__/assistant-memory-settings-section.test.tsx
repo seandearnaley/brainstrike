@@ -28,6 +28,7 @@ function seedRegistry(): void {
       { id: 'anthropic', name: 'Anthropic', icon: null, isEnabled: true, sortOrder: 2 },
       { id: 'transformers', name: 'Local Models', icon: null, isEnabled: true, sortOrder: 3 },
       { id: 'openrouter', name: 'OpenRouter', icon: null, isEnabled: false, sortOrder: 4 },
+      { id: 'cohere', name: 'Cohere', icon: null, isEnabled: true, sortOrder: 5 },
     ],
     models: [
       {
@@ -95,6 +96,19 @@ function seedRegistry(): void {
         parameters: null,
         sortOrder: 2,
       },
+      {
+        id: 'embed-english-v3.0',
+        providerId: 'cohere',
+        name: 'Cohere Embed English',
+        description: null,
+        tagline: null,
+        bestFor: null,
+        icon: null,
+        isEnabled: true,
+        capabilities: { type: 'embedding', defaultDimension: 1024 },
+        parameters: null,
+        sortOrder: 1,
+      },
     ],
     hasLoaded: true,
     isLoading: false,
@@ -147,5 +161,10 @@ describe('AssistantMemorySettingsSection', () => {
       enabled: true,
       embeddingModelTarget: 'openai/text-embedding-3-small',
     });
+    expect(
+      within(
+        screen.getByRole('combobox', { name: /semantic recall embedding model/i })
+      ).queryByRole('option', { name: /Cohere Embed English/i })
+    ).toBeNull();
   });
 });

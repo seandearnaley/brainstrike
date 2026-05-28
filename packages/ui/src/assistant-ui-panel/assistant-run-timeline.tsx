@@ -13,7 +13,7 @@ import {
   Radio,
 } from 'lucide-react';
 import * as m from 'motion/react-m';
-import { useId, useMemo, useState } from 'react';
+import { useId, useState } from 'react';
 import { Button } from '../button';
 
 interface AssistantRunTimelineProps {
@@ -87,18 +87,6 @@ function formatJsonValue(value: AssistantRunEventJson): string {
   return JSON.stringify(value);
 }
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(date);
-}
-
 function formatDuration(durationMs: number | undefined): string | undefined {
   if (durationMs === undefined) {
     return;
@@ -136,10 +124,6 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
   const detailsId = useId();
 
   const event = isAssistantRunEvent(data) ? data : null;
-  const metadataEntries = useMemo(
-    () => (event?.metadata ? Object.entries(event.metadata) : []),
-    [event]
-  );
 
   if (!event) {
     return null;
@@ -147,41 +131,48 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
 
   const statusLabel = STATUS_LABELS[event.status];
   const durationLabel = formatDuration(event.durationMs);
-  const hasDetails = Boolean(event.detail) || metadataEntries.length > 0;
+  const metadataEntries = event.metadata ? Object.entries(event.metadata) : [];
+  const detailEntries: [string, AssistantRunEventJson][] = [
+    ['kind', event.kind],
+    ['timestamp', event.timestamp],
+  ];
+  if (durationLabel) {
+    detailEntries.push(['duration', durationLabel]);
+  }
+  detailEntries.push(...metadataEntries);
+  const hasDetails = Boolean(event.detail) || detailEntries.length > 0;
   const isFailed = event.status === 'failed';
 
   return (
     <m.div
-      className={`bs-run-timeline my-2 rounded-lg border ${
-        isFailed ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
+      className={`bs-run-timeline my-1 max-w-xl rounded-md border ${
+        isFailed ? 'border-destructive/50 bg-destructive/5' : 'border-border/70 bg-muted/10'
       }`}
       data-testid="assistant-run-timeline"
       layout
-      transition={{ duration: 0.16, ease: 'easeOut' }}
+      transition={{ duration: 0.12, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
+      <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-2 px-3 py-2">
         <div aria-hidden="true" className="bs-run-timeline-rail">
           <AssistantRunStatusIcon status={event.status} />
         </div>
         <div className="min-w-0">
-          <p className={`font-medium text-sm ${isFailed ? 'text-destructive' : ''}`}>
+          <p
+            className={`flex min-w-0 items-center gap-1.5 font-medium text-xs ${
+              isFailed ? 'text-destructive' : ''
+            }`}
+          >
             <span className="inline-flex min-w-0 items-center gap-1.5">
-              <Clock3 className="size-3.5 shrink-0 text-muted-foreground" />
+              <Clock3 className="size-3 shrink-0 text-muted-foreground" />
               <span className="truncate">{event.label}</span>
             </span>
-            <span className="ml-2 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+            <span className="shrink-0 rounded-full border border-border bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {statusLabel}
             </span>
-          </p>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-            <span>{event.kind}</span>
-            <span aria-hidden="true">·</span>
-            <span>{formatTimestamp(event.timestamp)}</span>
             {durationLabel ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{durationLabel}</span>
-              </>
+              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                {durationLabel}
+              </span>
             ) : null}
           </p>
         </div>
@@ -204,7 +195,7 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
         <AssistantRunTimelineDetails
           detail={event.detail}
           detailsId={detailsId}
-          metadataEntries={metadataEntries}
+          metadataEntries={detailEntries}
         />
       ) : null}
     </m.div>

@@ -273,6 +273,7 @@ describe('ActionButtons', () => {
     });
 
     it('invokes recursive Select All when available and reaches the selection limit', async () => {
+      const onSelectionLimitReached = vi.fn();
       const selectAllRecursively = vi.fn().mockResolvedValue({
         success: true,
         filePaths: ['/src/a.ts'],
@@ -283,6 +284,7 @@ describe('ActionButtons', () => {
         addMultipleSelectedFiles: vi.fn(),
         filteredTree: createFullyLoadedTree(),
         maxSelectionCount: 1,
+        onSelectionLimitReached,
         selectAllRecursively,
       });
 
@@ -293,6 +295,7 @@ describe('ActionButtons', () => {
       await waitFor(() => {
         expect(selectAllRecursively).toHaveBeenCalledTimes(1);
       });
+      expect(onSelectionLimitReached).toHaveBeenCalledTimes(1);
     });
 
     it('should deselect all files when clicking "Deselect All"', async () => {

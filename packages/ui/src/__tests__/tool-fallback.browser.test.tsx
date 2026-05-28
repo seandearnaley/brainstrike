@@ -21,13 +21,13 @@ describe('ToolFallback browser behavior', () => {
 
     render(<ToolFallback {...baseProps} result={{ echoed: 'hello' }} />);
 
-    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
-    expect(screen.queryByText('Result:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Input')).not.toBeInTheDocument();
+    expect(screen.queryByText('Output')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Expand details' }));
 
-    expect(screen.getByText('Arguments:')).toBeVisible();
-    expect(screen.getByText('Result:')).toBeVisible();
+    expect(screen.getByText('Input')).toBeVisible();
+    expect(screen.getByText('Output')).toBeVisible();
     expect(screen.getByText(/echoed/)).toBeVisible();
   });
 });

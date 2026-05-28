@@ -81,7 +81,8 @@ export interface AssistantThreadRepository {
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
-    resourceId: string
+    resourceId: string,
+    options?: AssistantThreadMessageListOptions
   ) => Promise<readonly AssistantHistoryMessage[]>;
   listThreadRunEvents: (
     threadId: string,
@@ -98,6 +99,12 @@ interface AssistantHistoryMessage {
   readonly id: string;
   readonly role: string;
 }
+
+export interface AssistantThreadMessageListOptions {
+  readonly limitLatest?: number;
+}
+
+export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
@@ -757,16 +764,37 @@ export function createPgliteAssistantThreadRepository(
     listThreadRunEvents,
     async listMessages(
       threadId: string,
-      resourceId: string
+      resourceId: string,
+      options?: AssistantThreadMessageListOptions
     ): Promise<readonly AssistantHistoryMessage[]> {
       await initialize();
-      const result = await database.query<Record<string, unknown>>(
-        `SELECT id, role, content, "createdAt"
-         FROM ${MASTRA_MEMORY_TABLES.messages}
-         WHERE thread_id = $1 AND "resourceId" = $2
-         ORDER BY "createdAt" ASC, id ASC`,
-        [threadId, resourceId]
-      );
+      const limitLatest =
+        typeof options?.limitLatest === 'number' && Number.isSafeInteger(options.limitLatest)
+          ? options.limitLatest
+          : undefined;
+      if (limitLatest !== undefined && limitLatest < 1) {
+        throw new Error('Assistant message history limit must be a positive safe integer.');
+      }
+      const params: unknown[] = [threadId, resourceId];
+      const sql =
+        limitLatest === undefined
+          ? `SELECT id, role, content, "createdAt"
+             FROM ${MASTRA_MEMORY_TABLES.messages}
+             WHERE thread_id = $1 AND "resourceId" = $2
+             ORDER BY "createdAt" ASC, id ASC`
+          : `SELECT id, role, content, "createdAt"
+             FROM (
+               SELECT id, role, content, "createdAt"
+               FROM ${MASTRA_MEMORY_TABLES.messages}
+               WHERE thread_id = $1 AND "resourceId" = $2
+               ORDER BY "createdAt" DESC, id DESC
+               LIMIT $3
+             ) AS recent_messages
+             ORDER BY "createdAt" ASC, id ASC`;
+      if (limitLatest !== undefined) {
+        params.push(limitLatest);
+      }
+      const result = await database.query<Record<string, unknown>>(sql, params);
       return result.rows.map((row) => ({
         id: requireString(row['id'], 'id'),
         role: requireString(row['role'], 'role'),
@@ -839,7 +867,9 @@ export function createAssistantThreadHistoryAdapter({
 }): AssistantUiThreadHistoryAdapter {
   return {
     async load() {
-      const messages = await repository.listMessages(threadId, resourceId);
+      const messages = await repository.listMessages(threadId, resourceId, {
+        limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+      });
       const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
       return toHistoryRepository(messages, runEvents);
     },

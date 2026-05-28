@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelPickerModel,
   ModelPickerProvider,
@@ -10,10 +10,16 @@ import {
   AssistantUiPanel,
   ProviderSettingsPanel,
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
+import { TooltipProvider } from '../../src/tooltip';
 
 const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test-runtime' }));
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 const setCollapsedMock = vi.fn();
+const assistantPanelRenderFlags = vi.hoisted(() => ({
+  chainOfThoughtCount: 1,
+  includeAssistantMessage: false,
+  includeChainOfThought: false,
+}));
 let capturedLocalAdapterOptions: {
   completeRuntimeData?: (
     runtimeData: Record<string, unknown> | undefined,
@@ -35,6 +41,10 @@ vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('@assistant-ui/react-data-stream', () => ({
   useDataStreamRuntime: (options: unknown) => useDataStreamRuntimeMock(options),
+}));
+
+vi.mock('../../src/assistant-ui-panel/data-stream-runtime', () => ({
+  useBrainstrikeDataStreamRuntime: (options: unknown) => useDataStreamRuntimeMock(options),
 }));
 
 vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
@@ -80,6 +90,7 @@ vi.mock('@assistant-ui/react', () => {
     typeof children === 'function' ? children({}) : (children ?? null);
 
   const TextStub = () => <div data-testid="assistant-text" />;
+  const chainOfThoughtKeys = ['reasoning-a', 'reasoning-b', 'reasoning-c', 'reasoning-d'];
 
   interface ProviderProps {
     children?: React.ReactNode;
@@ -96,7 +107,14 @@ vi.mock('@assistant-ui/react', () => {
 
   interface PartsProps {
     components?: {
+      ChainOfThought?: React.ComponentType;
       Text?: React.ComponentType;
+    };
+  }
+
+  interface MessagesProps {
+    components?: {
+      AssistantMessage?: React.ComponentType;
     };
   }
 
@@ -142,7 +160,17 @@ vi.mock('@assistant-ui/react', () => {
       Root: Primitive,
       Parts: ({ components }: PartsProps) => {
         const Text = components?.Text ?? TextStub;
-        return <Text />;
+        const ChainOfThought = components?.ChainOfThought;
+        return (
+          <>
+            {assistantPanelRenderFlags.includeChainOfThought && ChainOfThought
+              ? chainOfThoughtKeys
+                  .slice(0, assistantPanelRenderFlags.chainOfThoughtCount)
+                  .map((key) => <ChainOfThought key={key} />)
+              : null}
+            <Text />
+          </>
+        );
       },
       If,
     },
@@ -166,7 +194,12 @@ vi.mock('@assistant-ui/react', () => {
     ThreadPrimitive: {
       Root: Primitive,
       Viewport: Primitive,
-      Messages: Primitive,
+      Messages: ({ components }: MessagesProps) => {
+        const AssistantMessage = components?.AssistantMessage;
+        return assistantPanelRenderFlags.includeAssistantMessage && AssistantMessage ? (
+          <AssistantMessage />
+        ) : null;
+      },
       If,
     },
   };
@@ -282,6 +315,9 @@ describe('AssistantUiPanel model picker', () => {
   beforeEach(() => {
     Object.assign(window, { assistant: undefined });
     capturedLocalAdapterOptions = null;
+    assistantPanelRenderFlags.chainOfThoughtCount = 1;
+    assistantPanelRenderFlags.includeAssistantMessage = false;
+    assistantPanelRenderFlags.includeChainOfThought = false;
   });
 
   afterEach(() => {
@@ -289,15 +325,56 @@ describe('AssistantUiPanel model picker', () => {
     vi.useRealTimers();
   });
 
-  it('uses the legacy data-stream protocol for hosted providers', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+  it('uses the Brainstrike data-stream runtime for hosted providers', () => {
+    render(
+      <TooltipProvider>
+        <AssistantUiPanel {...baseProps} onModelChange={() => {}} />
+      </TooltipProvider>
+    );
 
     expect(useDataStreamRuntimeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         api: '/api/assistant',
-        protocol: 'data-stream',
       })
     );
+  });
+
+  it('renders reasoning as a compact disclosure without explanatory copy', () => {
+    assistantPanelRenderFlags.includeAssistantMessage = true;
+    assistantPanelRenderFlags.includeChainOfThought = true;
+
+    render(
+      <TooltipProvider>
+        <AssistantUiPanel {...baseProps} onModelChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    const toggle = screen.getByTestId('local-chain-of-thought');
+    expect(toggle).toHaveAttribute('aria-label', 'Show reasoning');
+    expect(toggle).toHaveTextContent('Thinking');
+    expect(toggle).not.toHaveTextContent('Reasoning and tool activity');
+    expect(toggle).not.toHaveTextContent('Inspect reasoning');
+    expect(toggle).toHaveClass('rounded-full');
+  });
+
+  it('collapses repeated reasoning parts into continuation dots', async () => {
+    assistantPanelRenderFlags.chainOfThoughtCount = 3;
+    assistantPanelRenderFlags.includeAssistantMessage = true;
+    assistantPanelRenderFlags.includeChainOfThought = true;
+
+    render(
+      <TooltipProvider>
+        <AssistantUiPanel {...baseProps} onModelChange={() => {}} />
+      </TooltipProvider>
+    );
+
+    await waitFor(() => {
+      const toggles = screen.getAllByTestId('local-chain-of-thought');
+      expect(toggles).toHaveLength(3);
+      expect(toggles[0]).toHaveTextContent('Thinking');
+      expect(toggles[1]).not.toHaveTextContent('Thinking');
+      expect(toggles[2]).not.toHaveTextContent('Thinking');
+    });
   });
 
   it('prepares per-run request data when the hosted runtime starts a request', async () => {

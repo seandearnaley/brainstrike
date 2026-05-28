@@ -2,6 +2,7 @@ import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import type { DbHandle } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   type AssistantThreadRepository,
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -44,13 +45,42 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     const history = await adapter.load();
 
-    expect(repository.listMessages).toHaveBeenCalledWith('thread-1', 'workspace-a');
+    expect(repository.listMessages).toHaveBeenCalledWith('thread-1', 'workspace-a', {
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
     expect(history.headId).toBe('message-2');
     expect(history.messages.map((item) => item.parentId)).toEqual([null, 'message-1']);
     expect(history.messages.map((item) => item.message.id)).toEqual(['message-1', 'message-2']);
     expect(history.messages[0]?.message.content).toEqual([
       { type: 'text', text: 'Remember the deploy window is Friday.' },
     ]);
+  });
+
+  it('hydrates only the bounded latest message window from Mastra memory', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listMessages: vi.fn(async () => []),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    await adapter.load();
+
+    expect(repository.listMessages).toHaveBeenCalledWith('thread-1', 'workspace-a', {
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
   });
 
   it('does not write client-side history because Mastra is the durable writer', async () => {
@@ -412,6 +442,46 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     await expect(repository.listMessages('thread-1', '/tmp/workspace-a')).rejects.toThrow(
       /invalid timestamp/i
     );
+  });
+
+  it('queries latest messages through a bounded ascending hydration window', async () => {
+    const db = createMockDb();
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'message-80',
+          role: 'user',
+          content: { content: 'Latest window' },
+          createdAt: '2026-04-24T12:00:00.000Z',
+        },
+      ],
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const messages = await repository.listMessages('thread-1', '/tmp/workspace-a', {
+      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('LIMIT $3'), [
+      'thread-1',
+      '/tmp/workspace-a',
+      ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY "createdAt" ASC'), [
+      'thread-1',
+      '/tmp/workspace-a',
+      ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    ]);
+    expect(messages.map((message) => message.id)).toEqual(['message-80']);
+  });
+
+  it('rejects invalid assistant history hydration limits', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.listMessages('thread-1', '/tmp/workspace-a', { limitLatest: 0 })
+    ).rejects.toThrow('Assistant message history limit must be a positive safe integer.');
   });
 
   it('retries schema initialization after a transient bootstrap failure', async () => {

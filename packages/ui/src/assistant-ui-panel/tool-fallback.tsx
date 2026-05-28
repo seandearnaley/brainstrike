@@ -139,29 +139,33 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
   return (
     <m.div
-      className={`bs-tool-timeline my-2 rounded-lg border ${
-        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
+      className={`bs-tool-timeline my-1 max-w-xl rounded-md border ${
+        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border/70 bg-muted/10'
       }`}
       data-testid="tool-fallback"
       layout
-      transition={{ duration: 0.16, ease: 'easeOut' }}
+      transition={{ duration: 0.12, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
+      <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-2 px-3 py-2">
         <div aria-hidden="true" className="bs-tool-timeline-rail">
           {isRunning ? <Loader2 className="size-4 animate-spin" /> : statusIcon}
         </div>
         <div className="min-w-0">
-          <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
+          <p
+            className={`flex min-w-0 items-center gap-1.5 font-medium text-xs ${
+              isError ? 'text-destructive' : ''
+            }`}
+          >
             <span className="inline-flex items-center gap-1.5">
-              <Wrench className="size-3.5 text-muted-foreground" />
-              <span>Used {toolName}</span>
+              <Wrench className="size-3 text-muted-foreground" />
+              <span className="truncate">Used {toolName}</span>
             </span>
-            <span className="ml-2 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+            <span className="shrink-0 rounded-full border border-border bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {statusText}
             </span>
           </p>
           {isRunning ? (
-            <p className="mt-1 text-muted-foreground text-xs">Waiting for tool result...</p>
+            <p className="mt-0.5 text-muted-foreground text-xs">Waiting for result</p>
           ) : null}
           {isError && errorMessage ? (
             <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
@@ -187,13 +191,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
           {argsText && (
             <div className="px-4 py-2">
-              <p className="mb-1 font-medium text-muted-foreground text-xs">Arguments:</p>
+              <p className="mb-1 font-medium text-muted-foreground text-xs">Input</p>
               <pre className="whitespace-pre-wrap text-xs">{argsText}</pre>
             </div>
           )}
           {hasResult && !isError && (
             <div className="border-t border-dashed px-4 py-2">
-              <p className="mb-1 font-medium text-muted-foreground text-xs">Result:</p>
+              <p className="mb-1 font-medium text-muted-foreground text-xs">Output</p>
               <pre className="whitespace-pre-wrap text-xs">{formattedResult}</pre>
             </div>
           )}

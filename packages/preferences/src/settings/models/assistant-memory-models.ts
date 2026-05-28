@@ -10,7 +10,7 @@ export interface AssistantMemoryModelOption {
 }
 
 const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter']);
-const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'cohere', 'voyage']);
+const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
 
 function providerById(providers: readonly DbProvider[]): Map<string, DbProvider> {
   return new Map(providers.map((provider) => [provider.id, provider]));

@@ -542,6 +542,14 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     }
   }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
 
+  const handleSelectionLimitReached = useCallback(() => {
+    showToast({
+      title: FileExplorerStrings.error.title,
+      description: FileExplorerStrings.error.selectionLimitExceeded,
+      variant: 'destructive',
+    });
+  }, [showToast]);
+
   const handleDirectorySelect = useCallback(async () => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
@@ -856,6 +864,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
+              onSelectionLimitReached={handleSelectionLimitReached}
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}

@@ -909,12 +909,16 @@ describe('AssistantDataStreamSession', () => {
 
       const finishStep = parsed.find((p) => p.code === 'e'); // FinishStep
       const finishMessage = parsed.find((p) => p.code === 'd'); // FinishMessage
+      const textDelta = parsed.find((p) => p.code === '0'); // TextDelta
 
       // Step should be marked with error finish reason
       expect(finishStep).toBeDefined();
       expect(finishStep?.value).toMatchObject({
         finishReason: 'error',
       });
+      expect(textDelta?.value).toBe(
+        "I couldn't complete the request because a tool failed: Tool failed"
+      );
 
       // Message should also be marked as error
       expect(finishMessage).toBeDefined();

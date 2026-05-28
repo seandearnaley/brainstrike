@@ -160,6 +160,8 @@ export class DataStreamMapper {
   private currentStep: StepState | null = null;
   private nextStepIndex = 0;
   private finishEmitted = false;
+  private hasVisibleText = false;
+  private lastErrorText: string | null = null;
   private startNewStepForNextText = false;
 
   constructor(messageId: string) {
@@ -221,6 +223,7 @@ export class DataStreamMapper {
       return [];
     }
     const chunks: EncodedChunk[] = [];
+    chunks.push(...this.emitVisibleFallbackIfNeeded());
     chunks.push(...this.finalizeCurrentStep());
     const usage = this.currentStep?.usage ?? toDataStreamUsage();
     const reason = this.currentStep?.finishReason ?? 'unknown';
@@ -252,6 +255,7 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
+    this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
   }
 
@@ -397,6 +401,7 @@ export class DataStreamMapper {
       value: { toolCallId: callId, result: output, isError: true },
     } satisfies EncodedChunk;
     const message = typeof output === 'string' ? output : 'Tool execution failed';
+    this.lastErrorText = message;
     yield { code: DataStreamCode.error, value: message } satisfies EncodedChunk;
     this.startNewStepForNextText = true;
   }
@@ -416,6 +421,7 @@ export class DataStreamMapper {
       this.currentStep.usage = usage;
       this.currentStep.finishReason = this.currentStep.status === 'error' ? 'error' : finishReason;
     }
+    yield* this.emitVisibleFallbackIfNeeded();
     yield* this.finalizeCurrentStep();
     yield {
       code: DataStreamCode.finishMessage,
@@ -485,5 +491,16 @@ export class DataStreamMapper {
       this.currentStep.status = 'error';
       this.currentStep.finishReason = 'error';
     }
+  }
+
+  private *emitVisibleFallbackIfNeeded(): Generator<EncodedChunk> {
+    if (this.hasVisibleText || this.currentStep?.status !== 'error') {
+      return;
+    }
+    const errorText = this.lastErrorText ?? 'The assistant run failed before producing a response.';
+    const visibleText = `I couldn't complete the request because a tool failed: ${errorText}`;
+    yield* this.startStepIfNeeded();
+    this.hasVisibleText = true;
+    yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
   }
 }
