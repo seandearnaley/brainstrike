@@ -1,6 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { stableHash } from './hash-utils';
+import { calculatePathDepth } from './path-utils';
 
 interface ExperimentalFileSystemFeatures {
   getParent(): Promise<FileSystemHandle | null>;
@@ -194,7 +195,8 @@ export const fileSystem = {
         path,
         type: 'file',
         handle: fileHandle,
-        depth: parentPath.split('/').length,
+        // Avoid split allocation while recursively building large file trees.
+        depth: calculatePathDepth(parentPath) + 1,
         selectionState: 'unchecked',
         rootFolderId,
         size: file.size,
@@ -224,7 +226,8 @@ export const fileSystem = {
       path,
       type: 'directory',
       handle: dirHandle,
-      depth: parentPath.split('/').length,
+      // Avoid split allocation while recursively building large file trees.
+      depth: calculatePathDepth(parentPath) + 1,
       selectionState: 'unchecked',
       rootFolderId,
       children: children.sort((a, b) => fileSystemCollator.compare(a.name, b.name)),
