@@ -20,6 +20,7 @@ import { useMemo, useRef } from 'react';
 
 type HeadersValue = Headers | Record<string, string>;
 const logger = createLogger('BrainstrikeDataStreamRuntime');
+const MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS = 4000;
 const RESERVED_TRANSPORT_FIELDS = new Set([
   'data',
   'messages',
@@ -130,6 +131,54 @@ function assertNoTransportFieldCollisions(
   throw new Error(
     `Assistant runtime ${sourceName} cannot override transport field(s): ${collisionKeys.join(', ')}.`
   );
+}
+
+function sliceCodePoints(value: string, maxCodePoints: number): string {
+  let result = '';
+  let codePoints = 0;
+  for (const codePoint of value) {
+    if (codePoints >= maxCodePoints) {
+      break;
+    }
+    result += codePoint;
+    codePoints += 1;
+  }
+  return result;
+}
+
+async function readBoundedHttpErrorResponseText(response: Response): Promise<string> {
+  if (!response.body) {
+    return '';
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let truncated = false;
+  try {
+    while (text.length <= MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS) {
+      const { done, value } = await reader.read();
+      if (done) {
+        text += decoder.decode();
+        break;
+      }
+      text += decoder.decode(value, { stream: true });
+      if (text.length > MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS) {
+        truncated = true;
+        try {
+          await reader.cancel();
+        } catch {
+          // Preserve the HTTP status failure as the primary error.
+        }
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!truncated) {
+    return text;
+  }
+  return `${sliceCodePoints(text, MAX_HTTP_ERROR_RESPONSE_TEXT_CHARS)}...[truncated]`;
 }
 
 /**
@@ -312,7 +361,9 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       });
 
       if (!response.ok) {
-        throw new Error(`Status ${response.status}: ${await response.text()}`);
+        throw new Error(
+          `Status ${response.status}: ${await readBoundedHttpErrorResponseText(response)}`
+        );
       }
       if (!response.body) {
         throw new Error('Response body is null');

@@ -403,6 +403,56 @@ describe('assistant-stream integration', () => {
     );
   });
 
+  it('bounds HTTP error response bodies before reporting transport failures', async () => {
+    const onError = vi.fn();
+    const encoder = new TextEncoder();
+    let cancelCalled = false;
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(encoder.encode('x'.repeat(5000)));
+              controller.enqueue(encoder.encode('tail-that-should-not-be-read'));
+            },
+            cancel() {
+              cancelCalled = true;
+            },
+          }),
+          { status: 500 }
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: {},
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The response fails before yielding.
+      }
+    }).rejects.toThrow(`Status 500: ${'x'.repeat(4000)}...[truncated]`);
+
+    expect(cancelCalled).toBe(true);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.not.stringContaining('tail-that-should-not-be-read') as string,
+      })
+    );
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',
