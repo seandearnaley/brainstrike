@@ -287,6 +287,45 @@ describe('assistant-stream integration', () => {
     );
   });
 
+  it('uses the latest runtime callbacks from a stable adapter source', async () => {
+    const firstOnError = vi.fn();
+    const secondOnError = vi.fn();
+    let onError = firstOnError;
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('Network request failed');
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter(() => ({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    }));
+    onError = secondOnError;
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: {},
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The request fails before yielding.
+      }
+    }).rejects.toThrow('Network request failed');
+
+    expect(firstOnError).not.toHaveBeenCalled();
+    expect(secondOnError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Network request failed',
+      })
+    );
+  });
+
   it('rejects runtime config fields that would override transport protocol data', async () => {
     const onError = vi.fn();
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({

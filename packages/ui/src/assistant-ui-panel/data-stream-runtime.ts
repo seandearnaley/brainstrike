@@ -5,6 +5,7 @@ import type {
   ThreadMessage,
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
@@ -15,9 +16,10 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 
 type HeadersValue = Headers | Record<string, string>;
+const logger = createLogger('BrainstrikeDataStreamRuntime');
 const RESERVED_TRANSPORT_FIELDS = new Set([
   'data',
   'messages',
@@ -42,6 +44,9 @@ export type BrainstrikeDataStreamRuntimeOptions = {
 } & Omit<LocalRuntimeOptionsBase, 'adapters'> & {
     adapters?: Omit<LocalRuntimeOptionsBase['adapters'], 'chatModel'>;
   };
+type BrainstrikeDataStreamRuntimeOptionsSource =
+  | BrainstrikeDataStreamRuntimeOptions
+  | (() => BrainstrikeDataStreamRuntimeOptions);
 
 interface GenericTextPart {
   readonly text?: unknown;
@@ -226,13 +231,18 @@ function withTransportCompactionMetadata(
 }
 
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
-  constructor(private readonly options: BrainstrikeDataStreamRuntimeOptions) {}
+  constructor(private readonly optionsSource: BrainstrikeDataStreamRuntimeOptionsSource) {}
+
+  private get options(): BrainstrikeDataStreamRuntimeOptions {
+    return typeof this.optionsSource === 'function' ? this.optionsSource() : this.optionsSource;
+  }
 
   private reportError(error: unknown): void {
     try {
       this.options.onError?.(error as Error);
-    } catch {
+    } catch (callbackError) {
       // Preserve the transport/model error as the runtime failure cause.
+      logger.warn('Assistant runtime onError callback failed', { error: callbackError });
     }
   }
 
@@ -342,19 +352,29 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onResponse,
     unstable_humanToolNames,
   } = options;
+  const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>({
+    api,
+    ...(body === undefined ? {} : { body }),
+    ...(credentials === undefined ? {} : { credentials }),
+    ...(headers === undefined ? {} : { headers }),
+    ...(onCancel === undefined ? {} : { onCancel }),
+    ...(onError === undefined ? {} : { onError }),
+    ...(onFinish === undefined ? {} : { onFinish }),
+    ...(onResponse === undefined ? {} : { onResponse }),
+  });
+  optionsRef.current = {
+    api,
+    ...(body === undefined ? {} : { body }),
+    ...(credentials === undefined ? {} : { credentials }),
+    ...(headers === undefined ? {} : { headers }),
+    ...(onCancel === undefined ? {} : { onCancel }),
+    ...(onError === undefined ? {} : { onError }),
+    ...(onFinish === undefined ? {} : { onFinish }),
+    ...(onResponse === undefined ? {} : { onResponse }),
+  };
   const chatModelAdapter = useMemo(
-    () =>
-      new BrainstrikeDataStreamRuntimeAdapter({
-        api,
-        ...(body === undefined ? {} : { body }),
-        ...(credentials === undefined ? {} : { credentials }),
-        ...(headers === undefined ? {} : { headers }),
-        ...(onCancel === undefined ? {} : { onCancel }),
-        ...(onError === undefined ? {} : { onError }),
-        ...(onFinish === undefined ? {} : { onFinish }),
-        ...(onResponse === undefined ? {} : { onResponse }),
-      }),
-    [api, body, credentials, headers, onCancel, onError, onFinish, onResponse]
+    () => new BrainstrikeDataStreamRuntimeAdapter(() => optionsRef.current),
+    []
   );
 
   return useLocalRuntime(chatModelAdapter, {

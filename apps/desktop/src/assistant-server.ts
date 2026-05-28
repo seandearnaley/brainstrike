@@ -944,6 +944,15 @@ function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheS
   );
 }
 
+function cleanupDesktopMastraMemoryResolutionPromise(
+  resolutionKey: string,
+  pendingMemory: DesktopMastraMemoryPromise
+): void {
+  if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
+    desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+  }
+}
+
 function createDesktopMastraMemoryProviderBindings({
   observationalMemoryTarget,
   runtimeData,
@@ -1233,16 +1242,8 @@ async function getDesktopMastraMemory(
     });
     desktopMastraMemoryResolutionPromises.set(resolutionKey, pendingMemory);
     void pendingMemory.then(
-      () => {
-        if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
-          desktopMastraMemoryResolutionPromises.delete(resolutionKey);
-        }
-      },
-      () => {
-        if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
-          desktopMastraMemoryResolutionPromises.delete(resolutionKey);
-        }
-      }
+      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory),
+      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory)
     );
     return pendingMemory;
   }
