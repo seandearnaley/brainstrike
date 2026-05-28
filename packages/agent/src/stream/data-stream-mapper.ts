@@ -400,6 +400,9 @@ export class DataStreamMapper {
       (payload as { output?: unknown; result?: unknown }).output ??
         (payload as { result?: unknown }).result
     );
+    // MCP tools are also bounded at the loader edge, but stream events can come
+    // from non-MCP tools and replay paths. The bounder is idempotent for
+    // already-bounded results, so keep this as the final model-facing guard.
     const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
     if (bounded.errorText) {
       if (state) {
