@@ -19,7 +19,16 @@ function stringifyJsonSafe(value: unknown): string {
 }
 
 function sliceCodePoints(value: string, maxCodePoints: number): string {
-  return Array.from(value).slice(0, maxCodePoints).join('');
+  let result = '';
+  let codePoints = 0;
+  for (const codePoint of value) {
+    if (codePoints >= maxCodePoints) {
+      break;
+    }
+    result += codePoint;
+    codePoints += 1;
+  }
+  return result;
 }
 
 export function readToolOutputErrorText(output: unknown): string {

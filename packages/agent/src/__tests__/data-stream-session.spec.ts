@@ -1076,6 +1076,43 @@ describe('AssistantDataStreamSession', () => {
       expect(bounded.preview?.charCodeAt(bounded.preview.length - 1)).not.toBe(0xd8_3d);
     });
 
+    it('does not iterate the entire oversized tool output when building a preview', () => {
+      const originalIterator = String.prototype[Symbol.iterator];
+      let yieldedCodePoints = 0;
+      function countedStringIterator(this: string): IterableIterator<string> {
+        const iterator = originalIterator.call(this);
+        return {
+          [Symbol.iterator](): IterableIterator<string> {
+            return this;
+          },
+          next(): IteratorResult<string> {
+            const nextValue = iterator.next();
+            if (!nextValue.done) {
+              yieldedCodePoints += 1;
+            }
+            return nextValue;
+          },
+        };
+      }
+
+      Object.defineProperty(String.prototype, Symbol.iterator, {
+        configurable: true,
+        value: countedStringIterator,
+      });
+
+      try {
+        const oversizedOutput = 'x'.repeat(20_000);
+        boundToolOutputForModel('filesystem.search_files', oversizedOutput);
+
+        expect(yieldedCodePoints).toBeLessThanOrEqual(8001);
+      } finally {
+        Object.defineProperty(String.prototype, Symbol.iterator, {
+          configurable: true,
+          value: originalIterator,
+        });
+      }
+    });
+
     it('emits a user-visible error + error-finish when the source iterator throws', async () => {
       // Regression: top-level provider errors used to surface as a synthetic
       // tool-event with no toolCallId, which the data-stream mapper silently
