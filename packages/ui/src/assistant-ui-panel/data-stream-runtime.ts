@@ -10,6 +10,8 @@ import {
   DataStreamDecoder,
   toGenericMessages,
   toToolsJSONSchema,
+  // This runtime is pinned to assistant-stream 0.3.11 because tool result
+  // streaming is still exported behind the unstable API surface.
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
@@ -196,7 +198,7 @@ function withTransportCompactionMetadata(
   };
 }
 
-class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
+export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   constructor(private readonly options: BrainstrikeDataStreamRuntimeOptions) {}
 
   async *run({
@@ -284,7 +286,11 @@ class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       yield* asAsyncIterableStream(stream);
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
-      this.options.onError?.(error as Error);
+      try {
+        this.options.onError?.(error as Error);
+      } catch {
+        // Preserve the transport/model error as the runtime failure cause.
+      }
       throw error;
     }
   }

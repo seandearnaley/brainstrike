@@ -156,6 +156,51 @@ describe('mcp-tool-loader', () => {
       expect(serializedOutput).not.toContain('needle-at-tail');
     });
 
+    it('preserves non-enumerable MCP tool properties when wrapping output', async () => {
+      const tool = {
+        id: 'filesystem.search_files',
+        description: 'search files',
+        execute: vi.fn(async () => 'ok'),
+      } as ToolsInput[string] & { execute: () => Promise<string> };
+      Object.defineProperty(tool, 'internalSchema', {
+        configurable: true,
+        enumerable: false,
+        value: { shape: 'private' },
+      });
+      const mockMcpTools: ToolsInput = {
+        'filesystem.search_files': tool,
+      };
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+      const wrappedTool = result['filesystem_search_files'] as
+        | (ToolsInput[string] & { execute?: () => Promise<unknown>; internalSchema?: unknown })
+        | undefined;
+      const descriptor = Object.getOwnPropertyDescriptor(wrappedTool, 'internalSchema');
+
+      expect(await wrappedTool?.execute?.()).toBe('ok');
+      expect(descriptor).toMatchObject({
+        enumerable: false,
+        value: { shape: 'private' },
+      });
+    });
+
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },

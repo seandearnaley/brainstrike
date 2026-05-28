@@ -5,8 +5,9 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  BrainstrikeDataStreamRuntimeAdapter,
   extractTransportBodyData,
   selectTransportMessagesForMastraMemory,
 } from '../assistant-ui-panel/data-stream-runtime';
@@ -135,6 +136,18 @@ describe('selectTransportMessagesForMastraMemory', () => {
       })
     ).toEqual([system, currentUser]);
   });
+
+  it('preserves pre-seeded memory-backed threads without user messages', () => {
+    const system = message('system', 'system');
+    const assistant = message('assistant', 'assistant');
+    const messages = [system, assistant];
+
+    expect(
+      selectTransportMessagesForMastraMemory(messages, {
+        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+      })
+    ).toBe(messages);
+  });
 });
 
 describe('extractTransportBodyData', () => {
@@ -162,6 +175,45 @@ describe('extractTransportBodyData', () => {
 });
 
 describe('assistant-stream integration', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('preserves the original transport error when onError throws', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response('server failed', {
+          status: 500,
+        })
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError: () => {
+        throw new Error('callback failed');
+      },
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run({
+        abortSignal: new AbortController().signal,
+        context: {
+          callSettings: {},
+          config: {},
+          tools: {},
+        },
+        messages: [message('user', 'user')],
+        runConfig: undefined,
+        unstable_getMessage: () => ({
+          metadata: {},
+        }),
+      } as unknown as Parameters<typeof adapter.run>[0])) {
+        // The response fails before yielding.
+      }
+    }).rejects.toThrow('Status 500: server failed');
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',
