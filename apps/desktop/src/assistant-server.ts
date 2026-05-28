@@ -63,7 +63,7 @@ const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // Fully resolved memory instances are keyed by provider/model plus hashed API
 // keys. Pending keychain resolutions are keyed by unresolved descriptors so
 // concurrent desktop requests dedupe before the concrete cache key exists.
-// Both maps are bounded to the same small desktop cache limit.
+// Each map is independently bounded to the same small desktop cache limit.
 const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
 const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
 const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([

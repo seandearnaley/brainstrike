@@ -167,4 +167,26 @@ describe('AssistantMemorySettingsSection', () => {
       ).queryByRole('option', { name: /Cohere Embed English/i })
     ).toBeNull();
   });
+
+  it('warns and allows disabling semantic recall when a persisted embedder is unsupported', async () => {
+    const user = userEvent.setup();
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      semanticRecall: {
+        ...state.semanticRecall,
+        enabled: true,
+        embeddingModelTarget: 'cohere/embed-english-v3.0',
+      },
+    }));
+
+    render(<AssistantMemorySettingsSection />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Configured semantic recall embedder cohere/embed-english-v3.0 is not available'
+    );
+    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeEnabled();
+
+    await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
+
+    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
+  });
 });
