@@ -17,6 +17,7 @@ const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-run
 const setCollapsedMock = vi.fn();
 const assistantPanelRenderFlags = vi.hoisted(() => ({
   chainOfThoughtCount: 1,
+  currentChainOfThoughtIndex: 0,
   includeAssistantMessage: false,
   includeChainOfThought: false,
 }));
@@ -91,6 +92,7 @@ vi.mock('@assistant-ui/react', () => {
 
   const TextStub = () => <div data-testid="assistant-text" />;
   const chainOfThoughtKeys = ['reasoning-a', 'reasoning-b', 'reasoning-c', 'reasoning-d'];
+  const chainOfThoughtParts = chainOfThoughtKeys.map((key) => ({ id: key, type: 'reasoning' }));
 
   interface ProviderProps {
     children?: React.ReactNode;
@@ -99,6 +101,16 @@ vi.mock('@assistant-ui/react', () => {
   interface CounterProps {
     children?: React.ReactNode;
   }
+
+  interface MockChainOfThoughtScopeProps {
+    children?: React.ReactNode;
+    index: number;
+  }
+
+  const MockChainOfThoughtScope = ({ children, index }: MockChainOfThoughtScopeProps) => {
+    assistantPanelRenderFlags.currentChainOfThoughtIndex = index;
+    return <>{children}</>;
+  };
 
   type InputProps = Record<string, unknown>;
   type ButtonPrimitiveProps = PrimitiveProps & {
@@ -166,7 +178,11 @@ vi.mock('@assistant-ui/react', () => {
             {assistantPanelRenderFlags.includeChainOfThought && ChainOfThought
               ? chainOfThoughtKeys
                   .slice(0, assistantPanelRenderFlags.chainOfThoughtCount)
-                  .map((key) => <ChainOfThought key={key} />)
+                  .map((key, index) => (
+                    <MockChainOfThoughtScope index={index} key={key}>
+                      <ChainOfThought />
+                    </MockChainOfThoughtScope>
+                  ))
               : null}
             <Text />
           </>
@@ -181,10 +197,23 @@ vi.mock('@assistant-ui/react', () => {
     }),
     useAuiState: <T,>(
       selector: (state: {
-        chainOfThought: { collapsed: boolean };
+        chainOfThought: { collapsed: boolean; parts: Array<{ id: string; type: string }> };
+        message: { parts: Array<{ id: string; type: string }> };
         thread: { messages: Array<{ id: string }> };
       }) => T
-    ) => selector({ chainOfThought: { collapsed: true }, thread: { messages: [] } }),
+    ) => {
+      const currentIndex = assistantPanelRenderFlags.currentChainOfThoughtIndex;
+      return selector({
+        chainOfThought: {
+          collapsed: true,
+          parts: chainOfThoughtParts.slice(currentIndex, currentIndex + 1),
+        },
+        message: {
+          parts: chainOfThoughtParts.slice(0, assistantPanelRenderFlags.chainOfThoughtCount),
+        },
+        thread: { messages: [] },
+      });
+    },
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       type: 'reasoning' as const,

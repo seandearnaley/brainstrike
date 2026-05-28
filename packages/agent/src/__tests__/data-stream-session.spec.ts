@@ -377,10 +377,17 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const error = events.find((evt) => evt.code === '3')?.value;
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
     const finishMessage = events.at(-1);
 
     expect(error).toBe(
       'Assistant stopped because the model reached its output token limit before completing the response.'
+    );
+    expect(visibleText).toContain(
+      "I couldn't complete the assistant response: Assistant stopped because the model reached its output token limit before completing the response."
     );
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
   });
@@ -425,9 +432,16 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const error = events.find((evt) => evt.code === '3')?.value;
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
     const finishMessage = events.at(-1);
 
     expect(error).toBe('Assistant stream ended without a normal stop signal.');
+    expect(visibleText).toContain(
+      "I couldn't complete the assistant response: Assistant stream ended without a normal stop signal."
+    );
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
   });
 

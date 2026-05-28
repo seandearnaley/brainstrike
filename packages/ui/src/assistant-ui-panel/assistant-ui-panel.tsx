@@ -35,7 +35,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -267,10 +266,23 @@ const LocalReasoningPart: FC = () => {
 const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
+  const isContinuation = useAuiState((state) => {
+    const [firstChainPart] = state.chainOfThought.parts;
+    if (!firstChainPart) {
+      return false;
+    }
+
+    const startIndex = state.message.parts.indexOf(firstChainPart);
+    if (startIndex <= 0) {
+      return false;
+    }
+
+    return state.message.parts
+      .slice(0, startIndex)
+      .some((part) => part.type === 'reasoning' || part.type === 'tool-call');
+  });
   const initializedRef = useRef(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const reasoningPanelId = useId();
-  const [isContinuation, setIsContinuation] = useState(false);
 
   useEffect(() => {
     if (initializedRef.current) {
@@ -280,18 +292,12 @@ const LocalChainOfThought: FC = () => {
     aui.chainOfThought().setCollapsed(true);
   }, [aui]);
 
-  useLayoutEffect(() => {
-    const previous = rootRef.current?.previousElementSibling;
-    setIsContinuation(Boolean(previous?.classList.contains('bs-chain-of-thought')));
-  }, []);
-
   return (
     <ChainOfThoughtPrimitive.Root
       className={cn(
         'bs-chain-of-thought max-w-xl',
         collapsed ? 'mr-1 mb-1 inline-block align-top' : 'mb-2 block'
       )}
-      ref={rootRef}
     >
       <button
         aria-controls={reasoningPanelId}
