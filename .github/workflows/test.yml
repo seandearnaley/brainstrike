@@ -290,7 +290,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [static, unit, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     env:
       NODE_ENV: production
       PORT: "8080"
@@ -317,8 +317,26 @@ jobs:
           name: build-artifacts
           path: .
 
-      - name: Install Playwright browsers
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
 
       - name: Run web smoke
         run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
@@ -337,7 +355,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [static, unit, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       NODE_ENV: test
       CI: "true"
@@ -377,8 +395,26 @@ jobs:
           name: build-artifacts
           path: .
 
-      - name: Install Playwright browsers
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
 
       # dbus-run-session provides an ephemeral D-Bus session so Chromium
       # inside Electron doesn't spew `[ERROR:dbus/bus.cc:405] Failed to
