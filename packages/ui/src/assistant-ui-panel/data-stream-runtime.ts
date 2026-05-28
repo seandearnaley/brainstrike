@@ -372,6 +372,8 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     ...(onFinish === undefined ? {} : { onFinish }),
     ...(onResponse === undefined ? {} : { onResponse }),
   };
+  // Keep the runtime adapter identity stable across renders; it reads the
+  // latest callbacks and request options through optionsRef at request time.
   const chatModelAdapter = useMemo(
     () => new BrainstrikeDataStreamRuntimeAdapter(() => optionsRef.current),
     []
