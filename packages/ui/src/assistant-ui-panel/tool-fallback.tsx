@@ -1,4 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
+import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Wrench } from 'lucide-react';
 import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useState } from 'react';
@@ -112,16 +113,8 @@ const resolveErrorMessage = (
 };
 
 function boundToolDetailText(value: string): string {
-  let result = '';
-  let codePoints = 0;
-  for (const codePoint of value) {
-    if (codePoints >= MAX_TOOL_DETAIL_TEXT_CHARS) {
-      return `${result}...[truncated]`;
-    }
-    result += codePoint;
-    codePoints += 1;
-  }
-  return value;
+  const sliced = sliceCodePoints(value, MAX_TOOL_DETAIL_TEXT_CHARS);
+  return sliced.length < value.length ? `${sliced}...[truncated]` : value;
 }
 
 const formatResult = (result: ToolResult): string => {
