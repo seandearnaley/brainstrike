@@ -245,10 +245,28 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         }
         return normalizeMemorySettings(persistedState as Partial<RuntimeAssistantMemorySettings>);
       },
-      onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
-          useAssistantMemoryPreferencesStore.setState({ hasHydrated: true });
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          return;
         }
+        // Defensively remap a dropped observational-memory target on EVERY
+        // hydration, not just version bumps. zustand persist only calls
+        // `migrate` when persistedVersion < STORE_VERSION, so a stale target
+        // persisted at the current version (or a future dropped ID added to
+        // MEMORY_MODEL_TARGET_MIGRATIONS without a version bump) would otherwise
+        // linger in the persisted state and the settings UI. Mirrors the
+        // read-time normalize in getRuntimeMemorySettings.
+        if (state) {
+          const remapped = migrateMemoryModelTarget(state.observationalMemory.modelTarget);
+          if (remapped !== state.observationalMemory.modelTarget) {
+            useAssistantMemoryPreferencesStore.setState({
+              hasHydrated: true,
+              observationalMemory: { ...state.observationalMemory, modelTarget: remapped },
+            });
+            return;
+          }
+        }
+        useAssistantMemoryPreferencesStore.setState({ hasHydrated: true });
       },
     }
   )

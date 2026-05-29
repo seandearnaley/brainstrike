@@ -61,6 +61,47 @@ describe('assistant-memory-preferences-store', () => {
     expect(settings.semanticRecall.embeddingModelTarget).toBe('openai/text-embedding-3-small');
   });
 
+  it('self-heals a stale model target persisted at the current version', async () => {
+    const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    // Same version as STORE_VERSION, so zustand's `migrate` does NOT run. The
+    // dropped target must still be remapped on hydration so the persisted state
+    // and the settings UI never reference a removed model.
+    const sameVersionStale: StorageValue<unknown> = {
+      version: 2,
+      state: {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2-chat-latest',
+          scope: 'thread',
+          messageTokens: 30_000,
+          observationTokens: 40_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 5,
+          messageRange: 2,
+        },
+      },
+    };
+
+    options.storage.setItem(options.name, sameVersionStale);
+    await persistApi.rehydrate?.();
+
+    // Read raw state (not getRuntimeMemorySettings) to prove the persisted value
+    // itself was healed, not just normalized on read.
+    expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.modelTarget).toBe(
+      'openai/gpt-5.4-mini'
+    );
+  });
+
   it('uses explicit defaults for Mastra observational memory and disables semantic recall', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
