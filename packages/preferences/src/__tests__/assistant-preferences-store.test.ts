@@ -840,7 +840,7 @@ describe('assistant-preferences-store', () => {
           openai: ['gpt-5.2-chat-latest'],
           anthropic: ['claude-sonnet-4-5', 'claude-opus-4-5'],
           google: ['gemini-3-flash-preview', 'gemini-2.5-flash'],
-          openrouter: ['anthropic/claude-sonnet-4.5'],
+          openrouter: ['anthropic/claude-sonnet-4.5', 'anthropic/claude-opus-4.5'],
         },
         providerSettings: {},
       },
@@ -850,6 +850,9 @@ describe('assistant-preferences-store', () => {
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
+    // OpenRouter Opus 4.5 remaps to 4.8 (symmetry with the direct-provider map).
+    expect(store.enabledModelsByProvider['openrouter']).toContain('anthropic/claude-opus-4.8');
+    expect(store.enabledModelsByProvider['openrouter']).not.toContain('anthropic/claude-opus-4.5');
     expect(store.modelsByProvider['openai']).toBe('gpt-5.4');
     expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-6');
     expect(store.modelsByProvider['google']).toBe('gemini-3.5-flash');

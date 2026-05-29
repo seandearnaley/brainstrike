@@ -405,6 +405,7 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
     'openai/gpt-3.5-turbo': 'openai/gpt-5.4-mini',
     'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.6',
     'anthropic/claude-sonnet-4.5': 'anthropic/claude-sonnet-4.6',
+    'anthropic/claude-opus-4.5': 'anthropic/claude-opus-4.8',
     'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
     'google/gemini-2.0-pro': 'google/gemini-2.5-flash',
     'google/gemini-1.5-pro': 'google/gemini-2.5-flash',
