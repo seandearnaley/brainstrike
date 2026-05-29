@@ -102,22 +102,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Affected-only unit tests may include apps/desktop, whose tests
-      # transitively load the real `electron` module. `electron/index.js`
-      # throws "Electron failed to install correctly" unless its binary is
-      # extracted into the package — which pnpm's postinstall skips on a warm
-      # store. Force-extract it (idempotent; uses ~/.cache/electron when warm).
-      - name: Cache Electron binary
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-
-
-      - name: Ensure Electron binary is installed
-        run: cd apps/desktop && node node_modules/electron/install.js
-
       # Build workspace deps first. The previous `turbo run test --affected`
       # got its build dependency via turbo.jsonc's `dependsOn: ["^build"]`,
       # but pnpm's filter doesn't traverse that graph — workspace deps with
@@ -192,20 +176,6 @@ jobs:
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
-
-      # Same Electron-binary requirement as the Unit job (desktop tests load
-      # the real `electron` module). Force-extract the binary so coverage runs
-      # of apps/desktop don't fail with "Electron failed to install correctly".
-      - name: Cache Electron binary
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-
-
-      - name: Ensure Electron binary is installed
-        run: cd apps/desktop && node node_modules/electron/install.js
 
       # See the Unit job for the rationale. Coverage instrumentation runs
       # tests so it has the same build-dependency requirement.
