@@ -40,10 +40,13 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
   // Track enabled models in a mutable Set for testing toggle functionality
   preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
   testEnabledModels: new Set<string>([
-    'gpt-5.2', // OpenAI default
+    // Mock catalog values, intentionally distinct from the real registry defaults
+    // (openai gpt-5.4 / openrouter openai/gpt-5.4) so these tests don't churn when
+    // defaults move; gpt-5.2 / openai/gpt-5.2 remain valid supported models.
+    'gpt-5.2', // mock OpenAI selection
     'claude-sonnet-4-6', // Anthropic default
     'gemini-3.5-flash', // Google default
-    'openai/gpt-5.2', // OpenRouter default
+    'openai/gpt-5.2', // mock OpenRouter selection
   ]),
 }));
 
