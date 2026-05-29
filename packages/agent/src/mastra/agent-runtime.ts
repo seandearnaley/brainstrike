@@ -620,6 +620,31 @@ interface BrainstrikeAgentStreamOptions {
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
+const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
+  'activeTools',
+  'clientTools',
+  'inputProcessors',
+  'outputProcessors',
+  'prepareStep',
+  'requireToolApproval',
+  'structuredOutput',
+  'toolChoice',
+  'toolsets',
+] as const;
+
+function assertNoUnsupportedDirectStreamOptions(options: MastraAgentRuntimeOptions): void {
+  const providedUnsupportedKeys = UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS.filter((key) =>
+    Object.hasOwn(options, key)
+  );
+  if (providedUnsupportedKeys.length === 0) {
+    return;
+  }
+
+  throw createMastraAgentError('mastra_agent_unsupported_stream_option', {
+    detail: `Unsupported Mastra stream option(s): ${providedUnsupportedKeys.join(', ')}`,
+    context: { unsupportedOptions: providedUnsupportedKeys },
+  });
+}
 
 function resolvePositiveIntegerOption(value: unknown, fieldName: string): number | undefined {
   if (value === undefined || value === null) {
@@ -799,6 +824,8 @@ export async function streamMastraAgent(
   messages: AgentMessage[],
   options: MastraAgentRuntimeOptions = {}
 ): Promise<StreamIterator> {
+  assertNoUnsupportedDirectStreamOptions(options);
+
   const runtimeData = options.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
