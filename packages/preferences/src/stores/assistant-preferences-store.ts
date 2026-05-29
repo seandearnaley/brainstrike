@@ -409,7 +409,10 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
     'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
     'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
     // Legacy Google Pro IDs map to Flash here (not Pro like the direct-provider
-    // map) because google/gemini-2.5-pro is not in the OpenRouter catalog.
+    // map) because google/gemini-2.5-pro is not in the OpenRouter catalog —
+    // including google/gemini-2.5-pro itself (a stale FROM key for users who
+    // skipped the v5 migration).
+    'google/gemini-2.5-pro': 'google/gemini-2.5-flash',
     'google/gemini-2.0-pro': 'google/gemini-2.5-flash',
     'google/gemini-1.5-pro': 'google/gemini-2.5-flash',
   },

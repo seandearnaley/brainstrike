@@ -844,6 +844,7 @@ describe('assistant-preferences-store', () => {
             'anthropic/claude-sonnet-4.5',
             'anthropic/claude-opus-4.5',
             'google/gemini-3-pro-preview',
+            'google/gemini-2.5-pro',
           ],
         },
         providerSettings: {},
@@ -861,6 +862,9 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['openrouter']).not.toContain(
       'google/gemini-3-pro-preview'
     );
+    // google/gemini-2.5-pro is not in the OpenRouter catalog, so it remaps to Flash.
+    expect(store.enabledModelsByProvider['openrouter']).toContain('google/gemini-2.5-flash');
+    expect(store.enabledModelsByProvider['openrouter']).not.toContain('google/gemini-2.5-pro');
     expect(store.modelsByProvider['openai']).toBe('gpt-5.4');
     expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-6');
     expect(store.modelsByProvider['google']).toBe('gemini-3.5-flash');
