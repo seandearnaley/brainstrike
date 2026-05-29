@@ -297,6 +297,10 @@ jobs:
     # timeout. The image tag MUST match the installed @playwright/test version.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
+      # `--user 1001` (pwuser) is the configuration shown in Playwright's
+      # official GitHub Actions container example. The browsers under
+      # /ms-playwright are owned by this user; it is the documented, tested path.
+      options: --user 1001
     timeout-minutes: 25
     env:
       NODE_ENV: production
