@@ -72,6 +72,42 @@ describe('frontier models migration (033)', () => {
     }
   });
 
+  it('rolls back faithfully: removes new rows, restores dropped ones, keeps gpt-5.2-pro', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations);
+    await runner.down(migrations, 32);
+
+    const ids = await modelIds(db);
+
+    // New 033 rows are gone.
+    for (const id of [
+      'gpt-5.5',
+      'gpt-5.4',
+      'claude-opus-4-8',
+      'claude-sonnet-4-6',
+      'gemini-3.5-flash',
+      'gemini-embedding-2',
+    ]) {
+      expect(ids).not.toContain(id);
+    }
+    // Dropped (pre-033) rows are restored.
+    for (const id of [
+      'claude-sonnet-4-5',
+      'claude-opus-4-5',
+      'gemini-3-flash-preview',
+      'gpt-5.2-chat-latest',
+    ]) {
+      expect(ids).toContain(id);
+    }
+    // gpt-5.2-pro predates 033 (migration 026) — it must survive rollback, with
+    // its pre-033 metadata restored (sort_order 3, not 033's 9).
+    expect(ids).toContain('gpt-5.2-pro');
+    const proRow = await db.query("SELECT sort_order FROM models WHERE id = 'gpt-5.2-pro'");
+    expect((proRow.rows[0] as { sort_order: number } | undefined)?.sort_order).toBe(3);
+  });
+
   it('preserves a user is_enabled choice on a kept model across the migration', {
     timeout: 60_000,
   }, async () => {

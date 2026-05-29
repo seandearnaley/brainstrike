@@ -108,15 +108,35 @@ export const migration033UpdateProviderModels2026Frontier: Migration = {
       'google/gemini-3.5-flash', 'google/gemini-3.1-pro-preview', 'google/gemini-2.5-flash'
     );
 
-    -- Restore the prior (026/028-era) hosted catalog rows that 033 removed.
+    -- Faithfully restore the pre-033 (025/026-era) hosted catalog so a rollback
+    -- reproduces the version-32 state. This covers BOTH the models 033 removed
+    -- AND the kept rows whose metadata/sort_order 033's upsert overwrote
+    -- (e.g. gpt-5.2-pro, which predates 033 via migration 026 and must NOT be
+    -- deleted). DO UPDATE restores the prior column values; is_enabled is left
+    -- at the row's current value to preserve any user toggle on still-present
+    -- rows (re-created rows take the 026 default in VALUES).
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
+      ('gpt-5.2', 'openai', 'GPT-5.2', 'Latest-generation flagship model', '["Reasoning", "Coding", "Multimodal"]', '{"type":"llm","streaming":true}', 1, true),
       ('gpt-5.2-chat-latest', 'openai', 'GPT-5.2 Chat (Latest)', 'Optimized chat alias', '["Chat", "Fast iteration"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gpt-5.2-pro', 'openai', 'GPT-5.2 Pro', 'Higher capability tier', '["Complex reasoning", "Tool use"]', '{"type":"llm","streaming":true}', 3, true),
+      ('text-embedding-3-small', 'openai', 'Text Embedding 3 Small', 'Efficient embeddings', '["Search", "Clustering"]', '{"type":"embedding","defaultDimension":1536}', 4, true),
+      ('text-embedding-3-large', 'openai', 'Text Embedding 3 Large', 'High-precision embeddings', '["Semantic search", "Knowledge retrieval"]', '{"type":"embedding","defaultDimension":3072}', 5, true),
       ('claude-sonnet-4-5', 'anthropic', 'Claude Sonnet 4.5', 'Advanced reasoning', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 1, true),
+      ('claude-haiku-4-5', 'anthropic', 'Claude Haiku 4.5', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 2, true),
       ('claude-opus-4-5', 'anthropic', 'Claude Opus 4.5', 'Highest quality Claude model', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, true),
       ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash (Preview)', 'Low-latency preview model', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
       ('gemini-3-pro-preview', 'google', 'Gemini 3 Pro (Preview)', 'Advanced reasoning preview', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, true),
+      ('openai/gpt-5.2', 'openrouter', 'GPT-5.2 (OpenRouter)', 'Latest-generation OpenAI model', '["Reasoning", "Coding"]', '{"type":"llm","streaming":true}', 1, false),
       ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5 (OpenRouter)', 'Balanced Claude model', '["Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, false),
       ('google/gemini-3-flash-preview', 'openrouter', 'Gemini 3 Flash (OpenRouter)', 'Low-latency Gemini preview', '["Realtime apps"]', '{"type":"llm","streaming":true}', 3, false)
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO UPDATE SET
+      provider_id = EXCLUDED.provider_id,
+      name = EXCLUDED.name,
+      tagline = EXCLUDED.tagline,
+      best_for = EXCLUDED.best_for,
+      capabilities = EXCLUDED.capabilities,
+      sort_order = EXCLUDED.sort_order,
+      is_enabled = models.is_enabled;
   `,
 };
