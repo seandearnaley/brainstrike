@@ -22,6 +22,8 @@ describe('Gemini thinking-level helpers', () => {
     expect(isGemini3ProModel('gemini-3.1-flash-lite')).toBe(false);
     expect(isGemini3ProModel('gemini-2.5-pro')).toBe(false);
     expect(isGemini3ProModel(undefined)).toBe(false);
+    // Anchored at the start — must not match when embedded in another string.
+    expect(isGemini3ProModel('not-gemini-3.1-pro-extended')).toBe(false);
   });
 
   it('restricts Gemini 3 Pro to low/high and offers the full set otherwise', () => {

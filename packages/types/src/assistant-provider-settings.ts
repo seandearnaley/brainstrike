@@ -43,7 +43,10 @@ export const GOOGLE_PRO_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low'
  * thinking level the runtime would silently drop.
  */
 export function isGemini3ProModel(modelName: string | undefined): boolean {
-  return Boolean(modelName && /gemini-3(?:\.\d+)?-pro/.test(modelName));
+  // Anchored at the start: callers pass bare Google model IDs, so this matches
+  // gemini-3-pro-preview / gemini-3.1-pro-preview but not an unrelated string
+  // that merely contains "gemini-3.x-pro".
+  return Boolean(modelName && /^gemini-3(?:\.\d+)?-pro/.test(modelName));
 }
 
 /** The thinking levels valid for the given Google model. */
