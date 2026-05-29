@@ -290,7 +290,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [static, unit, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       NODE_ENV: production
       PORT: "8080"
@@ -317,8 +317,37 @@ jobs:
           name: build-artifacts
           path: .
 
+      # Cache the downloaded browser binaries (~/.cache/ms-playwright) so we
+      # don't re-fetch them from the Playwright CDN on every run. Keyed on the
+      # lockfile so a Playwright version bump invalidates the cache.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # System libs (apt) are fast and idempotent; keep them out of the retried
+      # browser-download loop.
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      # On a cache hit this is a near-instant no-op (browsers already present).
+      # On a cache miss it downloads from the CDN — which has been observed to
+      # stall indefinitely after the first artifact with no client-side
+      # timeout. Bound each attempt and retry so a stalled fetch fails fast and
+      # reconnects instead of hanging until the job timeout.
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          for attempt in 1 2 3; do
+            if timeout -k 10 300 pnpm exec playwright install chromium; then
+              exit 0
+            fi
+            echo "::warning::playwright browser install attempt ${attempt} stalled or failed; retrying"
+          done
+          echo "::error::playwright browser install failed after 3 attempts"
+          exit 1
 
       - name: Run web smoke
         run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
@@ -377,8 +406,30 @@ jobs:
           name: build-artifacts
           path: .
 
+      # See the Web E2E job for the rationale: cache browsers, split apt deps
+      # out of the retried loop, and bound+retry the CDN download so a stalled
+      # fetch fails fast instead of hanging to the job timeout.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps chromium
+
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          for attempt in 1 2 3; do
+            if timeout -k 10 300 pnpm exec playwright install chromium; then
+              exit 0
+            fi
+            echo "::warning::playwright browser install attempt ${attempt} stalled or failed; retrying"
+          done
+          echo "::error::playwright browser install failed after 3 attempts"
+          exit 1
 
       # dbus-run-session provides an ephemeral D-Bus session so Chromium
       # inside Electron doesn't spew `[ERROR:dbus/bus.cc:405] Failed to
