@@ -201,6 +201,72 @@ describe('AssistantDataStreamSession', () => {
     });
   });
 
+  it('encodes approval-required tool chunks as terminal visible tool errors', async () => {
+    const approvalMessage =
+      'Mastra requires tool approval, but this Brainstrike client cannot approve or decline tool calls yet.';
+    const chunks: StreamChunk[] = [
+      {
+        type: 'tool-event',
+        name: 'brainstrike.updateWorkspaceContextSelection',
+        status: 'error',
+        payload: {
+          actionRequired: true,
+          approvalRequired: true,
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          error: approvalMessage,
+          toolCallId: 'approval-1',
+        },
+      },
+      {
+        type: 'message-finish',
+        finishReason: 'error',
+        path: [],
+        usage: { promptTokens: 0, completionTokens: 0 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'approval-required',
+      messageId: 'msg-approval-required',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const toolCallIndex = events.findIndex((evt) => evt.code === '9');
+    const toolResultIndex = events.findIndex((evt) => evt.code === 'a');
+    const errorIndex = events.findIndex((evt) => evt.code === '3');
+    const finishIndex = events.findIndex((evt) => evt.code === 'd');
+
+    expect(toolCallIndex).toBeGreaterThan(-1);
+    expect(toolResultIndex).toBeGreaterThan(toolCallIndex);
+    expect(errorIndex).toBeGreaterThan(toolResultIndex);
+    expect(finishIndex).toBeGreaterThan(errorIndex);
+    expect(events[toolCallIndex]).toStrictEqual({
+      code: '9',
+      value: {
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+      },
+    });
+    expect(events[toolResultIndex]).toStrictEqual({
+      code: 'a',
+      value: {
+        toolCallId: 'approval-1',
+        result: approvalMessage,
+        isError: true,
+      },
+    });
+    expect(events[errorIndex]).toStrictEqual({ code: '3', value: approvalMessage });
+    expect(events[finishIndex]).toStrictEqual({
+      code: 'd',
+      value: {
+        finishReason: 'error',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        path: [],
+      },
+    });
+  });
+
   it('prefers data-stream usage fields over legacy prompt/completion aliases', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello' },
