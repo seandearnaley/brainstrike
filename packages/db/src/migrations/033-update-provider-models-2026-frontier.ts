@@ -6,6 +6,11 @@ import type { Migration } from './migration-runner';
 // `is_enabled` choices on kept rows are preserved (DO UPDATE keeps the prior
 // value); brand-new hosted rows arrive enabled so users get the fresh
 // selection without re-enabling each model.
+//
+// INVARIANT: every upsert below sets `is_enabled = models.is_enabled` to keep
+// the user's toggle. A future migration that must force a model on/off (e.g. a
+// security-driven swap) has to set `is_enabled` explicitly for those rows
+// instead of copying this clause.
 export const migration033UpdateProviderModels2026Frontier: Migration = {
   version: 33,
   name: 'update_provider_models_2026_frontier',

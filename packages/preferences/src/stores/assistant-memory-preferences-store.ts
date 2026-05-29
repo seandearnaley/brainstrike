@@ -16,8 +16,11 @@ const MAX_SEMANTIC_TOP_K = 50;
 const MAX_MESSAGE_RANGE = 20;
 
 // Remap `provider/model` memory targets that were dropped in the 2026 frontier
-// refresh so observational memory never runs against a removed model ID. Kept
-// in sync with MODEL_ID_MIGRATIONS in assistant-preferences-store.ts.
+// refresh so observational memory never runs against a removed model ID.
+// Mirrors MODEL_ID_MIGRATIONS in assistant-preferences-store.ts, with one
+// intentional divergence: the dropped chat-latest model maps to the cheaper
+// `openai/gpt-5.4-mini` here (background observation is cost-sensitive) rather
+// than the primary chat default `gpt-5.4`.
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
   'openai/gpt-5.2-chat-latest': 'openai/gpt-5.4-mini',
   'anthropic/claude-sonnet-4-5': 'anthropic/claude-sonnet-4-6',
