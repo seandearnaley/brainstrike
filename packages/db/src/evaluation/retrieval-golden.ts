@@ -20,16 +20,20 @@ export interface RetrievalGoldenQuery {
 
 export interface RetrievalGoldenDataset {
   embeddingSet: {
-    modelKey: string;
-    modelId: string;
     dimensions: number;
-    distance: 'cosine' | 'dot' | 'l2';
+    distance: 'cosine' | 'ip' | 'l2';
+    modelId: string;
+    modelKey: string;
   };
   files: RetrievalGoldenFile[];
+  name: string;
   queries: RetrievalGoldenQuery[];
+  version: string;
 }
 
 export const retrievalGoldenDataset = {
+  name: 'retrieval-golden',
+  version: '1',
   embeddingSet: {
     modelKey: 'test::retrieval',
     modelId: 'retrieval-test',
