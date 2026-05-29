@@ -43,6 +43,20 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Mock `electron-store` globally. Its module body destructures
+// `const {app, ipcMain, shell} = electron` at import time, so when `electron`
+// is aliased to the test stub (see vitest.config.mts) any per-test
+// `vi.mock('electron', …)` that returns only a partial surface would otherwise
+// crash electron-store at import. Tests inject fake stores via DI, so an inert
+// constructor is sufficient here; files that exercise electron-store directly
+// still override this with their own per-file `vi.mock('electron-store', …)`.
+vi.mock('electron-store', () => {
+  const MockElectronStore = vi.fn(function (this: Record<string, unknown>) {
+    Object.assign(this, {});
+  });
+  return { default: MockElectronStore };
+});
+
 // Mock Electron APIs
 const mockElectronAPI = {
   storage: {
