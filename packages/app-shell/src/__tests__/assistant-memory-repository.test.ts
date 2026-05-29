@@ -358,7 +358,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
               resource_id: '/tmp/workspace-a',
               thread_id: 'thread-1',
               provider: 'anthropic',
-              model: 'claude-sonnet-4-5',
+              model: 'claude-sonnet-4-6',
               model_settings: JSON.stringify({ maxOutputTokens: 2048 }),
               provider_options: null,
               runtime_kind: 'hosted',
@@ -383,7 +383,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       resourceId: '/tmp/workspace-a',
       threadId: 'thread-1',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       modelSettings: { maxOutputTokens: 2048 },
       runtimeKind: 'hosted',
       status: 'completed',
@@ -488,7 +488,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       resourceId: '/tmp/workspace-a',
       threadId: 'thread-2',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       runtimeKind: 'hosted',
     });
 

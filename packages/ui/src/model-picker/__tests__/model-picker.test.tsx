@@ -34,7 +34,7 @@ const providers: ModelPickerProvider[] = [
 const models: ModelPickerModel[] = [
   { id: 'gpt-5.2', name: 'GPT-5.2', providerId: 'openai', capabilities: { type: 'llm' } },
   {
-    id: 'claude-sonnet-4-5',
+    id: 'claude-sonnet-4-6',
     name: 'Claude Sonnet 4.5',
     providerId: 'anthropic',
     capabilities: { type: 'llm' },
@@ -133,7 +133,7 @@ describe('ModelPicker', () => {
       );
       fireEvent.click(screen.getByRole('combobox'));
       fireEvent.click(screen.getByText('Claude Sonnet 4.5'));
-      expect(onChange).toHaveBeenCalledWith(['gpt-5.2', 'claude-sonnet-4-5']);
+      expect(onChange).toHaveBeenCalledWith(['gpt-5.2', 'claude-sonnet-4-6']);
     });
 
     it('displays count for multiple selections', () => {
@@ -142,7 +142,7 @@ describe('ModelPicker', () => {
           mode="multi"
           models={models}
           providers={providers}
-          value={['gpt-5.2', 'claude-sonnet-4-5']}
+          value={['gpt-5.2', 'claude-sonnet-4-6']}
         />
       );
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();

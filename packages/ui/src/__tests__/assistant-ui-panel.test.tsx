@@ -234,7 +234,7 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'claude-sonnet-4-5',
+            id: 'claude-sonnet-4-6',
             label: 'Claude Sonnet 4.5',
             type: 'llm',
             enabled: true,
@@ -262,7 +262,7 @@ const pickerModels: ModelPickerModel[] = [
     capabilities: { type: 'llm', streaming: true },
   },
   {
-    id: 'claude-sonnet-4-5',
+    id: 'claude-sonnet-4-6',
     providerId: 'anthropic',
     name: 'Claude Sonnet 4.5',
     description: null,
@@ -807,7 +807,7 @@ describe('AssistantUiPanel model picker', () => {
     fireEvent.click(option);
 
     // Should be called with composite key format: "provider::model"
-    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-5');
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
   });
 
   it('shows placeholder when no models are enabled', () => {

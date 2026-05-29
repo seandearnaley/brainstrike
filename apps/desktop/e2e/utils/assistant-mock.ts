@@ -2,8 +2,8 @@ import type { Page } from '@playwright/test';
 
 const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-5.2',
-  anthropic: 'claude-sonnet-4-5',
-  google: 'gemini-3-flash-preview',
+  anthropic: 'claude-sonnet-4-6',
+  google: 'gemini-3.5-flash',
   openrouter: 'openai/gpt-5.2',
 } as const;
 

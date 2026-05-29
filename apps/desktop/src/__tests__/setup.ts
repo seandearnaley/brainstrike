@@ -147,7 +147,7 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
     capabilities: { llm: true, embeddings: false, streaming: true },
     envKeys: ['ANTHROPIC_API_KEY'],
-    models: [{ id: 'claude-sonnet-4-5', type: 'llm' as const, default: true }],
+    models: [{ id: 'claude-sonnet-4-6', type: 'llm' as const, default: true }],
   },
   {
     id: 'google',
@@ -156,7 +156,7 @@ const mockProviderDefinitions = [
     capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
     models: [
-      { id: 'gemini-3-flash-preview', type: 'llm' as const, default: true },
+      { id: 'gemini-3.5-flash', type: 'llm' as const, default: true },
       {
         id: 'gemini-embedding-001',
         type: 'embedding' as const,
