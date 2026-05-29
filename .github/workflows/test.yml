@@ -404,17 +404,27 @@ jobs:
       # then VERIFY the binary exists so any provisioning gap fails loudly here
       # rather than cryptically inside the test. This runs immediately before
       # the smoke so no later step (e.g. artifact extraction) can disturb it.
-      - name: Ensure Electron binary is installed
+      # Provision the Electron binary deterministically. electron/install.js is
+      # unreliable here: on an @electron/get cache hit it reaches its
+      # `extract-zip` step but the (un-awaited) extraction never completes and
+      # the process exits 0, leaving no dist/ or path.txt — so the app throws
+      # "Electron failed to install correctly". Instead, download the prebuilt
+      # zip directly from GitHub Releases (reliable host, NOT the Playwright
+      # CDN) and extract it with the system `unzip`, then write path.txt and
+      # hard-verify the executable exists before the smoke launches it.
+      - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
-          # electron/install.js early-exits via its isInstalled() guard if a
-          # stale dist/ or path.txt marker is present (which the cached pnpm
-          # store can leave in an inconsistent state), skipping the real binary
-          # extraction. Clear the markers in the exact electron package the app
-          # resolves, then run install.js so it MUST download + extract, then
-          # hard-verify the executable exists before the smoke launches it.
-          node -e "const fs=require('fs'),path=require('path');const d=path.dirname(require.resolve('electron/package.json'));fs.rmSync(path.join(d,'path.txt'),{force:true});fs.rmSync(path.join(d,'dist'),{recursive:true,force:true});console.log('cleared electron markers in '+d)"
-          node node_modules/electron/install.js
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
       # dbus-run-session provides an ephemeral D-Bus session so Chromium
