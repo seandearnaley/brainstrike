@@ -407,6 +407,13 @@ jobs:
       - name: Ensure Electron binary is installed
         working-directory: apps/desktop
         run: |
+          # electron/install.js early-exits via its isInstalled() guard if a
+          # stale dist/ or path.txt marker is present (which the cached pnpm
+          # store can leave in an inconsistent state), skipping the real binary
+          # extraction. Clear the markers in the exact electron package the app
+          # resolves, then run install.js so it MUST download + extract, then
+          # hard-verify the executable exists before the smoke launches it.
+          node -e "const fs=require('fs'),path=require('path');const d=path.dirname(require.resolve('electron/package.json'));fs.rmSync(path.join(d,'path.txt'),{force:true});fs.rmSync(path.join(d,'dist'),{recursive:true,force:true});console.log('cleared electron markers in '+d)"
           node node_modules/electron/install.js
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
