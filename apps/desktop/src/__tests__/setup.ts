@@ -51,9 +51,7 @@ vi.mock('electron', () => ({
 // constructor is sufficient here; files that exercise electron-store directly
 // still override this with their own per-file `vi.mock('electron-store', …)`.
 vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
+  const MockElectronStore = vi.fn();
   return { default: MockElectronStore };
 });
 
