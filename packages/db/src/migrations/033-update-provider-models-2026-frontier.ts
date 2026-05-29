@@ -104,6 +104,11 @@ export const migration033UpdateProviderModels2026Frontier: Migration = {
       is_enabled = models.is_enabled;
   `,
   down: `
+    -- Delete the rows 033 newly introduced. Note the gemini-2.5-* models: 025
+    -- seeded them and 026 deleted them, so they are ABSENT in the pre-033
+    -- (post-026) state. 033 re-introduces them as first-class, so rolling back
+    -- correctly removes them again. (Pre-existing rows like gpt-5.2-pro are not
+    -- listed here — they are metadata-restored by the INSERT below instead.)
     DELETE FROM models WHERE id IN (
       'gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.3-codex',
       'claude-opus-4-8', 'claude-sonnet-4-6',
