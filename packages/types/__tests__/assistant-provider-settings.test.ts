@@ -24,6 +24,9 @@ describe('Gemini thinking-level helpers', () => {
     expect(isGemini3ProModel(undefined)).toBe(false);
     // Anchored at the start — must not match when embedded in another string.
     expect(isGemini3ProModel('not-gemini-3.1-pro-extended')).toBe(false);
+    // Trailing token boundary — "-pro" must be delimited, not a prefix of "production".
+    expect(isGemini3ProModel('gemini-3.1-production')).toBe(false);
+    expect(isGemini3ProModel('gemini-3-pro')).toBe(true);
   });
 
   it('restricts Gemini 3 Pro to low/high and offers the full set otherwise', () => {
