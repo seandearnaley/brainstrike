@@ -179,6 +179,26 @@ When changing this flow, update this doc.
 
 ---
 
+## MODEL CATALOG MIGRATIONS (CRITICAL)
+
+Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.
+
+When changing the model catalog:
+1. Update the static registry (single source of truth):
+   - packages/assistant-contract/src/provider-registry.ts
+2. Add a numbered DB migration that upserts/deletes catalog rows, and register it in BOTH:
+   - packages/db/src/migrations/index.ts (numbered MigrationRunner — used by tests)
+   - the `customMigrations` ledger in packages/db/src/drizzle/migrate.ts (used by the real app)
+   - Registering in only one means tests pass but existing users never see the change.
+3. Preserve user choices on kept rows with `ON CONFLICT (id) DO UPDATE SET ... is_enabled = models.is_enabled`.
+   - INVARIANT: never use `is_enabled = EXCLUDED.is_enabled` for a catalog refresh — it clobbers the user's toggle. Force on/off only for a deliberate (e.g. security) swap.
+4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
+   - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
+   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
+5. Register any new `packages/db/__tests__/*.test.ts` in scripts/test-lanes.mjs (CI errors on an unassigned test file); verify with `node scripts/test-lanes.mjs check`.
+
+---
+
 ## LOCAL LLM ARCHITECTURE (CRITICAL)
 
 Renderer-only execution is mandatory for the built-in local LLM path.

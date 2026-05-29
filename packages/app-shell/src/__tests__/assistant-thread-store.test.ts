@@ -157,7 +157,7 @@ describe('useAssistantThreadStore tab sessions', () => {
     store.openThreadTab(workspaceId, 'thread-b');
     store.setThreadDraftRuntime('thread-b', {
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
       modelSettings: { maxOutputTokens: 1024 },
     });
 
@@ -170,7 +170,7 @@ describe('useAssistantThreadStore tab sessions', () => {
       },
       'thread-b': {
         provider: 'anthropic',
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',
         modelSettings: { maxOutputTokens: 1024 },
       },
     });

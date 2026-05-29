@@ -6,6 +6,7 @@ import type {
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
+import { getGoogleThinkingLevels } from '@brainstrike/types';
 import type { FC } from 'react';
 import { Input } from '../input';
 import { Label } from '../label';
@@ -60,9 +61,6 @@ const ANTHROPIC_EFFORT_OPTIONS: Array<{ value: AnthropicEffort | 'auto'; label: 
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
 ];
-
-const GOOGLE_FLASH_THINKING_LEVELS: GoogleThinkingLevel[] = ['minimal', 'low', 'medium', 'high'];
-const GOOGLE_PRO_THINKING_LEVELS: GoogleThinkingLevel[] = ['low', 'high'];
 
 interface ProviderSettingsPanelProps {
   modelName?: string | undefined;
@@ -483,10 +481,7 @@ const GoogleThinkingSection: FC<GoogleThinkingSectionProps> = ({
   disabled,
   modelName,
 }) => {
-  const isGeminiPro = Boolean(modelName?.includes('gemini-3-pro-preview'));
-  const googleThinkingLevels = isGeminiPro
-    ? GOOGLE_PRO_THINKING_LEVELS
-    : GOOGLE_FLASH_THINKING_LEVELS;
+  const googleThinkingLevels = getGoogleThinkingLevels(modelName);
 
   return (
     <div className="space-y-2 rounded-md bg-muted/30 p-2">

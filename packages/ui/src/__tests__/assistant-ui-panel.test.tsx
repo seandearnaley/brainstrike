@@ -234,8 +234,8 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'claude-sonnet-4-5',
-            label: 'Claude Sonnet 4.5',
+            id: 'claude-sonnet-4-6',
+            label: 'Claude Sonnet 4.6',
             type: 'llm',
             enabled: true,
             supportsStreaming: true,
@@ -262,9 +262,9 @@ const pickerModels: ModelPickerModel[] = [
     capabilities: { type: 'llm', streaming: true },
   },
   {
-    id: 'claude-sonnet-4-5',
+    id: 'claude-sonnet-4-6',
     providerId: 'anthropic',
-    name: 'Claude Sonnet 4.5',
+    name: 'Claude Sonnet 4.6',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
@@ -803,11 +803,11 @@ describe('AssistantUiPanel model picker', () => {
     fireEvent.click(trigger);
 
     // Wait for the popover to open and find the Claude model option
-    const option = await screen.findByText('Claude Sonnet 4.5');
+    const option = await screen.findByText('Claude Sonnet 4.6');
     fireEvent.click(option);
 
     // Should be called with composite key format: "provider::model"
-    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-5');
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
   });
 
   it('shows placeholder when no models are enabled', () => {

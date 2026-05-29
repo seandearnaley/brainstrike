@@ -8,47 +8,47 @@ describe('provider-factory', () => {
     it('creates OpenAI provider with default model', () => {
       const model = createProvider('openai', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gpt-5.2');
+      expect(model.modelId).toBe('gpt-5.4');
     });
 
     it('creates OpenAI provider with custom model', () => {
-      const model = createProvider('openai', 'test-key', 'gpt-5.2') as { modelId: string };
+      const model = createProvider('openai', 'test-key', 'gpt-5.4') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gpt-5.2');
+      expect(model.modelId).toBe('gpt-5.4');
     });
 
     it('creates Anthropic provider with default model', () => {
       const model = createProvider('anthropic', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-sonnet-4-5');
+      expect(model.modelId).toBe('claude-sonnet-4-6');
     });
 
     it('creates Anthropic provider with custom model', () => {
-      const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-5') as {
+      const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-6') as {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-sonnet-4-5');
+      expect(model.modelId).toBe('claude-sonnet-4-6');
     });
 
     it('creates Google provider with default model', () => {
       const model = createProvider('google', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gemini-3-flash-preview');
+      expect(model.modelId).toBe('gemini-3.5-flash');
     });
 
     it('creates Google provider with custom model', () => {
-      const model = createProvider('google', 'test-key', 'gemini-3-flash-preview') as {
+      const model = createProvider('google', 'test-key', 'gemini-3.5-flash') as {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gemini-3-flash-preview');
+      expect(model.modelId).toBe('gemini-3.5-flash');
     });
 
     it('creates OpenRouter provider with default model', () => {
       const model = createProvider('openrouter', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('openai/gpt-5.2');
+      expect(model.modelId).toBe('openai/gpt-5.4');
     });
 
     it('creates OpenRouter provider with custom model', () => {
@@ -110,23 +110,23 @@ describe('provider-factory', () => {
 
   describe('getDefaultModel', () => {
     it('returns correct default for OpenAI', () => {
-      expect(getDefaultModel('openai')).toBe('gpt-5.2');
+      expect(getDefaultModel('openai')).toBe('gpt-5.4');
     });
 
     it('returns correct default for Anthropic', () => {
-      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-4-5');
+      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-4-6');
     });
 
     it('returns correct default for Google', () => {
-      expect(getDefaultModel('google')).toBe('gemini-3-flash-preview');
+      expect(getDefaultModel('google')).toBe('gemini-3.5-flash');
     });
 
     it('returns correct default for OpenRouter', () => {
-      expect(getDefaultModel('openrouter')).toBe('openai/gpt-5.2');
+      expect(getDefaultModel('openrouter')).toBe('openai/gpt-5.4');
     });
 
     it('falls back to OpenAI default for unsupported provider', () => {
-      expect(getDefaultModel('unsupported')).toBe('gpt-5.2');
+      expect(getDefaultModel('unsupported')).toBe('gpt-5.4');
     });
   });
 
