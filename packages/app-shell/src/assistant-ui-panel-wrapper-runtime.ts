@@ -28,6 +28,7 @@ import {
   toolLineRangeToTapestryRange,
   type useWorkspaceContextCurationStore,
 } from '@brainstrike/file-explorer-ui/preview';
+import { getGoogleThinkingLevels } from '@brainstrike/types';
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
@@ -723,13 +724,9 @@ function resolveGoogleThinkingLevel(
   if (!value) {
     return;
   }
-  // Gemini 3.x Pro restricts thinking_level to low/high (no minimal/medium),
-  // unlike the Flash line. Matches gemini-3-pro-preview, gemini-3.1-pro-preview, etc.
-  const isPro = Boolean(modelName && /gemini-3(?:\.\d+)?-pro/.test(modelName));
-  const allowed: readonly NonNullable<AssistantProviderSettings['googleThinkingLevel']>[] = isPro
-    ? ['low', 'high']
-    : ['minimal', 'low', 'medium', 'high'];
-  return allowed.includes(value) ? value : undefined;
+  // Shared helper keeps this in sync with the settings UI's level options so a
+  // Pro model never offers a level the runtime would silently drop here.
+  return getGoogleThinkingLevels(modelName).includes(value) ? value : undefined;
 }
 
 function buildOpenAiOptions(

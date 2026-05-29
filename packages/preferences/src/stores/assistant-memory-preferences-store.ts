@@ -10,10 +10,25 @@ import { createBrowserJsonStorage } from './browser-json-storage';
 
 export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME = 'assistant-memory-preferences.v1' as const;
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const MIN_TOKEN_THRESHOLD = 1000;
 const MAX_SEMANTIC_TOP_K = 50;
 const MAX_MESSAGE_RANGE = 20;
+
+// Remap `provider/model` memory targets that were dropped in the 2026 frontier
+// refresh so observational memory never runs against a removed model ID. Kept
+// in sync with MODEL_ID_MIGRATIONS in assistant-preferences-store.ts.
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
+  'openai/gpt-5.2-chat-latest': 'openai/gpt-5.4-mini',
+  'anthropic/claude-sonnet-4-5': 'anthropic/claude-sonnet-4-6',
+  'anthropic/claude-opus-4-5': 'anthropic/claude-opus-4-8',
+  'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
+  'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
+};
+
+function migrateMemoryModelTarget(target: string): string {
+  return MEMORY_MODEL_TARGET_MIGRATIONS[target] ?? target;
+}
 
 interface AssistantMemoryPreferencesActions {
   getRuntimeMemorySettings: () => RuntimeAssistantMemorySettings;
@@ -104,7 +119,9 @@ function normalizeMemorySettings(
   return {
     observationalMemory: {
       enabled: observational?.enabled ?? defaults.observationalMemory.enabled,
-      modelTarget: observational?.modelTarget?.trim() || defaults.observationalMemory.modelTarget,
+      modelTarget: migrateMemoryModelTarget(
+        observational?.modelTarget?.trim() || defaults.observationalMemory.modelTarget
+      ),
       scope: normalizeScope(observational?.scope ?? defaults.observationalMemory.scope),
       messageTokens: clampTokenThreshold(
         observational?.messageTokens ?? defaults.observationalMemory.messageTokens

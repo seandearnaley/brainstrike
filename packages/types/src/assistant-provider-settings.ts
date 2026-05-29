@@ -25,6 +25,34 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
+/** Thinking levels offered by the Gemini Flash line. */
+export const GOOGLE_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+];
+
+/** Gemini 3 Pro restricts thinking to low/high (no minimal/medium). */
+export const GOOGLE_PRO_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low', 'high'];
+
+/**
+ * Whether a model ID is a Gemini 3.x Pro model (e.g. gemini-3-pro-preview,
+ * gemini-3.1-pro-preview). Single source of truth shared by the settings UI
+ * and the runtime provider-options builder so a Pro model never offers a
+ * thinking level the runtime would silently drop.
+ */
+export function isGemini3ProModel(modelName: string | undefined): boolean {
+  return Boolean(modelName && /gemini-3(?:\.\d+)?-pro/.test(modelName));
+}
+
+/** The thinking levels valid for the given Google model. */
+export function getGoogleThinkingLevels(
+  modelName: string | undefined
+): readonly GoogleThinkingLevel[] {
+  return isGemini3ProModel(modelName) ? GOOGLE_PRO_THINKING_LEVELS : GOOGLE_FLASH_THINKING_LEVELS;
+}
+
 /**
  * Tri-state activation for local runtime providers (ollama / lmstudio):
  *  - `auto`: follow detection — show the provider only when probing succeeds.

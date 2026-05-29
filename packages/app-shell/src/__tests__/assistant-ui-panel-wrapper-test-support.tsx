@@ -238,7 +238,7 @@ vi.mock('@brainstrike/preferences', async () => {
   const defaultAssistantMemoryPreferences: AssistantMemoryPreferencesState = {
     observationalMemory: {
       enabled: true,
-      modelTarget: 'openai/gpt-5.2-chat-latest',
+      modelTarget: 'openai/gpt-5.4-mini',
       scope: 'thread',
       messageTokens: 30_000,
       observationTokens: 40_000,

@@ -2,10 +2,33 @@ import { describe, expect, it } from 'vitest';
 import {
   type AssistantProviderSettings,
   type AssistantProviderSettingsUpdate,
+  GOOGLE_FLASH_THINKING_LEVELS,
+  GOOGLE_PRO_THINKING_LEVELS,
+  getGoogleThinkingLevels,
+  isGemini3ProModel,
   mergeAssistantProviderSettings,
   mergeProviderSettings,
   type ProviderSettingsUpdate,
 } from '../src/assistant-provider-settings';
+
+describe('Gemini thinking-level helpers', () => {
+  it('recognizes the Gemini 3.x Pro line (current + legacy IDs)', () => {
+    expect(isGemini3ProModel('gemini-3.1-pro-preview')).toBe(true);
+    expect(isGemini3ProModel('gemini-3-pro-preview')).toBe(true);
+  });
+
+  it('does not treat Flash or 2.5 Pro as Gemini 3 Pro', () => {
+    expect(isGemini3ProModel('gemini-3.5-flash')).toBe(false);
+    expect(isGemini3ProModel('gemini-3.1-flash-lite')).toBe(false);
+    expect(isGemini3ProModel('gemini-2.5-pro')).toBe(false);
+    expect(isGemini3ProModel(undefined)).toBe(false);
+  });
+
+  it('restricts Gemini 3 Pro to low/high and offers the full set otherwise', () => {
+    expect(getGoogleThinkingLevels('gemini-3.1-pro-preview')).toEqual(GOOGLE_PRO_THINKING_LEVELS);
+    expect(getGoogleThinkingLevels('gemini-3.5-flash')).toEqual(GOOGLE_FLASH_THINKING_LEVELS);
+  });
+});
 
 interface SettingsWithObjectValue {
   readonly nested?: {
