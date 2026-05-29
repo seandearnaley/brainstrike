@@ -377,6 +377,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The desktop smoke launches the REAL Electron binary via
+      # `_electron.launch`. pnpm's frozen install does not reliably extract the
+      # Electron binary into node_modules (postinstall is skipped on a warm
+      # store / when not in pnpm's build-script allowlist), so on an
+      # ~/.cache/electron cache miss the app fails with "Electron failed to
+      # install correctly". Force-extract it explicitly (idempotent; uses the
+      # warm cache when present, else downloads from GitHub Releases — NOT the
+      # Playwright CDN). This is the E2E counterpart to the unit-test stub.
+      - name: Ensure Electron binary is installed
+        working-directory: apps/desktop
+        run: node node_modules/electron/install.js
+
       - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
