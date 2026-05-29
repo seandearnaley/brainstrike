@@ -42,6 +42,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Redirect `electron` to a test stub so desktop unit tests never load the
+      // real, binary-dependent `electron/index.js` (which throws "Electron failed
+      // to install correctly" when the platform binary is absent — e.g. in CI's
+      // affected-only Unit/Coverage runners). Per-test `vi.mock('electron', ...)`
+      // still overrides specific members.
+      electron: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
       '@': path.resolve(import.meta.dirname, './src/renderer'),
       ...createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent')),
       '@brainstrike/embeddings/runtime-config': path.resolve(
