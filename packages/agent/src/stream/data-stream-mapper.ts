@@ -13,6 +13,7 @@ import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { toJsonSafe } from './json';
 
 interface ToolState {
+  argsEmitted: boolean;
   lastInput?: unknown;
   pendingArgsText: string;
   toolName: string;
@@ -320,6 +321,7 @@ export class DataStreamMapper {
     yield* this.finalizeCurrentTextIfNeeded();
     yield* this.startStepIfNeeded();
     this.toolState.set(callId, {
+      argsEmitted: false,
       toolName,
       pendingArgsText: '',
       lastInput: extractToolInput(payload),
@@ -353,6 +355,7 @@ export class DataStreamMapper {
         return;
       }
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
         value: { toolCallId: callId, toolName: state.toolName, args },
@@ -365,6 +368,15 @@ export class DataStreamMapper {
       (payload as { output?: unknown; result?: unknown }).output ??
         (payload as { result?: unknown }).result
     );
+    const state = this.toolState.get(callId);
+    if (state && !state.argsEmitted) {
+      const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: { toolCallId: callId, toolName: state.toolName, args },
+      } satisfies EncodedChunk;
+    }
     this.toolState.delete(callId);
     yield {
       code: DataStreamCode.toolCallResult,
@@ -383,8 +395,9 @@ export class DataStreamMapper {
 
     // Emit ToolCall with args if we haven't already (needed for UI to display tool)
     const state = this.toolState.get(callId);
-    if (state) {
+    if (state && !state.argsEmitted) {
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
         value: { toolCallId: callId, toolName: state.toolName, args },

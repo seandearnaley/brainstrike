@@ -158,6 +158,49 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 5, outputTokens: 7 });
   });
 
+  it('emits completed tool-call args before successful non-streaming tool results', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'tool-event',
+        name: 'weather.lookup',
+        status: 'start',
+        payload: { toolCallId: 'call-direct', args: { city: 'SF' } },
+      },
+      {
+        type: 'tool-event',
+        name: 'weather.lookup',
+        status: 'success',
+        payload: { toolCallId: 'call-direct', output: { tempC: 18 } },
+      },
+      { type: 'finish', usage: { promptTokens: 5, completionTokens: 7 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'direct-tool-success',
+      messageId: 'msg-direct-tool-success',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const toolCallIndex = events.findIndex((evt) => evt.code === '9');
+    const toolResultIndex = events.findIndex((evt) => evt.code === 'a');
+
+    expect(toolCallIndex).toBeGreaterThan(-1);
+    expect(toolResultIndex).toBeGreaterThan(-1);
+    expect(toolCallIndex).toBeLessThan(toolResultIndex);
+    expect(events[toolCallIndex]).toStrictEqual({
+      code: '9',
+      value: {
+        toolCallId: 'call-direct',
+        toolName: 'weather.lookup',
+        args: { city: 'SF' },
+      },
+    });
+    expect(events[toolResultIndex]).toStrictEqual({
+      code: 'a',
+      value: { toolCallId: 'call-direct', result: { tempC: 18 } },
+    });
+  });
+
   it('prefers data-stream usage fields over legacy prompt/completion aliases', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello' },
