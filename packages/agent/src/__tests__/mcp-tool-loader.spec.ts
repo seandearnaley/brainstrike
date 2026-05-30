@@ -231,6 +231,44 @@ describe('mcp-tool-loader', () => {
       expect(toolNameMap.has('file_read_file')).toBe(false);
     });
 
+    it('reserves exact grouped MCP toolset keys for their configured server', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          alpha: {
+            search: { id: 'search', description: 'search' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'Alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result)).toEqual(['alpha_search']);
+      expect(result).not.toHaveProperty('Alpha_search');
+      expect(toolNameMap.get('alpha_search')).toBe('alpha.search');
+      expect(toolNameMap.has('Alpha_search')).toBe(false);
+    });
+
     it('does not assign one normalized grouped MCP toolset to multiple configured servers', async () => {
       const toolNameMap = new Map<string, string>();
       const records: LogRecord[] = [];

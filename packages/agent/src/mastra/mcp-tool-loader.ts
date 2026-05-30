@@ -56,6 +56,9 @@ export async function collectCombinedTools({
 
   const serverList = mcpConfig.servers ?? [];
   const isSingleServer = serverList.length === 1;
+  const configuredServerNames = new Set(
+    serverList.flatMap((server) => (server?.name ? [server.name] : []))
+  );
   const assignedToolsetNames = new Set<string>();
 
   for (const server of serverList) {
@@ -70,6 +73,7 @@ export async function collectCombinedTools({
             server.name,
             isSingleServer,
             toolNameMap,
+            configuredServerNames,
             assignedToolsetNames
           )
         : selectToolsForServer(discovered.tools, server.name, isSingleServer);
@@ -91,6 +95,7 @@ function selectToolsetForServer(
   serverName: string,
   isSingleServer: boolean,
   toolNameMap: Map<string, string>,
+  configuredServerNames: Set<string>,
   assignedToolsetNames: Set<string>
 ): ToolsInput | undefined {
   const selected = findToolsetForServer(toolsets, serverName, isSingleServer);
@@ -100,6 +105,18 @@ function selectToolsetForServer(
       code: 'mcp_toolset_server_key_missing',
       serverName,
       availableServerNames: Object.keys(toolsets),
+    });
+    return;
+  }
+
+  if (
+    selected.matchedServerName !== serverName &&
+    configuredServerNames.has(selected.matchedServerName)
+  ) {
+    logger.debug('MCP toolset matched another configured server exact key', {
+      code: 'mcp_toolset_server_key_exact_owner_deferred',
+      serverName,
+      matchedServerName: selected.matchedServerName,
     });
     return;
   }
