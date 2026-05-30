@@ -241,4 +241,124 @@ describe('resolveAssistantRunEventStatus', () => {
       )
     ).toBe('completed');
   });
+
+  it('marks matching started events failed or cancelled from terminal run events', () => {
+    const stepStarted = {
+      ...baseEvent,
+      id: 'step-started',
+      kind: 'run.step.started',
+      runId: 'run-2',
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const otherRunFailed = {
+      ...baseEvent,
+      id: 'other-run-failed',
+      kind: 'run.failed',
+      runId: 'run-3',
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+    const runFailed = {
+      ...baseEvent,
+      id: 'run-failed',
+      kind: 'run.failed',
+      runId: 'run-2',
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+    const runCancelled = {
+      ...baseEvent,
+      id: 'run-cancelled',
+      kind: 'run.cancelled',
+      runId: 'run-2',
+      status: 'cancelled',
+    } satisfies AssistantRunEvent;
+
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([stepStarted, otherRunFailed, runFailed])],
+        stepStarted
+      )
+    ).toBe('failed');
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([stepStarted, otherRunFailed, runCancelled])],
+        stepStarted
+      )
+    ).toBe('cancelled');
+  });
+
+  it('matches failed tool completions by tool call id', () => {
+    const toolStarted = {
+      ...baseEvent,
+      id: 'tool-started',
+      kind: 'tool.started',
+      metadata: { toolCallId: 'call-1', toolName: 'write_file' },
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const otherToolFailed = {
+      ...baseEvent,
+      id: 'other-tool-failed',
+      kind: 'tool.failed',
+      metadata: { toolCallId: 'call-2', toolName: 'write_file' },
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+    const toolFailed = {
+      ...baseEvent,
+      id: 'tool-failed',
+      kind: 'tool.failed',
+      metadata: { toolCallId: 'call-1', toolName: 'write_file' },
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([toolStarted, otherToolFailed])],
+        toolStarted
+      )
+    ).toBe('running');
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([toolStarted, otherToolFailed, toolFailed])],
+        toolStarted
+      )
+    ).toBe('failed');
+  });
+
+  it('reads assistant run events from message parts arrays', () => {
+    const runStarted = {
+      ...baseEvent,
+      id: 'run-started',
+      kind: 'run.started',
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const runFinished = {
+      ...baseEvent,
+      id: 'run-finished',
+      kind: 'run.finished',
+      status: 'completed',
+    } satisfies AssistantRunEvent;
+
+    const messages = [
+      {
+        parts: [
+          { data: runStarted, name: ASSISTANT_RUN_EVENT_DATA_NAME, type: 'data' },
+          { data: runFinished, name: ASSISTANT_RUN_EVENT_DATA_NAME, type: 'data' },
+        ],
+      },
+    ];
+
+    expect(resolveAssistantRunEventStatus(messages, runStarted)).toBe('completed');
+  });
+
+  it('keeps non-running and unsupported running statuses unchanged', () => {
+    expect(resolveAssistantRunEventStatus([], null)).toBe('info');
+    expect(resolveAssistantRunEventStatus([], baseEvent)).toBe('completed');
+    expect(
+      resolveAssistantRunEventStatus([], {
+        ...baseEvent,
+        id: 'memory-running',
+        kind: 'memory.configured',
+        status: 'running',
+      })
+    ).toBe('running');
+  });
 });
