@@ -273,6 +273,103 @@ describe('PgliteMemoryStore', () => {
     expect(result.hasMore).toBe(true);
   });
 
+  it('does not return included messages outside the requested thread or resource scope', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Scoped thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveThread({
+      thread: {
+        id: 'thread-foreign',
+        resourceId: 'workspace-b',
+        title: 'Foreign thread',
+        createdAt: new Date('2026-04-22T11:00:00Z'),
+        updatedAt: new Date('2026-04-22T11:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('thread-1-message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('thread-1-message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('foreign-message-1', 'thread-foreign', 'workspace-b', '2026-04-22T11:00:01Z'),
+        textMessage('foreign-message-2', 'thread-foreign', 'workspace-b', '2026-04-22T11:00:02Z'),
+        textMessage('foreign-message-3', 'thread-foreign', 'workspace-b', '2026-04-22T11:00:03Z'),
+      ],
+    });
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [
+        {
+          id: 'foreign-message-2',
+          withPreviousMessages: 1,
+          withNextMessages: 1,
+        },
+      ],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual(['thread-1-message-1']);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('uses bounded adjacent-message queries for include windows', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-a', '2026-04-22T10:00:03Z'),
+        textMessage('message-4', 'thread-1', 'workspace-a', '2026-04-22T10:00:04Z'),
+        textMessage('message-5', 'thread-1', 'workspace-a', '2026-04-22T10:00:05Z'),
+      ],
+    });
+    const querySpy = vi.spyOn(db, 'query');
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [{ id: 'message-3', withPreviousMessages: 1, withNextMessages: 1 }],
+    });
+
+    const sqlStatements = querySpy.mock.calls.map(([sql]) => String(sql));
+    expect(result.messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-2',
+      'message-3',
+      'message-4',
+    ]);
+    expect(sqlStatements).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/ORDER BY "createdAt" DESC, id DESC\s+LIMIT/),
+        expect.stringMatching(/ORDER BY "createdAt" ASC, id ASC\s+LIMIT/),
+      ])
+    );
+    expect(sqlStatements).not.toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/WHERE thread_id = \$1\s+ORDER BY "createdAt" ASC, id ASC\s*$/),
+      ])
+    );
+  });
+
   it('emits compact run events from real history and working-memory hooks', async () => {
     const events: string[] = [];
     const observedStore = new PgliteMemoryStore({

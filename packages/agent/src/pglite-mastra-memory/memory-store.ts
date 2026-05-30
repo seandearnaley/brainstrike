@@ -282,6 +282,16 @@ function messageMatchesListScope(message: MastraDBMessage, args: MessageListArgs
   return true;
 }
 
+function messageRowMatchesListScope(row: MessageRow, args: MessageListArgs): boolean {
+  if (args.threadIds && !args.threadIds.includes(row.threadId)) {
+    return false;
+  }
+  if (args.resourceId && row.resourceId !== args.resourceId) {
+    return false;
+  }
+  return true;
+}
+
 function appendLimit(
   sql: string,
   values: PgliteQueryValue[],
@@ -1298,7 +1308,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     const messages = result.rows.map(messageFromRow);
     if (args.include?.length) {
       const messageIds = new Set(messages.map((message) => message.id));
-      await this.appendIncludedMessages(messages, messageIds, args.include);
+      await this.appendIncludedMessages(messages, messageIds, args.include, args);
       const messageOrder = normalizeMessageOrder(args.orderBy);
       messages.sort((left, right) => compareMessagesByOrder(left, right, messageOrder));
     }
@@ -1320,7 +1330,8 @@ export class PgliteMemoryStore extends MemoryStorage {
   private async appendIncludedMessages(
     messages: MastraDBMessage[],
     messageIds: Set<string>,
-    includeItems: MessageIncludeItem[]
+    includeItems: MessageIncludeItem[],
+    args: MessageListArgs
   ): Promise<void> {
     for (const includeItem of includeItems) {
       if (!includeItem.id.trim()) {
@@ -1329,6 +1340,9 @@ export class PgliteMemoryStore extends MemoryStorage {
 
       const targetRow = await this.findMessageRowById(includeItem.id);
       if (!targetRow) {
+        continue;
+      }
+      if (!messageRowMatchesListScope(targetRow, args)) {
         continue;
       }
 
@@ -1347,19 +1361,25 @@ export class PgliteMemoryStore extends MemoryStorage {
       }
 
       const threadId = normalizeIncludeThreadId(includeItem.threadId, targetRow.threadId);
-      const threadRows = await this.listThreadMessageRows(threadId);
-      const targetIndex = threadRows.findIndex((row) => row.id === includeItem.id);
-      if (targetIndex === -1) {
+      if (threadId !== targetRow.threadId) {
         continue;
       }
 
-      const previousStart = Math.max(0, targetIndex - withPreviousMessages);
-      for (const row of threadRows.slice(previousStart, targetIndex)) {
+      const previousRows = await this.listAdjacentThreadMessageRows(
+        targetRow,
+        'previous',
+        withPreviousMessages
+      );
+      for (const row of previousRows) {
         this.appendMessageIfMissing(messages, messageIds, row);
       }
 
-      const nextEnd = Math.min(threadRows.length, targetIndex + withNextMessages + 1);
-      for (const row of threadRows.slice(targetIndex + 1, nextEnd)) {
+      const nextRows = await this.listAdjacentThreadMessageRows(
+        targetRow,
+        'next',
+        withNextMessages
+      );
+      for (const row of nextRows) {
         this.appendMessageIfMissing(messages, messageIds, row);
       }
     }
@@ -1387,15 +1407,30 @@ export class PgliteMemoryStore extends MemoryStorage {
     return result.rows[0] ?? null;
   }
 
-  private async listThreadMessageRows(threadId: string): Promise<MessageRow[]> {
+  private async listAdjacentThreadMessageRows(
+    targetRow: MessageRow,
+    direction: 'previous' | 'next',
+    limit: number
+  ): Promise<MessageRow[]> {
+    if (limit === 0) {
+      return [];
+    }
+    const isPrevious = direction === 'previous';
+    const comparisonOperator = isPrevious ? '<' : '>';
+    const sortDirection = isPrevious ? 'DESC' : 'ASC';
     const result = await this.database.query<MessageRow>(
       `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
        FROM ${MASTRA_MEMORY_TABLES.messages}
        WHERE thread_id = $1
-       ORDER BY "createdAt" ASC, id ASC`,
-      [threadId]
+         AND (
+           "createdAt" ${comparisonOperator} $2
+           OR ("createdAt" = $2 AND id ${comparisonOperator} $3)
+         )
+       ORDER BY "createdAt" ${sortDirection}, id ${sortDirection}
+       LIMIT $4`,
+      [targetRow.threadId, toDate(targetRow.createdAt), targetRow.id, limit]
     );
-    return result.rows;
+    return isPrevious ? [...result.rows].reverse() : result.rows;
   }
 
   private async findObservationalMemoryRecordById(id: string): Promise<ObservationalMemoryRecord> {
