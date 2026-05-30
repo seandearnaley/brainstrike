@@ -384,6 +384,54 @@ describe('mastra streaming integration', () => {
     }
   });
 
+  it('emits a durable completion when Mastra tool-output has no later tool-result', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'background.lookup',
+        toolCallId: 'c-output-only',
+        args: { query: 'local state' },
+      },
+      {
+        type: 'tool-output',
+        toolCallId: 'c-output-only',
+        output: { answer: 'done' },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const runEvents = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('tool.')) {
+        runEvents.push(chunk.event);
+      }
+    }
+
+    expect(runEvents).toMatchObject([
+      {
+        kind: 'tool.started',
+        status: 'running',
+        metadata: {
+          toolCallId: 'c-output-only',
+          toolName: 'background.lookup',
+        },
+      },
+      {
+        kind: 'tool.completed',
+        status: 'completed',
+        metadata: {
+          toolCallId: 'c-output-only',
+          toolName: 'background.lookup',
+        },
+      },
+    ]);
+  });
+
   it('keeps Mastra tool progress parts out of durable run-events', async () => {
     setMockStreamParts([
       { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
