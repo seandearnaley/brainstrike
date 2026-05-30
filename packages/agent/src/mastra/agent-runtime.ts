@@ -55,7 +55,6 @@ export interface MastraAgentRuntimeOptions {
 export interface MastraAgentRuntime {
   agent: Agent;
   dispose: () => Promise<void>;
-  mastra?: Mastra;
   mcpClient?: MCPClient;
   toolNameMap: Map<string, string>;
 }
@@ -237,9 +236,9 @@ export async function createMastraAgentRuntime(
   return {
     agent,
     dispose: async () => {
+      await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
-    ...(mastra ? { mastra } : {}),
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
   };

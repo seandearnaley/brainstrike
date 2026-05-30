@@ -17,7 +17,7 @@ const agentInstances: Array<{
   tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
-const mastraInstances: Array<{ config: unknown }> = [];
+const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
 let mcpToolList: Record<string, { description: string; id: string }> = {
   'remote tool': { id: 'remote tool', description: 'remote' },
 };
@@ -133,6 +133,7 @@ function createMockMastraOutput() {
 vi.mock('@mastra/core/mastra', () => ({
   Mastra: class {
     config: unknown;
+    shutdownCalls = 0;
 
     constructor(config: {
       agents?: Record<string, { __registerMastra?: (mastra: unknown) => void }>;
@@ -142,6 +143,10 @@ vi.mock('@mastra/core/mastra', () => ({
       for (const agent of Object.values(config.agents ?? {})) {
         agent.__registerMastra?.(this);
       }
+    }
+
+    async shutdown() {
+      this.shutdownCalls += 1;
     }
   },
 }));
@@ -338,6 +343,18 @@ describe('mastra streaming integration', () => {
       storage,
     });
     expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
+  });
+
+  it('shuts down the Mastra instance when disposing a storage-backed runtime', async () => {
+    const runtime = await createMastraAgentRuntime({
+      storage: { id: 'storage-with-workflows' } as never,
+      runtime: { apiKey: 'key', provider: 'openai' },
+    });
+
+    await runtime.dispose();
+
+    expect(mastraInstances).toHaveLength(1);
+    expect(mastraInstances[0]?.shutdownCalls).toBe(1);
   });
 
   it('passes strict thread/resource memory context to agent.stream', async () => {
