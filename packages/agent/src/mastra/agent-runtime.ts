@@ -481,6 +481,9 @@ function makeToolLifecycleRunEventChunk(
 
   switch (toolEvent.status) {
     case 'start':
+      if (!toolCallId) {
+        return;
+      }
       return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
     case 'success': {
       if (!toolCallId) {

@@ -610,6 +610,42 @@ describe('mastra streaming integration', () => {
     expect(terminalEvents).toEqual([]);
   });
 
+  it('does not emit durable tool run-events for id-less Mastra tool-call parts', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'anonymous.lookup',
+        args: { query: 'state' },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const toolRunEvents = [];
+    const toolEvents = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'tool-event') {
+        toolEvents.push(chunk);
+      }
+      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('tool.')) {
+        toolRunEvents.push(chunk.event);
+      }
+    }
+
+    expect(toolEvents).toMatchObject([
+      {
+        type: 'tool-event',
+        name: 'anonymous.lookup',
+        status: 'start',
+      },
+    ]);
+    expect(toolRunEvents).toEqual([]);
+  });
+
   it('keeps Mastra tool progress parts out of durable run-events', async () => {
     setMockStreamParts([
       { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
