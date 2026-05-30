@@ -6,7 +6,7 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 
 interface AssistantToolApprovalNoticeProps {
@@ -33,25 +33,100 @@ function formatJsonValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+type ApprovalRunOutcome = 'none' | 'pending' | 'failed' | 'completed';
+
+function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
+  return (
+    isRecord(value) &&
+    value['runId'] === approval.runId &&
+    value['toolCallId'] === approval.toolCallId
+  );
+}
+
+function getMessageRole(message: unknown): unknown {
+  return isRecord(message) ? message['role'] : undefined;
+}
+
+function getMessageStatus(message: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(message)) {
+    return;
+  }
+  const status = message['status'];
+  return isRecord(status) ? status : undefined;
+}
+
+function getToolApprovalActionFromMessage(message: unknown): unknown {
+  if (!isRecord(message)) {
+    return;
+  }
+  const metadata = message['metadata'];
+  if (!isRecord(metadata)) {
+    return;
+  }
+  const custom = metadata['custom'];
+  if (!isRecord(custom)) {
+    return;
+  }
+  return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
+}
+
+function resolveApprovalRunOutcome(
+  messages: readonly unknown[],
+  approval: AssistantToolApprovalRequest | null
+): ApprovalRunOutcome {
+  if (!approval) {
+    return 'none';
+  }
+
+  let submittedMessageIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      getMessageRole(message) === 'user' &&
+      isMatchingApprovalAction(getToolApprovalActionFromMessage(message), approval)
+    ) {
+      submittedMessageIndex = index;
+      break;
+    }
+  }
+  if (submittedMessageIndex < 0) {
+    return 'none';
+  }
+
+  for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    const role = getMessageRole(message);
+    if (role === 'user') {
+      return 'pending';
+    }
+    if (role !== 'assistant') {
+      continue;
+    }
+
+    const status = getMessageStatus(message);
+    if (status?.['type'] === 'complete') {
+      return 'completed';
+    }
+    if (status?.['type'] === 'incomplete' && status['reason'] === 'error') {
+      return 'failed';
+    }
+    return 'pending';
+  }
+
+  return 'pending';
+}
+
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   const aui = useAui();
   const [isExpanded, setIsExpanded] = useState(false);
   const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
     null
   );
-  const failedRunCountAtSubmissionRef = useRef<number | null>(null);
   const detailsId = useId();
-  const failedRunCount = useAuiState((state) =>
-    state.thread.messages.reduce((count, message) => {
-      const status = message.status;
-      return message.role === 'assistant' &&
-        status?.type === 'incomplete' &&
-        status.reason === 'error'
-        ? count + 1
-        : count;
-    }, 0)
-  );
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
+  const approvalRunOutcome = useAuiState((state) =>
+    resolveApprovalRunOutcome(state.thread.messages, approval)
+  );
   const detailEntries = useMemo(() => {
     if (!approval) {
       return [];
@@ -78,6 +153,11 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
       const verb = action === 'approve' ? 'Approved' : 'Declined';
       const message = {
         content: [{ type: 'text', text: `${verb} ${approval.toolName}.` }],
+        metadata: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction,
+          },
+        },
         role: 'user',
         runConfig: {
           custom: {
@@ -87,30 +167,23 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
         startRun: true,
       } satisfies CreateAppendMessage;
 
-      failedRunCountAtSubmissionRef.current = failedRunCount;
       setSubmittedAction(action);
       try {
         aui.thread().append(message);
       } catch (error) {
-        failedRunCountAtSubmissionRef.current = null;
         setSubmittedAction(null);
         throw error;
       }
     },
-    [approval, aui, failedRunCount, submittedAction]
+    [approval, aui, submittedAction]
   );
 
   useEffect(() => {
-    if (submittedAction === null) {
+    if (submittedAction === null || approvalRunOutcome !== 'failed') {
       return;
     }
-    const failedRunCountAtSubmission = failedRunCountAtSubmissionRef.current;
-    if (failedRunCountAtSubmission === null || failedRunCount <= failedRunCountAtSubmission) {
-      return;
-    }
-    failedRunCountAtSubmissionRef.current = null;
     setSubmittedAction(null);
-  }, [failedRunCount, submittedAction]);
+  }, [approvalRunOutcome, submittedAction]);
 
   if (!approval) {
     return null;

@@ -881,6 +881,51 @@ describe('assistant-server', () => {
       );
     });
 
+    it('rejects tool approval resume when workflow storage is missing from memory', async () => {
+      const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+
+      (createPgliteMastraMemory as Mock).mockResolvedValueOnce({
+        memory: mockPgliteMastraMemory,
+        store: {},
+        vector: {},
+        workflows: {},
+      });
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'workspace.writeFile',
+              },
+            },
+          },
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'tool_approval_memory_required',
+        message: 'Tool approval resume requires Mastra memory context with workflow storage.',
+      });
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+    });
+
     it('retries desktop Mastra memory initialization after a transient failure', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');

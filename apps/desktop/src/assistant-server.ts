@@ -882,7 +882,7 @@ async function initializeAgentStream(
             : undefined
         )
       : undefined;
-    if (toolApprovalAction && !memoryResult) {
+    if (toolApprovalAction && !memoryResult?.storage) {
       return {
         ok: false,
         status: 400,

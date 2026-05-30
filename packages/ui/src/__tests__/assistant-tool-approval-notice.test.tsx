@@ -8,6 +8,9 @@ const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(
   () =>
     [] as Array<{
+      metadata?: {
+        custom?: Record<string, unknown>;
+      };
       role: 'assistant' | 'user';
       status?: { error?: unknown; reason?: string; type: string };
     }>
@@ -49,6 +52,17 @@ const baseApproval = {
 describe('AssistantToolApprovalNotice', () => {
   beforeEach(() => {
     appendMessageMock.mockReset();
+    appendMessageMock.mockImplementation(
+      (message: {
+        metadata?: { custom?: Record<string, unknown> };
+        role?: 'assistant' | 'user';
+      }) => {
+        threadMessagesMock.push({
+          role: message.role ?? 'user',
+          ...(message.metadata ? { metadata: message.metadata } : {}),
+        });
+      }
+    );
     threadMessagesMock.splice(0);
   });
 
@@ -159,6 +173,70 @@ describe('AssistantToolApprovalNotice', () => {
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
 
     expect(appendMessageMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reenable approval actions after the matching run completes successfully', async () => {
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: { type: 'complete' },
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByText('Approved')).toBeInTheDocument();
+
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: {
+        error: 'later_unrelated_error',
+        reason: 'error',
+        type: 'incomplete',
+      },
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByText('Approved')).toBeInTheDocument();
+  });
+
+  it('does not reenable approval actions for a different approval run error', async () => {
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'other-run',
+            toolCallId: 'other-tool-call',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: {
+        error: 'other_approval_error',
+        reason: 'error',
+        type: 'incomplete',
+      },
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByText('Approved')).toBeInTheDocument();
   });
 
   it('renders nothing for malformed approval data', () => {
