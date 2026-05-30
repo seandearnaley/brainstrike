@@ -361,6 +361,30 @@ describe('mastra streaming integration', () => {
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual(['token-limiter']);
   });
 
+  it('rejects unsupported Mastra stream options instead of silently dropping them', async () => {
+    const unsupportedOptions = {
+      activeTools: ['readWorkspaceFile'],
+      clientTools: {},
+      inputProcessors: [],
+      outputProcessors: [],
+      prepareStep: () => undefined,
+      requireToolApproval: true,
+      structuredOutput: { schema: {} },
+      toolChoice: 'required',
+      toolsets: {},
+    };
+
+    await expectMastraAgentError(
+      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+        ...unsupportedOptions,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      } as never),
+      'mastra_agent_unsupported_stream_option'
+    );
+
+    expect(agentInstances).toHaveLength(0);
+  });
+
   it('preserves the Mastra finish reason in the assistant data stream', async () => {
     setMockStreamParts([
       {
