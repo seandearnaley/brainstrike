@@ -21,9 +21,6 @@ function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolA
 }
 
 function formatJsonValue(value: unknown): string {
-  if (value === undefined) {
-    return 'undefined';
-  }
   if (typeof value === 'string') {
     return value;
   }
@@ -70,24 +67,22 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
           </p>
           <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
         </div>
-        {detailEntries.length > 0 ? (
-          <Button
-            aria-controls={isExpanded ? detailsId : undefined}
-            aria-expanded={isExpanded}
-            aria-label={
-              isExpanded ? 'Collapse tool approval details' : 'Expand tool approval details'
-            }
-            className="size-8"
-            onClick={() => setIsExpanded((current) => !current)}
-            size="icon"
-            title={isExpanded ? 'Collapse tool approval details' : 'Expand tool approval details'}
-            variant="ghost"
-          >
-            {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-          </Button>
-        ) : null}
+        <Button
+          aria-controls={isExpanded ? detailsId : undefined}
+          aria-expanded={isExpanded}
+          aria-label={
+            isExpanded ? 'Collapse tool approval details' : 'Expand tool approval details'
+          }
+          className="size-8"
+          onClick={() => setIsExpanded((current) => !current)}
+          size="icon"
+          title={isExpanded ? 'Collapse tool approval details' : 'Expand tool approval details'}
+          variant="ghost"
+        >
+          {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        </Button>
       </div>
-      {isExpanded && detailEntries.length > 0 ? (
+      {isExpanded ? (
         <div className="border-amber-500/30 border-t border-dashed px-4 py-3" id={detailsId}>
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
             {detailEntries.map(([key, value]) => (
