@@ -118,12 +118,30 @@ function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
 }
 
 async function restartConfigWatcher(): Promise<void> {
+  stopConfigWatcher();
+  const watcher = await watchMcpConfig(handleConfigChange);
+  unwatch = () => watcher.close();
+}
+
+function stopConfigWatcher(): void {
   if (unwatch) {
     unwatch();
     unwatch = null;
   }
-  const watcher = await watchMcpConfig(handleConfigChange);
-  unwatch = () => watcher.close();
+}
+
+export async function cleanupMcpRuntimeForShutdown(): Promise<void> {
+  stopConfigWatcher();
+  last = null;
+  lastUserSelectedConfigPath = null;
+  mcpToolRegistry.clear();
+  await disposeClients();
+}
+
+function cleanupMcpRuntimeAfterUnregister(): void {
+  void cleanupMcpRuntimeForShutdown().catch((error: unknown) => {
+    logger.error('Failed to clean up MCP runtime after IPC unregister', { error });
+  });
 }
 
 export function registerMcpIpcHandlers(): () => void {
@@ -265,10 +283,7 @@ export function registerMcpIpcHandlers(): () => void {
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
     async (): Promise<{ watching: false }> => {
-      if (unwatch) {
-        unwatch();
-        unwatch = null;
-      }
+      stopConfigWatcher();
       return { watching: false };
     }
   );
@@ -378,6 +393,7 @@ export function registerMcpIpcHandlers(): () => void {
   void discoverMcpToolsOnStartup();
 
   return () => {
+    cleanupMcpRuntimeAfterUnregister();
     registry.unregisterAll();
   };
 }

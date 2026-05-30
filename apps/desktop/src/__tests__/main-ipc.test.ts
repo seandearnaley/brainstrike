@@ -14,6 +14,7 @@ vi.mock('electron', async () => {
     on: vi.fn(),
     removeAllListeners: vi.fn(),
     removeHandler: vi.fn(),
+    removeListener: vi.fn(),
   });
   const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
@@ -69,7 +70,7 @@ vi.mock('electron', async () => {
 });
 
 // Import mocked Electron parts for use in assertions
-import { ipcMain, ipcRenderer } from 'electron';
+import { app, ipcMain, ipcRenderer } from 'electron';
 
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system/electron', () => {
@@ -102,6 +103,8 @@ import '../main';
 describe('db:getUserDataPath IPC handler', () => {
   beforeEach(() => {
     (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).handle.mockClear();
+    vi.mocked(ipcMain.removeHandler).mockClear();
+    vi.mocked(ipcMain.removeListener).mockClear();
     (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockClear();
   });
 
@@ -112,5 +115,20 @@ describe('db:getUserDataPath IPC handler', () => {
     const expected = path.join('/mock/path', 'profiles', 'test', 'pgdata');
     const result = await ipcRenderer.invoke('db:getUserDataPath');
     expect(result).toBe(expected);
+  });
+
+  it('unregisters MCP IPC handlers during will-quit shutdown', async () => {
+    await Promise.resolve();
+    const willQuitHandler = vi
+      .mocked(app.on)
+      .mock.calls.find(([event]) => event === 'will-quit')?.[1];
+    if (typeof willQuitHandler !== 'function') {
+      throw new Error('will-quit handler not registered');
+    }
+
+    willQuitHandler();
+
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:get');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:tools:getStats');
   });
 });
