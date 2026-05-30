@@ -965,8 +965,8 @@ async function createStreamIteratorFromRuntime({
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
-      // Until approve/decline/resume is implemented, enabling this makes tool calls
-      // pause and surface as terminal unsupported-action errors.
+      // When enabled, Mastra pauses before tool execution and emits resumable
+      // approval metadata for the UI action bridge.
       ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
     };
     const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
