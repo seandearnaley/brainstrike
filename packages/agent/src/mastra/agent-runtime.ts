@@ -1014,9 +1014,8 @@ async function createToolApprovalIteratorFromRuntime({
   memory,
   sanitizedNameMap,
 }: ToolApprovalIterationParams): Promise<StreamIterator> {
-  validateToolApprovalAction(action);
-
   try {
+    validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const approvalOptions: BrainstrikeAgentStreamOptions & {
       runId: string;
@@ -1111,6 +1110,7 @@ export async function streamMastraToolApprovalAction(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<StreamIterator> {
   assertNoUnsupportedDirectStreamOptions(options);
+  validateToolApprovalAction(action);
   if (!options.storage) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       detail: 'Mastra workflow storage is required to resume tool approval.',

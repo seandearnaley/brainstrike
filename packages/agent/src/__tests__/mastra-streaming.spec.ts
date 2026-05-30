@@ -585,6 +585,37 @@ describe('mastra streaming integration', () => {
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });
 
+  it('validates tool approval actions before initializing Mastra runtime resources', async () => {
+    await expectMastraAgentError(
+      streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: ' ',
+          toolCallId: 'tool-call-1',
+          toolName: 'workspace.writeFile',
+        },
+        {
+          storage: { id: 'workflow-storage' } as never,
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          mcpConfig: {
+            servers: [
+              {
+                transport: 'stdio',
+                name: 'filesystem',
+                command: 'echo',
+              },
+            ],
+          },
+        }
+      ),
+      'mastra_agent_runtime_init_failed'
+    );
+
+    expect(agentInstances).toHaveLength(0);
+    expect(mastraInstances).toHaveLength(0);
+    expect(mcpInstances).toHaveLength(0);
+  });
+
   it('uses the cached tool name when approval pauses omit the tool name', async () => {
     setMockStreamParts([
       {
