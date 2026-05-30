@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
@@ -44,27 +45,31 @@ vi.mock('../secrets', () => ({
   getSecretsService: vi.fn(() => mockSecretsService),
 }));
 
-vi.mock('@brainstrike/agent', () => ({
-  assistantDataStreamSessions: {
-    create: vi.fn(() => ({
-      createResponse: vi.fn(() => ({
-        status: 200,
-        headers: new Headers(),
-        body: null,
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return {
+    ...actual,
+    assistantDataStreamSessions: {
+      create: vi.fn(() => ({
+        createResponse: vi.fn(() => ({
+          status: 200,
+          headers: new Headers(),
+          body: null,
+        })),
       })),
-    })),
-  },
-  convertAssistantUiMessages: vi.fn((messages) => messages),
-  resolveDataStreamSession: vi.fn(() => {}),
-  sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
-  toAiSdkStyleStream: vi.fn(async () => ({
-    async *[Symbol.asyncIterator]() {
-      yield { type: 'text', content: 'test' };
     },
-  })),
-  isSupportedProvider: (provider: string) =>
-    ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
-}));
+    convertAssistantUiMessages: vi.fn((messages) => messages),
+    resolveDataStreamSession: vi.fn(() => {}),
+    sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
+    toAiSdkStyleStream: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text', content: 'test' };
+      },
+    })),
+    isSupportedProvider: (provider: string) =>
+      ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
+  };
+});
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
 const mockDesktopDatabase = {
@@ -529,6 +534,23 @@ describe('assistant-server', () => {
       const data = JSON.parse(response.body) as { error: string; message: string };
       expect(data.error).toBe('invalid_json');
       expect(data.message).toBe('Request body must be valid JSON.');
+    }, 10_000);
+
+    it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: { 'content-type': 'application/json' },
+        body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
+      });
+
+      expect(response.status).toBe(413);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data.error).toBe('request_body_too_large');
+      expect(data.message).toBe(
+        `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`
+      );
+      expect(response.headers['connection']).toBe('close');
     }, 10_000);
 
     it('should handle POST to assistant route with valid message', async () => {
