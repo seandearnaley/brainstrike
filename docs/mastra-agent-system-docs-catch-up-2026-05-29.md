@@ -34,7 +34,7 @@ The shortest path would be to patch individual bugs, but that would leave the sa
 3. Decide where official Mastra Workflows, Editor, Workspaces, Server, Observability, and Evals should replace bespoke Brainstrike plumbing.
 4. Preserve local-first desktop constraints explicitly: PGlite, keychain secrets, loopback-only desktop server, hidden renderer local LLM/embedding hosts, and UI context selection remain valid reasons for custom integration.
 
-Post-audit implementation has begun. PRs #1084 through #1089 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, and prompt restore. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
+Post-audit implementation has begun. PRs #1084 through #1094 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, prompt restore, MCP lifecycle/discovery behavior, memory include conformance, and pending approval rendering. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
 
 ## Linear Issues Created
 
@@ -54,8 +54,13 @@ This report preserves the original audit findings as the baseline. The follow-up
 - [PR #1087](https://github.com/seandearnaley/brainstrike/pull/1087) covers the BST-557 approval-surface slice by surfacing Mastra approval pauses to the UI.
 - [PR #1088](https://github.com/seandearnaley/brainstrike/pull/1088) covers the BST-561 retrieval eval CI entrypoint. It does not complete the larger Mastra scorer, observability, or canonical app-boundary work.
 - [PR #1089](https://github.com/seandearnaley/brainstrike/pull/1089) covers the BST-558 prompt restore slice. The broader Mastra Editor adoption decision remains open, and advanced prompt model settings were split to [BST-567](https://linear.app/brainstrike/issue/BST-567/expose-full-prompt-model-settings-in-editor).
+- [PR #1090](https://github.com/seandearnaley/brainstrike/pull/1090) covers the BST-559 desktop MCP lifecycle cleanup slice.
+- [PR #1091](https://github.com/seandearnaley/brainstrike/pull/1091) covers the BST-557 PGlite memory include-window conformance slice.
+- [PR #1092](https://github.com/seandearnaley/brainstrike/pull/1092) covers the BST-559 grouped MCP toolset discovery slice, including visible diagnostics for missing configured toolsets.
+- [PR #1093](https://github.com/seandearnaley/brainstrike/pull/1093) covers the BST-557 approval bridge slice by mapping valid Mastra approval pauses into structured pending approval data instead of terminal tool errors.
+- [PR #1094](https://github.com/seandearnaley/brainstrike/pull/1094) covers the BST-557 approval UI slice by rendering pending approval notices in assistant messages.
 
-The remaining architectural work is still the staged work in BST-557 through BST-561: Mastra package/runtime compatibility, memory conformance, official approval or workflow HITL semantics, canonical Mastra app/server boundary, observability, scorers, and product decisions around Editor, Workspaces, and Browser.
+The remaining architectural work is still the staged work in BST-557 through BST-561: Mastra package/runtime compatibility, snapshot-backed approval resume, official workflow HITL semantics, canonical Mastra app/server boundary, observability, scorers, and product decisions around Editor, Workspaces, and Browser.
 
 ## High-Confidence Findings
 
@@ -71,7 +76,7 @@ Evidence:
 - Mastra docs: https://mastra.ai/docs/agents/agent-approval
 - Mastra docs: https://mastra.ai/docs/agents/background-tasks
 
-Brainstrike has tool approval metadata and prompt guidance, but the runtime does not enforce Mastra Agent Approval. The wrapper only forwards a narrow stream option set and drops unknown stream events by default. This is a correctness and safety gap for state-changing tools.
+Brainstrike has tool approval metadata and prompt guidance, but the runtime does not yet complete Mastra Agent Approval end to end. The current PR stack now rejects unsupported stream options, surfaces valid approval pauses as pending data, and renders those pending approvals in the UI. Approve/decline/resume is intentionally not wired yet because Mastra approval resume depends on persisted workflow snapshots; Brainstrike currently has PGlite-backed Mastra memory/vector domains, not a PGlite-backed `WorkflowsStorage` domain. Adding approve/decline without that storage boundary would create stale or non-resumable approval actions.
 
 ### Memory
 
