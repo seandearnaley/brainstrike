@@ -1,3 +1,7 @@
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +16,8 @@ import {
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
 
 const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test-runtime' }));
+const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
+const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 const setCollapsedMock = vi.fn();
 let capturedLocalAdapterOptions: {
@@ -44,6 +50,20 @@ vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
 
 vi.mock('../../src/assistant-ui-panel/tool-fallback', () => ({
   ToolFallback: () => <div data-testid="tool-fallback" />,
+}));
+
+vi.mock('../../src/assistant-ui-panel/tooltip-icon-button', () => ({
+  TooltipIconButton: ({
+    children,
+    tooltip,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    tooltip: string;
+  }) => (
+    <button aria-label={tooltip} type="button" {...props}>
+      {children}
+    </button>
+  ),
 }));
 
 vi.mock('../../src/assistant-ui-panel/local-runtime-adapter', () => ({
@@ -96,7 +116,17 @@ vi.mock('@assistant-ui/react', () => {
 
   interface PartsProps {
     components?: {
+      ChainOfThought?: React.ComponentType;
       Text?: React.ComponentType;
+      data?: unknown;
+    };
+  }
+
+  interface MessagesProps {
+    components?: {
+      AssistantMessage?: React.ComponentType;
+      EditComposer?: React.ComponentType;
+      UserMessage?: React.ComponentType;
     };
   }
 
@@ -141,11 +171,13 @@ vi.mock('@assistant-ui/react', () => {
     MessagePrimitive: {
       Root: Primitive,
       Parts: ({ components }: PartsProps) => {
+        messagePartsComponentsMock(components);
         const Text = components?.Text ?? TextStub;
         return <Text />;
       },
       If,
     },
+    useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
       chainOfThought: () => ({
         setCollapsed: setCollapsedMock,
@@ -166,7 +198,10 @@ vi.mock('@assistant-ui/react', () => {
     ThreadPrimitive: {
       Root: Primitive,
       Viewport: Primitive,
-      Messages: Primitive,
+      Messages: ({ components }: MessagesProps) => {
+        const Assistant = components?.AssistantMessage;
+        return Assistant ? <Assistant /> : null;
+      },
       If,
     },
   };
@@ -296,6 +331,28 @@ describe('AssistantUiPanel model picker', () => {
       expect.objectContaining({
         api: '/api/assistant',
         protocol: 'data-stream',
+      })
+    );
+  });
+
+  it('registers assistant data renderers through assistant-ui data UI', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(useAssistantDataUIMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: ASSISTANT_RUN_EVENT_DATA_NAME,
+        render: expect.any(Function),
+      })
+    );
+    expect(useAssistantDataUIMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: TOOL_APPROVAL_DATA_NAME,
+        render: expect.any(Function),
+      })
+    );
+    expect(messagePartsComponentsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.anything(),
       })
     );
   });
