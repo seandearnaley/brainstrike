@@ -64,7 +64,7 @@ export async function collectCombinedTools({
 
     const toolsForServer =
       discovered.kind === 'toolsets'
-        ? selectToolsetForServer(discovered.toolsets, server.name, toolNameMap)
+        ? selectToolsetForServer(discovered.toolsets, server.name, isSingleServer, toolNameMap)
         : selectToolsForServer(discovered.tools, server.name, isSingleServer);
     if (!toolsForServer || Object.keys(toolsForServer).length === 0) {
       continue;
@@ -82,13 +82,100 @@ export async function collectCombinedTools({
 function selectToolsetForServer(
   toolsets: McpToolsets,
   serverName: string,
+  isSingleServer: boolean,
   toolNameMap: Map<string, string>
 ): ToolsInput | undefined {
-  const serverTools = toolsets[serverName];
-  if (!serverTools || Object.keys(serverTools).length === 0) {
+  const selected = findToolsetForServer(toolsets, serverName, isSingleServer);
+  if (!selected) {
+    logger.debug('MCP toolset did not match configured server', {
+      code: 'mcp_toolset_server_key_missing',
+      serverName,
+      availableServerNames: Object.keys(toolsets),
+    });
     return;
   }
-  return sanitizeTools(namespaceServerTools(serverName, serverTools), toolNameMap);
+
+  if (selected.matchedServerName !== serverName) {
+    logger.debug('MCP toolset matched configured server by compatibility fallback', {
+      code: 'mcp_toolset_server_key_fallback',
+      serverName,
+      matchedServerName: selected.matchedServerName,
+    });
+  }
+
+  return sanitizeTools(namespaceServerTools(serverName, selected.tools), toolNameMap);
+}
+
+function findToolsetForServer(
+  toolsets: McpToolsets,
+  serverName: string,
+  isSingleServer: boolean
+): { matchedServerName: string; tools: ToolsInput } | undefined {
+  const directTools = toolsets[serverName];
+  if (directTools) {
+    return Object.keys(directTools).length > 0
+      ? { matchedServerName: serverName, tools: directTools }
+      : undefined;
+  }
+
+  const toolsetEntries = Object.entries(toolsets).filter(
+    ([, tools]) => Object.keys(tools).length > 0
+  );
+  const normalizedServerName = normalizeMcpServerName(serverName);
+  if (normalizedServerName.length === 0) {
+    return findSingleServerFallbackToolset(toolsetEntries, isSingleServer);
+  }
+
+  const normalizedMatches = toolsetEntries.filter(
+    ([toolsetName]) => normalizeMcpServerName(toolsetName) === normalizedServerName
+  );
+  if (normalizedMatches.length === 1) {
+    const match = normalizedMatches[0];
+    if (!match) {
+      return;
+    }
+    const [matchedServerName, tools] = match;
+    return { matchedServerName, tools };
+  }
+
+  const fuzzyMatches = toolsetEntries.filter(([toolsetName]) => {
+    const normalizedToolsetName = normalizeMcpServerName(toolsetName);
+    return (
+      normalizedToolsetName.includes(normalizedServerName) ||
+      normalizedServerName.includes(normalizedToolsetName)
+    );
+  });
+  if (fuzzyMatches.length === 1) {
+    const match = fuzzyMatches[0];
+    if (!match) {
+      return;
+    }
+    const [matchedServerName, tools] = match;
+    return { matchedServerName, tools };
+  }
+
+  return findSingleServerFallbackToolset(toolsetEntries, isSingleServer);
+}
+
+function normalizeMcpServerName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findSingleServerFallbackToolset(
+  toolsetEntries: [string, ToolsInput][],
+  isSingleServer: boolean
+): { matchedServerName: string; tools: ToolsInput } | undefined {
+  if (!(isSingleServer && toolsetEntries.length === 1)) {
+    return;
+  }
+
+  const match = toolsetEntries[0];
+  if (!match) {
+    return;
+  }
+
+  const [matchedServerName, tools] = match;
+  return { matchedServerName, tools };
 }
 
 function namespaceServerTools(serverName: string, serverTools: ToolsInput): ToolsInput {

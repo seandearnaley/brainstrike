@@ -152,6 +152,77 @@ describe('mcp-tool-loader', () => {
       expect(toolNameMap.get('beta_search')).toBe('beta.search');
     });
 
+    it('matches grouped MCP toolsets when returned keys use normalized server names', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          'File System': {
+            read_file: { id: 'read_file', description: 'read file' },
+          },
+          notes: {
+            search: { id: 'search', description: 'search notes' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'notes',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result).sort()).toEqual(['filesystem_read_file', 'notes_search']);
+      expect(toolNameMap.get('filesystem_read_file')).toBe('filesystem.read_file');
+      expect(toolNameMap.get('notes_search')).toBe('notes.search');
+    });
+
+    it('keeps grouped MCP tools for a single server when the returned key does not match', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          discovered: {
+            search: { id: 'search', description: 'search' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'configured-server',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).toHaveProperty('configured-server_search');
+      expect(toolNameMap.get('configured-server_search')).toBe('configured-server.search');
+    });
+
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },
