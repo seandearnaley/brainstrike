@@ -324,7 +324,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
   async listWorkflowRuns({
     workflowName,
     fromDate,
-    toDate,
+    toDate: toDateFilter,
     perPage,
     page,
     resourceId,
@@ -345,8 +345,8 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
       values.push(fromDate);
       where.push(`"createdAt" >= $${values.length}`);
     }
-    if (toDate) {
-      values.push(toDate);
+    if (toDateFilter) {
+      values.push(toDateFilter);
       where.push(`"createdAt" <= $${values.length}`);
     }
     if (resourceId) {
@@ -368,7 +368,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
       `SELECT workflow_name AS "workflowName", run_id AS "runId", "resourceId", snapshot, "createdAt", "updatedAt"
        FROM ${MASTRA_WORKFLOW_TABLE}
        ${whereSql}
-       ORDER BY "createdAt" DESC`,
+       ORDER BY "createdAt" DESC, run_id ASC, workflow_name ASC`,
       queryValues,
       page,
       perPage

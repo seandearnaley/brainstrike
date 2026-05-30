@@ -56,9 +56,18 @@ describe('PgliteWorkflowsStore', () => {
        WHERE table_name = 'mastra_workflow_snapshot'
          AND column_name = 'snapshot'`
     );
+    const runIdLookupIndex = await db.query<{ indexdef: string; indexname: string }>(
+      `SELECT indexname, indexdef
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND tablename = 'mastra_workflow_snapshot'
+         AND indexname = 'mastra_workflow_snapshot_run_id_idx'`
+    );
 
     expect(tables.rows.map((row) => row.tablename)).toEqual(['mastra_workflow_snapshot']);
     expect(snapshotColumn.rows[0]?.data_type).toBe('jsonb');
+    expect(runIdLookupIndex.rows).toHaveLength(1);
+    expect(runIdLookupIndex.rows[0]?.indexdef).toContain('(run_id)');
   });
 
   it('persists and reloads cloned workflow snapshots for approval resume', async () => {
@@ -304,6 +313,42 @@ describe('PgliteWorkflowsStore', () => {
     await expect(
       store.getWorkflowRunById({ runId: 'run-newer', workflowName: 'approval-workflow' })
     ).resolves.toBeNull();
+  });
+
+  it('uses stable tie breakers when paginating workflow runs with matching createdAt values', async () => {
+    const sharedCreatedAt = new Date('2026-05-29T10:00:00Z');
+
+    await store.persistWorkflowSnapshot({
+      createdAt: sharedCreatedAt,
+      runId: 'run-2',
+      snapshot: createSnapshot({ runId: 'run-2' }),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: sharedCreatedAt,
+      runId: 'run-1',
+      snapshot: createSnapshot({ runId: 'run-1' }),
+      workflowName: 'review-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: sharedCreatedAt,
+      runId: 'run-1',
+      snapshot: createSnapshot({ runId: 'run-1' }),
+      workflowName: 'approval-workflow',
+    });
+
+    const firstPage = await store.listWorkflowRuns({ page: 0, perPage: 1 });
+    const secondPage = await store.listWorkflowRuns({ page: 1, perPage: 1 });
+    const thirdPage = await store.listWorkflowRuns({ page: 2, perPage: 1 });
+
+    expect([
+      ...firstPage.runs.map((entry) => `${entry.runId}:${entry.workflowName}`),
+      ...secondPage.runs.map((entry) => `${entry.runId}:${entry.workflowName}`),
+      ...thirdPage.runs.map((entry) => `${entry.runId}:${entry.workflowName}`),
+    ]).toEqual(['run-1:approval-workflow', 'run-1:review-workflow', 'run-2:approval-workflow']);
+    expect(firstPage.total).toBe(3);
+    expect(secondPage.total).toBe(3);
+    expect(thirdPage.total).toBe(3);
   });
 
   it('requires workflowName when a run id is not globally unique', async () => {
