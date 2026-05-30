@@ -1,3 +1,4 @@
+import { addLogListener, type LogRecord } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -165,6 +166,57 @@ describe('mcp-tool-loader', () => {
 
       expect(result).toHaveProperty('healthy_search');
       expect(result).not.toHaveProperty('broken_search');
+    });
+
+    it('logs when a configured MCP server has neither a toolset nor a discovery error', async () => {
+      const logRecords: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => logRecords.push(record));
+      const mockMcpClient = createMockMcpClient({
+        healthy: {
+          search: { id: 'search', description: 'search' },
+        },
+      });
+
+      try {
+        const result = await collectCombinedTools({
+          sanitizedLocalTools: undefined,
+          mcpClient: mockMcpClient as unknown as MCPClient,
+          mcpConfig: {
+            servers: [
+              {
+                name: 'healthy',
+                transport: 'stdio' as const,
+                command: 'echo',
+              },
+              {
+                name: 'missing',
+                transport: 'stdio' as const,
+                command: 'echo',
+              },
+            ],
+          },
+          toolNameMap: new Map(),
+          timeoutOverrideMs: undefined,
+        });
+
+        expect(result).toHaveProperty('healthy_search');
+        expect(logRecords).toContainEqual(
+          expect.objectContaining({
+            level: 'warn',
+            message: 'MCP server toolset missing',
+            scope: 'MastraAgentMcpTools',
+            args: [
+              'MCP server toolset missing',
+              expect.objectContaining({
+                code: 'mcp_server_toolset_missing',
+                serverName: 'missing',
+              }),
+            ],
+          })
+        );
+      } finally {
+        removeLogListener();
+      }
     });
 
     it('does not infer server ownership from substring matches', async () => {

@@ -46,6 +46,7 @@ export async function collectCombinedTools({
     return combined;
   }
   logMcpToolsetErrors(discovered.errors, timeoutMs);
+  logMissingConfiguredMcpToolsets(discovered, namedServers, timeoutMs);
 
   for (const server of namedServers) {
     const toolsForServer = buildSanitizedServerTools(
@@ -165,11 +166,7 @@ async function fetchMcpToolsetsWithTimeout(
     ]);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    const logMethod =
-      reason.includes('Connection closed') || reason.includes('mcp_tool_discovery_timeout')
-        ? logger.debug.bind(logger)
-        : logger.warn.bind(logger);
-    logMethod('MCP tool discovery skipped', {
+    logMcpDiscoverySkip('MCP tool discovery skipped', {
       code: 'mcp_tools_unavailable',
       reason,
       timeoutMs,
@@ -180,15 +177,56 @@ async function fetchMcpToolsetsWithTimeout(
 
 function logMcpToolsetErrors(errors: Record<string, string>, timeoutMs: number): void {
   for (const [serverName, reason] of Object.entries(errors)) {
-    const logMethod =
-      reason.includes('Connection closed') || reason.includes('mcp_tool_discovery_timeout')
-        ? logger.debug.bind(logger)
-        : logger.warn.bind(logger);
-    logMethod('MCP server tool discovery skipped', {
+    logMcpDiscoverySkip('MCP server tool discovery skipped', {
       code: 'mcp_server_tools_unavailable',
       reason,
       serverName,
       timeoutMs,
     });
   }
+}
+
+function logMissingConfiguredMcpToolsets(
+  discovered: McpToolsetsWithErrors,
+  namedServers: McpServerConfig[],
+  timeoutMs: number
+): void {
+  const availableServers = Object.keys(discovered.toolsets);
+  for (const server of namedServers) {
+    if (
+      Object.hasOwn(discovered.toolsets, server.name) ||
+      Object.hasOwn(discovered.errors, server.name)
+    ) {
+      continue;
+    }
+
+    logMcpDiscoverySkip('MCP server toolset missing', {
+      availableServers,
+      code: 'mcp_server_toolset_missing',
+      reason: 'configured_server_not_returned',
+      serverName: server.name,
+      timeoutMs,
+    });
+  }
+}
+
+function logMcpDiscoverySkip(
+  message: string,
+  details: {
+    availableServers?: string[];
+    code: string;
+    reason: string;
+    serverName?: string;
+    timeoutMs: number;
+  }
+): void {
+  const logMethod = pickMcpDiscoveryLogMethod(details.reason);
+  logMethod(message, details);
+}
+
+function pickMcpDiscoveryLogMethod(reason: string): (...args: unknown[]) => void {
+  if (reason.includes('Connection closed') || reason.includes('mcp_tool_discovery_timeout')) {
+    return logger.debug.bind(logger);
+  }
+  return logger.warn.bind(logger);
 }
