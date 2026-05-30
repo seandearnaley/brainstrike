@@ -172,7 +172,7 @@ describe('ipc-mcp handlers', () => {
       });
     });
 
-    it('returned cleanup unregisters handlers and tears down MCP runtime state', async () => {
+    it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {
       const mockWatcher = { close: vi.fn() };
       vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
       const unregister = registerMcpIpcHandlers();
@@ -183,10 +183,11 @@ describe('ipc-mcp handlers', () => {
       }
       await watchHandler({});
 
+      const disposeCallsBeforeUnregister = vi.mocked(disposeClients).mock.calls.length;
       unregister();
 
-      expect(mockWatcher.close).toHaveBeenCalledTimes(1);
-      expect(disposeClients).toHaveBeenCalled();
+      expect(mockWatcher.close).not.toHaveBeenCalled();
+      expect(vi.mocked(disposeClients).mock.calls.length).toBe(disposeCallsBeforeUnregister);
       expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:get');
     });
   });

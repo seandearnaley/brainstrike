@@ -138,12 +138,6 @@ export async function cleanupMcpRuntimeForShutdown(): Promise<void> {
   await disposeClients();
 }
 
-function cleanupMcpRuntimeAfterUnregister(): void {
-  void cleanupMcpRuntimeForShutdown().catch((error: unknown) => {
-    logger.error('Failed to clean up MCP runtime after IPC unregister', { error });
-  });
-}
-
 export function registerMcpIpcHandlers(): () => void {
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -393,7 +387,6 @@ export function registerMcpIpcHandlers(): () => void {
   void discoverMcpToolsOnStartup();
 
   return () => {
-    cleanupMcpRuntimeAfterUnregister();
     registry.unregisterAll();
   };
 }
