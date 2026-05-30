@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -232,6 +233,10 @@ describe('mcp-tool-loader', () => {
 
     it('does not assign one normalized grouped MCP toolset to multiple configured servers', async () => {
       const toolNameMap = new Map<string, string>();
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push(record);
+      });
       const mockMcpClient = {
         listTools: vi.fn().mockResolvedValue({}),
         listToolsets: vi.fn().mockResolvedValue({
@@ -261,11 +266,79 @@ describe('mcp-tool-loader', () => {
         toolNameMap,
         timeoutOverrideMs: undefined,
       });
+      unsubscribe();
 
       expect(Object.keys(result)).toEqual(['my-server_search']);
       expect(result).not.toHaveProperty('my_server_search');
       expect(toolNameMap.get('my-server_search')).toBe('my-server.search');
       expect(toolNameMap.has('my_server_search')).toBe(false);
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.args.some(
+              (arg) =>
+                typeof arg === 'object' &&
+                arg !== null &&
+                'code' in arg &&
+                arg.code === 'mcp_toolset_server_key_duplicate'
+            )
+        )
+      ).toBe(true);
+    });
+
+    it('warns when grouped MCP toolsets miss a configured server in multi-server config', async () => {
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push(record);
+      });
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          alpha: {
+            search: { id: 'search', description: 'search' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'renamed-alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+      unsubscribe();
+
+      expect(Object.keys(result)).toEqual(['alpha_search']);
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.args.some(
+              (arg) =>
+                typeof arg === 'object' &&
+                arg !== null &&
+                'code' in arg &&
+                arg.code === 'mcp_toolset_server_key_missing' &&
+                'serverName' in arg &&
+                arg.serverName === 'renamed-alpha'
+            )
+        )
+      ).toBe(true);
     });
 
     it('keeps grouped MCP tools for a single server when the returned key does not match', async () => {

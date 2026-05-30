@@ -95,7 +95,8 @@ function selectToolsetForServer(
 ): ToolsInput | undefined {
   const selected = findToolsetForServer(toolsets, serverName, isSingleServer);
   if (!selected) {
-    logger.debug('MCP toolset did not match configured server', {
+    const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
+    logToolsetDrop('MCP toolset did not match configured server', {
       code: 'mcp_toolset_server_key_missing',
       serverName,
       availableServerNames: Object.keys(toolsets),
@@ -104,7 +105,8 @@ function selectToolsetForServer(
   }
 
   if (assignedToolsetNames.has(selected.matchedServerName)) {
-    logger.debug('MCP toolset already matched another configured server', {
+    const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
+    logToolsetDrop('MCP toolset already matched another configured server', {
       code: 'mcp_toolset_server_key_duplicate',
       serverName,
       matchedServerName: selected.matchedServerName,
