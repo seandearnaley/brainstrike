@@ -34,7 +34,7 @@ The shortest path would be to patch individual bugs, but that would leave the sa
 3. Decide where official Mastra Workflows, Editor, Workspaces, Server, Observability, and Evals should replace bespoke Brainstrike plumbing.
 4. Preserve local-first desktop constraints explicitly: PGlite, keychain secrets, loopback-only desktop server, hidden renderer local LLM/embedding hosts, and UI context selection remain valid reasons for custom integration.
 
-Post-audit implementation has begun. PRs #1084 through #1095 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, prompt restore, MCP lifecycle/discovery behavior, memory include conformance, pending approval rendering, and PGlite workflow snapshot persistence. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
+Post-audit implementation has begun. PRs #1084 through #1096 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, prompt restore, MCP lifecycle/discovery behavior, memory include conformance, pending approval rendering, PGlite workflow snapshot persistence, and approval/decline resume actions. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
 
 ## Linear Issues Created
 
@@ -60,8 +60,9 @@ This report preserves the original audit findings as the baseline. The follow-up
 - [PR #1093](https://github.com/seandearnaley/brainstrike/pull/1093) covers the BST-557 approval bridge slice by mapping valid Mastra approval pauses into structured pending approval data instead of terminal tool errors.
 - [PR #1094](https://github.com/seandearnaley/brainstrike/pull/1094) covers the BST-557 approval UI slice by rendering pending approval notices in assistant messages.
 - [PR #1095](https://github.com/seandearnaley/brainstrike/pull/1095) covers the BST-557 PGlite workflow snapshot slice by registering a transaction-backed Mastra `WorkflowsStorage` domain for persisted approval/workflow resume state.
+- [PR #1096](https://github.com/seandearnaley/brainstrike/pull/1096) covers the BST-557 approval-resume action slice by wiring UI approve/decline actions through the desktop assistant server to Mastra `approveToolCall` / `declineToolCall` and returning explicit unsupported-action errors on web.
 
-The remaining architectural work is still the staged work in BST-557 through BST-561: Mastra package/runtime compatibility, approve/decline/resume wiring, official workflow HITL semantics, canonical Mastra app/server boundary, observability, scorers, and product decisions around Editor, Workspaces, and Browser.
+The remaining architectural work is still the staged work in BST-557 through BST-561: Mastra package/runtime compatibility, manual desktop approval-flow verification, official workflow HITL semantics, canonical Mastra app/server boundary, observability, scorers, and product decisions around Editor, Workspaces, and Browser.
 
 ## High-Confidence Findings
 
@@ -77,7 +78,7 @@ Evidence:
 - Mastra docs: https://mastra.ai/docs/agents/agent-approval
 - Mastra docs: https://mastra.ai/docs/agents/background-tasks
 
-Brainstrike has tool approval metadata and prompt guidance, but the runtime does not yet complete Mastra Agent Approval end to end. The current PR stack now rejects unsupported stream options, surfaces valid approval pauses as pending data, renders those pending approvals in the UI, and adds a PGlite-backed `WorkflowsStorage` domain for workflow snapshots. Approve/decline/resume is intentionally not wired yet because that still needs explicit runtime/UI actions against the persisted snapshot boundary; adding approval buttons before that contract is wired would create stale or non-resumable actions.
+Brainstrike has tool approval metadata and prompt guidance. The current PR stack now rejects unsupported stream options, surfaces valid approval pauses as pending data, renders those pending approvals in the UI, adds a PGlite-backed `WorkflowsStorage` domain for workflow snapshots, and wires approve/decline resume actions through the desktop assistant server. This does not yet settle the broader package/runtime compatibility boundary or whether official workflow HITL should replace more bespoke assistant orchestration.
 
 ### Memory
 
