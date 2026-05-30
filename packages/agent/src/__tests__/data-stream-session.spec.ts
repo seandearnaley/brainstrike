@@ -201,25 +201,19 @@ describe('AssistantDataStreamSession', () => {
     });
   });
 
-  it('encodes approval-required tool chunks as terminal visible tool errors', async () => {
-    const approvalMessage =
-      'Mastra requires tool approval, but this Brainstrike client cannot approve or decline tool calls yet.';
+  it('encodes approval-required tool chunks as pending approval data', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'tool-event',
-        name: 'brainstrike.updateWorkspaceContextSelection',
-        status: 'error',
-        payload: {
-          actionRequired: true,
-          approvalRequired: true,
-          args: { mode: 'replace', paths: ['src/index.ts'] },
-          error: approvalMessage,
-          toolCallId: 'approval-1',
-        },
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+        resumeSchema: '{}',
+        runId: 'run-approval-1',
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        type: 'tool-approval-required',
       },
       {
         type: 'message-finish',
-        finishReason: 'error',
+        finishReason: 'tool-calls',
         path: [],
         usage: { promptTokens: 0, completionTokens: 0 },
       },
@@ -232,14 +226,18 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const toolCallIndex = events.findIndex((evt) => evt.code === '9');
-    const toolResultIndex = events.findIndex((evt) => evt.code === 'a');
-    const errorIndex = events.findIndex((evt) => evt.code === '3');
+    const approvalIndex = events.findIndex(
+      (evt) =>
+        evt.code === 'aui-data' &&
+        (evt.value as { name?: unknown }).name === 'brainstrike.tool-approval'
+    );
     const finishIndex = events.findIndex((evt) => evt.code === 'd');
 
     expect(toolCallIndex).toBeGreaterThan(-1);
-    expect(toolResultIndex).toBeGreaterThan(toolCallIndex);
-    expect(errorIndex).toBeGreaterThan(toolResultIndex);
-    expect(finishIndex).toBeGreaterThan(errorIndex);
+    expect(approvalIndex).toBeGreaterThan(toolCallIndex);
+    expect(finishIndex).toBeGreaterThan(approvalIndex);
+    expect(events.find((evt) => evt.code === 'a')).toBeUndefined();
+    expect(events.find((evt) => evt.code === '3')).toBeUndefined();
     expect(events[toolCallIndex]).toStrictEqual({
       code: '9',
       value: {
@@ -248,19 +246,23 @@ describe('AssistantDataStreamSession', () => {
         args: { mode: 'replace', paths: ['src/index.ts'] },
       },
     });
-    expect(events[toolResultIndex]).toStrictEqual({
-      code: 'a',
+    expect(events[approvalIndex]).toStrictEqual({
+      code: 'aui-data',
       value: {
-        toolCallId: 'approval-1',
-        result: approvalMessage,
-        isError: true,
+        data: {
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+          runId: 'run-approval-1',
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        name: 'brainstrike.tool-approval',
       },
     });
-    expect(events[errorIndex]).toStrictEqual({ code: '3', value: approvalMessage });
     expect(events[finishIndex]).toStrictEqual({
       code: 'd',
       value: {
-        finishReason: 'error',
+        finishReason: 'tool-calls',
         usage: { inputTokens: 0, outputTokens: 0 },
         path: [],
       },

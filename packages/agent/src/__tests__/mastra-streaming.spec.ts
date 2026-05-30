@@ -380,7 +380,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(0);
   });
 
-  it('passes tool approval through and surfaces approval pauses as visible terminal errors', async () => {
+  it('passes tool approval through as a pending non-error stream state', async () => {
     setMockStreamParts([
       {
         type: 'tool-call-approval',
@@ -412,34 +412,17 @@ describe('mastra streaming integration', () => {
     };
     expect(streamOptions.requireToolApproval).toBe(true);
     expect(chunks).toEqual([
-      expect.objectContaining({
-        type: 'tool-event',
-        name: 'brainstrike.updateWorkspaceContextSelection',
-        status: 'error',
-        payload: expect.objectContaining({
-          args: { mode: 'replace', paths: ['src/index.ts'] },
-          approvalRequired: true,
-          callId: 'approval-1',
-          runId: 'run-approval-1',
-          toolCallId: 'approval-1',
-        }),
-      }),
-      expect.objectContaining({
-        type: 'run-event',
-        event: expect.objectContaining({
-          kind: 'run.failed',
-          label: 'Tool approval required',
-          status: 'failed',
-          metadata: expect.objectContaining({
-            runId: 'run-approval-1',
-            toolCallId: 'approval-1',
-            toolName: 'brainstrike.updateWorkspaceContextSelection',
-          }),
-        }),
-      }),
+      {
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+        resumeSchema: '{}',
+        runId: 'run-approval-1',
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        type: 'tool-approval-required',
+      },
       {
         type: 'message-finish',
-        finishReason: 'error',
+        finishReason: 'tool-calls',
         usage: { promptTokens: 0, completionTokens: 0 },
         path: [],
       },
@@ -477,25 +460,17 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
+    expect(chunks).toContainEqual({
+      args: { mode: 'replace', paths: ['src/index.ts'] },
+      runId: 'run-approval-1',
+      toolCallId: 'approval-1',
+      toolName: 'brainstrike.updateWorkspaceContextSelection',
+      type: 'tool-approval-required',
+    });
     expect(chunks).toContainEqual(
       expect.objectContaining({
-        type: 'tool-event',
-        name: 'brainstrike.updateWorkspaceContextSelection',
-        status: 'error',
-        payload: expect.objectContaining({
-          callId: 'approval-1',
-          toolCallId: 'approval-1',
-        }),
-      })
-    );
-    expect(chunks).toContainEqual(
-      expect.objectContaining({
-        type: 'run-event',
-        event: expect.objectContaining({
-          metadata: expect.objectContaining({
-            toolName: 'brainstrike.updateWorkspaceContextSelection',
-          }),
-        }),
+        type: 'message-finish',
+        finishReason: 'tool-calls',
       })
     );
   });
