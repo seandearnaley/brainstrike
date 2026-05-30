@@ -17,7 +17,9 @@ export function mapMastraToolEvent(
     return;
   }
 
-  const callId = readString(candidate, 'toolCallId') ?? readString(candidate, 'id');
+  const callId =
+    readMastraStreamPartString(candidate, 'toolCallId') ??
+    readMastraStreamPartString(candidate, 'id');
   const rawToolName = resolveRawToolName(candidate, callId, toolNames);
   const displayName = rawToolName
     ? (sanitizedNames?.get(rawToolName) ?? rawToolName)
@@ -28,7 +30,7 @@ export function mapMastraToolEvent(
       if (callId && rawToolName) {
         toolNames.set(callId, rawToolName);
       }
-      const args = read(candidate, 'args');
+      const args = readMastraStreamPartValue(candidate, 'args');
       return {
         type: 'tool-event',
         name: displayName,
@@ -38,21 +40,23 @@ export function mapMastraToolEvent(
           toolCallId: callId,
           args,
           input: args,
-          providerExecuted: read(candidate, 'providerExecuted'),
-          dynamic: read(candidate, 'dynamic'),
-          invalid: read(candidate, 'invalid'),
-          error: read(candidate, 'error'),
+          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+          invalid: readMastraStreamPartValue(candidate, 'invalid'),
+          error: readMastraStreamPartValue(candidate, 'error'),
         },
       } satisfies StreamChunk;
     }
     case 'tool-call-input-streaming-start': {
       return progressEvent(displayName, callId, {
         step: PROGRESS_START_STEP,
-        providerExecuted: read(candidate, 'providerExecuted'),
+        providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
       });
     }
     case 'tool-call-delta': {
-      const delta = readString(candidate, 'argsTextDelta') ?? readString(candidate, 'textDelta');
+      const delta =
+        readMastraStreamPartString(candidate, 'argsTextDelta') ??
+        readMastraStreamPartString(candidate, 'textDelta');
       const note = delta?.trim();
       return progressEvent(displayName, callId, {
         step: 'input_stream_delta',
@@ -66,7 +70,9 @@ export function mapMastraToolEvent(
       });
     }
     case 'tool-result': {
-      const result = read(candidate, 'result') ?? read(candidate, 'output');
+      const result =
+        readMastraStreamPartValue(candidate, 'result') ??
+        readMastraStreamPartValue(candidate, 'output');
       return {
         type: 'tool-event',
         name: displayName,
@@ -76,15 +82,15 @@ export function mapMastraToolEvent(
           toolCallId: callId,
           output: result,
           result,
-          providerExecuted: read(candidate, 'providerExecuted'),
-          dynamic: read(candidate, 'dynamic'),
-          preliminary: read(candidate, 'preliminary'),
-          args: read(candidate, 'args'),
+          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+          preliminary: readMastraStreamPartValue(candidate, 'preliminary'),
+          args: readMastraStreamPartValue(candidate, 'args'),
         },
       } satisfies StreamChunk;
     }
     case 'tool-output': {
-      const output = read(candidate, 'output');
+      const output = readMastraStreamPartValue(candidate, 'output');
       return {
         type: 'tool-event',
         name: displayName,
@@ -97,7 +103,9 @@ export function mapMastraToolEvent(
       } satisfies StreamChunk;
     }
     case 'tool-error': {
-      const error = read(candidate, 'error') ?? read(candidate, 'result');
+      const error =
+        readMastraStreamPartValue(candidate, 'error') ??
+        readMastraStreamPartValue(candidate, 'result');
       return {
         type: 'tool-event',
         name: displayName,
@@ -106,8 +114,8 @@ export function mapMastraToolEvent(
           callId,
           toolCallId: callId,
           error,
-          providerExecuted: read(candidate, 'providerExecuted'),
-          dynamic: read(candidate, 'dynamic'),
+          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
         },
       } satisfies StreamChunk;
     }
@@ -138,7 +146,8 @@ function resolveRawToolName(
   callId: string | undefined,
   toolNames: Map<string, string>
 ): string | undefined {
-  const explicitName = readString(part, 'toolName') ?? readString(part, 'name');
+  const explicitName =
+    readMastraStreamPartString(part, 'toolName') ?? readMastraStreamPartString(part, 'name');
   if (explicitName) {
     if (callId) {
       toolNames.set(callId, explicitName);
@@ -150,9 +159,9 @@ function resolveRawToolName(
     return toolNames.get(callId);
   }
 
-  const payloadTool = read(part, 'tool');
+  const payloadTool = readMastraStreamPartValue(part, 'tool');
   if (payloadTool && typeof payloadTool === 'object') {
-    const maybeName = readString(payloadTool as Record<string, unknown>, 'name');
+    const maybeName = readMastraStreamPartString(payloadTool as Record<string, unknown>, 'name');
     if (maybeName) {
       return maybeName;
     }
@@ -161,34 +170,16 @@ function resolveRawToolName(
   return;
 }
 
-function read(source: ToolEventPart, key: string): unknown {
-  if (source && typeof source === 'object' && key in source && source[key] !== undefined) {
-    return source[key];
+export function readMastraStreamPartValue(source: unknown, key: string): unknown {
+  if (!source || typeof source !== 'object') {
+    return;
   }
-  const payload = source.payload;
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    if (key in record && record[key] !== undefined) {
-      return record[key];
+
+  if (key in source) {
+    const value = (source as Record<string, unknown>)[key];
+    if (value !== undefined) {
+      return value;
     }
-  }
-  return;
-}
-
-function readString(
-  source: ToolEventPart | Record<string, unknown>,
-  key: string
-): string | undefined {
-  const value = readValue(source, key);
-  if (typeof value === 'string' && value.length > 0) {
-    return value;
-  }
-  return;
-}
-
-function readValue(source: ToolEventPart | Record<string, unknown>, key: string): unknown {
-  if (source && typeof source === 'object' && key in source && source[key] !== undefined) {
-    return source[key];
   }
   const payload = (source as { payload?: unknown }).payload;
   if (payload && typeof payload === 'object') {
@@ -196,6 +187,14 @@ function readValue(source: ToolEventPart | Record<string, unknown>, key: string)
     if (key in record && record[key] !== undefined) {
       return record[key];
     }
+  }
+  return;
+}
+
+export function readMastraStreamPartString(source: unknown, key: string): string | undefined {
+  const value = readMastraStreamPartValue(source, key);
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
   }
   return;
 }

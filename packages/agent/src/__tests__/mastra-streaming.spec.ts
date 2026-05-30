@@ -368,7 +368,6 @@ describe('mastra streaming integration', () => {
       inputProcessors: [],
       outputProcessors: [],
       prepareStep: () => undefined,
-      requireToolApproval: true,
       structuredOutput: { schema: {} },
       toolChoice: 'required',
       toolsets: {},
@@ -383,6 +382,237 @@ describe('mastra streaming integration', () => {
     );
 
     expect(agentInstances).toHaveLength(0);
+  });
+
+  it('passes tool approval through and surfaces approval pauses as visible terminal errors', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call-approval',
+        payload: {
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+        },
+        runId: 'run-approval-1',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'update selected context' }] }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const streamOptions = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      requireToolApproval?: boolean;
+    };
+    expect(streamOptions.requireToolApproval).toBe(true);
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'tool-event',
+        name: 'brainstrike.updateWorkspaceContextSelection',
+        status: 'error',
+        payload: expect.objectContaining({
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          approvalRequired: true,
+          callId: 'approval-1',
+          runId: 'run-approval-1',
+          toolCallId: 'approval-1',
+        }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          label: 'Tool approval required',
+          status: 'failed',
+          metadata: expect.objectContaining({
+            runId: 'run-approval-1',
+            toolCallId: 'approval-1',
+            toolName: 'brainstrike.updateWorkspaceContextSelection',
+          }),
+        }),
+      }),
+      {
+        type: 'message-finish',
+        finishReason: 'error',
+        usage: { promptTokens: 0, completionTokens: 0 },
+        path: [],
+      },
+    ]);
+  });
+
+  it('uses the cached tool name when approval pauses omit the tool name', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+      },
+      {
+        type: 'tool-call-approval',
+        payload: {
+          toolCallId: 'approval-1',
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+        },
+        runId: 'run-approval-1',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'update selected context' }] }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-event',
+        name: 'brainstrike.updateWorkspaceContextSelection',
+        status: 'error',
+        payload: expect.objectContaining({
+          callId: 'approval-1',
+          toolCallId: 'approval-1',
+        }),
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          metadata: expect.objectContaining({
+            toolName: 'brainstrike.updateWorkspaceContextSelection',
+          }),
+        }),
+      })
+    );
+  });
+
+  it('surfaces suspended tool calls as visible terminal errors instead of hanging', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call-suspended',
+        payload: {
+          toolCallId: 'suspended-1',
+          toolName: 'brainstrike.createEmbeddingSet',
+          args: { modelKey: 'openai:text-embedding-3-small', name: 'Docs' },
+          suspendPayload: { reason: 'needs-user-input' },
+          resumeSchema: '{}',
+        },
+        runId: 'run-suspended-1',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'create an embedding set' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'tool-event',
+        name: 'brainstrike.createEmbeddingSet',
+        status: 'error',
+        payload: expect.objectContaining({
+          actionRequired: true,
+          approvalRequired: false,
+          callId: 'suspended-1',
+          runId: 'run-suspended-1',
+          suspended: true,
+          toolCallId: 'suspended-1',
+        }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          label: 'Tool resume required',
+          status: 'failed',
+        }),
+      }),
+      {
+        type: 'message-finish',
+        finishReason: 'error',
+        usage: { promptTokens: 0, completionTokens: 0 },
+        path: [],
+      },
+    ]);
+  });
+
+  it('keeps malformed approval pauses visible when Mastra omits the tool call id', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call-approval',
+        payload: {
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+        },
+        runId: 'run-approval-without-tool-call-id',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'update selected context' }] }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'tool-event',
+        name: 'brainstrike.updateWorkspaceContextSelection',
+        status: 'error',
+        payload: expect.objectContaining({
+          callId: 'mastra-tool-call-approval-missing-tool-call-id',
+          missingToolCallId: true,
+          toolCallId: 'mastra-tool-call-approval-missing-tool-call-id',
+        }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          metadata: expect.objectContaining({
+            missingToolCallId: true,
+            toolCallId: 'mastra-tool-call-approval-missing-tool-call-id',
+          }),
+        }),
+      }),
+      {
+        type: 'message-finish',
+        finishReason: 'error',
+        usage: { promptTokens: 0, completionTokens: 0 },
+        path: [],
+      },
+    ]);
   });
 
   it('preserves the Mastra finish reason in the assistant data stream', async () => {

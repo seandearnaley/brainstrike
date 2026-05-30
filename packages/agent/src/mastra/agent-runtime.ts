@@ -28,7 +28,11 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
-import { mapMastraToolEvent } from './tool-event-mapper';
+import {
+  mapMastraToolEvent,
+  readMastraStreamPartString,
+  readMastraStreamPartValue,
+} from './tool-event-mapper';
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
@@ -38,6 +42,7 @@ export interface MastraAgentRuntimeOptions {
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
   model?: string;
+  requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
   tools?: ToolsInput;
@@ -271,6 +276,7 @@ interface MastraStreamPart {
     output?: { usage?: UsageLike };
     metadata?: { usage?: UsageLike };
   };
+  runId?: unknown;
   text?: string;
   textDelta?: string;
   tripwireReason?: string;
@@ -309,6 +315,15 @@ function makeSyntheticFinishChunk(): StreamChunk {
   return {
     type: 'message-finish',
     finishReason: 'other',
+    usage: { promptTokens: 0, completionTokens: 0 },
+    path: [],
+  };
+}
+
+function makeErrorFinishChunk(): StreamChunk {
+  return {
+    type: 'message-finish',
+    finishReason: 'error',
     usage: { promptTokens: 0, completionTokens: 0 },
     path: [],
   };
@@ -400,6 +415,75 @@ function readTripwireReason(part: unknown): string | undefined {
   return p.tripwireReason ?? p.payload?.tripwireReason;
 }
 
+function makeUnsupportedApprovalChunks(
+  part: unknown,
+  toolNames: Map<string, string>,
+  sanitizedNameMap: Map<string, string> | undefined,
+  eventType: 'tool-call-approval' | 'tool-call-suspended'
+): StreamChunk[] {
+  const upstreamToolCallId =
+    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
+  const missingToolCallId = upstreamToolCallId === undefined;
+  const toolCallId = upstreamToolCallId ?? `mastra-${eventType}-missing-tool-call-id`;
+  const rawToolName =
+    readMastraStreamPartString(part, 'toolName') ??
+    readMastraStreamPartString(part, 'name') ??
+    (upstreamToolCallId ? toolNames.get(upstreamToolCallId) : undefined) ??
+    'unknown-tool';
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  const runId = readMastraStreamPartString(part, 'runId');
+  const args = readMastraStreamPartValue(part, 'args');
+  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
+  const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
+  const isSuspended = eventType === 'tool-call-suspended';
+  const detail = isSuspended
+    ? 'Mastra suspended a tool call, but this Brainstrike client cannot resume suspended tool calls yet.'
+    : 'Mastra requires tool approval, but this Brainstrike client cannot approve or decline tool calls yet.';
+  const label = isSuspended ? 'Tool resume required' : 'Tool approval required';
+
+  logger.warn('mastra tool approval pause requires unsupported client action', {
+    code: 'mastra_agent_tool_action_required',
+    eventType,
+    missingToolCallId,
+    ...(runId ? { runId } : {}),
+    toolCallId,
+    toolName,
+  });
+
+  return [
+    {
+      type: 'tool-event',
+      name: toolName,
+      status: 'error',
+      payload: {
+        actionRequired: true,
+        approvalRequired: !isSuspended,
+        callId: toolCallId,
+        detail,
+        error: detail,
+        ...(missingToolCallId ? { missingToolCallId: true } : {}),
+        toolCallId,
+        ...(args === undefined ? {} : { args, input: args }),
+        ...(runId ? { runId } : {}),
+        ...(resumeSchema === undefined ? {} : { resumeSchema }),
+        ...(suspendPayload === undefined ? {} : { suspendPayload }),
+        suspended: isSuspended,
+      },
+    },
+    makeRunEventChunk('run.failed', 'failed', label, {
+      actionRequired: true,
+      approvalRequired: !isSuspended,
+      resumeSupported: false,
+      ...(runId ? { runId } : {}),
+      ...(isSuspended ? { suspended: true } : {}),
+      ...(missingToolCallId ? { missingToolCallId: true } : {}),
+      toolCallId,
+      toolName,
+    }),
+    makeErrorFinishChunk(),
+  ];
+}
+
 interface ProcessStreamPartResult {
   chunks: StreamChunk[];
   finished: boolean;
@@ -485,6 +569,14 @@ function processMastraStreamPart(
       const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
       return evt ? { chunks: [evt], finished: false } : { chunks: [], finished: false };
     }
+    case 'tool-call-approval':
+    case 'tool-call-suspended':
+      // This client cannot approve or resume yet, so stop at the first pause
+      // instead of consuming later stream parts that would imply forward progress.
+      return {
+        chunks: makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+        finished: true,
+      };
     case 'error': {
       // Top-level provider errors (e.g. Ollama returning HTTP 400 because the
       // selected model does not support tool calling) arrive as `'error'`
@@ -583,6 +675,7 @@ async function initializeMastraRuntime(
 interface StreamIterationParams {
   memory?: MastraMemory;
   messages: AgentMessage[];
+  requireToolApproval?: boolean;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
@@ -617,6 +710,7 @@ interface BrainstrikeAgentStreamOptions {
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
+  requireToolApproval?: boolean;
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -626,7 +720,6 @@ const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
   'inputProcessors',
   'outputProcessors',
   'prepareStep',
-  'requireToolApproval',
   'structuredOutput',
   'toolChoice',
   'toolsets',
@@ -757,6 +850,7 @@ async function createStreamIteratorFromRuntime({
   runtimeData,
   messages,
   memory,
+  requireToolApproval,
   sanitizedNameMap,
 }: StreamIterationParams): Promise<StreamIterator> {
   const mastraMessages = convertMessagesToMastra(messages);
@@ -771,6 +865,9 @@ async function createStreamIteratorFromRuntime({
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      // Until approve/decline/resume is implemented, enabling this makes tool calls
+      // pause and surface as terminal unsupported-action errors.
+      ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
     };
     const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
 
@@ -834,6 +931,9 @@ export async function streamMastraAgent(
     runtime,
     messages,
     ...(options.memory ? { memory: options.memory } : {}),
+    ...(options.requireToolApproval === undefined
+      ? {}
+      : { requireToolApproval: options.requireToolApproval }),
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
