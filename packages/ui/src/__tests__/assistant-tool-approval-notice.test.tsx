@@ -257,6 +257,57 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByText('Approved')).toBeInTheDocument();
   });
 
+  it('keeps restored completed approval actions disabled after remount', async () => {
+    const user = userEvent.setup();
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: { type: 'complete' },
+    });
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByText('Approved')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps restored pending approval actions disabled after remount', () => {
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'decline',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByText('Declined')).toBeInTheDocument();
+  });
+
   it('does not reenable approval actions for a different approval run error', async () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);

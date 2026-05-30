@@ -36,7 +36,14 @@ function formatJsonValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-type ApprovalRunOutcome = 'none' | 'pending' | 'retryable' | 'completed';
+type ApprovalRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+
+interface ApprovalRunOutcome {
+  action: AssistantToolApprovalDecision | null;
+  state: ApprovalRunOutcomeState;
+}
+
+const emptyApprovalRunOutcome: ApprovalRunOutcome = { action: null, state: 'none' };
 
 function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
   return (
@@ -73,34 +80,42 @@ function getToolApprovalActionFromMessage(message: unknown): unknown {
   return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
 }
 
+function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const action = value['action'];
+  return action === 'approve' || action === 'decline' ? action : null;
+}
+
 function resolveApprovalRunOutcome(
   messages: readonly unknown[],
   approval: AssistantToolApprovalRequest | null
 ): ApprovalRunOutcome {
   if (!approval) {
-    return 'none';
+    return emptyApprovalRunOutcome;
   }
 
   let submittedMessageIndex = -1;
+  let submittedAction: AssistantToolApprovalDecision | null = null;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (
-      getMessageRole(message) === 'user' &&
-      isMatchingApprovalAction(getToolApprovalActionFromMessage(message), approval)
-    ) {
+    const approvalAction = getToolApprovalActionFromMessage(message);
+    if (getMessageRole(message) === 'user' && isMatchingApprovalAction(approvalAction, approval)) {
       submittedMessageIndex = index;
+      submittedAction = getToolApprovalDecision(approvalAction);
       break;
     }
   }
   if (submittedMessageIndex < 0) {
-    return 'none';
+    return emptyApprovalRunOutcome;
   }
 
   for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
     const role = getMessageRole(message);
     if (role === 'user') {
-      return 'pending';
+      return { action: submittedAction, state: 'pending' };
     }
     if (role !== 'assistant') {
       continue;
@@ -108,15 +123,15 @@ function resolveApprovalRunOutcome(
 
     const status = getMessageStatus(message);
     if (status?.['type'] === 'complete') {
-      return 'completed';
+      return { action: submittedAction, state: 'completed' };
     }
     if (status?.['type'] === 'incomplete') {
-      return 'retryable';
+      return { action: submittedAction, state: 'retryable' };
     }
-    return 'pending';
+    return { action: submittedAction, state: 'pending' };
   }
 
-  return 'pending';
+  return { action: submittedAction, state: 'pending' };
 }
 
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
@@ -130,6 +145,8 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   const approvalRunOutcome = useAuiState((state) =>
     resolveApprovalRunOutcome(state.thread.messages, approval)
   );
+  const actionLockedByRun =
+    approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   const detailEntries = useMemo(() => {
     if (!approval) {
       return [];
@@ -143,7 +160,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   }, [approval]);
   const submitApprovalAction = useCallback(
     (action: AssistantToolApprovalDecision): void => {
-      if (!(approval && submittedAction === null)) {
+      if (!(approval && submittedAction === null && !actionLockedByRun)) {
         return;
       }
 
@@ -189,27 +206,30 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
         });
       }
     },
-    [approval, aui, submittedAction]
+    [actionLockedByRun, approval, aui, submittedAction]
   );
 
   useEffect(() => {
-    if (submittedAction === null || approvalRunOutcome !== 'retryable') {
+    if (submittedAction === null || approvalRunOutcome.state !== 'retryable') {
       return;
     }
     setSubmittedAction(null);
-  }, [approvalRunOutcome, submittedAction]);
+  }, [approvalRunOutcome.state, submittedAction]);
 
   if (!approval) {
     return null;
   }
 
+  const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
   const approvalStatus =
-    submittedAction === 'approve'
+    displayedAction === 'approve'
       ? 'Approved'
-      : submittedAction === 'decline'
+      : displayedAction === 'decline'
         ? 'Declined'
-        : 'Pending';
-  const actionButtonsDisabled = submittedAction !== null;
+        : actionLockedByRun
+          ? 'Submitted'
+          : 'Pending';
+  const actionButtonsDisabled = submittedAction !== null || actionLockedByRun;
 
   return (
     <div
