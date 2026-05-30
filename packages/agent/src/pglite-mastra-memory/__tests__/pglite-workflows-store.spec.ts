@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { PGlite } from '@electric-sql/pglite';
 import type { StepResult, WorkflowRunState } from '@mastra/core/workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +11,7 @@ type ApprovalStepResult = StepResult<
   Record<string, unknown>,
   Record<string, unknown>
 >;
+type UnknownStepResult = StepResult<unknown, unknown, unknown, unknown>;
 
 function createSnapshot(overrides: Partial<WorkflowRunState> = {}): WorkflowRunState {
   return {
@@ -179,6 +181,45 @@ describe('PgliteWorkflowsStore', () => {
     });
   });
 
+  it('merges array step outputs while preserving prior values and pending markers', async () => {
+    await store.persistWorkflowSnapshot({
+      runId: 'approval-run-1',
+      snapshot: createSnapshot({ runId: 'approval-run-1' }),
+      workflowName: 'approval-workflow',
+    });
+
+    const initialResult: UnknownStepResult = {
+      output: ['kept', 'replace-me'],
+      status: 'success',
+    };
+    const resumedResult: UnknownStepResult = {
+      output: [null, { __mastra_pending__: true }, 'new-value'],
+      status: 'success',
+    };
+
+    await store.updateWorkflowResults({
+      requestContext: {},
+      result: initialResult,
+      runId: 'approval-run-1',
+      stepId: 'approval-step',
+      workflowName: 'approval-workflow',
+    });
+    const context = await store.updateWorkflowResults({
+      requestContext: {},
+      result: resumedResult,
+      runId: 'approval-run-1',
+      stepId: 'approval-step',
+      workflowName: 'approval-workflow',
+    });
+    const loaded = await store.loadWorkflowSnapshot({
+      runId: 'approval-run-1',
+      workflowName: 'approval-workflow',
+    });
+
+    expect(context['approval-step']?.output).toEqual(['kept', null, 'new-value']);
+    expect(loaded?.context['approval-step']?.output).toEqual(['kept', null, 'new-value']);
+  });
+
   it('reports stored workflow snapshots with missing context as malformed data', async () => {
     await db.query(
       `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
@@ -200,6 +241,48 @@ describe('PgliteWorkflowsStore', () => {
         workflowName: 'approval-workflow',
       })
     ).rejects.toThrow('Stored Mastra workflow snapshot for runId malformed-run is missing context');
+  });
+
+  it('skips malformed workflow snapshots while listing and logs the skipped row', async () => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      await store.persistWorkflowSnapshot({
+        createdAt: new Date('2026-05-29T10:00:00Z'),
+        runId: 'valid-run',
+        snapshot: createSnapshot({ runId: 'valid-run', status: 'running' }),
+        workflowName: 'approval-workflow',
+      });
+      await db.query(
+        `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
+          (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+        [
+          'approval-workflow',
+          'malformed-run',
+          null,
+          JSON.stringify({ runId: 'malformed-run', status: 'running' }),
+          new Date('2026-05-29T11:00:00Z'),
+          new Date('2026-05-29T11:00:01Z'),
+        ]
+      );
+
+      const listed = await store.listWorkflowRuns({ workflowName: 'approval-workflow' });
+
+      expect(listed.runs.map((run) => run.runId)).toEqual(['valid-run']);
+      expect(records).toContainEqual(
+        expect.objectContaining({
+          level: LogLevel.WARN,
+          message: 'Skipping malformed Mastra workflow snapshot while listing workflow runs',
+          scope: 'PgliteWorkflowsStore',
+        })
+      );
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('preserves the original createdAt when a workflow snapshot is re-persisted', async () => {
