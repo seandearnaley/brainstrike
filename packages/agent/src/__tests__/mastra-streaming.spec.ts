@@ -432,7 +432,61 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
-  it('keeps the first durable terminal run-event when success precedes error for one tool id', async () => {
+  it('uses tool-result metadata for completion after an intermediate tool-output', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'browser.capture',
+        toolCallId: 'c-result',
+        args: { url: 'https://example.test' },
+      },
+      {
+        type: 'tool-output',
+        toolCallId: 'c-result',
+        output: { snapshot: 'raw page text' },
+        providerExecuted: false,
+        dynamic: true,
+      },
+      {
+        type: 'tool-result',
+        toolCallId: 'c-result',
+        result: { pageTitle: 'safe title' },
+        providerExecuted: true,
+        dynamic: false,
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'capture' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (
+        chunk.type === 'run-event' &&
+        (chunk.event.kind === 'tool.completed' || chunk.event.kind === 'tool.failed')
+      ) {
+        terminalEvents.push(chunk.event);
+      }
+    }
+
+    expect(terminalEvents).toMatchObject([
+      {
+        kind: 'tool.completed',
+        status: 'completed',
+        metadata: {
+          toolCallId: 'c-result',
+          toolName: 'browser.capture',
+          providerExecuted: true,
+          dynamic: false,
+        },
+      },
+    ]);
+  });
+
+  it('lets a terminal tool-error override an earlier intermediate tool-output', async () => {
     setMockStreamParts([
       {
         type: 'tool-call',
@@ -470,8 +524,8 @@ describe('mastra streaming integration', () => {
 
     expect(terminalEvents).toMatchObject([
       {
-        kind: 'tool.completed',
-        status: 'completed',
+        kind: 'tool.failed',
+        status: 'failed',
         metadata: {
           toolCallId: 'c-terminal',
           toolName: 'flaky.lookup',
