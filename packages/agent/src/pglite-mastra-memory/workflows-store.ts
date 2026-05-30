@@ -52,22 +52,6 @@ function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
-function emptyWorkflowSnapshot(runId: string): WorkflowRunState {
-  return {
-    activePaths: [],
-    activeStepsPath: {},
-    context: {},
-    resumeLabels: {},
-    runId,
-    serializedStepGraph: [],
-    status: 'pending',
-    suspendedPaths: {},
-    timestamp: Date.now(),
-    value: {},
-    waitingPaths: {},
-  };
-}
-
 function parseWorkflowSnapshot(value: WorkflowRunState | string): WorkflowRunState {
   const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
   if (!isRecord(parsed)) {
@@ -232,7 +216,6 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
          ON CONFLICT (workflow_name, run_id) DO UPDATE SET
           "resourceId" = EXCLUDED."resourceId",
           snapshot = EXCLUDED.snapshot,
-          "createdAt" = EXCLUDED."createdAt",
           "updatedAt" = EXCLUDED."updatedAt"`,
         [
           workflowName,
@@ -275,15 +258,12 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     return runTransaction(this.database, async (tx) => {
       const row = await selectWorkflowRun(tx, workflowName, runId);
       if (!row) {
-        return {};
+        throw new Error(
+          `Cannot update workflow results before snapshot is persisted for workflow ${workflowName} run ${runId}`
+        );
       }
 
-      const snapshot = row.snapshot
-        ? parseWorkflowSnapshot(row.snapshot)
-        : emptyWorkflowSnapshot(runId);
-      if (!snapshot.context) {
-        throw new Error(`Snapshot not found for runId ${runId}`);
-      }
+      const snapshot = parseWorkflowSnapshot(row.snapshot);
       snapshot.context[stepId] = mergeStepResult(snapshot.context[stepId], result);
       snapshot.requestContext = {
         ...(snapshot.requestContext ?? {}),
@@ -310,12 +290,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
         return;
       }
 
-      const snapshot = row.snapshot
-        ? parseWorkflowSnapshot(row.snapshot)
-        : emptyWorkflowSnapshot(runId);
-      if (!snapshot.context) {
-        throw new Error(`Snapshot not found for runId ${runId}`);
-      }
+      const snapshot = parseWorkflowSnapshot(row.snapshot);
       const nextSnapshot: WorkflowRunState = { ...snapshot, ...opts };
       await writeWorkflowSnapshot(tx, workflowName, runId, nextSnapshot);
       return nextSnapshot;

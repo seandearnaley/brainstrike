@@ -153,6 +153,68 @@ describe('PgliteWorkflowsStore', () => {
     });
   });
 
+  it('preserves the original createdAt when a workflow snapshot is re-persisted', async () => {
+    await store.persistWorkflowSnapshot({
+      createdAt: new Date('2026-05-29T10:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-original',
+      snapshot: createSnapshot({ runId: 'run-original', status: 'running' }),
+      updatedAt: new Date('2026-05-29T10:00:01Z'),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: new Date('2026-05-29T11:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-newer',
+      snapshot: createSnapshot({ runId: 'run-newer', status: 'running' }),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: new Date('2026-05-29T12:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-original',
+      snapshot: createSnapshot({ runId: 'run-original', status: 'success' }),
+      updatedAt: new Date('2026-05-29T12:00:01Z'),
+      workflowName: 'approval-workflow',
+    });
+
+    const listed = await store.listWorkflowRuns({
+      resourceId: 'workspace-a',
+      workflowName: 'approval-workflow',
+    });
+    const run = await store.getWorkflowRunById({
+      runId: 'run-original',
+      workflowName: 'approval-workflow',
+    });
+
+    expect(listed.runs.map((entry) => entry.runId)).toEqual(['run-newer', 'run-original']);
+    expect(run?.createdAt).toEqual(new Date('2026-05-29T10:00:00Z'));
+    expect(run?.updatedAt).toEqual(new Date('2026-05-29T12:00:01Z'));
+    expect(run?.snapshot).toMatchObject({ runId: 'run-original', status: 'success' });
+  });
+
+  it('throws when workflow results are updated before a snapshot row exists', async () => {
+    const approvalResult: ApprovalStepResult = {
+      endedAt: Date.parse('2026-05-29T10:01:00Z'),
+      output: { approved: true },
+      payload: { requestId: 'request-1' },
+      startedAt: Date.parse('2026-05-29T10:00:00Z'),
+      status: 'success',
+    };
+
+    await expect(
+      store.updateWorkflowResults({
+        requestContext: { userId: 'user-1' },
+        result: approvalResult,
+        runId: 'missing-run',
+        stepId: 'approval-step',
+        workflowName: 'approval-workflow',
+      })
+    ).rejects.toThrow(
+      'Cannot update workflow results before snapshot is persisted for workflow approval-workflow run missing-run'
+    );
+  });
+
   it('lists, filters, paginates, and deletes workflow runs', async () => {
     await store.persistWorkflowSnapshot({
       createdAt: new Date('2026-05-29T09:00:00Z'),
