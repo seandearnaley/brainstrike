@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils/logger';
 import type {
   StorageListWorkflowRunsInput,
   UpdateWorkflowStateOptions,
@@ -31,6 +32,7 @@ interface PgliteWorkflowsStoreOptions {
 }
 
 const PENDING_MARKER_KEY = '__mastra_pending__';
+const logger = createLogger('PgliteWorkflowsStore');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -74,6 +76,20 @@ function workflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun {
     workflowName: row.workflowName,
     ...(row.resourceId === null ? {} : { resourceId: row.resourceId }),
   };
+}
+
+function safeWorkflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun | undefined {
+  try {
+    return workflowRunFromRow(row);
+  } catch (error) {
+    logger.warn('Skipping malformed Mastra workflow snapshot while listing workflow runs', {
+      code: 'mastra_workflow_snapshot_list_skip_malformed',
+      error: error instanceof Error ? error.message : String(error),
+      runId: row.runId,
+      workflowName: row.workflowName,
+    });
+    return;
+  }
 }
 
 function mergeStepResult(existingResult: unknown, result: WorkflowStepResult): WorkflowStepResult {
@@ -380,7 +396,10 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     const result = await this.database.query<WorkflowSnapshotRow>(sql, queryValues);
 
     return {
-      runs: result.rows.map(workflowRunFromRow),
+      runs: result.rows.flatMap((row) => {
+        const run = safeWorkflowRunFromRow(row);
+        return run ? [run] : [];
+      }),
       total: Number(countResult.rows[0]?.count ?? 0),
     };
   }
