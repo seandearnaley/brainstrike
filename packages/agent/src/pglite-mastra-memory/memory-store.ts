@@ -253,7 +253,7 @@ function messageFromRow(row: MessageRow): MastraDBMessage {
     threadId: row.threadId,
     createdAt: toDate(row.createdAt),
     content: parseMessageContent(row.content),
-    ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+    ...(row.resourceId === null ? {} : { resourceId: row.resourceId }),
   } as MastraDBMessage;
 }
 
@@ -477,8 +477,8 @@ export class PgliteMemoryStore extends MemoryStorage {
     resourceId?: string;
   }): Promise<StorageThreadType | null> {
     const values: PgliteQueryValue[] = [threadId];
-    const resourcePredicate = resourceId ? ' AND "resourceId" = $2' : '';
-    if (resourceId) {
+    const resourcePredicate = resourceId === undefined ? '' : ' AND "resourceId" = $2';
+    if (resourceId !== undefined) {
       values.push(resourceId);
     }
     const result = await this.database.query<ThreadRow>(
@@ -562,7 +562,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     const values: PgliteQueryValue[] = [];
     const filter = args.filter;
 
-    if (filter?.resourceId) {
+    if (filter?.resourceId !== undefined) {
       values.push(filter.resourceId);
       where.push(`"resourceId" = $${values.length}`);
     }
@@ -1209,7 +1209,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       values.push(args.threadIds);
       where.push(`thread_id = ANY($${values.length}::text[])`);
     }
-    if (args.resourceId) {
+    if (args.resourceId !== undefined) {
       values.push(args.resourceId);
       where.push(`"resourceId" = $${values.length}`);
     }
