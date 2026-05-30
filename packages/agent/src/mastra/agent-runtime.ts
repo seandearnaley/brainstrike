@@ -493,6 +493,9 @@ function makeToolLifecycleRunEventChunk(
       return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
     case 'success': {
       if (!toolCallId) {
+        // Mastra terminal tool parts must carry the same stable call id as their
+        // start part. Name-based matching would be ambiguous for concurrent
+        // same-name tool calls, so durable terminal events are not guessed.
         return;
       }
       if (mastraPartType === 'tool-output') {
@@ -534,6 +537,8 @@ function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState)
       continue;
     }
     lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+    // Sequence remains the ordering source of truth; this timestamp preserves
+    // when the output-only terminal observation happened for duration metrics.
     chunks.push(
       makeRunEventChunk(
         'tool.completed',
@@ -780,7 +785,10 @@ function processMastraStreamPart(
       // Stop at the first approval pause and surface resumable metadata. Later
       // stream parts are only valid after an explicit approve/decline action.
       return {
-        chunks: makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap),
+        chunks: [
+          ...makePendingToolOutputRunEventChunks(lifecycleState),
+          ...makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap),
+        ],
         finished: true,
       };
     case 'tool-call-suspended':
@@ -788,7 +796,10 @@ function processMastraStreamPart(
       // first pause instead of consuming later stream parts that would imply
       // forward progress.
       return {
-        chunks: makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+        chunks: [
+          ...makePendingToolOutputRunEventChunks(lifecycleState),
+          ...makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+        ],
         finished: true,
       };
     case 'error': {

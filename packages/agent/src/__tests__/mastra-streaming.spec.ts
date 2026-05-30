@@ -950,6 +950,93 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('flushes output-only tool completions before an approval pause', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'background.lookup',
+        toolCallId: 'c-output-only-before-approval',
+        args: { query: 'local state' },
+      },
+      {
+        type: 'tool-output',
+        toolCallId: 'c-output-only-before-approval',
+        output: { answer: 'done' },
+      },
+      {
+        type: 'tool-call-approval',
+        payload: {
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+        },
+        runId: 'run-approval-1',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup then approve' }] }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'tool-event',
+        name: 'background.lookup',
+        status: 'start',
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'tool.started',
+          metadata: expect.objectContaining({
+            toolCallId: 'c-output-only-before-approval',
+            toolName: 'background.lookup',
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'tool-event',
+        name: 'background.lookup',
+        status: 'success',
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'tool.completed',
+          metadata: expect.objectContaining({
+            toolCallId: 'c-output-only-before-approval',
+            toolName: 'background.lookup',
+          }),
+          status: 'completed',
+        }),
+      }),
+      {
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+        resumeSchema: '{}',
+        runId: 'run-approval-1',
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        type: 'tool-approval-required',
+      },
+      {
+        type: 'message-finish',
+        finishReason: 'tool-calls',
+        usage: { promptTokens: 0, completionTokens: 0 },
+        path: [],
+      },
+    ]);
+  });
+
   it('resumes an approved Mastra tool call through the official approval API', async () => {
     const memory = { id: 'memory-instance' };
     const storage = { id: 'workflow-storage' };
