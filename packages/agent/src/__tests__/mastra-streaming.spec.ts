@@ -385,6 +385,8 @@ describe('mastra streaming integration', () => {
   });
 
   it('emits a durable completion when Mastra tool-output has no later tool-result', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-30T08:00:00.000Z'));
     setMockStreamParts([
       {
         type: 'tool-call',
@@ -400,36 +402,63 @@ describe('mastra streaming integration', () => {
       { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
     ]);
 
-    const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
-      { runtime: { apiKey: 'test-key', provider: 'openai' } }
-    );
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
 
-    const runEvents = [];
-    for await (const chunk of iterator) {
-      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('tool.')) {
+      const chunks: unknown[] = [];
+      chunks.push((await iterator.next()).value);
+      chunks.push((await iterator.next()).value);
+      vi.setSystemTime(new Date('2026-05-30T08:00:05.000Z'));
+      chunks.push((await iterator.next()).value);
+      vi.setSystemTime(new Date('2026-05-30T08:00:30.000Z'));
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const runEvents: unknown[] = [];
+      for (const chunk of chunks) {
+        if (
+          typeof chunk !== 'object' ||
+          chunk === null ||
+          !('type' in chunk) ||
+          chunk.type !== 'run-event' ||
+          !('event' in chunk) ||
+          typeof chunk.event !== 'object' ||
+          chunk.event === null ||
+          !('kind' in chunk.event) ||
+          typeof chunk.event.kind !== 'string' ||
+          !chunk.event.kind.startsWith('tool.')
+        ) {
+          continue;
+        }
         runEvents.push(chunk.event);
       }
-    }
 
-    expect(runEvents).toMatchObject([
-      {
-        kind: 'tool.started',
-        status: 'running',
-        metadata: {
-          toolCallId: 'c-output-only',
-          toolName: 'background.lookup',
+      expect(runEvents).toMatchObject([
+        {
+          kind: 'tool.started',
+          status: 'running',
+          metadata: {
+            toolCallId: 'c-output-only',
+            toolName: 'background.lookup',
+          },
         },
-      },
-      {
-        kind: 'tool.completed',
-        status: 'completed',
-        metadata: {
-          toolCallId: 'c-output-only',
-          toolName: 'background.lookup',
+        {
+          kind: 'tool.completed',
+          status: 'completed',
+          timestamp: '2026-05-30T08:00:05.000Z',
+          metadata: {
+            toolCallId: 'c-output-only',
+            toolName: 'background.lookup',
+          },
         },
-      },
-    ]);
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('uses tool-result metadata for completion after an intermediate tool-output', async () => {

@@ -402,7 +402,8 @@ function makeRunEventChunk(
   kind: AssistantRunEventKind,
   status: AssistantRunEventStatus,
   label: string,
-  metadata?: AssistantRunEventMetadata
+  metadata?: AssistantRunEventMetadata,
+  timestamp?: string
 ): StreamChunk {
   return {
     type: 'run-event',
@@ -411,7 +412,7 @@ function makeRunEventChunk(
       kind,
       label,
       status,
-      timestamp: new Date().toISOString(),
+      timestamp: timestamp ?? new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     },
   };
@@ -437,8 +438,13 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
 
 type TerminalToolCallState = 'completed' | 'failed';
 
+interface OutputOnlyToolEvent {
+  timestamp: string;
+  toolEvent: StreamChunkTool;
+}
+
 interface ToolLifecycleState {
-  outputOnlyToolEvents: Map<string, StreamChunkTool>;
+  outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
 }
 
@@ -491,7 +497,10 @@ function makeToolLifecycleRunEventChunk(
       }
       if (mastraPartType === 'tool-output') {
         if (!lifecycleState.terminalToolCallStates.has(toolCallId)) {
-          lifecycleState.outputOnlyToolEvents.set(toolCallId, toolEvent);
+          lifecycleState.outputOnlyToolEvents.set(toolCallId, {
+            timestamp: new Date().toISOString(),
+            toolEvent,
+          });
         }
         return;
       }
@@ -520,7 +529,7 @@ function makeToolLifecycleRunEventChunk(
 
 function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
   const chunks: StreamChunk[] = [];
-  for (const [toolCallId, toolEvent] of lifecycleState.outputOnlyToolEvents) {
+  for (const [toolCallId, outputOnlyToolEvent] of lifecycleState.outputOnlyToolEvents) {
     if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
       continue;
     }
@@ -530,7 +539,8 @@ function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState)
         'tool.completed',
         'completed',
         'Tool completed',
-        makeToolEventMetadata(toolEvent)
+        makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
+        outputOnlyToolEvent.timestamp
       )
     );
   }
