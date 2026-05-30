@@ -370,6 +370,77 @@ describe('PgliteMemoryStore', () => {
     );
   });
 
+  it('keeps hasMore tied to the date-filtered base page when include windows cross the date range', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-a', '2026-04-22T10:00:03Z'),
+        textMessage('message-4', 'thread-1', 'workspace-a', '2026-04-22T10:00:04Z'),
+        textMessage('message-5', 'thread-1', 'workspace-a', '2026-04-22T10:00:05Z'),
+      ],
+    });
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      filter: {
+        dateRange: { start: new Date('2026-04-22T10:00:04Z') },
+      },
+      include: [{ id: 'message-2', withPreviousMessages: 1, withNextMessages: 1 }],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-2',
+      'message-3',
+      'message-4',
+    ]);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('does not append adjacent include-window messages outside the requested resource scope', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-b', '2026-04-22T10:00:03Z'),
+      ],
+    });
+
+    const result = await store.listMessagesByResourceId({
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [{ id: 'message-2', withNextMessages: 1 }],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(false);
+  });
+
   it('emits compact run events from real history and working-memory hooks', async () => {
     const events: string[] = [];
     const observedStore = new PgliteMemoryStore({

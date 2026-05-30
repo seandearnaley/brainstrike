@@ -282,6 +282,33 @@ function messageMatchesListScope(message: MastraDBMessage, args: MessageListArgs
   return true;
 }
 
+function createdAtMatchesDateRange(createdAt: Date | string, args: MessageListArgs): boolean {
+  const dateRange = args.filter?.dateRange;
+  if (!dateRange) {
+    return true;
+  }
+  const time = toDate(createdAt).getTime();
+  if (dateRange.start) {
+    const startTime = toDate(dateRange.start).getTime();
+    if (dateRange.startExclusive ? time <= startTime : time < startTime) {
+      return false;
+    }
+  }
+  if (dateRange.end) {
+    const endTime = toDate(dateRange.end).getTime();
+    if (dateRange.endExclusive ? time >= endTime : time > endTime) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function messageMatchesListFilters(message: MastraDBMessage, args: MessageListArgs): boolean {
+  return (
+    messageMatchesListScope(message, args) && createdAtMatchesDateRange(message.createdAt, args)
+  );
+}
+
 function messageRowMatchesListScope(row: MessageRow, args: MessageListArgs): boolean {
   if (args.threadIds && !args.threadIds.includes(row.threadId)) {
     return false;
@@ -1316,7 +1343,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     const hasMore = args.include?.length
       ? new Set(
           messages
-            .filter((message) => messageMatchesListScope(message, args))
+            .filter((message) => messageMatchesListFilters(message, args))
             .map((message) => message.id)
         ).size < total
       : pageInfo.hasMore;
@@ -1371,7 +1398,7 @@ export class PgliteMemoryStore extends MemoryStorage {
         withPreviousMessages
       );
       for (const row of previousRows) {
-        this.appendMessageIfMissing(messages, messageIds, row);
+        this.appendMessageIfInListScope(messages, messageIds, row, args);
       }
 
       const nextRows = await this.listAdjacentThreadMessageRows(
@@ -1380,9 +1407,21 @@ export class PgliteMemoryStore extends MemoryStorage {
         withNextMessages
       );
       for (const row of nextRows) {
-        this.appendMessageIfMissing(messages, messageIds, row);
+        this.appendMessageIfInListScope(messages, messageIds, row, args);
       }
     }
+  }
+
+  private appendMessageIfInListScope(
+    messages: MastraDBMessage[],
+    messageIds: Set<string>,
+    row: MessageRow,
+    args: MessageListArgs
+  ): void {
+    if (!messageRowMatchesListScope(row, args)) {
+      return;
+    }
+    this.appendMessageIfMissing(messages, messageIds, row);
   }
 
   private appendMessageIfMissing(
