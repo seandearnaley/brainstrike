@@ -44,6 +44,22 @@ interface ApprovalRunOutcome {
 }
 
 const emptyApprovalRunOutcome: ApprovalRunOutcome = { action: null, state: 'none' };
+const APPROVAL_RUN_OUTCOME_SEPARATOR = ':';
+
+type ApprovalRunOutcomeKey =
+  `${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}`;
+
+function toApprovalRunOutcomeKey(outcome: ApprovalRunOutcome): ApprovalRunOutcomeKey {
+  return `${outcome.action ?? 'none'}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.state}`;
+}
+
+function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutcome {
+  const [action, state] = key.split(APPROVAL_RUN_OUTCOME_SEPARATOR) as [
+    AssistantToolApprovalDecision | 'none',
+    ApprovalRunOutcomeState,
+  ];
+  return { action: action === 'none' ? null : action, state };
+}
 
 function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
   return (
@@ -142,8 +158,12 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   );
   const detailsId = useId();
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
-  const approvalRunOutcome = useAuiState((state) =>
-    resolveApprovalRunOutcome(state.thread.messages, approval)
+  const approvalRunOutcomeKey = useAuiState((state) =>
+    toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
+  );
+  const approvalRunOutcome = useMemo(
+    () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
+    [approvalRunOutcomeKey]
   );
   const actionLockedByRun =
     approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';

@@ -15,6 +15,7 @@ const threadMessagesMock = vi.hoisted(
       status?: { error?: unknown; reason?: string; type: string };
     }>
 );
+const useAuiStateSelectorResults = vi.hoisted(() => [] as unknown[]);
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({
@@ -28,12 +29,17 @@ vi.mock('@assistant-ui/react', () => ({
         messages: typeof threadMessagesMock;
       };
     }) => unknown
-  ) =>
-    selector({
+  ) => {
+    const state = {
       thread: {
         messages: threadMessagesMock,
       },
-    }),
+    };
+    const firstResult = selector(state);
+    const secondResult = selector(state);
+    useAuiStateSelectorResults.push(firstResult, secondResult);
+    return firstResult;
+  },
 }));
 
 const baseApproval = {
@@ -64,6 +70,7 @@ describe('AssistantToolApprovalNotice', () => {
       }
     );
     threadMessagesMock.splice(0);
+    useAuiStateSelectorResults.splice(0);
   });
 
   it('renders a compact pending approval row by default', () => {
@@ -306,6 +313,27 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
     expect(screen.getByText('Declined')).toBeInTheDocument();
+  });
+
+  it('returns a stable approval outcome selector value for unchanged thread state', () => {
+    threadMessagesMock.push({
+      metadata: {
+        custom: {
+          brainstrikeToolApproval: {
+            action: 'approve',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+      role: 'user',
+    });
+
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(useAuiStateSelectorResults).toHaveLength(2);
+    expect(useAuiStateSelectorResults[0]).toBe(useAuiStateSelectorResults[1]);
   });
 
   it('does not reenable approval actions for a different approval run error', async () => {

@@ -510,6 +510,7 @@ describe('mastra streaming integration', () => {
       },
       {
         memory: memory as never,
+        requireToolApproval: true,
         storage: storage as never,
         runtime: {
           apiKey: 'test-key',
@@ -540,6 +541,7 @@ describe('mastra streaming integration', () => {
         options: { lastMessages: 5 },
       },
       maxSteps: 20,
+      requireToolApproval: true,
     });
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
@@ -564,6 +566,7 @@ describe('mastra streaming integration', () => {
         toolCallId: 'tool-call-2',
       },
       {
+        requireToolApproval: true,
         storage: storage as never,
         runtime: { apiKey: 'test-key', provider: 'openai' },
       }
@@ -581,6 +584,7 @@ describe('mastra streaming integration', () => {
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
       maxSteps: 20,
+      requireToolApproval: true,
     });
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });

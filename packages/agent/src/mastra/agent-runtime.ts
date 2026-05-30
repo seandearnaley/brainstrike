@@ -798,6 +798,7 @@ type AgentToolApprovalOptions = Parameters<Agent['approveToolCall']>[0];
 interface ToolApprovalIterationParams {
   action: AssistantToolApprovalAction;
   memory?: MastraMemory;
+  requireToolApproval?: boolean;
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
@@ -1012,6 +1013,7 @@ async function createToolApprovalIteratorFromRuntime({
   runtimeData,
   action,
   memory,
+  requireToolApproval,
   sanitizedNameMap,
 }: ToolApprovalIterationParams): Promise<StreamIterator> {
   try {
@@ -1028,6 +1030,7 @@ async function createToolApprovalIteratorFromRuntime({
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
     };
 
     const streamResult =
@@ -1125,6 +1128,9 @@ export async function streamMastraToolApprovalAction(
     action,
     runtime,
     ...(options.memory ? { memory: options.memory } : {}),
+    ...(options.requireToolApproval === undefined
+      ? {}
+      : { requireToolApproval: options.requireToolApproval }),
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
