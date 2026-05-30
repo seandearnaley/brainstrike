@@ -21,6 +21,7 @@ import type {
   AgentMessage,
   RuntimeData,
   StreamChunk,
+  StreamChunkTool,
   StreamFinishReason,
   StreamIterator,
 } from '../types';
@@ -434,6 +435,43 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
   return isRunEventMetadata(metadata) && Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+function makeToolLifecycleRunEventChunk(
+  toolEvent: StreamChunkTool,
+  mastraPartType: string
+): StreamChunk | undefined {
+  const payload = isRunEventMetadata(toolEvent.payload) ? toolEvent.payload : undefined;
+  const toolCallId =
+    typeof payload?.['toolCallId'] === 'string'
+      ? payload['toolCallId']
+      : typeof payload?.['callId'] === 'string'
+        ? payload['callId']
+        : undefined;
+  const metadata: AssistantRunEventMetadata = {
+    toolName: toolEvent.name,
+    ...(toolCallId ? { toolCallId } : {}),
+  };
+  if (typeof payload?.['providerExecuted'] === 'boolean') {
+    metadata['providerExecuted'] = payload['providerExecuted'];
+  }
+  if (typeof payload?.['dynamic'] === 'boolean') {
+    metadata['dynamic'] = payload['dynamic'];
+  }
+
+  switch (toolEvent.status) {
+    case 'start':
+      return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
+    case 'success':
+      if (mastraPartType === 'tool-output') {
+        return;
+      }
+      return makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata);
+    case 'error':
+      return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
+    case 'progress':
+      return;
+  }
+}
+
 function readTripwireReason(part: unknown): string | undefined {
   const p = asMastraStreamPart(part);
   return p.tripwireReason ?? p.payload?.tripwireReason;
@@ -651,7 +689,14 @@ function processMastraStreamPart(
     case 'tool-error':
     case 'tool-output': {
       const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
-      return evt ? { chunks: [evt], finished: false } : { chunks: [], finished: false };
+      if (!(evt && evt.type === 'tool-event')) {
+        return { chunks: [], finished: false };
+      }
+      const runEvent = makeToolLifecycleRunEventChunk(evt, p.type);
+      return {
+        chunks: runEvent ? [evt, runEvent] : [evt],
+        finished: false,
+      };
     }
     case 'tool-call-approval':
       // Stop at the first approval pause and surface resumable metadata. Later

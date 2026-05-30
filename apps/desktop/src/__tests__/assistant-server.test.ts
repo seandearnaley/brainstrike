@@ -1128,6 +1128,20 @@ describe('assistant-server', () => {
               timestamp: '2026-04-24T10:00:01.000Z',
             },
           };
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-3',
+              kind: 'tool.completed',
+              label: 'Tool completed',
+              metadata: {
+                toolCallId: 'call-1',
+                toolName: 'brainstrike.queryEmbeddingSpace',
+              },
+              status: 'completed',
+              timestamp: '2026-04-24T10:00:02.000Z',
+            },
+          };
           yield { type: 'text-delta', value: 'Response' };
         },
       });
@@ -1178,6 +1192,10 @@ describe('assistant-server', () => {
       expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
         expect.arrayContaining(['event-2', 'run-1', 6, 'run.step.started', 'running'])
+      );
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
+        expect.arrayContaining(['event-3', 'run-1', 7, 'tool.completed', 'completed'])
       );
     });
 

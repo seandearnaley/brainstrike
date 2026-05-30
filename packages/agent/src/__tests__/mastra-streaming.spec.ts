@@ -247,6 +247,172 @@ describe('mastra streaming integration', () => {
     expect(finished).toBe(true);
   });
 
+  it('emits durable run-events for Mastra tool lifecycle parts without raw payloads', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'web.searchDocs',
+        toolCallId: 'c1',
+        args: { query: 'secret search' },
+        providerExecuted: true,
+        dynamic: false,
+      },
+      {
+        type: 'tool-result',
+        toolCallId: 'c1',
+        result: { confidential: 'tool output' },
+        providerExecuted: true,
+        dynamic: false,
+      },
+      {
+        type: 'tool-call',
+        toolName: 'browser.capture',
+        toolCallId: 'c3',
+        args: { url: 'https://example.test/private' },
+        providerExecuted: false,
+        dynamic: true,
+      },
+      {
+        type: 'tool-output',
+        toolCallId: 'c3',
+        output: { snapshot: 'raw page text' },
+        providerExecuted: false,
+        dynamic: true,
+      },
+      {
+        type: 'tool-result',
+        toolCallId: 'c3',
+        result: { pageTitle: 'safe title' },
+        providerExecuted: false,
+        dynamic: true,
+      },
+      {
+        type: 'tool-call',
+        toolName: 'broken.tool',
+        toolCallId: 'c2',
+        args: { token: 'hidden' },
+      },
+      {
+        type: 'tool-error',
+        toolCallId: 'c2',
+        error: { message: 'boom', token: 'hidden' },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const runEvents = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('tool.')) {
+        runEvents.push(chunk.event);
+      }
+    }
+
+    expect(runEvents).toMatchObject([
+      {
+        kind: 'tool.started',
+        label: 'Tool started',
+        status: 'running',
+        metadata: {
+          toolCallId: 'c1',
+          toolName: 'web.searchDocs',
+          providerExecuted: true,
+          dynamic: false,
+        },
+      },
+      {
+        kind: 'tool.completed',
+        label: 'Tool completed',
+        status: 'completed',
+        metadata: {
+          toolCallId: 'c1',
+          toolName: 'web.searchDocs',
+          providerExecuted: true,
+          dynamic: false,
+        },
+      },
+      {
+        kind: 'tool.started',
+        label: 'Tool started',
+        status: 'running',
+        metadata: {
+          toolCallId: 'c3',
+          toolName: 'browser.capture',
+          providerExecuted: false,
+          dynamic: true,
+        },
+      },
+      {
+        kind: 'tool.completed',
+        label: 'Tool completed',
+        status: 'completed',
+        metadata: {
+          toolCallId: 'c3',
+          toolName: 'browser.capture',
+          providerExecuted: false,
+          dynamic: true,
+        },
+      },
+      {
+        kind: 'tool.started',
+        label: 'Tool started',
+        status: 'running',
+        metadata: {
+          toolCallId: 'c2',
+          toolName: 'broken.tool',
+        },
+      },
+      {
+        kind: 'tool.failed',
+        label: 'Tool failed',
+        status: 'failed',
+        metadata: {
+          toolCallId: 'c2',
+          toolName: 'broken.tool',
+        },
+      },
+    ]);
+    for (const event of runEvents) {
+      expect(event.metadata).not.toHaveProperty('args');
+      expect(event.metadata).not.toHaveProperty('error');
+      expect(event.metadata).not.toHaveProperty('output');
+      expect(event.metadata).not.toHaveProperty('result');
+    }
+  });
+
+  it('keeps Mastra tool progress parts out of durable run-events', async () => {
+    setMockStreamParts([
+      { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
+      { type: 'tool-call-input-streaming-start', toolCallId: 'c1' },
+      { type: 'tool-call-delta', toolCallId: 'c1', argsTextDelta: 'que' },
+      { type: 'tool-call-input-streaming-end', toolCallId: 'c1' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    let progressEvents = 0;
+    let toolRunEvents = 0;
+    for await (const chunk of iterator) {
+      if (chunk.type === 'tool-event' && chunk.status === 'progress') {
+        progressEvents += 1;
+      }
+      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('tool.')) {
+        toolRunEvents += 1;
+      }
+    }
+
+    expect(progressEvents).toBe(3);
+    expect(toolRunEvents).toBe(1);
+  });
+
   it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
     setMockStreamParts([
       { type: 'start', messageId: 'msg-1' },
@@ -825,9 +991,23 @@ describe('mastra streaming integration', () => {
         name: 'brainstrike.queryEmbeddingSpace',
       }),
       expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'tool.started',
+          status: 'running',
+        }),
+      }),
+      expect.objectContaining({
         type: 'tool-event',
         status: 'success',
         name: 'brainstrike.queryEmbeddingSpace',
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({
+          kind: 'tool.completed',
+          status: 'completed',
+        }),
       }),
       expect.objectContaining({
         type: 'message-finish',

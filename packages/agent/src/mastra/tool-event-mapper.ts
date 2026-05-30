@@ -99,6 +99,8 @@ export function mapMastraToolEvent(
           callId,
           toolCallId: callId,
           output,
+          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
         },
       } satisfies StreamChunk;
     }
