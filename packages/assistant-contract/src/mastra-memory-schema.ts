@@ -2,6 +2,7 @@ const TABLE_THREADS = 'mastra_threads';
 const TABLE_MESSAGES = 'mastra_messages';
 const TABLE_RESOURCES = 'mastra_resources';
 const TABLE_OBSERVATIONAL_MEMORY = 'mastra_observational_memory';
+const TABLE_WORKFLOW_SNAPSHOT = 'mastra_workflow_snapshot';
 
 export const MASTRA_MEMORY_TABLES = {
   messages: TABLE_MESSAGES,
@@ -11,6 +12,7 @@ export const MASTRA_MEMORY_TABLES = {
 } as const;
 
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
+export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
 
 export const MASTRA_MEMORY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS ${TABLE_THREADS} (
@@ -91,4 +93,25 @@ CREATE INDEX IF NOT EXISTS mastra_messages_resourceid_createdat_idx
 
 CREATE INDEX IF NOT EXISTS mastra_observational_memory_lookup_key_idx
   ON ${TABLE_OBSERVATIONAL_MEMORY} ("lookupKey", "createdAt" DESC);
+`;
+
+export const MASTRA_WORKFLOW_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS ${TABLE_WORKFLOW_SNAPSHOT} (
+  workflow_name TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  "resourceId" TEXT,
+  snapshot JSONB NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL,
+  "updatedAt" TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (workflow_name, run_id)
+);
+
+CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_workflow_createdat_idx
+  ON ${TABLE_WORKFLOW_SNAPSHOT} (workflow_name, "createdAt" DESC);
+
+CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_resource_createdat_idx
+  ON ${TABLE_WORKFLOW_SNAPSHOT} ("resourceId", "createdAt" DESC);
+
+CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_status_createdat_idx
+  ON ${TABLE_WORKFLOW_SNAPSHOT} ((snapshot ->> 'status'), "createdAt" DESC);
 `;

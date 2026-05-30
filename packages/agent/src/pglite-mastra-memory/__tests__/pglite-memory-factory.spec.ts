@@ -90,4 +90,12 @@ describe('createPgliteMastraMemory', () => {
       })
     ).rejects.toThrow('PGlite Mastra semantic recall requires an explicit embedder.');
   });
+
+  it('registers PGlite workflow snapshots on the Mastra composite store', async () => {
+    const result = await createPgliteMastraMemory({ database: db });
+    const workflowStore = await result.storage.getStore('workflows');
+
+    expect(workflowStore).toBe(result.workflows);
+    expect(result.workflows.supportsConcurrentUpdates()).toBe(true);
+  });
 });
