@@ -70,6 +70,22 @@ describe('PgliteWorkflowsStore', () => {
     expect(runIdLookupIndex.rows[0]?.indexdef).toContain('(run_id)');
   });
 
+  it('clears workflow snapshots before explicit schema initialization', async () => {
+    const freshDb = new PGlite();
+    const freshStore = new PgliteWorkflowsStore({ database: freshDb });
+
+    try {
+      await expect(freshStore.dangerouslyClearAll()).resolves.toBeUndefined();
+
+      const tables = await freshDb.query<{ tablename: string }>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = 'mastra_workflow_snapshot'"
+      );
+      expect(tables.rows.map((row) => row.tablename)).toEqual(['mastra_workflow_snapshot']);
+    } finally {
+      await freshDb.close();
+    }
+  });
+
   it('persists and reloads cloned workflow snapshots for approval resume', async () => {
     const snapshot = createSnapshot({
       context: {

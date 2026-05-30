@@ -208,10 +208,14 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
   }
 
   supportsConcurrentUpdates(): boolean {
+    // PGlite runs in-process on a single connection, so transaction callbacks
+    // serialize this store's read-modify-write workflow snapshot updates.
+    // A pooled Postgres-backed implementation would need row locks here.
     return typeof this.database.transaction === 'function';
   }
 
   async dangerouslyClearAll(): Promise<void> {
+    await this.initialize();
     await this.database.exec(`DELETE FROM ${MASTRA_WORKFLOW_TABLE};`);
   }
 
