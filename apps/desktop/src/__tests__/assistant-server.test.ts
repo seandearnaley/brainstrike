@@ -868,6 +868,7 @@ describe('assistant-server', () => {
         },
         expect.objectContaining({
           memory: mockPgliteMastraMemory,
+          requireToolApproval: true,
           storage: mockPgliteMastraStorage,
           runtime: expect.objectContaining({
             apiKey: 'test-api-key',
