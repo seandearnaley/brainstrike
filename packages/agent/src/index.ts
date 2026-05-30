@@ -5,8 +5,10 @@ export {
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
   isAssistantToolApprovalAction,
+  readToolApprovalRunConfigAction,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
+  type ToolApprovalRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-approval';
 export {
   ContextPacker,

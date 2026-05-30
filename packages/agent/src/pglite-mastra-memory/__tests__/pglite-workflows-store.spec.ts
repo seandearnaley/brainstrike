@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import type { StepResult, WorkflowRunState } from '@mastra/core/workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MASTRA_WORKFLOW_TABLE } from '../sql';
 import { PgliteWorkflowsStore } from '../workflows-store';
 
 type ApprovalStepResult = StepResult<
@@ -55,9 +56,18 @@ describe('PgliteWorkflowsStore', () => {
        WHERE table_name = 'mastra_workflow_snapshot'
          AND column_name = 'snapshot'`
     );
+    const runIdLookupIndex = await db.query<{ indexdef: string; indexname: string }>(
+      `SELECT indexname, indexdef
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND tablename = 'mastra_workflow_snapshot'
+         AND indexname = 'mastra_workflow_snapshot_run_id_idx'`
+    );
 
     expect(tables.rows.map((row) => row.tablename)).toEqual(['mastra_workflow_snapshot']);
     expect(snapshotColumn.rows[0]?.data_type).toBe('jsonb');
+    expect(runIdLookupIndex.rows).toHaveLength(1);
+    expect(runIdLookupIndex.rows[0]?.indexdef).toContain('(run_id)');
   });
 
   it('persists and reloads cloned workflow snapshots for approval resume', async () => {
@@ -153,6 +163,91 @@ describe('PgliteWorkflowsStore', () => {
     });
   });
 
+  it('reports stored workflow snapshots with missing context as malformed data', async () => {
+    await db.query(
+      `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
+        (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+      [
+        'approval-workflow',
+        'malformed-run',
+        null,
+        JSON.stringify({ runId: 'malformed-run', status: 'running' }),
+        new Date('2026-05-29T10:00:00Z'),
+        new Date('2026-05-29T10:00:01Z'),
+      ]
+    );
+
+    await expect(
+      store.loadWorkflowSnapshot({
+        runId: 'malformed-run',
+        workflowName: 'approval-workflow',
+      })
+    ).rejects.toThrow('Stored Mastra workflow snapshot for runId malformed-run is missing context');
+  });
+
+  it('preserves the original createdAt when a workflow snapshot is re-persisted', async () => {
+    await store.persistWorkflowSnapshot({
+      createdAt: new Date('2026-05-29T10:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-original',
+      snapshot: createSnapshot({ runId: 'run-original', status: 'running' }),
+      updatedAt: new Date('2026-05-29T10:00:01Z'),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: new Date('2026-05-29T11:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-newer',
+      snapshot: createSnapshot({ runId: 'run-newer', status: 'running' }),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: new Date('2026-05-29T12:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-original',
+      snapshot: createSnapshot({ runId: 'run-original', status: 'success' }),
+      updatedAt: new Date('2026-05-29T12:00:01Z'),
+      workflowName: 'approval-workflow',
+    });
+
+    const listed = await store.listWorkflowRuns({
+      resourceId: 'workspace-a',
+      workflowName: 'approval-workflow',
+    });
+    const run = await store.getWorkflowRunById({
+      runId: 'run-original',
+      workflowName: 'approval-workflow',
+    });
+
+    expect(listed.runs.map((entry) => entry.runId)).toEqual(['run-newer', 'run-original']);
+    expect(run?.createdAt).toEqual(new Date('2026-05-29T10:00:00Z'));
+    expect(run?.updatedAt).toEqual(new Date('2026-05-29T12:00:01Z'));
+    expect(run?.snapshot).toMatchObject({ runId: 'run-original', status: 'success' });
+  });
+
+  it('throws when workflow results are updated before a snapshot row exists', async () => {
+    const approvalResult: ApprovalStepResult = {
+      endedAt: Date.parse('2026-05-29T10:01:00Z'),
+      output: { approved: true },
+      payload: { requestId: 'request-1' },
+      startedAt: Date.parse('2026-05-29T10:00:00Z'),
+      status: 'success',
+    };
+
+    await expect(
+      store.updateWorkflowResults({
+        requestContext: { userId: 'user-1' },
+        result: approvalResult,
+        runId: 'missing-run',
+        stepId: 'approval-step',
+        workflowName: 'approval-workflow',
+      })
+    ).rejects.toThrow(
+      'Cannot update workflow results before snapshot is persisted for workflow approval-workflow run missing-run'
+    );
+  });
+
   it('lists, filters, paginates, and deletes workflow runs', async () => {
     await store.persistWorkflowSnapshot({
       createdAt: new Date('2026-05-29T09:00:00Z'),
@@ -187,9 +282,16 @@ describe('PgliteWorkflowsStore', () => {
       runId: 'run-newer',
       workflowName: 'approval-workflow',
     });
+    const firstPageDefault = await store.listWorkflowRuns({
+      perPage: 1,
+      resourceId: 'workspace-a',
+      workflowName: 'approval-workflow',
+    });
 
     expect(listed.total).toBe(1);
     expect(listed.runs.map((entry) => entry.runId)).toEqual(['run-newer']);
+    expect(firstPageDefault.total).toBe(2);
+    expect(firstPageDefault.runs.map((entry) => entry.runId)).toEqual(['run-newer']);
     expect(run).toMatchObject({
       resourceId: 'workspace-a',
       runId: 'run-newer',
@@ -211,6 +313,42 @@ describe('PgliteWorkflowsStore', () => {
     await expect(
       store.getWorkflowRunById({ runId: 'run-newer', workflowName: 'approval-workflow' })
     ).resolves.toBeNull();
+  });
+
+  it('uses stable tie breakers when paginating workflow runs with matching createdAt values', async () => {
+    const sharedCreatedAt = new Date('2026-05-29T10:00:00Z');
+
+    await store.persistWorkflowSnapshot({
+      createdAt: sharedCreatedAt,
+      runId: 'run-2',
+      snapshot: createSnapshot({ runId: 'run-2' }),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: sharedCreatedAt,
+      runId: 'run-1',
+      snapshot: createSnapshot({ runId: 'run-1' }),
+      workflowName: 'review-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      createdAt: sharedCreatedAt,
+      runId: 'run-1',
+      snapshot: createSnapshot({ runId: 'run-1' }),
+      workflowName: 'approval-workflow',
+    });
+
+    const firstPage = await store.listWorkflowRuns({ page: 0, perPage: 1 });
+    const secondPage = await store.listWorkflowRuns({ page: 1, perPage: 1 });
+    const thirdPage = await store.listWorkflowRuns({ page: 2, perPage: 1 });
+
+    expect([
+      ...firstPage.runs.map((entry) => `${entry.runId}:${entry.workflowName}`),
+      ...secondPage.runs.map((entry) => `${entry.runId}:${entry.workflowName}`),
+      ...thirdPage.runs.map((entry) => `${entry.runId}:${entry.workflowName}`),
+    ]).toEqual(['run-1:approval-workflow', 'run-1:review-workflow', 'run-2:approval-workflow']);
+    expect(firstPage.total).toBe(3);
+    expect(secondPage.total).toBe(3);
+    expect(thirdPage.total).toBe(3);
   });
 
   it('requires workflowName when a run id is not globally unique', async () => {

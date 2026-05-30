@@ -6,9 +6,8 @@ import type {
 import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
-  isAssistantToolApprovalAction,
+  readToolApprovalRunConfigAction,
   resolveDataStreamSession,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -79,21 +78,12 @@ export async function POST(req: Request): Promise<Response> {
 }
 
 function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
-  if (!(runConfig && typeof runConfig === 'object' && !Array.isArray(runConfig))) {
+  const toolApprovalAction = readToolApprovalRunConfigAction(runConfig);
+  if (!toolApprovalAction) {
     return;
   }
 
-  const custom = (runConfig as Record<string, unknown>)['custom'];
-  if (!(custom && typeof custom === 'object' && !Array.isArray(custom))) {
-    return;
-  }
-
-  const rawAction = (custom as Record<string, unknown>)[TOOL_APPROVAL_RUN_CONFIG_KEY];
-  if (rawAction === undefined) {
-    return;
-  }
-
-  if (!isAssistantToolApprovalAction(rawAction)) {
+  if ('invalid' in toolApprovalAction) {
     return new Response(
       JSON.stringify({
         error: 'invalid_tool_approval_action',

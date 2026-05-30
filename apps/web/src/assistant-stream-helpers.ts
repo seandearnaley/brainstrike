@@ -3,12 +3,11 @@ import {
   type AssistantUiMessage,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
-  isAssistantToolApprovalAction,
   type RuntimeData,
+  readToolApprovalRunConfigAction,
   resolveDataStreamSession,
   type StreamChunk,
   sanitizeStreamChunk,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -173,21 +172,12 @@ function sendAssistantDisabledResponse(
 }
 
 function sendToolApprovalResponse(res: http.ServerResponse, runConfig: unknown): boolean {
-  if (!(runConfig && typeof runConfig === 'object' && !Array.isArray(runConfig))) {
+  const toolApprovalAction = readToolApprovalRunConfigAction(runConfig);
+  if (!toolApprovalAction) {
     return false;
   }
 
-  const custom = (runConfig as Record<string, unknown>)['custom'];
-  if (!(custom && typeof custom === 'object' && !Array.isArray(custom))) {
-    return false;
-  }
-
-  const rawAction = (custom as Record<string, unknown>)[TOOL_APPROVAL_RUN_CONFIG_KEY];
-  if (rawAction === undefined) {
-    return false;
-  }
-
-  if (!isAssistantToolApprovalAction(rawAction)) {
+  if ('invalid' in toolApprovalAction) {
     res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(
       JSON.stringify({

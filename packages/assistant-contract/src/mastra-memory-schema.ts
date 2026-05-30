@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS ${TABLE_WORKFLOW_SNAPSHOT} (
 CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_workflow_createdat_idx
   ON ${TABLE_WORKFLOW_SNAPSHOT} (workflow_name, "createdAt" DESC);
 
+CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_run_id_idx
+  ON ${TABLE_WORKFLOW_SNAPSHOT} (run_id);
+
 CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_resource_createdat_idx
   ON ${TABLE_WORKFLOW_SNAPSHOT} ("resourceId", "createdAt" DESC);
 
