@@ -197,6 +197,11 @@ describe('PgliteWorkflowsStore', () => {
     });
     expect(run?.createdAt).toEqual(new Date('2026-05-29T11:00:00Z'));
     expect(run?.snapshot).toMatchObject({ runId: 'run-newer', status: 'suspended' });
+    await expect(store.getWorkflowRunById({ runId: 'run-newer' })).resolves.toMatchObject({
+      resourceId: 'workspace-a',
+      runId: 'run-newer',
+      workflowName: 'approval-workflow',
+    });
 
     await store.deleteWorkflowRunById({
       runId: 'run-newer',
@@ -206,6 +211,23 @@ describe('PgliteWorkflowsStore', () => {
     await expect(
       store.getWorkflowRunById({ runId: 'run-newer', workflowName: 'approval-workflow' })
     ).resolves.toBeNull();
+  });
+
+  it('requires workflowName when a run id is not globally unique', async () => {
+    await store.persistWorkflowSnapshot({
+      runId: 'shared-run-id',
+      snapshot: createSnapshot({ runId: 'shared-run-id' }),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      runId: 'shared-run-id',
+      snapshot: createSnapshot({ runId: 'shared-run-id' }),
+      workflowName: 'audit-workflow',
+    });
+
+    await expect(store.getWorkflowRunById({ runId: 'shared-run-id' })).rejects.toThrow(
+      'workflowName is required'
+    );
   });
 
   it('retries schema initialization after a transient bootstrap failure', async () => {

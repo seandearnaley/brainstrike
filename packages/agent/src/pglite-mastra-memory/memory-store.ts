@@ -471,14 +471,21 @@ export class PgliteMemoryStore extends MemoryStorage {
 
   override async getThreadById({
     threadId,
+    resourceId,
   }: {
     threadId: string;
+    resourceId?: string;
   }): Promise<StorageThreadType | null> {
+    const values: PgliteQueryValue[] = [threadId];
+    const resourcePredicate = resourceId ? ' AND "resourceId" = $2' : '';
+    if (resourceId) {
+      values.push(resourceId);
+    }
     const result = await this.database.query<ThreadRow>(
       `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
        FROM ${MASTRA_MEMORY_TABLES.threads}
-       WHERE id = $1`,
-      [threadId]
+       WHERE id = $1${resourcePredicate}`,
+      values
     );
     const row = result.rows[0];
     return row ? threadFromRow(row) : null;

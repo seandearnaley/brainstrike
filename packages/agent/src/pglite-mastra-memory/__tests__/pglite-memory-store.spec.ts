@@ -112,6 +112,28 @@ describe('PgliteMemoryStore', () => {
     expect(listed.hasMore).toBe(false);
   });
 
+  it('honors resourceId when loading a thread by id', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-resource-scoped',
+        resourceId: 'workspace-a',
+        title: 'Workspace A thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-a' })
+    ).resolves.toMatchObject({
+      id: 'thread-resource-scoped',
+      resourceId: 'workspace-a',
+    });
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-b' })
+    ).resolves.toBeNull();
+  });
+
   it('persists messages and supports thread/resource recall queries', async () => {
     await store.saveThread({
       thread: {

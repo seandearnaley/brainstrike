@@ -110,6 +110,48 @@ describe('mcp-tool-loader', () => {
       expect(result['server1_remote_tool']).toBeDefined();
     });
 
+    it('prefers grouped MCP toolsets to preserve same-name tools across servers', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          alpha: {
+            search: { id: 'search', description: 'alpha search' },
+          },
+          beta: {
+            search: { id: 'search', description: 'beta search' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'beta',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(mockMcpClient.listToolsets).toHaveBeenCalledTimes(1);
+      expect(mockMcpClient.listTools).not.toHaveBeenCalled();
+      expect(Object.keys(result).sort()).toEqual(['alpha_search', 'beta_search']);
+      expect(toolNameMap.get('alpha_search')).toBe('alpha.search');
+      expect(toolNameMap.get('beta_search')).toBe('beta.search');
+    });
+
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },

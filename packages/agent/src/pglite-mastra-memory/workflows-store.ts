@@ -161,6 +161,24 @@ async function selectWorkflowRun(
   return result.rows[0];
 }
 
+async function selectWorkflowRunByRunId(
+  database: PgliteDatabase,
+  runId: string
+): Promise<WorkflowSnapshotRow | undefined> {
+  const result = await database.query<WorkflowSnapshotRow>(
+    `SELECT workflow_name AS "workflowName", run_id AS "runId", "resourceId", snapshot, "createdAt", "updatedAt"
+     FROM ${MASTRA_WORKFLOW_TABLE}
+     WHERE run_id = $1
+     ORDER BY workflow_name ASC
+     LIMIT 2`,
+    [runId]
+  );
+  if (result.rows.length > 1) {
+    throw new Error(`workflowName is required when runId matches multiple workflows: ${runId}`);
+  }
+  return result.rows[0];
+}
+
 async function writeWorkflowSnapshot(
   database: PgliteDatabase,
   workflowName: string,
@@ -390,10 +408,9 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     workflowName?: string;
   }): Promise<WorkflowRun | null> {
     await this.initialize();
-    if (!workflowName) {
-      return null;
-    }
-    const row = await selectWorkflowRun(this.database, workflowName, runId);
+    const row = workflowName
+      ? await selectWorkflowRun(this.database, workflowName, runId)
+      : await selectWorkflowRunByRunId(this.database, runId);
     return row ? workflowRunFromRow(row) : null;
   }
 

@@ -19,6 +19,21 @@ export interface CollectCombinedToolsOptions {
 }
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
+type McpToolsets = Record<string, ToolsInput>;
+
+interface McpClientWithToolsets {
+  listToolsets: () => Promise<McpToolsets>;
+}
+
+type McpToolDiscovery =
+  | {
+      kind: 'flat';
+      tools: ToolsInput;
+    }
+  | {
+      kind: 'toolsets';
+      toolsets: McpToolsets;
+    };
 
 export async function collectCombinedTools({
   sanitizedLocalTools,
@@ -34,8 +49,8 @@ export async function collectCombinedTools({
   }
 
   const timeoutMs = resolveMcpTimeoutMs(timeoutOverrideMs);
-  const allMcpTools = await fetchMcpToolsWithTimeout(mcpClient, toolNameMap, timeoutMs);
-  if (!allMcpTools) {
+  const discovered = await fetchMcpToolsWithTimeout(mcpClient, toolNameMap, timeoutMs);
+  if (!discovered) {
     return combined;
   }
 
@@ -47,7 +62,10 @@ export async function collectCombinedTools({
       continue;
     }
 
-    const toolsForServer = selectToolsForServer(allMcpTools, server.name, isSingleServer);
+    const toolsForServer =
+      discovered.kind === 'toolsets'
+        ? selectToolsetForServer(discovered.toolsets, server.name, toolNameMap)
+        : selectToolsForServer(discovered.tools, server.name, isSingleServer);
     if (!toolsForServer || Object.keys(toolsForServer).length === 0) {
       continue;
     }
@@ -59,6 +77,24 @@ export async function collectCombinedTools({
   }
 
   return combined;
+}
+
+function selectToolsetForServer(
+  toolsets: McpToolsets,
+  serverName: string,
+  toolNameMap: Map<string, string>
+): ToolsInput | undefined {
+  const serverTools = toolsets[serverName];
+  if (!serverTools || Object.keys(serverTools).length === 0) {
+    return;
+  }
+  return sanitizeTools(namespaceServerTools(serverName, serverTools), toolNameMap);
+}
+
+function namespaceServerTools(serverName: string, serverTools: ToolsInput): ToolsInput {
+  return Object.fromEntries(
+    Object.entries(serverTools).map(([toolId, tool]) => [`${serverName}.${toolId}`, tool])
+  );
 }
 
 function selectToolsForServer(
@@ -154,10 +190,10 @@ async function fetchMcpToolsWithTimeout(
   mcpClient: MCPClient,
   toolNameMap: Map<string, string>,
   timeoutMs: number
-): Promise<ToolsInput | undefined> {
+): Promise<McpToolDiscovery | undefined> {
   try {
-    const toolsFromClient = (await Promise.race([
-      mcpClient.listTools(),
+    return await Promise.race([
+      discoverMcpTools(mcpClient, toolNameMap),
       new Promise<never>((_resolve, reject) => {
         const timer = setTimeout(
           () =>
@@ -170,8 +206,7 @@ async function fetchMcpToolsWithTimeout(
         );
         (timer as { unref?: () => void }).unref?.();
       }),
-    ])) as ToolsInput;
-    return sanitizeTools(toolsFromClient, toolNameMap);
+    ]);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     const logMethod =
@@ -185,4 +220,26 @@ async function fetchMcpToolsWithTimeout(
     });
     return;
   }
+}
+
+async function discoverMcpTools(
+  mcpClient: MCPClient,
+  toolNameMap: Map<string, string>
+): Promise<McpToolDiscovery> {
+  if (supportsToolsets(mcpClient)) {
+    return {
+      kind: 'toolsets',
+      toolsets: await mcpClient.listToolsets(),
+    };
+  }
+
+  return {
+    kind: 'flat',
+    tools: sanitizeTools(await mcpClient.listTools(), toolNameMap) ?? {},
+  };
+}
+
+function supportsToolsets(mcpClient: MCPClient): mcpClient is MCPClient & McpClientWithToolsets {
+  const candidate = mcpClient as { listToolsets?: unknown };
+  return typeof candidate.listToolsets === 'function';
 }
