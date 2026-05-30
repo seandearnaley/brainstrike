@@ -867,18 +867,40 @@ describe('generateReportFromAdapter', () => {
     spy.mockRestore();
   });
 
-  it('skips ignored adapter paths without splitting path segments', async () => {
+  it('skips ignored adapter paths without traversing ignored directories', async () => {
+    const readDirectoryCalls: string[] = [];
+
     class IgnorePathAdapter implements FileSystemAdapter {
       async requestDirectoryAccess(): Promise<DirectoryHandle> {
         return { path: 'root', name: 'root', kind: 'directory', platform: 'web' };
       }
 
       async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+        readDirectoryCalls.push(handle.path);
+
+        if (handle.path === 'root/node_modules') {
+          throw new Error('Ignored directory should not be traversed');
+        }
+
         if (handle.path !== 'root') {
           return [];
         }
 
         return [
+          {
+            name: 'src',
+            path: 'root/src',
+            type: 'directory',
+            handle: {
+              path: 'root/src',
+              name: 'src',
+              kind: 'directory',
+              platform: 'web',
+            } as unknown as FileSystemDirectoryHandle,
+            depth: 0,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
           {
             name: 'node_modules',
             path: 'root/node_modules',
@@ -906,22 +928,10 @@ describe('generateReportFromAdapter', () => {
     }
 
     const treeModule = await import('../tree-generator');
-    const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockReturnValue('');
-    const originalSplit = String.prototype.split;
-    let slashSplitCalls = 0;
-    const splitSpy = vi.spyOn(String.prototype, 'split').mockImplementation(function (
-      this: string,
-      separator: unknown,
-      limit?: number
-    ): string[] {
-      if (separator === '/') {
-        slashSplitCalls++;
-      }
-      return originalSplit.call(
-        this,
-        separator as Parameters<typeof String.prototype.split>[0],
-        limit
-      );
+    let capturedTree: IFileNode[] = [];
+    const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
+      capturedTree = nodes;
+      return 'project tree';
     });
 
     try {
@@ -939,9 +949,9 @@ describe('generateReportFromAdapter', () => {
         true
       );
 
-      expect(slashSplitCalls).toBe(0);
+      expect(readDirectoryCalls).toEqual(['root', 'root/src']);
+      expect(capturedTree.map((node) => node.name)).toEqual(['src']);
     } finally {
-      splitSpy.mockRestore();
       treeSpy.mockRestore();
     }
   });
