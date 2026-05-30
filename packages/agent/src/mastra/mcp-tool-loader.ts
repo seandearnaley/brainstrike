@@ -109,6 +109,16 @@ function selectToolsetForServer(
     return;
   }
 
+  if (Object.keys(selected.tools).length === 0) {
+    const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
+    logToolsetDrop('MCP toolset matched configured server but contained no tools', {
+      code: 'mcp_toolset_server_key_empty',
+      serverName,
+      matchedServerName: selected.matchedServerName,
+    });
+    return;
+  }
+
   if (
     selected.matchedServerName !== serverName &&
     configuredServerNames.has(selected.matchedServerName)
@@ -149,10 +159,8 @@ function findToolsetForServer(
   isSingleServer: boolean
 ): { matchedServerName: string; tools: ToolsInput } | undefined {
   const directTools = toolsets[serverName];
-  if (directTools) {
-    return Object.keys(directTools).length > 0
-      ? { matchedServerName: serverName, tools: directTools }
-      : undefined;
+  if (Object.hasOwn(toolsets, serverName)) {
+    return { matchedServerName: serverName, tools: directTools ?? {} };
   }
 
   const toolsetEntries = Object.entries(toolsets).filter(

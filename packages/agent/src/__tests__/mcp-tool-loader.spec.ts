@@ -269,6 +269,58 @@ describe('mcp-tool-loader', () => {
       expect(toolNameMap.has('Alpha_search')).toBe(false);
     });
 
+    it('warns when an exact grouped MCP toolset key is empty', async () => {
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push(record);
+      });
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          alpha: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'beta',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+      unsubscribe();
+
+      expect(result).toEqual({});
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.args.some(
+              (arg) =>
+                typeof arg === 'object' &&
+                arg !== null &&
+                'code' in arg &&
+                arg.code === 'mcp_toolset_server_key_empty' &&
+                'serverName' in arg &&
+                arg.serverName === 'alpha'
+            )
+        )
+      ).toBe(true);
+    });
+
     it('does not assign one normalized grouped MCP toolset to multiple configured servers', async () => {
       const toolNameMap = new Map<string, string>();
       const records: LogRecord[] = [];
