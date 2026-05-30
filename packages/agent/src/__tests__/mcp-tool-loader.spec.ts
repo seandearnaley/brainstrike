@@ -230,6 +230,44 @@ describe('mcp-tool-loader', () => {
       expect(toolNameMap.has('file_read_file')).toBe(false);
     });
 
+    it('does not assign one normalized grouped MCP toolset to multiple configured servers', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          'My Server': {
+            search: { id: 'search', description: 'search' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'my-server',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'my_server',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result)).toEqual(['my-server_search']);
+      expect(result).not.toHaveProperty('my_server_search');
+      expect(toolNameMap.get('my-server_search')).toBe('my-server.search');
+      expect(toolNameMap.has('my_server_search')).toBe(false);
+    });
+
     it('keeps grouped MCP tools for a single server when the returned key does not match', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {

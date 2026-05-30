@@ -56,6 +56,7 @@ export async function collectCombinedTools({
 
   const serverList = mcpConfig.servers ?? [];
   const isSingleServer = serverList.length === 1;
+  const assignedToolsetNames = new Set<string>();
 
   for (const server of serverList) {
     if (!server?.name) {
@@ -64,7 +65,13 @@ export async function collectCombinedTools({
 
     const toolsForServer =
       discovered.kind === 'toolsets'
-        ? selectToolsetForServer(discovered.toolsets, server.name, isSingleServer, toolNameMap)
+        ? selectToolsetForServer(
+            discovered.toolsets,
+            server.name,
+            isSingleServer,
+            toolNameMap,
+            assignedToolsetNames
+          )
         : selectToolsForServer(discovered.tools, server.name, isSingleServer);
     if (!toolsForServer || Object.keys(toolsForServer).length === 0) {
       continue;
@@ -83,7 +90,8 @@ function selectToolsetForServer(
   toolsets: McpToolsets,
   serverName: string,
   isSingleServer: boolean,
-  toolNameMap: Map<string, string>
+  toolNameMap: Map<string, string>,
+  assignedToolsetNames: Set<string>
 ): ToolsInput | undefined {
   const selected = findToolsetForServer(toolsets, serverName, isSingleServer);
   if (!selected) {
@@ -94,6 +102,16 @@ function selectToolsetForServer(
     });
     return;
   }
+
+  if (assignedToolsetNames.has(selected.matchedServerName)) {
+    logger.debug('MCP toolset already matched another configured server', {
+      code: 'mcp_toolset_server_key_duplicate',
+      serverName,
+      matchedServerName: selected.matchedServerName,
+    });
+    return;
+  }
+  assignedToolsetNames.add(selected.matchedServerName);
 
   if (selected.matchedServerName !== serverName) {
     logger.debug('MCP toolset matched configured server by compatibility fallback', {
