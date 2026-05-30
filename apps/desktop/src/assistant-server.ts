@@ -895,6 +895,7 @@ async function initializeAgentStream(
     const stream = toolApprovalAction
       ? await streamMastraToolApprovalAction(toolApprovalAction, {
           ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+          requireToolApproval: true,
           runtime,
         })
       : await toAiSdkStyleStream(
