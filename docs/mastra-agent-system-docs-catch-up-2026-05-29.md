@@ -113,7 +113,7 @@ The Prompt Library appears to overlap with Mastra Editor's versioned prompts/age
 
 ### Streaming and MCP
 
-The custom stream mapper has at least one likely bug: a successful non-streaming `tool-call` followed by `tool-result` can emit the result without first emitting the completed AI SDK tool-call args. Existing tests cover streaming args and error completion, but not the ordinary successful non-streaming path.
+Baseline finding, implemented later in follow-up PR #1084: the custom stream mapper had a bug where a successful non-streaming `tool-call` followed by `tool-result` could emit the result without first emitting the completed AI SDK tool-call args. The report branch preserves the original audit evidence below; the post-audit implementation status above tracks the follow-up fix.
 
 Evidence:
 
