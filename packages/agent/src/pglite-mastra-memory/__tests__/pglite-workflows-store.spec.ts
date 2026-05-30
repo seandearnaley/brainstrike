@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import type { StepResult, WorkflowRunState } from '@mastra/core/workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MASTRA_WORKFLOW_TABLE } from '../sql';
 import { PgliteWorkflowsStore } from '../workflows-store';
 
 type ApprovalStepResult = StepResult<
@@ -153,6 +154,29 @@ describe('PgliteWorkflowsStore', () => {
     });
   });
 
+  it('reports stored workflow snapshots with missing context as malformed data', async () => {
+    await db.query(
+      `INSERT INTO ${MASTRA_WORKFLOW_TABLE}
+        (workflow_name, run_id, "resourceId", snapshot, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+      [
+        'approval-workflow',
+        'malformed-run',
+        null,
+        JSON.stringify({ runId: 'malformed-run', status: 'running' }),
+        new Date('2026-05-29T10:00:00Z'),
+        new Date('2026-05-29T10:00:01Z'),
+      ]
+    );
+
+    await expect(
+      store.loadWorkflowSnapshot({
+        runId: 'malformed-run',
+        workflowName: 'approval-workflow',
+      })
+    ).rejects.toThrow('Stored Mastra workflow snapshot for runId malformed-run is missing context');
+  });
+
   it('preserves the original createdAt when a workflow snapshot is re-persisted', async () => {
     await store.persistWorkflowSnapshot({
       createdAt: new Date('2026-05-29T10:00:00Z'),
@@ -249,9 +273,16 @@ describe('PgliteWorkflowsStore', () => {
       runId: 'run-newer',
       workflowName: 'approval-workflow',
     });
+    const firstPageDefault = await store.listWorkflowRuns({
+      perPage: 1,
+      resourceId: 'workspace-a',
+      workflowName: 'approval-workflow',
+    });
 
     expect(listed.total).toBe(1);
     expect(listed.runs.map((entry) => entry.runId)).toEqual(['run-newer']);
+    expect(firstPageDefault.total).toBe(2);
+    expect(firstPageDefault.runs.map((entry) => entry.runId)).toEqual(['run-newer']);
     expect(run).toMatchObject({
       resourceId: 'workspace-a',
       runId: 'run-newer',
@@ -259,6 +290,11 @@ describe('PgliteWorkflowsStore', () => {
     });
     expect(run?.createdAt).toEqual(new Date('2026-05-29T11:00:00Z'));
     expect(run?.snapshot).toMatchObject({ runId: 'run-newer', status: 'suspended' });
+    await expect(store.getWorkflowRunById({ runId: 'run-newer' })).resolves.toMatchObject({
+      resourceId: 'workspace-a',
+      runId: 'run-newer',
+      workflowName: 'approval-workflow',
+    });
 
     await store.deleteWorkflowRunById({
       runId: 'run-newer',
@@ -268,6 +304,23 @@ describe('PgliteWorkflowsStore', () => {
     await expect(
       store.getWorkflowRunById({ runId: 'run-newer', workflowName: 'approval-workflow' })
     ).resolves.toBeNull();
+  });
+
+  it('requires workflowName when a run id is not globally unique', async () => {
+    await store.persistWorkflowSnapshot({
+      runId: 'shared-run-id',
+      snapshot: createSnapshot({ runId: 'shared-run-id' }),
+      workflowName: 'approval-workflow',
+    });
+    await store.persistWorkflowSnapshot({
+      runId: 'shared-run-id',
+      snapshot: createSnapshot({ runId: 'shared-run-id' }),
+      workflowName: 'audit-workflow',
+    });
+
+    await expect(store.getWorkflowRunById({ runId: 'shared-run-id' })).rejects.toThrow(
+      'workflowName is required'
+    );
   });
 
   it('retries schema initialization after a transient bootstrap failure', async () => {
