@@ -5,9 +5,12 @@ import type {
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
+
+const logger = createLogger('AssistantToolApprovalNotice');
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;
@@ -33,7 +36,7 @@ function formatJsonValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-type ApprovalRunOutcome = 'none' | 'pending' | 'failed' | 'completed';
+type ApprovalRunOutcome = 'none' | 'pending' | 'retryable' | 'completed';
 
 function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
   return (
@@ -107,8 +110,8 @@ function resolveApprovalRunOutcome(
     if (status?.['type'] === 'complete') {
       return 'completed';
     }
-    if (status?.['type'] === 'incomplete' && status['reason'] === 'error') {
-      return 'failed';
+    if (status?.['type'] === 'incomplete') {
+      return 'retryable';
     }
     return 'pending';
   }
@@ -169,17 +172,28 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
 
       setSubmittedAction(action);
       try {
-        aui.thread().append(message);
+        void Promise.resolve(aui.thread().append(message)).catch((error: unknown) => {
+          setSubmittedAction(null);
+          logger.warn('Failed to append tool approval action', {
+            error,
+            runId: approval.runId,
+            toolCallId: approval.toolCallId,
+          });
+        });
       } catch (error) {
         setSubmittedAction(null);
-        throw error;
+        logger.warn('Failed to append tool approval action', {
+          error,
+          runId: approval.runId,
+          toolCallId: approval.toolCallId,
+        });
       }
     },
     [approval, aui, submittedAction]
   );
 
   useEffect(() => {
-    if (submittedAction === null || approvalRunOutcome !== 'failed') {
+    if (submittedAction === null || approvalRunOutcome !== 'retryable') {
       return;
     }
     setSubmittedAction(null);

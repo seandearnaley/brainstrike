@@ -175,6 +175,58 @@ describe('AssistantToolApprovalNotice', () => {
     expect(appendMessageMock).toHaveBeenCalledTimes(2);
   });
 
+  it('reenables approval actions when the appended approval run is interrupted', async () => {
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: {
+        reason: 'cancelled',
+        type: 'incomplete',
+      },
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+    );
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+  });
+
+  it('reenables approval actions after a synchronous append failure', async () => {
+    appendMessageMock.mockImplementationOnce(() => {
+      throw new Error('append failed');
+    });
+    const user = userEvent.setup();
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await expect(
+      user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }))
+    ).resolves.toBeUndefined();
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+  });
+
+  it('reenables approval actions after an asynchronous append failure', async () => {
+    appendMessageMock.mockImplementationOnce(() => Promise.reject(new Error('append failed')));
+    const user = userEvent.setup();
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+    );
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+  });
+
   it('does not reenable approval actions after the matching run completes successfully', async () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
