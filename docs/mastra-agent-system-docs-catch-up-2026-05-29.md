@@ -34,7 +34,7 @@ The shortest path would be to patch individual bugs, but that would leave the sa
 3. Decide where official Mastra Workflows, Editor, Workspaces, Server, Observability, and Evals should replace bespoke Brainstrike plumbing.
 4. Preserve local-first desktop constraints explicitly: PGlite, keychain secrets, loopback-only desktop server, hidden renderer local LLM/embedding hosts, and UI context selection remain valid reasons for custom integration.
 
-Post-audit implementation has begun. PRs #1084 through #1099 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, prompt restore, MCP lifecycle/discovery behavior, memory include conformance, pending approval rendering, PGlite workflow snapshot persistence, approval/decline resume actions, Mastra compatibility contracts, the current Mastra runtime package bump, and assistant-ui data renderer registration for approval/run-event parts. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
+Post-audit implementation has begun. PRs #1084 through #1100 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, prompt restore, MCP lifecycle/discovery behavior, memory include conformance, pending approval rendering, PGlite workflow snapshot persistence, approval/decline resume actions, Mastra compatibility contracts, the current Mastra runtime package bump, assistant-ui data renderer registration for approval/run-event parts, and durable tool lifecycle run-events. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
 
 ## Linear Issues Created
 
@@ -64,6 +64,7 @@ This report preserves the original audit findings as the baseline. The follow-up
 - [PR #1097](https://github.com/seandearnaley/brainstrike/pull/1097) covers the BST-557 compatibility-contract slice by enforcing latest Mastra memory `resourceId` thread lookup, workflow run lookup by globally unique `runId`, and grouped MCP toolset discovery.
 - [PR #1098](https://github.com/seandearnaley/brainstrike/pull/1098) covers the BST-557 Mastra package-bump slice by updating `@mastra/core`, `@mastra/mcp`, and `@mastra/memory` to the current npm releases, refreshing the lockfile, and preserving desktop IPC early validation before agent-module startup.
 - [PR #1099](https://github.com/seandearnaley/brainstrike/pull/1099) covers the BST-557 assistant-ui data renderer slice by registering Brainstrike run-event and tool-approval data parts through the official assistant-ui `useAssistantDataUI` hook, with manual desktop approval-flow smoke coverage.
+- [PR #1100](https://github.com/seandearnaley/brainstrike/pull/1100) covers the BST-561 observability bridge slice by emitting durable `tool.started`, `tool.completed`, and `tool.failed` run-events from Mastra tool lifecycle stream parts without persisting raw args, results, outputs, or error payloads. It does not add Mastra observability packages, scorers, or a canonical Mastra app/server boundary.
 
 The remaining architectural work is still the staged work in BST-557 through BST-561: runtime hardening, official workflow HITL semantics, canonical Mastra app/server boundary, observability, scorers, and product decisions around Editor, Workspaces, and Browser.
 
@@ -175,9 +176,18 @@ Evidence:
 - Mastra docs: https://mastra.ai/docs/evals/overview
 - Mastra docs: https://mastra.ai/docs/evals/running-in-ci
 
+## 2026-05-30 Specialist Follow-Up
+
+Additional specialist passes narrowed the remaining work into one code-ready observability bridge and three architecture gates:
+
+- Workflow/HITL: Brainstrike is now aligned enough with Mastra pre-execution agent approval. The remaining gap is runtime `tool-call-suspended` / `resumeStream()` support, which should wait for a product decision on how arbitrary `resumeSchema` inputs are rendered and submitted in the UI.
+- Server/Deployment: Brainstrike currently embeds Mastra as an agent runtime behind custom web and desktop assistant HTTP surfaces. Mastra Server/Deployment docs describe a generated Hono/server-adapter architecture. A follow-up implementation should first decide whether Brainstrike keeps its current assistant boundary or adopts Mastra Server/Adapters for web, desktop, or both.
+- Observability/Evals: PR #1100 adds the safe, code-ready bridge from Mastra tool lifecycle parts into existing Brainstrike run-event persistence. Full Mastra Observability/Evals/Scorers integration still needs a decision on whether Brainstrike creates a canonical `Mastra` app instance with logger/storage/observability/scorers, or keeps Pino/run-events/retrieval evals as the source of truth with thin Mastra adapters.
+- Do not add `@mastra/evals`, Mastra observability packages, scorer registration, or storage-domain migrations until the canonical app/server boundary is decided.
+
 ## Recommended Order
 
-Current PR stack status: steps 1 and 2 have partial implementation PRs in flight, and #1088/#1089 cover targeted eval and prompt-editor slices. The sequence below remains the recommended architecture order for the remaining work.
+Current PR stack status: steps 1 and 2 have partial implementation PRs in flight, #1088/#1089 cover targeted eval and prompt-editor slices, and #1100 covers the first safe observability bridge. The sequence below remains the recommended architecture order for the remaining work.
 
 1. Fix concrete correctness bugs first: stream tool-call/result emission and shared request parsing.
 2. Upgrade Mastra packages and establish an explicit runtime compatibility boundary.
