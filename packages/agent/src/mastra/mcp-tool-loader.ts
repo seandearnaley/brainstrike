@@ -138,6 +138,10 @@ function findToolsetForServer(
     return { matchedServerName, tools };
   }
 
+  if (!isSingleServer) {
+    return;
+  }
+
   const fuzzyMatches = toolsetEntries.filter(([toolsetName]) => {
     const normalizedToolsetName = normalizeMcpServerName(toolsetName);
     return (

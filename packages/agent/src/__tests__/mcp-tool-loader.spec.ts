@@ -192,6 +192,44 @@ describe('mcp-tool-loader', () => {
       expect(toolNameMap.get('notes_search')).toBe('notes.search');
     });
 
+    it('does not fuzzy-match one grouped MCP toolset across multiple configured servers', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue({}),
+        listToolsets: vi.fn().mockResolvedValue({
+          filesystem: {
+            read_file: { id: 'read_file', description: 'read file' },
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'file',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result)).toEqual(['filesystem_read_file']);
+      expect(result).not.toHaveProperty('file_read_file');
+      expect(toolNameMap.get('filesystem_read_file')).toBe('filesystem.read_file');
+      expect(toolNameMap.has('file_read_file')).toBe(false);
+    });
+
     it('keeps grouped MCP tools for a single server when the returned key does not match', async () => {
       const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
