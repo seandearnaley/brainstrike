@@ -1,8 +1,12 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  type AssistantToolApprovalAction,
+  type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
+  isAssistantToolApprovalAction,
   TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 export {
   ContextPacker,
@@ -46,6 +50,7 @@ export {
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
   streamMastraAgent,
+  streamMastraToolApprovalAction,
 } from './mastra/agent-runtime';
 export {
   createMastraAgentError,

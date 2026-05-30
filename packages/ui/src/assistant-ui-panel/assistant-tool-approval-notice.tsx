@@ -1,6 +1,12 @@
-import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
-import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
-import { useId, useMemo, useState } from 'react';
+import { type CreateAppendMessage, useAui } from '@assistant-ui/react';
+import type {
+  AssistantToolApprovalAction,
+  AssistantToolApprovalDecision,
+  AssistantToolApprovalRequest,
+} from '@brainstrike/assistant-contract/tool-approval';
+import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 
 interface AssistantToolApprovalNoticeProps {
@@ -28,7 +34,11 @@ function formatJsonValue(value: unknown): string {
 }
 
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
+  const aui = useAui();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
+    null
+  );
   const detailsId = useId();
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
   const detailEntries = useMemo(() => {
@@ -42,10 +52,47 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
       ['resumeSchema', approval.resumeSchema],
     ].filter((entry): entry is [string, unknown] => entry[1] !== undefined);
   }, [approval]);
+  const submitApprovalAction = useCallback(
+    (action: AssistantToolApprovalDecision): void => {
+      if (!(approval && submittedAction === null)) {
+        return;
+      }
+
+      const approvalAction: AssistantToolApprovalAction = {
+        action,
+        runId: approval.runId,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+      };
+      const verb = action === 'approve' ? 'Approved' : 'Declined';
+      const message = {
+        content: [{ type: 'text', text: `${verb} ${approval.toolName}.` }],
+        role: 'user',
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction,
+          },
+        },
+        startRun: true,
+      } satisfies CreateAppendMessage;
+
+      setSubmittedAction(action);
+      aui.thread().append(message);
+    },
+    [approval, aui, submittedAction]
+  );
 
   if (!approval) {
     return null;
   }
+
+  const approvalStatus =
+    submittedAction === 'approve'
+      ? 'Approved'
+      : submittedAction === 'decline'
+        ? 'Declined'
+        : 'Pending';
+  const actionButtonsDisabled = submittedAction !== null;
 
   return (
     <div
@@ -62,10 +109,34 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
               <span className="truncate">Tool approval required</span>
             </span>
             <span className="ml-2 rounded-full border border-amber-500/40 bg-amber-100/70 px-2 py-0.5 text-[10px] text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-              Pending
+              {approvalStatus}
             </span>
           </p>
           <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              aria-label={`Approve ${approval.toolName}`}
+              disabled={actionButtonsDisabled}
+              onClick={() => submitApprovalAction('approve')}
+              size="sm"
+              title={`Approve ${approval.toolName}`}
+              variant="default"
+            >
+              <Check className="size-3.5" />
+              Approve
+            </Button>
+            <Button
+              aria-label={`Decline ${approval.toolName}`}
+              disabled={actionButtonsDisabled}
+              onClick={() => submitApprovalAction('decline')}
+              size="sm"
+              title={`Decline ${approval.toolName}`}
+              variant="outline"
+            >
+              <X className="size-3.5" />
+              Decline
+            </Button>
+          </div>
         </div>
         <Button
           aria-controls={isExpanded ? detailsId : undefined}

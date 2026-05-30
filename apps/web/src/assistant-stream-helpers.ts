@@ -3,10 +3,12 @@ import {
   type AssistantUiMessage,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
+  isAssistantToolApprovalAction,
   type RuntimeData,
   resolveDataStreamSession,
   type StreamChunk,
   sanitizeStreamChunk,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -82,7 +84,7 @@ export async function handleChatEndpoint(
 export async function handleAssistantEndpoint(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  body: { messages?: unknown; data?: unknown }
+  body: { messages?: unknown; data?: unknown; runConfig?: unknown }
 ): Promise<void> {
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
@@ -103,6 +105,9 @@ export async function handleAssistantEndpoint(
   const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
   const agentMessages = convertAssistantUiMessages(rawMessages);
   const data = (body?.data ?? undefined) as RuntimeData | undefined;
+  if (sendToolApprovalResponse(res, body?.runConfig)) {
+    return;
+  }
 
   const abortController = new AbortController();
   const onAbort = () => abortController.abort();
@@ -165,6 +170,42 @@ function sendAssistantDisabledResponse(
       reason: assistantStatusPayload(provider).reason,
     })
   );
+}
+
+function sendToolApprovalResponse(res: http.ServerResponse, runConfig: unknown): boolean {
+  if (!(runConfig && typeof runConfig === 'object' && !Array.isArray(runConfig))) {
+    return false;
+  }
+
+  const custom = (runConfig as Record<string, unknown>)['custom'];
+  if (!(custom && typeof custom === 'object' && !Array.isArray(custom))) {
+    return false;
+  }
+
+  const rawAction = (custom as Record<string, unknown>)[TOOL_APPROVAL_RUN_CONFIG_KEY];
+  if (rawAction === undefined) {
+    return false;
+  }
+
+  if (!isAssistantToolApprovalAction(rawAction)) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(
+      JSON.stringify({
+        error: 'invalid_tool_approval_action',
+        message: 'Tool approval action must include action, runId, and toolCallId.',
+      })
+    );
+    return true;
+  }
+
+  res.writeHead(501, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(
+    JSON.stringify({
+      error: 'tool_approval_resume_unsupported',
+      message: 'Tool approval resume requires the desktop assistant backend.',
+    })
+  );
+  return true;
 }
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {

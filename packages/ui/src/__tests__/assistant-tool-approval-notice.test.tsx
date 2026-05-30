@@ -1,8 +1,18 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantToolApprovalNotice } from '../assistant-ui-panel/assistant-tool-approval-notice';
+
+const appendMessageMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@assistant-ui/react', () => ({
+  useAui: () => ({
+    thread: () => ({
+      append: appendMessageMock,
+    }),
+  }),
+}));
 
 const baseApproval = {
   args: {
@@ -18,6 +28,10 @@ const baseApproval = {
 } satisfies AssistantToolApprovalRequest;
 
 describe('AssistantToolApprovalNotice', () => {
+  beforeEach(() => {
+    appendMessageMock.mockReset();
+  });
+
   it('renders a compact pending approval row by default', () => {
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
@@ -44,6 +58,56 @@ describe('AssistantToolApprovalNotice', () => {
     expect(
       screen.getByRole('button', { name: /collapse tool approval details/i })
     ).toBeInTheDocument();
+  });
+
+  it('appends approval actions with runConfig for the assistant runtime', async () => {
+    const user = userEvent.setup();
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    expect(appendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [{ type: 'text', text: 'Approved workspace.writeFile.' }],
+        role: 'user',
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              runId: 'run-approval-1',
+              toolCallId: 'tool-call-1',
+              toolName: 'workspace.writeFile',
+            },
+          },
+        },
+      })
+    );
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+  });
+
+  it('appends decline actions with runConfig for the assistant runtime', async () => {
+    const user = userEvent.setup();
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /decline workspace\.writefile/i }));
+
+    expect(appendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [{ type: 'text', text: 'Declined workspace.writeFile.' }],
+        role: 'user',
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'decline',
+              runId: 'run-approval-1',
+              toolCallId: 'tool-call-1',
+              toolName: 'workspace.writeFile',
+            },
+          },
+        },
+      })
+    );
   });
 
   it('renders nothing for malformed approval data', () => {

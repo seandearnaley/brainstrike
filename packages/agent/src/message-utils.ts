@@ -197,7 +197,7 @@ export function convertAssistantUiMessages(
 export async function toAiSdkStyleStream(
   messages: AgentMessage[],
   runtime?: RuntimeData,
-  optionsOverride: Pick<MastraAgentRuntimeOptions, 'memory'> = {}
+  optionsOverride: Pick<MastraAgentRuntimeOptions, 'memory' | 'storage'> = {}
 ): Promise<StreamIterator> {
   const options: MastraAgentRuntimeOptions = { ...optionsOverride };
   if (runtime) {

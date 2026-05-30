@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createMastraAgentRuntime, streamMastraAgent } from '../mastra/agent-runtime';
+import {
+  createMastraAgentRuntime,
+  streamMastraAgent,
+  streamMastraToolApprovalAction,
+} from '../mastra/agent-runtime';
 import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 
 const agentInstances: Array<{
+  approveToolCallCalls: unknown[];
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
+  declineToolCallCalls: unknown[];
+  registeredMastra?: unknown;
   streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
+const mastraInstances: Array<{ config: unknown }> = [];
 let mcpToolList: Record<string, { description: string; id: string }> = {
   'remote tool': { id: 'remote tool', description: 'remote' },
 };
@@ -57,6 +65,9 @@ vi.mock('@mastra/core/agent', () => ({
     }
 
     config: { memory?: unknown; tools: Record<string, unknown> };
+    approveToolCallCalls: unknown[] = [];
+    declineToolCallCalls: unknown[] = [];
+    registeredMastra?: unknown;
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
@@ -82,21 +93,55 @@ vi.mock('@mastra/core/agent', () => ({
 
     async stream(input: unknown, options: unknown) {
       this.streamCalls.push({ input, options });
-      const stream = new ReadableStream({
-        start(controller) {
-          for (const part of streamParts) {
-            controller.enqueue(part);
-          }
-          controller.close();
-        },
-      });
-      return {
-        fullStream: stream,
-      } as { fullStream: ReadableStream<unknown> };
+      return createMockMastraOutput();
+    }
+
+    async approveToolCall(options: unknown) {
+      this.approveToolCallCalls.push(options);
+      return createMockMastraOutput();
+    }
+
+    async declineToolCall(options: unknown) {
+      this.declineToolCallCalls.push(options);
+      return createMockMastraOutput();
     }
 
     __setTools(tools: Record<string, unknown>) {
       this.tools = tools;
+    }
+
+    __registerMastra(mastra: unknown) {
+      this.registeredMastra = mastra;
+    }
+  },
+}));
+
+function createMockMastraOutput() {
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const part of streamParts) {
+        controller.enqueue(part);
+      }
+      controller.close();
+    },
+  });
+  return {
+    fullStream: stream,
+  } as { fullStream: ReadableStream<unknown> };
+}
+
+vi.mock('@mastra/core/mastra', () => ({
+  Mastra: class {
+    config: unknown;
+
+    constructor(config: {
+      agents?: Record<string, { __registerMastra?: (mastra: unknown) => void }>;
+    }) {
+      this.config = config;
+      mastraInstances.push(this);
+      for (const agent of Object.values(config.agents ?? {})) {
+        agent.__registerMastra?.(this);
+      }
     }
   },
 }));
@@ -123,6 +168,7 @@ vi.mock('@mastra/mcp', () => ({
 describe('mastra streaming integration', () => {
   beforeEach(() => {
     agentInstances.length = 0;
+    mastraInstances.length = 0;
     mcpInstances.length = 0;
     mcpToolList = {
       'remote tool': { id: 'remote tool', description: 'remote' },
@@ -276,6 +322,24 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.config.memory).toBe(memory);
   });
 
+  it('registers the Agent with a Mastra instance when workflow storage is configured', async () => {
+    const memory = { id: 'memory-instance' };
+    const storage = { id: 'storage-with-workflows' };
+
+    await createMastraAgentRuntime({
+      memory: memory as never,
+      storage: storage as never,
+      runtime: { apiKey: 'key', provider: 'openai' },
+    });
+
+    expect(mastraInstances).toHaveLength(1);
+    expect(mastraInstances[0]?.config).toMatchObject({
+      agents: { brainstrikeAssistant: agentInstances.at(-1) },
+      storage,
+    });
+    expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
+  });
+
   it('passes strict thread/resource memory context to agent.stream', async () => {
     const memory = { id: 'memory-instance' };
     setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
@@ -427,6 +491,98 @@ describe('mastra streaming integration', () => {
         path: [],
       },
     ]);
+  });
+
+  it('resumes an approved Mastra tool call through the official approval API', async () => {
+    const memory = { id: 'memory-instance' };
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { type: 'text-delta', textDelta: 'Approved and continued.' },
+      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 2, completionTokens: 3 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        memory: memory as never,
+        storage: storage as never,
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          memory: {
+            threadId: 'thread-1',
+            resourceId: 'workspace-a',
+            memoryOptions: { lastMessages: 5 },
+          },
+        },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const agent = agentInstances.at(-1);
+    expect(agent?.approveToolCallCalls).toHaveLength(1);
+    expect(agent?.declineToolCallCalls).toHaveLength(0);
+    expect(agent?.approveToolCallCalls[0]).toMatchObject({
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+      memory: {
+        thread: 'thread-1',
+        resource: 'workspace-a',
+        options: { lastMessages: 5 },
+      },
+      maxSteps: 20,
+    });
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
+    expect(chunks).toContainEqual({
+      type: 'message-finish',
+      finishReason: 'stop',
+      usage: { promptTokens: 2, completionTokens: 3 },
+      path: [],
+    });
+  });
+
+  it('resumes a declined Mastra tool call through the official decline API', async () => {
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { type: 'text-delta', textDelta: 'Declined and continued.' },
+      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'decline',
+        runId: 'run-approval-2',
+        toolCallId: 'tool-call-2',
+      },
+      {
+        storage: storage as never,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const agent = agentInstances.at(-1);
+    expect(agent?.approveToolCallCalls).toHaveLength(0);
+    expect(agent?.declineToolCallCalls).toHaveLength(1);
+    expect(agent?.declineToolCallCalls[0]).toMatchObject({
+      runId: 'run-approval-2',
+      toolCallId: 'tool-call-2',
+      maxSteps: 20,
+    });
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });
 
   it('uses the cached tool name when approval pauses omit the tool name', async () => {

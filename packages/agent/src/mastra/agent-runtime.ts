@@ -1,9 +1,12 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
+import type { MastraCompositeStore } from '@mastra/core/storage';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
@@ -45,12 +48,14 @@ export interface MastraAgentRuntimeOptions {
   requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
+  storage?: MastraCompositeStore;
   tools?: ToolsInput;
 }
 
 export interface MastraAgentRuntime {
   agent: Agent;
   dispose: () => Promise<void>;
+  mastra?: Mastra;
   mcpClient?: MCPClient;
   toolNameMap: Map<string, string>;
 }
@@ -169,6 +174,7 @@ export async function createMastraAgentRuntime(
     mcpTimeoutMs,
     resolved,
     memory,
+    storage,
   } = options;
 
   let runtimeResolution: ResolvedRuntimeConfiguration;
@@ -220,11 +226,20 @@ export async function createMastraAgentRuntime(
     ...(memory ? { memory } : {}),
   });
 
+  const mastra = storage
+    ? new Mastra({
+        agents: { brainstrikeAssistant: agent },
+        logger: false,
+        storage,
+      })
+    : undefined;
+
   return {
     agent,
     dispose: async () => {
       await mcpClient?.disconnect();
     },
+    ...(mastra ? { mastra } : {}),
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
   };
@@ -778,6 +793,15 @@ type AgentStreamOptions = Exclude<
   Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
   undefined
 >;
+type AgentToolApprovalOptions = Parameters<Agent['approveToolCall']>[0];
+
+interface ToolApprovalIterationParams {
+  action: AssistantToolApprovalAction;
+  memory?: MastraMemory;
+  runtime: MastraAgentRuntime;
+  runtimeData?: RuntimeData;
+  sanitizedNameMap?: Map<string, string>;
+}
 
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
@@ -970,6 +994,73 @@ async function createStreamIteratorFromRuntime({
   }
 }
 
+function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
+  if (!action.runId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool approval action requires runId',
+    });
+  }
+  if (!action.toolCallId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool approval action requires toolCallId',
+    });
+  }
+}
+
+async function createToolApprovalIteratorFromRuntime({
+  runtime,
+  runtimeData,
+  action,
+  memory,
+  sanitizedNameMap,
+}: ToolApprovalIterationParams): Promise<StreamIterator> {
+  validateToolApprovalAction(action);
+
+  try {
+    const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const approvalOptions: BrainstrikeAgentStreamOptions & {
+      runId: string;
+      toolCallId: string;
+    } = {
+      ...buildToolLoopOptions(runtimeData),
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...(memoryOption ? { memory: memoryOption } : {}),
+      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
+      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+    };
+
+    const streamResult =
+      action.action === 'approve'
+        ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
+        : await runtime.agent.declineToolCall(approvalOptions as AgentToolApprovalOptions);
+
+    logger.info('mastra tool approval resume stream started', {
+      action: action.action,
+      code: 'mastra_agent_tool_approval_resume_started',
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+    });
+
+    const fullStream = resolveFullStream(streamResult);
+    if (!fullStream) {
+      throw createMastraAgentError('mastra_agent_stream_failure', {
+        detail: 'empty_stream',
+      });
+    }
+
+    return streamChunksFromMastra({
+      runtime,
+      stream: fullStream,
+      ...(runtimeData ? { runtimeData } : {}),
+      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+    });
+  } catch (err) {
+    return await handleStreamFailure(err, runtime);
+  }
+}
+
 async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): Promise<never> {
   logger.error('mastra stream failed', {
     code: 'mastra_agent_stream_failed',
@@ -1010,6 +1101,30 @@ export async function streamMastraAgent(
     ...(options.requireToolApproval === undefined
       ? {}
       : { requireToolApproval: options.requireToolApproval }),
+    ...(runtimeData ? { runtimeData } : {}),
+    ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+  });
+}
+
+export async function streamMastraToolApprovalAction(
+  action: AssistantToolApprovalAction,
+  options: MastraAgentRuntimeOptions = {}
+): Promise<StreamIterator> {
+  assertNoUnsupportedDirectStreamOptions(options);
+  if (!options.storage) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'Mastra workflow storage is required to resume tool approval.',
+    });
+  }
+
+  const runtimeData = options.runtime;
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+
+  return createToolApprovalIteratorFromRuntime({
+    action,
+    runtime,
+    ...(options.memory ? { memory: options.memory } : {}),
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });

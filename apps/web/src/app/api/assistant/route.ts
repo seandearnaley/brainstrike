@@ -6,7 +6,9 @@ import type {
 import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
+  isAssistantToolApprovalAction,
   resolveDataStreamSession,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -27,6 +29,11 @@ export async function POST(req: Request): Promise<Response> {
   const rawMessages = Array.isArray((body as Record<string, unknown>)['messages'])
     ? ((body as Record<string, unknown>)['messages'] as AssistantUiMessage[])
     : [];
+  const rawRunConfig = (body as Record<string, unknown>)['runConfig'];
+  const toolApprovalResponse = resolveToolApprovalResponse(rawRunConfig);
+  if (toolApprovalResponse) {
+    return toolApprovalResponse;
+  }
   const data = (body as Record<string, unknown>)['data'] as RuntimeData | undefined;
   const agentMessages = convertAssistantUiMessages(rawMessages);
 
@@ -69,4 +76,44 @@ export async function POST(req: Request): Promise<Response> {
 
   const session = assistantDataStreamSessions.create(agentStream);
   return session.createResponse();
+}
+
+function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
+  if (!(runConfig && typeof runConfig === 'object' && !Array.isArray(runConfig))) {
+    return;
+  }
+
+  const custom = (runConfig as Record<string, unknown>)['custom'];
+  if (!(custom && typeof custom === 'object' && !Array.isArray(custom))) {
+    return;
+  }
+
+  const rawAction = (custom as Record<string, unknown>)[TOOL_APPROVAL_RUN_CONFIG_KEY];
+  if (rawAction === undefined) {
+    return;
+  }
+
+  if (!isAssistantToolApprovalAction(rawAction)) {
+    return new Response(
+      JSON.stringify({
+        error: 'invalid_tool_approval_action',
+        message: 'Tool approval action must include action, runId, and toolCallId.',
+      }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      }
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      error: 'tool_approval_resume_unsupported',
+      message: 'Tool approval resume requires the desktop assistant backend.',
+    }),
+    {
+      status: 501,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }
+  );
 }

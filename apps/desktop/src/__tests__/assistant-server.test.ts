@@ -45,6 +45,7 @@ vi.mock('../secrets', () => ({
 }));
 
 vi.mock('@brainstrike/agent', () => ({
+  TOOL_APPROVAL_RUN_CONFIG_KEY: 'brainstrikeToolApproval',
   assistantDataStreamSessions: {
     create: vi.fn(() => ({
       createResponse: vi.fn(() => ({
@@ -57,16 +58,35 @@ vi.mock('@brainstrike/agent', () => ({
   convertAssistantUiMessages: vi.fn((messages) => messages),
   resolveDataStreamSession: vi.fn(() => {}),
   sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
+  streamMastraToolApprovalAction: vi.fn(async () => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'text-delta', value: 'approval resumed' };
+    },
+  })),
   toAiSdkStyleStream: vi.fn(async () => ({
     async *[Symbol.asyncIterator]() {
       yield { type: 'text', content: 'test' };
     },
   })),
+  isAssistantToolApprovalAction: (value: unknown): boolean => {
+    if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+      return false;
+    }
+    const action = value as Record<string, unknown>;
+    return (
+      (action['action'] === 'approve' || action['action'] === 'decline') &&
+      typeof action['runId'] === 'string' &&
+      action['runId'].trim().length > 0 &&
+      typeof action['toolCallId'] === 'string' &&
+      action['toolCallId'].trim().length > 0
+    );
+  },
   isSupportedProvider: (provider: string) =>
     ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
+const mockPgliteMastraStorage = { id: 'desktop-storage' };
 const mockDesktopDatabase = {
   exec: vi.fn(),
   query: vi.fn(),
@@ -76,9 +96,10 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
   createPgliteMastraMemory: vi.fn(() =>
     Promise.resolve({
       memory: mockPgliteMastraMemory,
-      storage: {},
+      storage: mockPgliteMastraStorage,
       store: {},
       vector: {},
+      workflows: {},
     })
   ),
 }));
@@ -762,7 +783,74 @@ describe('assistant-server', () => {
         expect.objectContaining({
           memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
         }),
-        { memory: mockPgliteMastraMemory }
+        { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
+      );
+    });
+
+    it('routes tool approval actions through Mastra approval resume without requiring a new prompt', async () => {
+      const { streamMastraToolApprovalAction, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([]);
+      (streamMastraToolApprovalAction as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text-delta', value: 'Approved and continued.' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'workspace.writeFile',
+              },
+            },
+          },
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+            },
+          },
+        }),
+      });
+
+      expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+      expect(streamMastraToolApprovalAction).toHaveBeenCalledWith(
+        {
+          action: 'approve',
+          runId: 'run-approval-1',
+          toolCallId: 'tool-call-1',
+          toolName: 'workspace.writeFile',
+        },
+        expect.objectContaining({
+          memory: mockPgliteMastraMemory,
+          storage: mockPgliteMastraStorage,
+          runtime: expect.objectContaining({
+            apiKey: 'test-api-key',
+            provider: 'openai',
+            memory: expect.objectContaining({
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+            }),
+          }),
+        })
       );
     });
 
@@ -799,9 +887,10 @@ describe('assistant-server', () => {
         .mockRejectedValueOnce(new Error('temporary memory init failure'))
         .mockResolvedValueOnce({
           memory: mockPgliteMastraMemory,
-          storage: {},
+          storage: mockPgliteMastraStorage,
           store: {},
           vector: {},
+          workflows: {},
         });
       (toAiSdkStyleStream as Mock).mockResolvedValue({
         async *[Symbol.asyncIterator]() {
