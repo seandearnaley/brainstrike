@@ -432,6 +432,130 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('keeps the first durable terminal run-event when success precedes error for one tool id', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'flaky.lookup',
+        toolCallId: 'c-terminal',
+        args: { query: 'state' },
+      },
+      {
+        type: 'tool-output',
+        toolCallId: 'c-terminal',
+        output: { answer: 'done' },
+      },
+      {
+        type: 'tool-error',
+        toolCallId: 'c-terminal',
+        error: { message: 'late error' },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (
+        chunk.type === 'run-event' &&
+        (chunk.event.kind === 'tool.completed' || chunk.event.kind === 'tool.failed')
+      ) {
+        terminalEvents.push(chunk.event);
+      }
+    }
+
+    expect(terminalEvents).toMatchObject([
+      {
+        kind: 'tool.completed',
+        status: 'completed',
+        metadata: {
+          toolCallId: 'c-terminal',
+          toolName: 'flaky.lookup',
+        },
+      },
+    ]);
+  });
+
+  it('keeps the first durable terminal run-event when error precedes success for one tool id', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'flaky.lookup',
+        toolCallId: 'c-terminal',
+        args: { query: 'state' },
+      },
+      {
+        type: 'tool-error',
+        toolCallId: 'c-terminal',
+        error: { message: 'early error' },
+      },
+      {
+        type: 'tool-result',
+        toolCallId: 'c-terminal',
+        result: { answer: 'late success' },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (
+        chunk.type === 'run-event' &&
+        (chunk.event.kind === 'tool.completed' || chunk.event.kind === 'tool.failed')
+      ) {
+        terminalEvents.push(chunk.event);
+      }
+    }
+
+    expect(terminalEvents).toMatchObject([
+      {
+        kind: 'tool.failed',
+        status: 'failed',
+        metadata: {
+          toolCallId: 'c-terminal',
+          toolName: 'flaky.lookup',
+        },
+      },
+    ]);
+  });
+
+  it('does not emit durable terminal run-events for id-less Mastra tool-result parts', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-result',
+        toolName: 'anonymous.lookup',
+        result: { answer: 'done' },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (
+        chunk.type === 'run-event' &&
+        (chunk.event.kind === 'tool.completed' || chunk.event.kind === 'tool.failed')
+      ) {
+        terminalEvents.push(chunk.event);
+      }
+    }
+
+    expect(terminalEvents).toEqual([]);
+  });
+
   it('keeps Mastra tool progress parts out of durable run-events', async () => {
     setMockStreamParts([
       { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },

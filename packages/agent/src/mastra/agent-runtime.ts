@@ -437,8 +437,7 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
 
 function makeToolLifecycleRunEventChunk(
   toolEvent: StreamChunkTool,
-  mastraPartType: string,
-  completedToolCallIds: Set<string>
+  terminalToolCallStates: Map<string, 'completed' | 'failed'>
 ): StreamChunk | undefined {
   const payload = isRunEventMetadata(toolEvent.payload) ? toolEvent.payload : undefined;
   const toolCallId =
@@ -462,19 +461,25 @@ function makeToolLifecycleRunEventChunk(
     case 'start':
       return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
     case 'success': {
-      if (!toolCallId && mastraPartType === 'tool-output') {
+      if (!toolCallId) {
         return;
       }
-      if (toolCallId && completedToolCallIds.has(toolCallId)) {
+      if (terminalToolCallStates.has(toolCallId)) {
         return;
       }
-      if (toolCallId) {
-        completedToolCallIds.add(toolCallId);
-      }
+      terminalToolCallStates.set(toolCallId, 'completed');
       return makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata);
     }
-    case 'error':
+    case 'error': {
+      if (!toolCallId) {
+        return;
+      }
+      if (terminalToolCallStates.has(toolCallId)) {
+        return;
+      }
+      terminalToolCallStates.set(toolCallId, 'failed');
       return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
+    }
     case 'progress':
       return;
   }
@@ -622,7 +627,7 @@ interface ProcessStreamPartResult {
 function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
-  completedToolCallIds: Set<string>,
+  terminalToolCallStates: Map<string, 'completed' | 'failed'>,
   sanitizedNameMap?: Map<string, string>
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
@@ -701,7 +706,7 @@ function processMastraStreamPart(
       if (!(evt && evt.type === 'tool-event')) {
         return { chunks: [], finished: false };
       }
-      const runEvent = makeToolLifecycleRunEventChunk(evt, p.type, completedToolCallIds);
+      const runEvent = makeToolLifecycleRunEventChunk(evt, terminalToolCallStates);
       return {
         chunks: runEvent ? [evt, runEvent] : [evt],
         finished: false,
@@ -971,14 +976,14 @@ async function* streamChunksFromMastra({
   sanitizedNameMap,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
-  const completedToolCallIds = new Set<string>();
+  const terminalToolCallStates = new Map<string, 'completed' | 'failed'>();
 
   try {
     for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
       const { chunks, finished } = processMastraStreamPart(
         part,
         toolNames,
-        completedToolCallIds,
+        terminalToolCallStates,
         sanitizedNameMap
       );
       for (const chunk of chunks) {
