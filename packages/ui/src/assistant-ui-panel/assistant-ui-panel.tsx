@@ -16,6 +16,7 @@ import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type LocalLlmBackendFactory,
+  TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import {
   ArrowUpIcon,
@@ -52,6 +53,7 @@ import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantRunTimeline } from './assistant-run-timeline';
+import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
@@ -1054,6 +1056,7 @@ const AssistantMessage: FC = () => {
               /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
               by_name: {
                 [ASSISTANT_RUN_EVENT_DATA_NAME]: AssistantRunTimeline,
+                [TOOL_APPROVAL_DATA_NAME]: AssistantToolApprovalNotice,
               },
             },
           }}
