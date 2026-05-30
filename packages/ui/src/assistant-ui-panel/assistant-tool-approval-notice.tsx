@@ -1,4 +1,4 @@
-import { type CreateAppendMessage, useAui } from '@assistant-ui/react';
+import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
 import type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,
@@ -6,7 +6,7 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 
 interface AssistantToolApprovalNoticeProps {
@@ -39,7 +39,18 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
     null
   );
+  const failedRunCountAtSubmissionRef = useRef<number | null>(null);
   const detailsId = useId();
+  const failedRunCount = useAuiState((state) =>
+    state.thread.messages.reduce((count, message) => {
+      const status = message.status;
+      return message.role === 'assistant' &&
+        status?.type === 'incomplete' &&
+        status.reason === 'error'
+        ? count + 1
+        : count;
+    }, 0)
+  );
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
   const detailEntries = useMemo(() => {
     if (!approval) {
@@ -76,11 +87,30 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
         startRun: true,
       } satisfies CreateAppendMessage;
 
+      failedRunCountAtSubmissionRef.current = failedRunCount;
       setSubmittedAction(action);
-      aui.thread().append(message);
+      try {
+        aui.thread().append(message);
+      } catch (error) {
+        failedRunCountAtSubmissionRef.current = null;
+        setSubmittedAction(null);
+        throw error;
+      }
     },
-    [approval, aui, submittedAction]
+    [approval, aui, failedRunCount, submittedAction]
   );
+
+  useEffect(() => {
+    if (submittedAction === null) {
+      return;
+    }
+    const failedRunCountAtSubmission = failedRunCountAtSubmissionRef.current;
+    if (failedRunCountAtSubmission === null || failedRunCount <= failedRunCountAtSubmission) {
+      return;
+    }
+    failedRunCountAtSubmissionRef.current = null;
+    setSubmittedAction(null);
+  }, [failedRunCount, submittedAction]);
 
   if (!approval) {
     return null;

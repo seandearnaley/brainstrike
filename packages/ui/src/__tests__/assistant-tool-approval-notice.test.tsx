@@ -1,10 +1,17 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantToolApprovalNotice } from '../assistant-ui-panel/assistant-tool-approval-notice';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
+const threadMessagesMock = vi.hoisted(
+  () =>
+    [] as Array<{
+      role: 'assistant' | 'user';
+      status?: { error?: unknown; reason?: string; type: string };
+    }>
+);
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({
@@ -12,6 +19,18 @@ vi.mock('@assistant-ui/react', () => ({
       append: appendMessageMock,
     }),
   }),
+  useAuiState: (
+    selector: (state: {
+      thread: {
+        messages: typeof threadMessagesMock;
+      };
+    }) => unknown
+  ) =>
+    selector({
+      thread: {
+        messages: threadMessagesMock,
+      },
+    }),
 }));
 
 const baseApproval = {
@@ -30,6 +49,7 @@ const baseApproval = {
 describe('AssistantToolApprovalNotice', () => {
   beforeEach(() => {
     appendMessageMock.mockReset();
+    threadMessagesMock.splice(0);
   });
 
   it('renders a compact pending approval row by default', () => {
@@ -108,6 +128,37 @@ describe('AssistantToolApprovalNotice', () => {
         },
       })
     );
+  });
+
+  it('reenables approval actions when the appended approval run errors', async () => {
+    const user = userEvent.setup();
+    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByText('Approved')).toBeInTheDocument();
+
+    threadMessagesMock.push({
+      role: 'assistant',
+      status: {
+        error: 'tool_approval_resume_unsupported',
+        reason: 'error',
+        type: 'incomplete',
+      },
+    });
+    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+    );
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+
+    expect(appendMessageMock).toHaveBeenCalledTimes(2);
   });
 
   it('renders nothing for malformed approval data', () => {

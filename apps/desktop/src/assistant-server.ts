@@ -12,12 +12,11 @@ import type {
 import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
-  isAssistantToolApprovalAction,
   isSupportedProvider,
+  readToolApprovalRunConfigAction,
   resolveDataStreamSession,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
@@ -817,29 +816,14 @@ async function parseAssistantRequestPayload(
     ? (maybePayload.messages as AssistantUiMessage[])
     : [];
   const data = maybePayload?.data ?? undefined;
-  const rawToolApprovalAction = readToolApprovalRunConfigAction(maybePayload?.runConfig);
-  if (rawToolApprovalAction === undefined) {
+  const toolApprovalActionResult = readToolApprovalRunConfigAction(maybePayload?.runConfig);
+  if (!toolApprovalActionResult) {
     return { rawMessages, data };
   }
-  if (!isAssistantToolApprovalAction(rawToolApprovalAction)) {
+  if ('invalid' in toolApprovalActionResult) {
     return { rawMessages, data, toolApprovalActionInvalid: true };
   }
-  return { rawMessages, data, toolApprovalAction: rawToolApprovalAction };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function readToolApprovalRunConfigAction(runConfig: unknown): unknown {
-  if (!isRecord(runConfig)) {
-    return;
-  }
-  const custom = runConfig['custom'];
-  if (!isRecord(custom)) {
-    return;
-  }
-  return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
+  return { rawMessages, data, toolApprovalAction: toolApprovalActionResult.action };
 }
 
 async function resumeStreamIfAvailable(

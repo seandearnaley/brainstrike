@@ -81,6 +81,33 @@ vi.mock('@brainstrike/agent', () => ({
       action['toolCallId'].trim().length > 0
     );
   },
+  readToolApprovalRunConfigAction: (runConfig: unknown) => {
+    if (!(runConfig && typeof runConfig === 'object' && !Array.isArray(runConfig))) {
+      return;
+    }
+    const custom = (runConfig as Record<string, unknown>)['custom'];
+    if (!(custom && typeof custom === 'object' && !Array.isArray(custom))) {
+      return;
+    }
+    const action = (custom as Record<string, unknown>)['brainstrikeToolApproval'];
+    if (action === undefined) {
+      return;
+    }
+    if (!(action && typeof action === 'object' && !Array.isArray(action))) {
+      return { invalid: true };
+    }
+    const record = action as Record<string, unknown>;
+    if (
+      (record['action'] === 'approve' || record['action'] === 'decline') &&
+      typeof record['runId'] === 'string' &&
+      record['runId'].trim().length > 0 &&
+      typeof record['toolCallId'] === 'string' &&
+      record['toolCallId'].trim().length > 0
+    ) {
+      return { action };
+    }
+    return { invalid: true };
+  },
   isSupportedProvider: (provider: string) =>
     ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
