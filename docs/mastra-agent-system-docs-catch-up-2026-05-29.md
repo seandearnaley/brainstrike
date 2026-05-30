@@ -34,6 +34,8 @@ The shortest path would be to patch individual bugs, but that would leave the sa
 3. Decide where official Mastra Workflows, Editor, Workspaces, Server, Observability, and Evals should replace bespoke Brainstrike plumbing.
 4. Preserve local-first desktop constraints explicitly: PGlite, keychain secrets, loopback-only desktop server, hidden renderer local LLM/embedding hosts, and UI context selection remain valid reasons for custom integration.
 
+Post-audit implementation has begun. PRs #1084 through #1089 cover the first concrete correctness slices for stream ordering, request parsing, unsupported stream options, approval visibility, retrieval eval CI, and prompt restore. Those PRs reduce immediate defects but do not close the broader runtime, memory, workflow, MCP, server, observability, scorer, or product-adoption decisions.
+
 ## Linear Issues Created
 
 - [BST-557](https://linear.app/brainstrike/issue/BST-557/mastra-2026-catch-up-upgrade-runtime-surface-enforce-agent-approval): Mastra 2026 catch-up: upgrade runtime surface, enforce agent approval, and align memory options
@@ -41,6 +43,19 @@ The shortest path would be to patch individual bugs, but that would leave the sa
 - [BST-559](https://linear.app/brainstrike/issue/BST-559/modernize-mastra-streaming-and-mcp-integration-to-current-standard): Modernize Mastra streaming and MCP integration to current standard APIs
 - [BST-560](https://linear.app/brainstrike/issue/BST-560/audit-and-align-brainstrike-assistant-runtime-with-mastra-workspaces): Audit and align Brainstrike assistant runtime with Mastra Workspaces, Browser, and Server capabilities
 - [BST-561](https://linear.app/brainstrike/issue/BST-561/mastra-deployment-observability-and-eval-architecture-catch-up): Mastra deployment, observability, and eval architecture catch-up
+
+## Post-Audit Implementation Status
+
+This report preserves the original audit findings as the baseline. The follow-up PR stack started addressing the concrete "fix first" items before the broader architecture decisions:
+
+- [PR #1084](https://github.com/seandearnaley/brainstrike/pull/1084) covers the BST-559 stream mapper bug called out under Streaming and MCP.
+- [PR #1085](https://github.com/seandearnaley/brainstrike/pull/1085) covers the BST-560 shared assistant request parsing contract called out under Workspaces, Browser, and Server.
+- [PR #1086](https://github.com/seandearnaley/brainstrike/pull/1086) covers the BST-557 runtime boundary by rejecting unsupported Mastra stream options instead of silently accepting them.
+- [PR #1087](https://github.com/seandearnaley/brainstrike/pull/1087) covers the BST-557 approval-surface slice by surfacing Mastra approval pauses to the UI.
+- [PR #1088](https://github.com/seandearnaley/brainstrike/pull/1088) covers the BST-561 retrieval eval CI entrypoint. It does not complete the larger Mastra scorer, observability, or canonical app-boundary work.
+- [PR #1089](https://github.com/seandearnaley/brainstrike/pull/1089) covers the BST-558 prompt restore slice. The broader Mastra Editor adoption decision remains open, and advanced prompt model settings were split to [BST-567](https://linear.app/brainstrike/issue/BST-567/expose-full-prompt-model-settings-in-editor).
+
+The remaining architectural work is still the staged work in BST-557 through BST-561: Mastra package/runtime compatibility, memory conformance, official approval or workflow HITL semantics, canonical Mastra app/server boundary, observability, scorers, and product decisions around Editor, Workspaces, and Browser.
 
 ## High-Confidence Findings
 
@@ -151,6 +166,8 @@ Evidence:
 - Mastra docs: https://mastra.ai/docs/evals/running-in-ci
 
 ## Recommended Order
+
+Current PR stack status: steps 1 and 2 have partial implementation PRs in flight, and #1088/#1089 cover targeted eval and prompt-editor slices. The sequence below remains the recommended architecture order for the remaining work.
 
 1. Fix concrete correctness bugs first: stream tool-call/result emission and shared request parsing.
 2. Upgrade Mastra packages and establish an explicit runtime compatibility boundary.
