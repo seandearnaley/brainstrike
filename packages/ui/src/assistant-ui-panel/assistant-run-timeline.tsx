@@ -1,8 +1,10 @@
 import type {
   AssistantRunEvent,
   AssistantRunEventJson,
+  AssistantRunEventKind,
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import {
   AlertCircle,
   CheckCircle,
@@ -18,6 +20,7 @@ import { Button } from '../button';
 
 interface AssistantRunTimelineProps {
   data: unknown;
+  statusOverride?: AssistantRunEventStatus;
 }
 
 interface AssistantRunTimelineDetailsProps {
@@ -77,6 +80,135 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
   );
 }
 
+function getMessageParts(message: unknown): readonly unknown[] {
+  if (!isRecord(message)) {
+    return [];
+  }
+  const content = message['content'];
+  if (Array.isArray(content)) {
+    return content;
+  }
+  const parts = message['parts'];
+  return Array.isArray(parts) ? parts : [];
+}
+
+function getRunEventFromPart(part: unknown): AssistantRunEvent | null {
+  if (!isRecord(part)) {
+    return null;
+  }
+  if (part['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
+    return null;
+  }
+  return isAssistantRunEvent(part['data']) ? part['data'] : null;
+}
+
+function getRunEventsFromMessages(messages: readonly unknown[]): AssistantRunEvent[] {
+  return messages.flatMap((message) =>
+    getMessageParts(message)
+      .map(getRunEventFromPart)
+      .filter((event) => event !== null)
+  );
+}
+
+function hasSameRunScope(event: AssistantRunEvent, candidate: AssistantRunEvent): boolean {
+  return !(event.runId && candidate.runId) || event.runId === candidate.runId;
+}
+
+function getMatchingCompletedKind(kind: AssistantRunEventKind): AssistantRunEventKind | null {
+  if (kind === 'run.started') {
+    return 'run.finished';
+  }
+  if (kind === 'tool.started') {
+    return 'tool.completed';
+  }
+  if (kind.endsWith('.started')) {
+    return kind.replace(/\.started$/, '.completed') as AssistantRunEventKind;
+  }
+  return null;
+}
+
+function getMatchingFailedKind(kind: AssistantRunEventKind): AssistantRunEventKind | null {
+  if (kind === 'run.started') {
+    return 'run.failed';
+  }
+  if (kind === 'tool.started') {
+    return 'tool.failed';
+  }
+  return null;
+}
+
+function hasSameToolScope(event: AssistantRunEvent, candidate: AssistantRunEvent): boolean {
+  if (event.kind !== 'tool.started') {
+    return true;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  return typeof toolCallId !== 'string' || candidate.metadata?.['toolCallId'] === toolCallId;
+}
+
+function resolveFromLaterRunEvent(
+  event: AssistantRunEvent,
+  candidate: AssistantRunEvent,
+  matchingCompletedKind: AssistantRunEventKind | null,
+  matchingFailedKind: AssistantRunEventKind | null
+): AssistantRunEventStatus | null {
+  if (!hasSameRunScope(event, candidate)) {
+    return null;
+  }
+  if (candidate.kind === matchingCompletedKind && hasSameToolScope(event, candidate)) {
+    return 'completed';
+  }
+  if (
+    matchingFailedKind &&
+    candidate.kind === matchingFailedKind &&
+    hasSameToolScope(event, candidate)
+  ) {
+    return 'failed';
+  }
+  if (candidate.kind === 'run.failed') {
+    return 'failed';
+  }
+  if (candidate.kind === 'run.cancelled') {
+    return 'cancelled';
+  }
+  if (event.kind !== 'run.started' && candidate.kind === 'run.finished') {
+    return 'completed';
+  }
+  return null;
+}
+
+export function resolveAssistantRunEventStatus(
+  messages: readonly unknown[],
+  event: AssistantRunEvent | null
+): AssistantRunEventStatus {
+  if (!event || event.status !== 'running') {
+    return event?.status ?? 'info';
+  }
+
+  const matchingCompletedKind = getMatchingCompletedKind(event.kind);
+  const matchingFailedKind = getMatchingFailedKind(event.kind);
+  if (!(matchingCompletedKind || matchingFailedKind)) {
+    return event.status;
+  }
+
+  const runEvents = getRunEventsFromMessages(messages);
+  const eventIndex = runEvents.findIndex((candidate) => candidate.id === event.id);
+  const laterEvents = eventIndex >= 0 ? runEvents.slice(eventIndex + 1) : runEvents;
+
+  for (const candidate of laterEvents) {
+    const resolvedStatus = resolveFromLaterRunEvent(
+      event,
+      candidate,
+      matchingCompletedKind,
+      matchingFailedKind
+    );
+    if (resolvedStatus) {
+      return resolvedStatus;
+    }
+  }
+
+  return event.status;
+}
+
 function formatJsonValue(value: AssistantRunEventJson): string {
   if (value === null) {
     return 'null';
@@ -131,7 +263,7 @@ function AssistantRunTimelineDetails({
   );
 }
 
-export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
+export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimelineProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
 
@@ -145,10 +277,11 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
     return null;
   }
 
-  const statusLabel = STATUS_LABELS[event.status];
+  const eventStatus = statusOverride ?? event.status;
+  const statusLabel = STATUS_LABELS[eventStatus];
   const durationLabel = formatDuration(event.durationMs);
   const hasDetails = Boolean(event.detail) || metadataEntries.length > 0;
-  const isFailed = event.status === 'failed';
+  const isFailed = eventStatus === 'failed';
 
   return (
     <m.div
@@ -161,7 +294,7 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
         <div aria-hidden="true" className="bs-run-timeline-rail">
-          <AssistantRunStatusIcon status={event.status} />
+          <AssistantRunStatusIcon status={eventStatus} />
         </div>
         <div className="min-w-0">
           <p className={`font-medium text-sm ${isFailed ? 'text-destructive' : ''}`}>
