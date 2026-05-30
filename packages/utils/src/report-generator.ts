@@ -37,7 +37,29 @@ interface FileTreeProcessingConfig {
 
 function shouldIgnorePath(pathString: string): boolean {
   const normalizedPath = pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
-  return IGNORED_PATTERNS.some((pattern) => normalizedPath.split('/').includes(pattern));
+  return IGNORED_PATTERNS.some((pattern) => pathHasSegment(normalizedPath, pattern));
+}
+
+function pathHasSegment(pathString: string, segment: string): boolean {
+  let segmentStart = 0;
+
+  while (segmentStart <= pathString.length) {
+    const segmentEnd = pathString.indexOf('/', segmentStart);
+    const end = segmentEnd === -1 ? pathString.length : segmentEnd;
+
+    // Avoid split() here: this path runs for every adapter tree node during
+    // context export, so segment scanning avoids transient arrays and strings.
+    if (end - segmentStart === segment.length && pathString.startsWith(segment, segmentStart)) {
+      return true;
+    }
+
+    if (segmentEnd === -1) {
+      return false;
+    }
+    segmentStart = segmentEnd + 1;
+  }
+
+  return false;
 }
 
 function createFileNodeBase(

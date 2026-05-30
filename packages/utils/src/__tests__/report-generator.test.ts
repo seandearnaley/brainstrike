@@ -867,6 +867,85 @@ describe('generateReportFromAdapter', () => {
     spy.mockRestore();
   });
 
+  it('skips ignored adapter paths without splitting path segments', async () => {
+    class IgnorePathAdapter implements FileSystemAdapter {
+      async requestDirectoryAccess(): Promise<DirectoryHandle> {
+        return { path: 'root', name: 'root', kind: 'directory', platform: 'web' };
+      }
+
+      async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+        if (handle.path !== 'root') {
+          return [];
+        }
+
+        return [
+          {
+            name: 'node_modules',
+            path: 'root/node_modules',
+            type: 'directory',
+            handle: {
+              path: 'root/node_modules',
+              name: 'node_modules',
+              kind: 'directory',
+              platform: 'web',
+            } as unknown as FileSystemDirectoryHandle,
+            depth: 0,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ];
+      }
+
+      async readFile(): Promise<string> {
+        return '';
+      }
+
+      async exists(): Promise<boolean> {
+        return false;
+      }
+    }
+
+    const treeModule = await import('../tree-generator');
+    const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockReturnValue('');
+    const originalSplit = String.prototype.split;
+    let slashSplitCalls = 0;
+    const splitSpy = vi.spyOn(String.prototype, 'split').mockImplementation(function (
+      this: string,
+      separator: unknown,
+      limit?: number
+    ): string[] {
+      if (separator === '/') {
+        slashSplitCalls++;
+      }
+      return originalSplit.call(
+        this,
+        separator as Parameters<typeof String.prototype.split>[0],
+        limit
+      );
+    });
+
+    try {
+      const ignoreAdapter = new IgnorePathAdapter();
+      const ignoreRoot = await ignoreAdapter.requestDirectoryAccess();
+
+      await generateReportFromAdapter(
+        new Set(),
+        {},
+        ignoreAdapter,
+        ignoreRoot,
+        [],
+        [],
+        false,
+        true
+      );
+
+      expect(slashSplitCalls).toBe(0);
+    } finally {
+      splitSpy.mockRestore();
+      treeSpy.mockRestore();
+    }
+  });
+
   it('flags symlinks, depth truncation, and ignores standard paths', async () => {
     // Minimal helper functions to create file and directory nodes (unused but kept for future use)
     // const dirNode = (path: string, name?: string): MockFileEntry => ({
