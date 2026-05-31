@@ -46,7 +46,7 @@ import {
   waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
-import { registerMcpIpcHandlers } from './ipc-mcp';
+import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
@@ -600,6 +600,7 @@ let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
 let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
+let unregisterMcpIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -677,6 +678,11 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       if (failure) {
         failures.push(failure);
       }
+    }
+
+    const mcpFailure = await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown);
+    if (mcpFailure) {
+      failures.push(mcpFailure);
     }
 
     const chunkingFailure = await runShutdownStep('chunking-host', async () => {
@@ -974,7 +980,7 @@ if (singleInstanceLockAcquired) {
       logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());
       registerAgentIpcHandlers();
-      registerMcpIpcHandlers();
+      unregisterMcpIpcHandlers = registerMcpIpcHandlers();
       registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
@@ -1379,6 +1385,10 @@ app.on('will-quit', () => {
   if (unregisterMainPlatformIpcHandlers) {
     unregisterMainPlatformIpcHandlers();
     unregisterMainPlatformIpcHandlers = null;
+  }
+  if (unregisterMcpIpcHandlers) {
+    unregisterMcpIpcHandlers();
+    unregisterMcpIpcHandlers = null;
   }
   removeLogBufferListener();
 });

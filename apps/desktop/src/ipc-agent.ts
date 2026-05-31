@@ -48,6 +48,7 @@ async function runAgentChat(
   const agentModule = resolveAgentModule();
   const config = await loadMcpConfig();
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
+
   const maybeStream = agentModule.streamMastraAgent(messages, {
     runtime: {
       ...runtimeWithoutMcpConfig,
