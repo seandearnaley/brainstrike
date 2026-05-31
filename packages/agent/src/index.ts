@@ -4,6 +4,17 @@ export {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
+export type { AssistantRequestPayload } from './assistant-request';
+export {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantInvalidJsonError,
+  AssistantRequestBodyLimitConfigError,
+  AssistantRequestBodyTooLargeError,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  hasNonEmptyAssistantPrompt,
+  parseAssistantRequestPayloadText,
+  resolveAssistantRequestBodyLimitBytes,
+} from './assistant-request';
 export {
   ContextPacker,
   type ContextPackerChunk,
@@ -39,7 +50,6 @@ export {
   sampleGoldenDataset,
   type TestCaseResult,
 } from './evaluation';
-
 export {
   convertMessagesToMastra,
   createMastraAgentRuntime,
