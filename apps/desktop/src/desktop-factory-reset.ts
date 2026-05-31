@@ -10,7 +10,7 @@ import {
 
 const logger = createLogger('DesktopFactoryReset');
 
-const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs', 'pgdata'] as const;
+const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
 let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {

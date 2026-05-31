@@ -89,9 +89,9 @@ describe('resetDesktopApplicationData', () => {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rename).not.toHaveBeenCalledWith(
+    expect(fsMocks.rename).toHaveBeenCalledWith(
       path.join('/mock/userData', 'pgdata'),
-      expect.any(String)
+      path.join(trashPath, 'pgdata')
     );
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
     expect(result).toEqual({
@@ -100,14 +100,15 @@ describe('resetDesktopApplicationData', () => {
         path.join('/mock/userData', 'IndexedDB'),
         path.join('/mock/userData', 'Local Storage'),
         path.join('/mock/userData', 'mcp'),
+        path.join('/mock/userData', 'pgdata'),
       ],
       pendingDeletionPaths: [],
-      preservedPaths: [path.join('/mock/userData', 'logs'), path.join('/mock/userData', 'pgdata')],
+      preservedPaths: [path.join('/mock/userData', 'logs')],
     });
     expect(getDesktopResetDiagnosticsSnapshot('/mock/userData')).toMatchObject({
-      lastDeletedPathCount: 4,
+      lastDeletedPathCount: 5,
       lastError: null,
-      lastPreservedPathCount: 2,
+      lastPreservedPathCount: 1,
       status: 'completed',
       userDataPath: '/mock/userData',
     });
@@ -173,7 +174,11 @@ describe('resetDesktopApplicationData', () => {
       path.join('/mock/userData', 'mcp'),
       path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1', 'mcp')
     );
-    expect(fsMocks.rename).toHaveBeenCalledTimes(4);
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      path.join('/mock/userData', 'pgdata'),
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1', 'pgdata')
+    );
+    expect(fsMocks.rename).toHaveBeenCalledTimes(5);
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
   });
 
@@ -200,9 +205,10 @@ describe('resetDesktopApplicationData', () => {
         path.join('/mock/userData', 'IndexedDB'),
         path.join('/mock/userData', 'Local Storage'),
         path.join('/mock/userData', 'mcp'),
+        path.join('/mock/userData', 'pgdata'),
       ],
       pendingDeletionPaths: [],
-      preservedPaths: [path.join('/mock/userData', 'logs'), path.join('/mock/userData', 'pgdata')],
+      preservedPaths: [path.join('/mock/userData', 'logs')],
     });
     expect(fsMocks.rm).toHaveBeenCalledWith(
       path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
@@ -254,11 +260,12 @@ describe('resetDesktopApplicationData', () => {
         path.join('/mock/userData', 'IndexedDB'),
         path.join('/mock/userData', 'Local Storage'),
         path.join('/mock/userData', 'mcp'),
+        path.join('/mock/userData', 'pgdata'),
       ],
       pendingDeletionPaths: [
         path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
       ],
-      preservedPaths: [path.join('/mock/userData', 'logs'), path.join('/mock/userData', 'pgdata')],
+      preservedPaths: [path.join('/mock/userData', 'logs')],
     });
   });
 
