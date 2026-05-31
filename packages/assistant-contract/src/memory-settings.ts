@@ -24,6 +24,13 @@ export interface RuntimeAssistantMemorySettings {
   semanticRecall: RuntimeAssistantSemanticRecallSettings;
 }
 
+export const DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES = 40;
+
+export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
+  enabled: true,
+  scope: 'resource',
+} as const;
+
 export const DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
   observationalMemory: {
     enabled: true,

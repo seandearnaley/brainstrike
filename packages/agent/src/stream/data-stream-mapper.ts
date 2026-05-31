@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { toJsonSafe } from './json';
+import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
 interface ToolState {
   argsEmitted: boolean;
@@ -35,6 +36,26 @@ interface StepState {
 interface DataStreamUsage {
   inputTokens: number;
   outputTokens: number;
+}
+
+const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
+const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
+const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
+const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
+  "I couldn't complete some tool actions because they failed:";
+
+function formatVisibleFailure(prefix: string, errorText: string): string {
+  return `${prefix} ${errorText}`;
+}
+
+function formatToolActionFailure(errors: readonly string[]): string {
+  if (errors.length === 1) {
+    return formatVisibleFailure(
+      TOOL_ACTION_FAILURE_VISIBLE_PREFIX,
+      errors[0] ?? 'Tool execution failed'
+    );
+  }
+  return formatVisibleFailure(TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX, errors.join('; '));
 }
 
 function toDataStreamUsage(raw?: {
@@ -166,6 +187,9 @@ export class DataStreamMapper {
   private currentStep: StepState | null = null;
   private nextStepIndex = 0;
   private finishEmitted = false;
+  private hasVisibleText = false;
+  private pendingRunErrorText: string | null = null;
+  private pendingToolErrorTexts: string[] = [];
   private startNewStepForNextText = false;
 
   constructor(messageId: string) {
@@ -230,13 +254,21 @@ export class DataStreamMapper {
       return [];
     }
     const chunks: EncodedChunk[] = [];
+    this.pendingRunErrorText = MISSING_FINISH_ERROR_TEXT;
+    this.markCurrentStepAsError();
+    chunks.push({
+      code: DataStreamCode.error,
+      value: MISSING_FINISH_ERROR_TEXT,
+    });
+    chunks.push(...this.emitVisibleFallbackIfNeeded());
+    chunks.push(...this.emitPendingToolErrorFallbackIfNeeded());
+    const stepBeforeFinalize = this.currentStep;
     chunks.push(...this.finalizeCurrentStep());
-    const usage = this.currentStep?.usage ?? toDataStreamUsage();
-    const reason = this.currentStep?.finishReason ?? 'unknown';
+    const usage = stepBeforeFinalize?.usage ?? toDataStreamUsage();
     chunks.push({
       code: DataStreamCode.finishMessage,
       value: {
-        finishReason: this.currentStep?.status === 'error' ? 'error' : reason,
+        finishReason: 'error',
         usage,
         path: [],
       },
@@ -261,6 +293,11 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
+    // If the model continues with visible text after a tool error, treat that
+    // as model-owned recovery. The emitted tool-result chunk still carries the
+    // structured isError result for UI retry/error affordances.
+    this.pendingToolErrorTexts = [];
+    this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
   }
 
@@ -311,7 +348,7 @@ export class DataStreamMapper {
         yield* this.handleToolProgress(callId, chunk.payload);
         break;
       case 'success':
-        yield* this.handleToolSuccess(callId, chunk.payload);
+        yield* this.handleToolSuccess(toolName, callId, chunk.payload);
         break;
       case 'error':
         yield* this.handleToolError(callId, chunk.payload);
@@ -416,12 +453,38 @@ export class DataStreamMapper {
     }
   }
 
-  private *handleToolSuccess(callId: string, payload: unknown): Generator<EncodedChunk> {
+  private *handleToolSuccess(
+    toolName: string,
+    callId: string,
+    payload: unknown
+  ): Generator<EncodedChunk> {
     const output = toJsonSafe(
       (payload as { output?: unknown; result?: unknown }).output ??
         (payload as { result?: unknown }).result
     );
     const state = this.toolState.get(callId);
+    // MCP tools are also bounded at the loader edge, but stream events can come
+    // from non-MCP tools and replay paths. The bounder is idempotent for
+    // already-bounded results, so keep this as the final model-facing guard.
+    const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
+    if (bounded.errorText) {
+      if (state && !state.argsEmitted) {
+        const args = toArgsObject(state.lastInput, state.pendingArgsText);
+        state.argsEmitted = true;
+        yield {
+          code: DataStreamCode.toolCall,
+          value: { toolCallId: callId, toolName: state.toolName, args },
+        } satisfies EncodedChunk;
+      }
+      this.toolState.delete(callId);
+      yield {
+        code: DataStreamCode.toolCallResult,
+        value: { toolCallId: callId, result: bounded.output, isError: true },
+      } satisfies EncodedChunk;
+      this.pendingToolErrorTexts.push(bounded.errorText);
+      this.startNewStepForNextText = true;
+      return;
+    }
     if (state && !state.argsEmitted) {
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
       state.argsEmitted = true;
@@ -433,13 +496,12 @@ export class DataStreamMapper {
     this.toolState.delete(callId);
     yield {
       code: DataStreamCode.toolCallResult,
-      value: { toolCallId: callId, result: output },
+      value: { toolCallId: callId, result: bounded.output },
     } satisfies EncodedChunk;
     this.startNewStepForNextText = true;
   }
 
   private *handleToolError(callId: string, payload: unknown): Generator<EncodedChunk> {
-    this.markCurrentStepAsError();
     const output = toJsonSafe(
       (payload as { error?: unknown; result?: unknown }).error ??
         (payload as { result?: unknown }).result ??
@@ -462,8 +524,7 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCallResult,
       value: { toolCallId: callId, result: output, isError: true },
     } satisfies EncodedChunk;
-    const message = typeof output === 'string' ? output : 'Tool execution failed';
-    yield { code: DataStreamCode.error, value: message } satisfies EncodedChunk;
+    this.pendingToolErrorTexts.push(readToolOutputErrorText(output));
     this.startNewStepForNextText = true;
   }
 
@@ -474,6 +535,7 @@ export class DataStreamMapper {
     const finishReason = resolveFinishReason(chunk);
     const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
     if (abnormalFinishMessage) {
+      this.pendingRunErrorText = abnormalFinishMessage;
       this.markCurrentStepAsError();
       yield { code: DataStreamCode.error, value: abnormalFinishMessage } satisfies EncodedChunk;
     }
@@ -482,6 +544,8 @@ export class DataStreamMapper {
       this.currentStep.usage = usage;
       this.currentStep.finishReason = this.currentStep.status === 'error' ? 'error' : finishReason;
     }
+    yield* this.emitVisibleFallbackIfNeeded();
+    yield* this.emitPendingToolErrorFallbackIfNeeded();
     yield* this.finalizeCurrentStep();
     yield {
       code: DataStreamCode.finishMessage,
@@ -551,5 +615,38 @@ export class DataStreamMapper {
       this.currentStep.status = 'error';
       this.currentStep.finishReason = 'error';
     }
+  }
+
+  private *emitVisibleFallbackIfNeeded(): Generator<EncodedChunk> {
+    if (
+      !this.pendingRunErrorText &&
+      (this.hasVisibleText || this.currentStep?.status !== 'error')
+    ) {
+      return;
+    }
+    const errorText =
+      this.pendingRunErrorText ?? 'The assistant run failed before producing a response.';
+    const visibleText = formatVisibleFailure(RUN_FAILURE_VISIBLE_PREFIX, errorText);
+    this.pendingRunErrorText = null;
+    yield* this.startStepIfNeeded();
+    this.hasVisibleText = true;
+    yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
+  }
+
+  private *emitPendingToolErrorFallbackIfNeeded(): Generator<EncodedChunk> {
+    if (this.pendingToolErrorTexts.length === 0) {
+      return;
+    }
+    if (this.startNewStepForNextText) {
+      yield* this.finalizeCurrentStep();
+      yield* this.startStepIfNeeded(true);
+      this.startNewStepForNextText = false;
+    } else {
+      yield* this.startStepIfNeeded();
+    }
+    const visibleText = formatToolActionFailure(this.pendingToolErrorTexts);
+    this.pendingToolErrorTexts = [];
+    this.hasVisibleText = true;
+    yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
   }
 }

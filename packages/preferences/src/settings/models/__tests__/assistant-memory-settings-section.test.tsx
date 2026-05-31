@@ -28,6 +28,7 @@ function seedRegistry(): void {
       { id: 'anthropic', name: 'Anthropic', icon: null, isEnabled: true, sortOrder: 2 },
       { id: 'transformers', name: 'Local Models', icon: null, isEnabled: true, sortOrder: 3 },
       { id: 'openrouter', name: 'OpenRouter', icon: null, isEnabled: false, sortOrder: 4 },
+      { id: 'cohere', name: 'Cohere', icon: null, isEnabled: true, sortOrder: 5 },
     ],
     models: [
       {
@@ -95,6 +96,19 @@ function seedRegistry(): void {
         parameters: null,
         sortOrder: 2,
       },
+      {
+        id: 'embed-english-v3.0',
+        providerId: 'cohere',
+        name: 'Cohere Embed English',
+        description: null,
+        tagline: null,
+        bestFor: null,
+        icon: null,
+        isEnabled: true,
+        capabilities: { type: 'embedding', defaultDimension: 1024 },
+        parameters: null,
+        sortOrder: 1,
+      },
     ],
     hasLoaded: true,
     isLoading: false,
@@ -147,5 +161,32 @@ describe('AssistantMemorySettingsSection', () => {
       enabled: true,
       embeddingModelTarget: 'openai/text-embedding-3-small',
     });
+    expect(
+      within(
+        screen.getByRole('combobox', { name: /semantic recall embedding model/i })
+      ).queryByRole('option', { name: /Cohere Embed English/i })
+    ).toBeNull();
+  });
+
+  it('warns and allows disabling semantic recall when a persisted embedder is unsupported', async () => {
+    const user = userEvent.setup();
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      semanticRecall: {
+        ...state.semanticRecall,
+        enabled: true,
+        embeddingModelTarget: 'cohere/embed-english-v3.0',
+      },
+    }));
+
+    render(<AssistantMemorySettingsSection />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Configured semantic recall embedder cohere/embed-english-v3.0 is not available'
+    );
+    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeEnabled();
+
+    await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
+
+    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
   });
 });

@@ -59,6 +59,17 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
       })),
     },
     convertAssistantUiMessages: vi.fn((messages) => messages),
+    createEmbeddingProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
+      apiKey,
+      model,
+      provider,
+      type: 'embedding-model',
+    })),
+    createProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
+      apiKey,
+      model,
+      provider,
+    })),
     resolveDataStreamSession: vi.fn(() => {}),
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
     streamMastraToolApprovalAction: vi.fn(async () => ({
@@ -765,7 +776,15 @@ describe('assistant-server', () => {
         }),
       });
 
+      const { createProvider } = await import('@brainstrike/agent');
+
       expect(getDatabase).toHaveBeenCalledTimes(1);
+      expect(createProvider).toHaveBeenCalledWith(
+        'anthropic',
+        'test-api-key',
+        'claude-haiku-4-5',
+        expect.objectContaining({ provider: 'openai', apiKey: 'test-api-key' })
+      );
       expect(createPgliteMastraMemory).toHaveBeenCalledWith({
         database: expect.anything(),
         memorySettings: {
@@ -784,6 +803,11 @@ describe('assistant-server', () => {
             topK: 5,
             messageRange: 2,
           },
+        },
+        observationalMemoryModel: {
+          apiKey: 'test-api-key',
+          model: 'claude-haiku-4-5',
+          provider: 'anthropic',
         },
       });
       expect(toAiSdkStyleStream).toHaveBeenCalledWith(

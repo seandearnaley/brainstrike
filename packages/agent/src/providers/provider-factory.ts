@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { createLocalLanguageModel } from './local';
@@ -162,6 +163,59 @@ export function createProvider(
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
         detail: `Unsupported provider: ${provider}`,
+        context: { provider, supportedProviders },
+      });
+  }
+}
+
+/**
+ * Create a hosted embedding model instance for Mastra semantic recall.
+ *
+ * Local/browser embedders are intentionally excluded here: desktop local
+ * embeddings must stay in the renderer host, while this factory runs in the
+ * hosted Mastra memory path.
+ */
+export function createEmbeddingProvider(
+  provider: SupportedProvider | string,
+  apiKey: string | undefined,
+  model: string
+): MastraEmbeddingModel<string> {
+  const supportedProviders = listProviders().map(
+    (entry) => entry.id
+  ) as readonly SupportedProvider[];
+  if (!isSupportedProvider(provider)) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      detail: `Unsupported embedding provider: ${provider}`,
+      context: { provider, supportedProviders },
+    });
+  }
+
+  switch (provider) {
+    case 'openai': {
+      const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
+      return openaiProvider.embeddingModel(model);
+    }
+
+    case 'google': {
+      const googleProvider = createGoogleGenerativeAI(apiKey ? { apiKey } : undefined);
+      return googleProvider.embeddingModel(model);
+    }
+
+    case 'anthropic':
+    case 'openrouter':
+    case 'cohere':
+    case 'voyage':
+    case 'ollama':
+    case 'lmstudio':
+    case 'local':
+      throw createMastraAgentError('mastra_agent_unsupported_provider', {
+        detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
+        context: { provider, supportedProviders },
+      });
+
+    default:
+      throw createMastraAgentError('mastra_agent_unsupported_provider', {
+        detail: `Unsupported embedding provider: ${provider}`,
         context: { provider, supportedProviders },
       });
   }

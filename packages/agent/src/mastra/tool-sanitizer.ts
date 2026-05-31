@@ -84,7 +84,8 @@ export function sanitizeTools(
     if (uniqueName === name) {
       sanitized[uniqueName] = tool;
     } else {
-      const cloned = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool);
+      const cloned = Object.create(Object.getPrototypeOf(tool));
+      Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
       cloned.id = uniqueName;
       sanitized[uniqueName] = cloned;
     }

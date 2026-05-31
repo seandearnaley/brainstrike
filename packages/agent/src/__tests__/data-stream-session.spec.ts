@@ -6,6 +6,7 @@ import {
   createRandomId,
   resolveDataStreamSession,
 } from '../stream/data-stream';
+import { boundToolOutputForModel, TOOL_RESULT_TOO_LARGE_CODE } from '../stream/tool-output-limits';
 
 interface Encoded {
   code: string;
@@ -390,6 +391,32 @@ describe('AssistantDataStreamSession', () => {
     });
   });
 
+  it('emits a visible error when the source stream ends without a finish event', async () => {
+    const chunks: StreamChunk[] = [{ type: 'text-delta', value: 'Partial answer' }];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'missing-finish',
+      messageId: 'msg-missing-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const error = events.find((evt) => evt.code === '3')?.value;
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+
+    expect(error).toBe('Assistant stream ended without a normal stop signal.');
+    expect(visibleText).toContain('Partial answer');
+    expect(visibleText).toContain(
+      "I couldn't complete the assistant response: Assistant stream ended without a normal stop signal."
+    );
+    expect(events.at(-1)).toMatchObject({
+      code: 'd',
+      value: { finishReason: 'error' },
+    });
+  });
+
   it('supports resuming from Last-Event-ID', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'First ' },
@@ -414,7 +441,7 @@ describe('AssistantDataStreamSession', () => {
     expect(resumedLines).toStrictEqual(expectedTail);
   });
 
-  it('annotates error finishes when tool fails', async () => {
+  it('keeps tool execution errors recoverable instead of ending the assistant message', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Working...' },
       {
@@ -433,12 +460,66 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const errorChunk = events.find((evt) => evt.code === '3');
-    expect(errorChunk?.value).toBe('boom');
+    expect(errorChunk).toBeUndefined();
+
+    const toolResult = events.find((evt) => evt.code === 'a')?.value as {
+      isError?: boolean;
+      result?: unknown;
+      toolCallId?: string;
+    };
+    expect(toolResult).toStrictEqual({
+      toolCallId: 'oops',
+      result: 'boom',
+      isError: true,
+    });
+
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+    expect(visibleText).toContain('Working...');
+    expect(visibleText).toContain("I couldn't complete the tool action because it failed: boom");
 
     const finish = events.at(-1)?.value as {
       finishReason: string;
     };
-    expect(finish?.finishReason).toBe('error');
+    expect(finish?.finishReason).toBe('unknown');
+  });
+
+  it('surfaces every pending tool execution error before finishing recoverably', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'tool-event',
+        name: 'first.tool',
+        status: 'error',
+        payload: { toolCallId: 'first', error: 'first failed' },
+      },
+      {
+        type: 'tool-event',
+        name: 'second.tool',
+        status: 'error',
+        payload: { toolCallId: 'second', error: 'second failed' },
+      },
+      { type: 'finish', usage: { promptTokens: 2, completionTokens: 0 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'multi-tool-err',
+      messageId: 'msg-multi-tool-err',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
+
+    expect(events.filter((evt) => evt.code === 'a')).toHaveLength(2);
+    expect(visibleText).toContain(
+      "I couldn't complete some tool actions because they failed: first failed; second failed"
+    );
+    expect(events.find((evt) => evt.code === '3')).toBeUndefined();
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
   });
 
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
@@ -470,10 +551,17 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const error = events.find((evt) => evt.code === '3')?.value;
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
     const finishMessage = events.at(-1);
 
     expect(error).toBe(
       'Assistant stopped because the model reached its output token limit before completing the response.'
+    );
+    expect(visibleText).toContain(
+      "I couldn't complete the assistant response: Assistant stopped because the model reached its output token limit before completing the response."
     );
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
   });
@@ -518,9 +606,16 @@ describe('AssistantDataStreamSession', () => {
 
     const events = parseLines(await readResponse(session.createResponse()));
     const error = events.find((evt) => evt.code === '3')?.value;
+    const visibleText = events
+      .filter((evt) => evt.code === '0')
+      .map((evt) => evt.value)
+      .join('');
     const finishMessage = events.at(-1);
 
     expect(error).toBe('Assistant stream ended without a normal stop signal.');
+    expect(visibleText).toContain(
+      "I couldn't complete the assistant response: Assistant stream ended without a normal stop signal."
+    );
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
   });
 
@@ -804,7 +899,12 @@ describe('AssistantDataStreamSession', () => {
       const startToolCall = parsed.find((p) => p.code === 'b'); // StartToolCall
       const toolCall = parsed.find((p) => p.code === '9'); // ToolCall with args
       const toolResult = parsed.find((p) => p.code === 'a'); // ToolCallResult
-      const errorChunk = parsed.find((p) => p.code === '3'); // Error
+      const errorChunk = parsed.find((p) => p.code === '3'); // Message-level error
+      const fallbackText = parsed.find(
+        (p) =>
+          p.code === '0' &&
+          p.value === "I couldn't complete the tool action because it failed: Not connected"
+      );
 
       // Verify StartToolCall was emitted
       expect(startToolCall).toBeDefined();
@@ -832,20 +932,21 @@ describe('AssistantDataStreamSession', () => {
         isError: true,
       });
 
-      // Verify Error chunk was emitted
-      expect(errorChunk).toBeDefined();
-      const errorChunkEntry = assertDefined(errorChunk, 'Expected Error chunk');
-      expect(errorChunkEntry.value).toBe('Not connected');
+      // Tool execution errors should stay attached to the tool result instead
+      // of terminating the assistant message with a message-level error.
+      expect(errorChunk).toBeUndefined();
+      expect(fallbackText).toBeDefined();
+      const fallbackTextChunk = assertDefined(fallbackText, 'Expected visible recovery text');
 
-      // Verify correct order: StartToolCall -> ToolCall -> ToolCallResult -> Error
+      // Verify correct order: StartToolCall -> ToolCall -> ToolCallResult -> recovery text
       const startIdx = parsed.indexOf(startToolCallChunk);
       const toolIdx = parsed.indexOf(toolCallChunk);
       const resultIdx = parsed.indexOf(toolResultChunk);
-      const errorIdx = parsed.indexOf(errorChunkEntry);
+      const fallbackTextIdx = parsed.indexOf(fallbackTextChunk);
 
       expect(startIdx).toBeLessThan(toolIdx);
       expect(toolIdx).toBeLessThan(resultIdx);
-      expect(resultIdx).toBeLessThan(errorIdx);
+      expect(resultIdx).toBeLessThan(fallbackTextIdx);
     });
 
     it('handles tool error without explicit input in error payload', async () => {
@@ -985,7 +1086,7 @@ describe('AssistantDataStreamSession', () => {
       });
     });
 
-    it('marks step as error when tool fails', async () => {
+    it('keeps the assistant message recoverable when a tool fails', async () => {
       const chunks: StreamChunk[] = [
         {
           type: 'tool-event',
@@ -1020,18 +1121,160 @@ describe('AssistantDataStreamSession', () => {
 
       const finishStep = parsed.find((p) => p.code === 'e'); // FinishStep
       const finishMessage = parsed.find((p) => p.code === 'd'); // FinishMessage
+      const textDelta = parsed.find((p) => p.code === '0'); // TextDelta
 
-      // Step should be marked with error finish reason
+      // Step should remain complete/recoverable; only the tool result is an error.
       expect(finishStep).toBeDefined();
       expect(finishStep?.value).toMatchObject({
-        finishReason: 'error',
+        finishReason: 'unknown',
       });
+      expect(textDelta?.value).toBe(
+        "I couldn't complete the tool action because it failed: Tool failed"
+      );
 
-      // Message should also be marked as error
+      // Message should also remain complete/recoverable so the user can continue.
       expect(finishMessage).toBeDefined();
       expect(finishMessage?.value).toMatchObject({
-        finishReason: 'error',
+        finishReason: 'unknown',
       });
+    });
+
+    it('turns oversized successful tool output into a bounded recoverable tool error', async () => {
+      const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool-event',
+          name: 'filesystem.search_files',
+          status: 'start',
+          payload: {
+            callId: 'call_files',
+            toolCallId: 'call_files',
+            input: { path: '.', pattern: '*.ts' },
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'filesystem.search_files',
+          status: 'success',
+          payload: {
+            callId: 'call_files',
+            toolCallId: 'call_files',
+            output: oversizedOutput,
+          },
+        },
+        { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        sessionId: 'oversized-tool-result-test',
+        messageId: 'msg-oversized-tool-result',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+      const toolResult = parsed.find((p) => p.code === 'a')?.value as
+        | {
+            isError?: boolean;
+            result?: {
+              code?: string;
+              error?: string;
+              preview?: string;
+            };
+            toolCallId?: string;
+          }
+        | undefined;
+      const textDelta = parsed.find((p) => p.code === '0');
+      const finishMessage = parsed.find((p) => p.code === 'd');
+      const serializedToolResult = JSON.stringify(toolResult);
+
+      expect(toolResult).toMatchObject({
+        toolCallId: 'call_files',
+        isError: true,
+        result: {
+          code: 'tool_result_too_large',
+        },
+      });
+      expect(toolResult?.result?.error).toContain(
+        'filesystem.search_files returned too much output'
+      );
+      expect(toolResult?.result?.preview).toContain('filesystem match');
+      expect(serializedToolResult.length).toBeLessThan(20_000);
+      expect(serializedToolResult).not.toContain('needle-at-tail');
+      expect(textDelta?.value).toContain('filesystem.search_files returned too much output');
+      expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
+    });
+
+    it('does not split surrogate pairs in oversized tool output previews', () => {
+      const output = `${'a'.repeat(7999)}🙂${'tail'.repeat(2000)}`;
+      const bounded = boundToolOutputForModel('filesystem.search_files', output).output as {
+        preview?: string;
+      };
+
+      expect(bounded.preview).toBe(`${'a'.repeat(7999)}🙂`);
+      expect(bounded.preview?.charCodeAt(bounded.preview.length - 1)).not.toBe(0xd8_3d);
+    });
+
+    it('does not iterate the entire oversized tool output when building a preview', () => {
+      const originalIterator = String.prototype[Symbol.iterator];
+      let yieldedCodePoints = 0;
+      function countedStringIterator(this: string): IterableIterator<string> {
+        const iterator = originalIterator.call(this);
+        return {
+          [Symbol.iterator](): IterableIterator<string> {
+            return this;
+          },
+          next(): IteratorResult<string> {
+            const nextValue = iterator.next();
+            if (!nextValue.done) {
+              yieldedCodePoints += 1;
+            }
+            return nextValue;
+          },
+        };
+      }
+
+      Object.defineProperty(String.prototype, Symbol.iterator, {
+        configurable: true,
+        value: countedStringIterator,
+      });
+
+      try {
+        const oversizedOutput = 'x'.repeat(20_000);
+        boundToolOutputForModel('filesystem.search_files', oversizedOutput);
+
+        expect(yieldedCodePoints).toBeLessThanOrEqual(8001);
+      } finally {
+        Object.defineProperty(String.prototype, Symbol.iterator, {
+          configurable: true,
+          value: originalIterator,
+        });
+      }
+    });
+
+    it('does not reprocess an already bounded oversized tool result', () => {
+      const originalStringify = JSON.stringify;
+      let stringifyCalls = 0;
+      const boundedResult = {
+        code: TOOL_RESULT_TOO_LARGE_CODE,
+        error: 'filesystem.search_files returned too much output',
+        maxLength: 12_000,
+        originalLength: 80_000,
+        preview: 'bounded preview',
+        truncated: true,
+      };
+      JSON.stringify = ((...args: Parameters<typeof JSON.stringify>) => {
+        stringifyCalls += 1;
+        return originalStringify(...args);
+      }) as typeof JSON.stringify;
+
+      try {
+        const bounded = boundToolOutputForModel('filesystem.search_files', boundedResult);
+
+        expect(bounded.output).toBe(boundedResult);
+        expect(bounded.errorText).toBe(boundedResult.error);
+        expect(stringifyCalls).toBe(0);
+      } finally {
+        JSON.stringify = originalStringify;
+      }
     });
 
     it('emits a user-visible error + error-finish when the source iterator throws', async () => {

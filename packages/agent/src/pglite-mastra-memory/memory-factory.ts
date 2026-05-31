@@ -1,22 +1,30 @@
+import {
+  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  type RuntimeAssistantMemorySettings,
+} from '@brainstrike/assistant-contract/memory-settings';
+import type { AgentMemoryOption } from '@mastra/core/agent';
+import type { MastraModelConfig } from '@mastra/core/llm';
 import { MastraCompositeStore } from '@mastra/core/storage';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { Memory } from '@mastra/memory';
-import {
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  type RuntimeAssistantMemorySettings,
-} from '../memory-settings';
 import type { AssistantRunEventSink } from '../run-events';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
 import { PgliteVectorStore } from './vector-store';
 import { PgliteWorkflowsStore } from './workflows-store';
 
+type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
+
 export interface PgliteMastraMemoryOptions {
   database: PgliteDatabase;
   embedder?: MastraEmbeddingModel<string> | string;
   eventSink?: AssistantRunEventSink;
   id?: string;
+  memoryOptions?: MastraRuntimeMemoryOptions;
   memorySettings?: RuntimeAssistantMemorySettings;
+  observationalMemoryModel?: MastraModelConfig;
   runId?: string;
   /** @deprecated Use memorySettings.semanticRecall.enabled. */
   semanticRecall?: boolean;
@@ -31,14 +39,15 @@ export interface PgliteMastraMemoryResult {
 }
 
 function buildObservationalMemoryOption(
-  settings: RuntimeAssistantMemorySettings['observationalMemory']
+  settings: RuntimeAssistantMemorySettings['observationalMemory'],
+  model?: MastraModelConfig
 ) {
   if (!settings.enabled) {
     return false;
   }
 
   return {
-    model: settings.modelTarget,
+    model: model ?? settings.modelTarget,
     scope: settings.scope,
     ...(settings.retrievalMode === 'messages' ? { retrieval: { scope: settings.scope } } : {}),
     ...(settings.retrievalMode === 'vector'
@@ -65,12 +74,41 @@ function buildSemanticRecallOption(settings: RuntimeAssistantMemorySettings['sem
   };
 }
 
+function buildMastraMemoryOptions({
+  memoryOptions,
+  memorySettings,
+  observationalMemoryModel,
+  semanticRecall,
+}: {
+  memoryOptions: MastraRuntimeMemoryOptions | undefined;
+  memorySettings: RuntimeAssistantMemorySettings;
+  observationalMemoryModel: MastraModelConfig | undefined;
+  semanticRecall: boolean;
+}): MastraRuntimeMemoryOptions {
+  return {
+    ...memoryOptions,
+    lastMessages: memoryOptions?.lastMessages ?? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+    // Hosted memory settings own provider-backed features; runtime options
+    // control Mastra's local window/working-memory behavior for this store.
+    semanticRecall: semanticRecall
+      ? true
+      : buildSemanticRecallOption(memorySettings.semanticRecall),
+    workingMemory: memoryOptions?.workingMemory ?? DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+    observationalMemory: buildObservationalMemoryOption(
+      memorySettings.observationalMemory,
+      observationalMemoryModel
+    ),
+  };
+}
+
 export async function createPgliteMastraMemory({
   database,
   embedder,
   eventSink,
   id = 'brainstrike-pglite-memory',
+  memoryOptions,
   memorySettings = DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  observationalMemoryModel,
   runId,
   semanticRecall = false,
 }: PgliteMastraMemoryOptions): Promise<PgliteMastraMemoryResult> {
@@ -107,14 +145,12 @@ export async function createPgliteMastraMemory({
     storage,
     vector,
     ...(embedder ? { embedder } : {}),
-    options: {
-      lastMessages: 40,
-      semanticRecall: semanticRecall
-        ? true
-        : buildSemanticRecallOption(memorySettings.semanticRecall),
-      workingMemory: { enabled: true, scope: 'resource' },
-      observationalMemory: buildObservationalMemoryOption(memorySettings.observationalMemory),
-    },
+    options: buildMastraMemoryOptions({
+      memoryOptions,
+      memorySettings,
+      observationalMemoryModel,
+      semanticRecall,
+    }),
   });
 
   return { memory, storage, store, vector, workflows };

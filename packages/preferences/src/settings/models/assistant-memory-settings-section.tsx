@@ -72,6 +72,9 @@ export function AssistantMemorySettingsSection() {
   const hasEmbeddingModel =
     semanticRecall.embeddingModelTarget !== null &&
     embeddingOptions.some((option) => option.target === semanticRecall.embeddingModelTarget);
+  const hasUnavailableEmbeddingModel =
+    semanticRecall.embeddingModelTarget !== null && !hasEmbeddingModel;
+  const canToggleSemanticRecall = hasEmbeddingModel || semanticRecall.enabled;
 
   return (
     <Card className="space-y-5 p-4" data-testid="assistant-memory-settings-section">
@@ -211,7 +214,7 @@ export function AssistantMemorySettingsSection() {
           <Switch
             aria-label="Enable semantic recall"
             checked={semanticRecall.enabled}
-            disabled={!hasEmbeddingModel}
+            disabled={!canToggleSemanticRecall}
             onCheckedChange={setSemanticRecallEnabled}
           />
         </div>
@@ -242,6 +245,13 @@ export function AssistantMemorySettingsSection() {
               Renderer-only local embedders are intentionally excluded until the Mastra embedder
               bridge can call the hidden renderer host safely.
             </p>
+            {hasUnavailableEmbeddingModel && (
+              <p className="text-destructive text-xs" role="alert">
+                Configured semantic recall embedder {semanticRecall.embeddingModelTarget} is not
+                available for Mastra semantic recall. Choose an enabled OpenAI or Google embedding
+                model, or turn semantic recall off.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

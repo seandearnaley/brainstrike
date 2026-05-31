@@ -15,7 +15,9 @@ import {
   ProviderSettingsPanel,
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
 
-const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test-runtime' }));
+const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
+  runtime: 'test-runtime',
+}));
 const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
@@ -39,8 +41,9 @@ let capturedLocalAdapterOptions: {
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
-vi.mock('@assistant-ui/react-data-stream', () => ({
-  useDataStreamRuntime: (options: unknown) => useDataStreamRuntimeMock(options),
+vi.mock('../../src/assistant-ui-panel/data-stream-runtime', () => ({
+  useBrainstrikeDataStreamRuntime: (options: unknown) =>
+    useBrainstrikeDataStreamRuntimeMock(options),
 }));
 
 vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
@@ -324,13 +327,12 @@ describe('AssistantUiPanel model picker', () => {
     vi.useRealTimers();
   });
 
-  it('uses the legacy data-stream protocol for hosted providers', () => {
+  it('uses the Brainstrike data-stream runtime for hosted providers', () => {
     render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
-    expect(useDataStreamRuntimeMock).toHaveBeenCalledWith(
+    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         api: '/api/assistant',
-        protocol: 'data-stream',
       })
     );
   });
@@ -375,7 +377,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
     };
 
@@ -413,7 +415,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onCancel?: () => void;
       onError?: (error: Error) => void;
@@ -466,7 +468,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onFinish?: () => void;
     };
@@ -524,7 +526,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onCancel?: () => void;
     };
@@ -569,7 +571,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onError?: (error: Error) => void;
     };

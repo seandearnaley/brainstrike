@@ -2095,6 +2095,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.13.24
         version: 3.13.24(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      assistant-stream:
+        specifier: 0.3.11
+        version: 0.3.11
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

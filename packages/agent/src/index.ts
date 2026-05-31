@@ -154,6 +154,7 @@ export {
   type LocalRuntimeNormalizedModel,
   type LocalRuntimeNotApplicableDimensionsState,
 } from './providers/local-runtime-model-catalog';
+export { createEmbeddingProvider, createProvider } from './providers/provider-factory';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
   getProviderDefaultModel,

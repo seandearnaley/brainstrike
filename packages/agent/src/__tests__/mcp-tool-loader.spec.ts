@@ -1172,5 +1172,43 @@ describe('mcp-tool-loader', () => {
       expect(result).not.toHaveProperty('filesystem_read_file');
       expect(result).toHaveProperty('filesystem_list_directory');
     });
+
+    it('bounds oversized MCP tool output before it reaches the model stream', async () => {
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: {
+            id: 'read_file',
+            description: 'read file',
+            execute: vi.fn(async () => 'x'.repeat(13_000)),
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      const tool = result['filesystem_read_file'];
+      expect(typeof (tool as { execute?: unknown } | undefined)?.execute).toBe('function');
+
+      const output = await (tool as { execute: () => Promise<unknown> }).execute();
+
+      expect(output).toMatchObject({
+        code: 'tool_result_too_large',
+        truncated: true,
+      });
+    });
   });
 });

@@ -1394,6 +1394,27 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
+  test('blocks unsupported persisted semantic recall embedding providers before assistant requests run', async () => {
+    useAssistantMemoryPreferencesStore.setState({
+      semanticRecall: {
+        enabled: true,
+        embeddingModelTarget: 'cohere/embed-english-v3.0',
+        scope: 'resource',
+        topK: 5,
+        messageRange: 2,
+      },
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+          'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.'
+        );
+      })
+    );
+  });
+
   test('passes assistant memory preferences into Mastra runtime requests', async () => {
     useAssistantMemoryPreferencesStore.setState({
       observationalMemory: {

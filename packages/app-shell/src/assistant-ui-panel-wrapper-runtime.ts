@@ -14,6 +14,10 @@ import {
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/assistant-contract/local-runtime';
 import {
+  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+} from '@brainstrike/assistant-contract/memory-settings';
+import {
   getProviderDefaultModel,
   getProviderDefinition,
   type ProviderModelDefinition,
@@ -38,6 +42,8 @@ import type {
   AssistantThreadRunRecord,
   AssistantThreadRuntimeKind,
 } from './assistant-memory-repository';
+
+const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
 
 export function resolveModelNameFromComposite(
   composite: string | null | undefined
@@ -78,11 +84,27 @@ export function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Tool: ${toolId}`;
 }
 
+function resolveSemanticRecallDisabledReason(
+  memorySettings: RuntimeAssistantMemorySettings
+): string | undefined {
+  if (!memorySettings.semanticRecall.enabled) {
+    return;
+  }
+
+  const providerId = memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
+  if (!(providerId && SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId))) {
+    return 'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.';
+  }
+
+  return;
+}
+
 export function resolveAssistantMemoryDisabledReason(args: {
   assistantThreadRepository: AssistantThreadRepository | null;
   dbError: Error | null;
   dbInitializing: boolean;
   desktopAssistantBackendAvailable: boolean;
+  memorySettings: RuntimeAssistantMemorySettings;
   memoryLoadState:
     | { readonly status: 'idle' }
     | { readonly status: 'loading' }
@@ -111,6 +133,10 @@ export function resolveAssistantMemoryDisabledReason(args: {
   }
   if (!args.selectedMemoryThreadId) {
     return 'Assistant memory has no selected thread for this workspace.';
+  }
+  const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason(args.memorySettings);
+  if (semanticRecallDisabledReason) {
+    return semanticRecallDisabledReason;
   }
   if (!(args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable)) {
     return 'Assistant memory for hosted providers requires the desktop assistant backend.';
@@ -704,15 +730,15 @@ export function buildAssistantMemoryOptions(
   const configuredLastMessages = buildNonNegativeIntegerSetting(settings?.memoryLastMessages);
   const lastMessages =
     configuredLastMessages === undefined
-      ? 40
+      ? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES
       : configuredLastMessages === 0
         ? false
         : configuredLastMessages;
   return {
     lastMessages,
     workingMemory: {
-      enabled: settings?.workingMemoryEnabled ?? true,
-      scope: 'resource',
+      ...DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+      enabled: settings?.workingMemoryEnabled ?? DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.enabled,
     },
   };
 }

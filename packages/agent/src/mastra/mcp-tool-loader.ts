@@ -6,6 +6,7 @@ import {
   isAnyToolIdEnabledByFilterConfig,
   toolRegistry as mcpToolRegistry,
 } from '../mcp/tool-registry';
+import { boundToolOutputForModel } from '../stream/tool-output-limits';
 import { createMastraAgentError } from './mastra-agent-error';
 import { sanitizeTools } from './tool-sanitizer';
 
@@ -70,11 +71,43 @@ export async function collectCombinedTools({
 
     const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
-      Object.assign(combined, enabled);
+      Object.assign(combined, wrapMcpToolOutputs(enabled, toolNameMap));
     }
   }
 
   return combined;
+}
+
+type ExecutableTool = ToolsInput[string] & {
+  execute: (...args: unknown[]) => unknown;
+};
+
+function isExecutableTool(tool: ToolsInput[string]): tool is ExecutableTool {
+  return typeof (tool as { execute?: unknown }).execute === 'function';
+}
+
+function wrapMcpToolOutputs(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): ToolsInput {
+  const wrapped: ToolsInput = {};
+  for (const [toolId, tool] of Object.entries(tools)) {
+    if (!isExecutableTool(tool)) {
+      wrapped[toolId] = tool;
+      continue;
+    }
+
+    const originalExecute = tool.execute;
+    const originalToolName = toolNameMap.get(toolId) ?? toolId;
+    const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableTool;
+    Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
+    cloned.execute = async (...args: unknown[]): Promise<unknown> => {
+      const output = await Promise.resolve(Reflect.apply(originalExecute, cloned, args));
+      return boundToolOutputForModel(originalToolName, output).output;
+    };
+    wrapped[toolId] = cloned;
+  }
+  return wrapped;
 }
 
 function selectToolsetForServer(
