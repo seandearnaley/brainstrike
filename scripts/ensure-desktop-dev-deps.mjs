@@ -1,35 +1,47 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const requiredOutputs = [
+const requiredOutputPaths = [
   'packages/build-utils/dist/index.mjs',
   'packages/agent/dist/index.mjs',
   'packages/ui/dist/index.d.ts',
 ];
 
-if (requiredOutputs.every((outputPath) => existsSync(outputPath))) {
-  process.exit(0);
+export function getRequiredOutputPaths(repoRoot = path.resolve(import.meta.dirname, '..')) {
+  return requiredOutputPaths.map((outputPath) => path.join(repoRoot, outputPath));
 }
 
-const result = spawnSync(
-  'pnpm',
-  [
-    'turbo',
-    'build',
-    '--filter=@brainstrike/build-utils',
-    '--filter=@brainstrike/agent',
-    '--filter=@brainstrike/ui',
-  ],
-  {
-    shell: process.platform === 'win32',
-    stdio: 'inherit',
+export function shouldBuildDesktopDevDeps(repoRoot = path.resolve(import.meta.dirname, '..')) {
+  return !getRequiredOutputPaths(repoRoot).every((outputPath) => existsSync(outputPath));
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  if (!shouldBuildDesktopDevDeps()) {
+    process.exit(0);
   }
-);
 
-if (result.error) {
-  console.error(result.error.message);
-  process.exit(1);
+  const result = spawnSync(
+    'pnpm',
+    [
+      'turbo',
+      'build',
+      '--filter=@brainstrike/build-utils',
+      '--filter=@brainstrike/agent',
+      '--filter=@brainstrike/ui',
+    ],
+    {
+      shell: process.platform === 'win32',
+      stdio: 'inherit',
+    }
+  );
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  process.exit(result.status ?? 1);
 }
-
-process.exit(result.status ?? 1);

@@ -70,6 +70,20 @@ describe('MetadataCache', () => {
       expect(cache.get('/dir')?.isDirectory).toBe(true);
     });
 
+    it('keeps literal POSIX backslash paths distinct from path separators', () => {
+      if (process.platform === 'win32') {
+        return;
+      }
+
+      const cache = new MetadataCache();
+
+      cache.set('/project/a\\b.txt', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/project/a/b.txt', { size: 200, mtimeMs: 2000, isDirectory: false });
+
+      expect(cache.get('/project/a\\b.txt')?.size).toBe(100);
+      expect(cache.get('/project/a/b.txt')?.size).toBe(200);
+    });
+
     it('should clear all entries', () => {
       const cache = new MetadataCache();
 

@@ -63,15 +63,6 @@ function isMissingFileSystemEntry(error: unknown): boolean {
   return error instanceof Error && (error as Error & { code?: unknown }).code === 'ENOENT';
 }
 
-function isDeferredDeletionError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const code = (error as Error & { code?: unknown }).code;
-  return code === 'EBUSY' || code === 'ENOTEMPTY' || code === 'EPERM';
-}
-
 function classifyStageDeletionError({
   error,
   targetPath,
@@ -80,20 +71,16 @@ function classifyStageDeletionError({
   error: unknown;
   targetPath: string;
   userDataPath: string;
-}): 'deferred' | 'failed' | 'missing' {
+}): 'failed' | 'missing' {
   if (isMissingFileSystemEntry(error)) {
     return 'missing';
   }
 
-  if (isDeferredDeletionError(error)) {
-    logger.warn('Desktop application data reset deferred locked entry deletion', {
-      error: error instanceof Error ? error.message : String(error),
-      targetPath,
-      userDataPath,
-    });
-    return 'deferred';
-  }
-
+  logger.error('Desktop application data reset could not stage entry for deletion', {
+    error: error instanceof Error ? error.message : String(error),
+    targetPath,
+    userDataPath,
+  });
   return 'failed';
 }
 
@@ -166,9 +153,6 @@ export async function resetDesktopApplicationData({
         ) {
           case 'missing':
             deletedPaths.push(targetPath);
-            continue;
-          case 'deferred':
-            pendingDeletionPaths.push(targetPath);
             continue;
           case 'failed':
             deletionFailures.push({ error, targetPath });

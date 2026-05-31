@@ -213,7 +213,7 @@ describe('resetDesktopApplicationData', () => {
     );
   });
 
-  it('defers locked entries instead of failing the reset', async () => {
+  it('fails when locked entries remain in active user data', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);
     const lockedError = Object.assign(new Error('Cache is locked'), { code: 'EPERM' });
@@ -224,18 +224,16 @@ describe('resetDesktopApplicationData', () => {
     });
     const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
 
-    const result = await resetDesktopApplicationData({
-      resetDatabaseProfile,
-      stopBackgroundRuntimes,
-      userDataPath: '/mock/userData',
-    });
+    await expect(
+      resetDesktopApplicationData({
+        resetDatabaseProfile,
+        stopBackgroundRuntimes,
+        userDataPath: '/mock/userData',
+      })
+    ).rejects.toThrow('Desktop factory reset failed to delete 1 userData entry');
 
-    expect(result.pendingDeletionPaths).toContain(path.join('/mock/userData', 'Cache'));
-    expect(result.deletedPaths).toEqual([
-      path.join('/mock/userData', 'IndexedDB'),
-      path.join('/mock/userData', 'Local Storage'),
-      path.join('/mock/userData', 'mcp'),
-    ]);
+    expect(fsMocks.rm).not.toHaveBeenCalled();
+    expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
   });
 
   it('completes once active profile data is staged even when trash cleanup fails', async () => {

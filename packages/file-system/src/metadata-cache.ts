@@ -55,6 +55,9 @@ const DEFAULT_MAX_ENTRIES = 10_000;
 const DEFAULT_TTL_MS = 30_000; // 30 seconds
 
 function normalizeCachePath(filePath: string): string {
+  if (process.platform !== 'win32') {
+    return filePath;
+  }
   return filePath.replaceAll('\\', '/');
 }
 
