@@ -98,4 +98,38 @@ describe('createPgliteMastraMemory', () => {
     expect(workflowStore).toBe(result.workflows);
     expect(result.workflows.supportsConcurrentUpdates()).toBe(true);
   });
+
+  it('throws instead of enabling vector observational retrieval without an embedder', async () => {
+    let thrown: unknown;
+
+    try {
+      await createPgliteMastraMemory({
+        database: db,
+        memorySettings: {
+          observationalMemory: {
+            enabled: true,
+            modelTarget: 'openai/gpt-5.4-mini',
+            scope: 'thread',
+            messageTokens: 30_000,
+            observationTokens: 40_000,
+            retrievalMode: 'vector',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            messageRange: 2,
+            scope: 'resource',
+            topK: 5,
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'PGlite Mastra observational vector retrieval requires an explicit embedder.'
+    );
+  });
 });

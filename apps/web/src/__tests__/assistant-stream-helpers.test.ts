@@ -7,9 +7,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // sanitizeStreamChunk) while mocking functions that make HTTP calls or manage state.
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value && typeof value === 'object' && !Array.isArray(value));
   return {
     ...actual,
     assistantDataStreamSessions: { create: vi.fn() },
+    readToolApprovalRunConfigAction: (runConfig: unknown) => {
+      if (!isRecord(runConfig)) {
+        return;
+      }
+      const custom = runConfig['custom'];
+      if (!isRecord(custom)) {
+        return;
+      }
+      const action = custom[actual.TOOL_APPROVAL_RUN_CONFIG_KEY];
+      if (action === undefined) {
+        return;
+      }
+      return actual.isAssistantToolApprovalAction(action) ? { action } : { invalid: true };
+    },
     resolveDataStreamSession: vi.fn(),
     toAiSdkStyleStream: vi.fn(),
   };
