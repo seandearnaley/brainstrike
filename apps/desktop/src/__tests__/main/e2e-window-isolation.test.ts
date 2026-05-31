@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { createAppMock } from '@brainstrike/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -183,7 +184,7 @@ describe('main E2E window isolation', () => {
     );
     expect(mockedApp.setPath).toHaveBeenCalledWith(
       'sessionData',
-      '/tmp/brainstrike-e2e-isolated-profile/session-data'
+      path.join('/tmp/brainstrike-e2e-isolated-profile', 'session-data')
     );
   });
 

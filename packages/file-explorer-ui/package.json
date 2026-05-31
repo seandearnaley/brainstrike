@@ -70,13 +70,13 @@
   },
   "private": true,
   "scripts": {
-    "build": "rm -rf dist && tsc -b .",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run",
+    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:watch": "NODE_OPTIONS='--max-old-space-size=8192' vitest",
+    "test:watch": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "types": "dist/index.d.ts"

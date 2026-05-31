@@ -36,7 +36,14 @@ describe('resetDesktopApplicationData', () => {
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.rename.mockResolvedValue(undefined);
     fsMocks.rm.mockResolvedValue(undefined);
-    fsMocks.readdirSync.mockReturnValue(['Cache', 'IndexedDB', 'Local Storage', 'logs', 'mcp']);
+    fsMocks.readdirSync.mockReturnValue([
+      'Cache',
+      'IndexedDB',
+      'Local Storage',
+      'logs',
+      'mcp',
+      'pgdata',
+    ]);
   });
 
   it('stops runtimes, resets the database profile, and deletes user data except logs', async () => {
@@ -82,6 +89,10 @@ describe('resetDesktopApplicationData', () => {
       force: true,
       recursive: true,
     });
+    expect(fsMocks.rename).not.toHaveBeenCalledWith(
+      path.join('/mock/userData', 'pgdata'),
+      expect.any(String)
+    );
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
     expect(result).toEqual({
       deletedPaths: [
@@ -91,12 +102,12 @@ describe('resetDesktopApplicationData', () => {
         path.join('/mock/userData', 'mcp'),
       ],
       pendingDeletionPaths: [],
-      preservedPaths: [path.join('/mock/userData', 'logs')],
+      preservedPaths: [path.join('/mock/userData', 'logs'), path.join('/mock/userData', 'pgdata')],
     });
     expect(getDesktopResetDiagnosticsSnapshot('/mock/userData')).toMatchObject({
       lastDeletedPathCount: 4,
       lastError: null,
-      lastPreservedPathCount: 1,
+      lastPreservedPathCount: 2,
       status: 'completed',
       userDataPath: '/mock/userData',
     });
@@ -191,7 +202,7 @@ describe('resetDesktopApplicationData', () => {
         path.join('/mock/userData', 'mcp'),
       ],
       pendingDeletionPaths: [],
-      preservedPaths: [path.join('/mock/userData', 'logs')],
+      preservedPaths: [path.join('/mock/userData', 'logs'), path.join('/mock/userData', 'pgdata')],
     });
     expect(fsMocks.rm).toHaveBeenCalledWith(
       path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
@@ -200,6 +211,31 @@ describe('resetDesktopApplicationData', () => {
         recursive: true,
       }
     );
+  });
+
+  it('defers locked entries instead of failing the reset', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const lockedError = Object.assign(new Error('Cache is locked'), { code: 'EPERM' });
+    fsMocks.rename.mockImplementation(async (targetPath: string) => {
+      if (targetPath === path.join('/mock/userData', 'Cache')) {
+        throw lockedError;
+      }
+    });
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    expect(result.pendingDeletionPaths).toContain(path.join('/mock/userData', 'Cache'));
+    expect(result.deletedPaths).toEqual([
+      path.join('/mock/userData', 'IndexedDB'),
+      path.join('/mock/userData', 'Local Storage'),
+      path.join('/mock/userData', 'mcp'),
+    ]);
   });
 
   it('completes once active profile data is staged even when trash cleanup fails', async () => {
@@ -224,7 +260,7 @@ describe('resetDesktopApplicationData', () => {
       pendingDeletionPaths: [
         path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
       ],
-      preservedPaths: [path.join('/mock/userData', 'logs')],
+      preservedPaths: [path.join('/mock/userData', 'logs'), path.join('/mock/userData', 'pgdata')],
     });
   });
 

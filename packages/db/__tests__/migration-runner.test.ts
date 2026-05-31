@@ -18,6 +18,7 @@ vi.mock('@brainstrike/utils', async () => {
 
 import { type Migration, MigrationRunner } from '../src/migrations/migration-runner.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 describe('MigrationRunner', () => {
   let db: PGlite;
@@ -50,7 +51,7 @@ describe('MigrationRunner', () => {
     Object.values(mockLogger).forEach((fn) => {
       fn.mockReset();
     });
-    const dataDir = `/tmp/pglite-test-migration-runner-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-migration-runner');
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();

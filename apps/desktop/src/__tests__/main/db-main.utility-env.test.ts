@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
@@ -59,8 +60,8 @@ describe('db-main utility process environment', () => {
     const { getDatabaseDiagnostics } = await import('../../db-main');
 
     expect(getDatabaseDiagnostics()).toMatchObject({
-      appDataDir: '/mock/brainstrike-root/profiles/test',
-      dataDir: '/mock/brainstrike-root/profiles/test/pgdata',
+      appDataDir: path.join('/mock/brainstrike-root', 'profiles', 'test'),
+      dataDir: path.join('/mock/brainstrike-root', 'profiles', 'test', 'pgdata'),
     });
   });
 });

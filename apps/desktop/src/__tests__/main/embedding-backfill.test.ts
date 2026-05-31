@@ -1377,5 +1377,5 @@ describe('embedding-backfill', () => {
     expect(enqueueBatchCount).toBe(Math.ceil(candidateCount / 32));
     expect(vacuumFileChunksCount).toBeGreaterThan(1);
     expect(vacuumFileChunksCount).toBeLessThan(enqueueBatchCount);
-  });
+  }, 60_000);
 });

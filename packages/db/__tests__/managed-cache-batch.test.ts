@@ -8,6 +8,7 @@ import { migrate } from '../src/migrations/bootstrap.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 describe('applyManagedCacheBatch', () => {
   let db: PGlite;
@@ -15,9 +16,7 @@ describe('applyManagedCacheBatch', () => {
   let fileChunkRepository: FileChunkRepository;
 
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-managed-cache-batch-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-managed-cache-batch');
     db = await wasmLoader.createPGlite(dataDir);
     await migrate(db);
     fileRecordRepository = new FileRecordRepository(db);

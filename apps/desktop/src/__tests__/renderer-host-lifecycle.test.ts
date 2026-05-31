@@ -1,4 +1,5 @@
 import type { EventEmitter } from 'node:events';
+import path from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DESKTOP_DEV_RENDERER_PORT } from '../desktop-renderer-url';
@@ -262,7 +263,7 @@ describe('RendererHostLifecycle', () => {
     await lifecycle.ensureStarted({ waitForRunning: false });
 
     expect(hostWindow.loadFile).toHaveBeenCalledWith(
-      '/tmp/brainstrike/dist/renderer/index.html',
+      path.join('/tmp/brainstrike/dist/renderer/index.html'),
       expect.objectContaining({
         query: expect.objectContaining({
           mode: 'embedding-host',

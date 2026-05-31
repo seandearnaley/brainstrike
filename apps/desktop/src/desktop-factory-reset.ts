@@ -10,7 +10,7 @@ import {
 
 const logger = createLogger('DesktopFactoryReset');
 
-const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
+const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs', 'pgdata'] as const;
 let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {
@@ -63,6 +63,40 @@ function isMissingFileSystemEntry(error: unknown): boolean {
   return error instanceof Error && (error as Error & { code?: unknown }).code === 'ENOENT';
 }
 
+function isDeferredDeletionError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const code = (error as Error & { code?: unknown }).code;
+  return code === 'EBUSY' || code === 'ENOTEMPTY' || code === 'EPERM';
+}
+
+function classifyStageDeletionError({
+  error,
+  targetPath,
+  userDataPath,
+}: {
+  error: unknown;
+  targetPath: string;
+  userDataPath: string;
+}): 'deferred' | 'failed' | 'missing' {
+  if (isMissingFileSystemEntry(error)) {
+    return 'missing';
+  }
+
+  if (isDeferredDeletionError(error)) {
+    logger.warn('Desktop application data reset deferred locked entry deletion', {
+      error: error instanceof Error ? error.message : String(error),
+      targetPath,
+      userDataPath,
+    });
+    return 'deferred';
+  }
+
+  return 'failed';
+}
+
 async function stageUserDataEntryForDeletion({
   entryName,
   trashPath,
@@ -98,6 +132,7 @@ export async function resetDesktopApplicationData({
     await resetDatabaseProfile();
 
     const deletedPaths: string[] = [];
+    const pendingDeletionPaths: string[] = [];
     const stagedPaths: string[] = [];
     const preservedPaths: string[] = [];
     const deletionFailures: UserDataDeletionFailure[] = [];
@@ -122,11 +157,22 @@ export async function resetDesktopApplicationData({
         deletedPaths.push(stagedEntry.deletedPath);
         stagedPaths.push(stagedEntry.stagedPath);
       } catch (error: unknown) {
-        if (isMissingFileSystemEntry(error)) {
-          deletedPaths.push(targetPath);
-          continue;
+        switch (
+          classifyStageDeletionError({
+            error,
+            targetPath,
+            userDataPath,
+          })
+        ) {
+          case 'missing':
+            deletedPaths.push(targetPath);
+            continue;
+          case 'deferred':
+            pendingDeletionPaths.push(targetPath);
+            continue;
+          case 'failed':
+            deletionFailures.push({ error, targetPath });
         }
-        deletionFailures.push({ error, targetPath });
       }
     }
 
@@ -146,7 +192,6 @@ export async function resetDesktopApplicationData({
       throw new DesktopApplicationDataDeletionError(deletionFailures);
     }
 
-    const pendingDeletionPaths: string[] = [];
     try {
       await rm(trashPath, { recursive: true, force: true });
     } catch (error) {

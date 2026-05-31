@@ -5,6 +5,7 @@ import type { FileChunkInsert, FileChunkUpdate } from '../src/models/file-chunk.
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 function makeVector(dim: number, entries: [number, number][]): number[] {
   const vector = new Array(dim).fill(0);
@@ -21,7 +22,7 @@ describe('FileChunkRepository', () => {
 
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-file-chunk-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-file-chunk');
     db = await wasmLoader.createPGlite(dataDir);
     await migrate(db);
     repository = new FileChunkRepository(db);

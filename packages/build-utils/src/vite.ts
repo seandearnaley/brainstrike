@@ -130,7 +130,7 @@ export function getLazySurfaceOptimizeDepsEntries(
     path.resolve(uiDir, 'assistant-ui-panel', 'markdown-text.tsx'),
     path.resolve(appShellDir, 'database-tab-chunk.tsx'),
     path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
-  ];
+  ].map(toVitePath);
 
   for (const entry of entries) {
     if (!entryExists(entry)) {
@@ -144,9 +144,9 @@ export function getLazySurfaceOptimizeDepsEntries(
 export function getWorkerpoolBrowserStubAliases(baseDir: string): Readonly<Record<string, string>> {
   const stubDir = path.resolve(baseDir, '../../packages/build-utils/src/browser-node-stubs');
   return Object.fromEntries([
-    ['child_process', path.resolve(stubDir, 'child-process.ts')],
-    ['os', path.resolve(stubDir, 'os.ts')],
-    ['worker_threads', path.resolve(stubDir, 'worker-threads.ts')],
+    ['child_process', toVitePath(path.resolve(stubDir, 'child-process.ts'))],
+    ['os', toVitePath(path.resolve(stubDir, 'os.ts'))],
+    ['worker_threads', toVitePath(path.resolve(stubDir, 'worker-threads.ts'))],
   ]);
 }
 
@@ -198,10 +198,16 @@ const VENDORED_TREE_SITTER_GRAMMARS = ['python'] as const;
  */
 export function getTreeSitterGrammarCopyTargets(baseDir: string): TreeSitterGrammarCopyTarget[] {
   return VENDORED_TREE_SITTER_GRAMMARS.map((language) => ({
-    src: path.resolve(baseDir, '../../packages/chunking-worker/grammars', `${language}.wasm`),
+    src: toVitePath(
+      path.resolve(baseDir, '../../packages/chunking-worker/grammars', `${language}.wasm`)
+    ),
     dest: 'assets/grammars',
     rename: { stripBase: true },
   }));
+}
+
+function toVitePath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
 }
 
 export function findPGliteWasm(baseDir: string): string | null {
@@ -231,10 +237,11 @@ export function findPGliteWasm(baseDir: string): string | null {
 
   for (const wasmPath of possiblePaths) {
     if (existsSync(wasmPath)) {
+      const vitePath = toVitePath(wasmPath);
       if (isDev) {
-        logger.debug('Found PGLite WASM', { wasmPath });
+        logger.debug('Found PGLite WASM', { wasmPath: vitePath });
       }
-      return wasmPath;
+      return vitePath;
     }
   }
 

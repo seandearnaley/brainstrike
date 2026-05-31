@@ -19,6 +19,10 @@ import { ipcMain } from 'electron';
 // Import after mocking
 import { registerIpcHandlers } from '../../ipc-handlers';
 
+function resolveTestPath(testPath: string): string {
+  return path.resolve(testPath);
+}
+
 describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
   let mockFileSystem: ElectronFileSystemAdapter;
   let mockStorage: ElectronStorageAdapter;
@@ -81,6 +85,7 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
 
     it('should return null when stored folder path does not exist', async () => {
       const testPath = '/test/folder/path';
+      const resolvedPath = resolveTestPath(testPath);
       vi.mocked(mockStorage.getItem).mockResolvedValue(testPath);
       vi.mocked(mockFileSystem.exists).mockResolvedValue(false);
 
@@ -88,16 +93,17 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await handler?.();
 
       expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(mockFileSystem.exists).toHaveBeenCalledWith(testPath);
+      expect(mockFileSystem.exists).toHaveBeenCalledWith(resolvedPath);
       expect(mockStorage.removeItem).toHaveBeenCalledWith('lastFolderPath');
       expect(result).toBeNull();
     });
 
     it('should return DirectoryHandle when stored folder exists', async () => {
       const testPath = '/test/folder/path';
+      const resolvedPath = resolveTestPath(testPath);
       const expectedHandle: DirectoryHandle = {
-        path: testPath,
-        name: path.basename(testPath),
+        path: resolvedPath,
+        name: path.basename(resolvedPath),
         kind: 'directory' as const,
         platform: 'electron' as const,
       };
@@ -109,7 +115,7 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await handler?.();
 
       expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(mockFileSystem.exists).toHaveBeenCalledWith(testPath);
+      expect(mockFileSystem.exists).toHaveBeenCalledWith(resolvedPath);
       expect(mockStorage.removeItem).not.toHaveBeenCalled();
       expect(result).toEqual(expectedHandle);
     });
@@ -142,29 +148,32 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
 
     it('should save folder path to storage', async () => {
       const testPath = '/test/folder/path';
+      const resolvedPath = resolveTestPath(testPath);
       vi.mocked(mockStorage.setItem).mockResolvedValue(undefined);
 
       const handler = registeredHandlers.get('fs:saveLastFolder');
       await handler?.(testPath);
 
-      expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', testPath);
+      expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
     });
 
     it('should handle storage errors gracefully', async () => {
       const testPath = '/test/folder/path';
+      const resolvedPath = resolveTestPath(testPath);
       vi.mocked(mockStorage.setItem).mockRejectedValue(new Error('Storage error'));
 
       const handler = registeredHandlers.get('fs:saveLastFolder');
 
       // Should not throw
       await expect(handler?.(testPath)).resolves.toBeUndefined();
-      expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', testPath);
+      expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
     });
   });
 
   describe('Integration scenarios', () => {
     it('should handle save and restore cycle correctly', async () => {
       const testPath = '/test/folder/path';
+      const resolvedPath = resolveTestPath(testPath);
 
       // Save folder path
       vi.mocked(mockStorage.setItem).mockResolvedValue(undefined);
@@ -178,8 +187,8 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await restoreHandler?.();
 
       expect(result).toEqual({
-        path: testPath,
-        name: path.basename(testPath),
+        path: resolvedPath,
+        name: path.basename(resolvedPath),
         kind: 'directory',
         platform: 'electron',
       });
@@ -219,6 +228,7 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
 
     it('should handle Unix-style paths correctly', async () => {
       const unixPath = '/home/user/documents';
+      const resolvedPath = resolveTestPath(unixPath);
 
       vi.mocked(mockStorage.getItem).mockResolvedValue(unixPath);
       vi.mocked(mockFileSystem.exists).mockResolvedValue(true);
@@ -227,8 +237,8 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await restoreHandler?.();
 
       expect(result).toEqual({
-        path: unixPath,
-        name: path.basename(unixPath),
+        path: resolvedPath,
+        name: path.basename(resolvedPath),
         kind: 'directory',
         platform: 'electron',
       });
