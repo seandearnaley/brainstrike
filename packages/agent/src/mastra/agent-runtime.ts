@@ -21,6 +21,7 @@ import type {
   AgentMessage,
   RuntimeData,
   StreamChunk,
+  StreamChunkTool,
   StreamFinishReason,
   StreamIterator,
 } from '../types';
@@ -400,7 +401,8 @@ function makeRunEventChunk(
   kind: AssistantRunEventKind,
   status: AssistantRunEventStatus,
   label: string,
-  metadata?: AssistantRunEventMetadata
+  metadata?: AssistantRunEventMetadata,
+  timestamp?: string
 ): StreamChunk {
   return {
     type: 'run-event',
@@ -409,7 +411,7 @@ function makeRunEventChunk(
       kind,
       label,
       status,
-      timestamp: new Date().toISOString(),
+      timestamp: timestamp ?? new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     },
   };
@@ -431,6 +433,123 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
     }
   }
   return isRunEventMetadata(metadata) && Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+type TerminalToolCallState = 'completed' | 'failed';
+
+interface OutputOnlyToolEvent {
+  timestamp: string;
+  toolEvent: StreamChunkTool;
+}
+
+interface ToolLifecycleState {
+  outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
+  terminalToolCallStates: Map<string, TerminalToolCallState>;
+}
+
+function getToolEventPayload(toolEvent: StreamChunkTool): AssistantRunEventMetadata | undefined {
+  return isRunEventMetadata(toolEvent.payload) ? toolEvent.payload : undefined;
+}
+
+function getToolCallIdFromToolEvent(toolEvent: StreamChunkTool): string | undefined {
+  const payload = getToolEventPayload(toolEvent);
+  return typeof payload?.['toolCallId'] === 'string'
+    ? payload['toolCallId']
+    : typeof payload?.['callId'] === 'string'
+      ? payload['callId']
+      : undefined;
+}
+
+function makeToolEventMetadata(toolEvent: StreamChunkTool): AssistantRunEventMetadata {
+  const payload = getToolEventPayload(toolEvent);
+  const toolCallId = getToolCallIdFromToolEvent(toolEvent);
+  const metadata: AssistantRunEventMetadata = {
+    toolName: toolEvent.name,
+    ...(toolCallId ? { toolCallId } : {}),
+  };
+  if (typeof payload?.['providerExecuted'] === 'boolean') {
+    metadata['providerExecuted'] = payload['providerExecuted'];
+  }
+  if (typeof payload?.['dynamic'] === 'boolean') {
+    metadata['dynamic'] = payload['dynamic'];
+  }
+  return metadata;
+}
+
+function makeToolLifecycleRunEventChunk(
+  toolEvent: StreamChunkTool,
+  mastraPartType: string | undefined,
+  lifecycleState: ToolLifecycleState
+): StreamChunk | undefined {
+  const toolCallId = getToolCallIdFromToolEvent(toolEvent);
+  const metadata = makeToolEventMetadata(toolEvent);
+
+  switch (toolEvent.status) {
+    case 'start':
+      if (!toolCallId) {
+        return;
+      }
+      return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
+    case 'success': {
+      if (!toolCallId) {
+        // Mastra terminal tool parts must carry the same stable call id as their
+        // start part. Name-based matching would be ambiguous for concurrent
+        // same-name tool calls, so durable terminal events are not guessed.
+        return;
+      }
+      if (mastraPartType === 'tool-output') {
+        if (!lifecycleState.terminalToolCallStates.has(toolCallId)) {
+          lifecycleState.outputOnlyToolEvents.set(toolCallId, {
+            timestamp: new Date().toISOString(),
+            toolEvent,
+          });
+        }
+        return;
+      }
+      if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
+        return;
+      }
+      lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+      lifecycleState.outputOnlyToolEvents.delete(toolCallId);
+      return makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata);
+    }
+    case 'error': {
+      if (!toolCallId) {
+        return;
+      }
+      if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
+        return;
+      }
+      lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+      lifecycleState.outputOnlyToolEvents.delete(toolCallId);
+      return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
+    }
+    case 'progress':
+      return;
+  }
+}
+
+function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  for (const [toolCallId, outputOnlyToolEvent] of lifecycleState.outputOnlyToolEvents) {
+    if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
+      continue;
+    }
+    lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
+    // Sequence remains the ordering source of truth; this timestamp preserves
+    // when the output-only terminal observation happened for duration metrics.
+    chunks.push(
+      makeRunEventChunk(
+        'tool.completed',
+        'completed',
+        'Tool completed',
+        makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
+        outputOnlyToolEvent.timestamp
+      )
+    );
+  }
+  lifecycleState.outputOnlyToolEvents.clear();
+  return chunks;
 }
 
 function readTripwireReason(part: unknown): string | undefined {
@@ -575,6 +694,7 @@ interface ProcessStreamPartResult {
 function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
+  lifecycleState: ToolLifecycleState,
   sanitizedNameMap?: Map<string, string>
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
@@ -631,6 +751,7 @@ function processMastraStreamPart(
     case 'finish': {
       return {
         chunks: [
+          ...makePendingToolOutputRunEventChunks(lifecycleState),
           makeRunEventChunk(
             'run.finished',
             'completed',
@@ -650,13 +771,23 @@ function processMastraStreamPart(
     case 'tool-error':
     case 'tool-output': {
       const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
-      return evt ? { chunks: [evt], finished: false } : { chunks: [], finished: false };
+      if (!(evt && evt.type === 'tool-event')) {
+        return { chunks: [], finished: false };
+      }
+      const runEvent = makeToolLifecycleRunEventChunk(evt, p.type, lifecycleState);
+      return {
+        chunks: runEvent ? [evt, runEvent] : [evt],
+        finished: false,
+      };
     }
     case 'tool-call-approval':
       // Stop at the first approval pause and surface resumable metadata. Later
       // stream parts are only valid after an explicit approve/decline action.
       return {
-        chunks: makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap),
+        chunks: [
+          ...makePendingToolOutputRunEventChunks(lifecycleState),
+          ...makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap),
+        ],
         finished: true,
       };
     case 'tool-call-suspended':
@@ -664,7 +795,10 @@ function processMastraStreamPart(
       // first pause instead of consuming later stream parts that would imply
       // forward progress.
       return {
-        chunks: makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+        chunks: [
+          ...makePendingToolOutputRunEventChunks(lifecycleState),
+          ...makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+        ],
         finished: true,
       };
     case 'error': {
@@ -917,10 +1051,19 @@ async function* streamChunksFromMastra({
   sanitizedNameMap,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
+  const lifecycleState: ToolLifecycleState = {
+    outputOnlyToolEvents: new Map(),
+    terminalToolCallStates: new Map(),
+  };
 
   try {
     for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
-      const { chunks, finished } = processMastraStreamPart(part, toolNames, sanitizedNameMap);
+      const { chunks, finished } = processMastraStreamPart(
+        part,
+        toolNames,
+        lifecycleState,
+        sanitizedNameMap
+      );
       for (const chunk of chunks) {
         yield chunk;
       }
@@ -933,6 +1076,9 @@ async function* streamChunksFromMastra({
       logger.warn('mastra stream ended without finish event', {
         code: 'mastra_agent_stream_missing_finish',
       });
+      for (const chunk of makePendingToolOutputRunEventChunks(lifecycleState)) {
+        yield chunk;
+      }
       yield makeSyntheticFinishChunk();
     }
   } finally {
