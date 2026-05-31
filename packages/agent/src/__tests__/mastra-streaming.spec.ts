@@ -1,3 +1,4 @@
+import { ReadableStream } from 'node:stream/web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -17,9 +18,11 @@ const agentInstances: Array<{
   tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
-const mastraInstances: Array<{ config: unknown }> = [];
-let mcpToolList: Record<string, { description: string; id: string }> = {
-  'remote tool': { id: 'remote tool', description: 'remote' },
+const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
+let mcpToolsets: Record<string, Record<string, { description: string; id: string }>> = {
+  filesystem: {
+    'remote tool': { id: 'remote tool', description: 'remote' },
+  },
 };
 let streamParts: unknown[] = [];
 
@@ -133,6 +136,7 @@ function createMockMastraOutput() {
 vi.mock('@mastra/core/mastra', () => ({
   Mastra: class {
     config: unknown;
+    shutdownCalls = 0;
 
     constructor(config: {
       agents?: Record<string, { __registerMastra?: (mastra: unknown) => void }>;
@@ -142,6 +146,10 @@ vi.mock('@mastra/core/mastra', () => ({
       for (const agent of Object.values(config.agents ?? {})) {
         agent.__registerMastra?.(this);
       }
+    }
+
+    async shutdown() {
+      this.shutdownCalls += 1;
     }
   },
 }));
@@ -155,8 +163,8 @@ vi.mock('@mastra/mcp', () => ({
       mcpInstances.push(this);
     }
 
-    async listTools() {
-      return mcpToolList;
+    async listToolsetsWithErrors() {
+      return { toolsets: mcpToolsets, errors: {} };
     }
 
     async disconnect() {
@@ -170,8 +178,10 @@ describe('mastra streaming integration', () => {
     agentInstances.length = 0;
     mastraInstances.length = 0;
     mcpInstances.length = 0;
-    mcpToolList = {
-      'remote tool': { id: 'remote tool', description: 'remote' },
+    mcpToolsets = {
+      filesystem: {
+        'remote tool': { id: 'remote tool', description: 'remote' },
+      },
     };
     setMockStreamParts([]);
   });
@@ -515,6 +525,52 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('treats Mastra error tool-results as failed durable run-events', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'browser.capture',
+        toolCallId: 'c-error-result',
+        args: { url: 'https://example.test' },
+      },
+      {
+        type: 'tool-result',
+        toolCallId: 'c-error-result',
+        result: { message: 'capture failed' },
+        isError: true,
+        providerExecuted: true,
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'capture' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (
+        chunk.type === 'run-event' &&
+        (chunk.event.kind === 'tool.completed' || chunk.event.kind === 'tool.failed')
+      ) {
+        terminalEvents.push(chunk.event);
+      }
+    }
+
+    expect(terminalEvents).toMatchObject([
+      {
+        kind: 'tool.failed',
+        status: 'failed',
+        metadata: {
+          toolCallId: 'c-error-result',
+          toolName: 'browser.capture',
+          providerExecuted: true,
+        },
+      },
+    ]);
+  });
+
   it('lets a terminal tool-error override an earlier intermediate tool-output', async () => {
     setMockStreamParts([
       {
@@ -797,6 +853,18 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
   });
 
+  it('shuts down the Mastra instance when disposing a storage-backed runtime', async () => {
+    const runtime = await createMastraAgentRuntime({
+      storage: { id: 'storage-with-workflows' } as never,
+      runtime: { apiKey: 'key', provider: 'openai' },
+    });
+
+    await runtime.dispose();
+
+    expect(mastraInstances).toHaveLength(1);
+    expect(mastraInstances[0]?.shutdownCalls).toBe(1);
+  });
+
   it('passes strict thread/resource memory context to agent.stream', async () => {
     const memory = { id: 'memory-instance' };
     setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
@@ -1054,6 +1122,7 @@ describe('mastra streaming integration', () => {
       },
       {
         memory: memory as never,
+        requireToolApproval: true,
         storage: storage as never,
         runtime: {
           apiKey: 'test-key',
@@ -1084,6 +1153,7 @@ describe('mastra streaming integration', () => {
         options: { lastMessages: 5 },
       },
       maxSteps: 20,
+      requireToolApproval: true,
     });
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
@@ -1108,6 +1178,7 @@ describe('mastra streaming integration', () => {
         toolCallId: 'tool-call-2',
       },
       {
+        requireToolApproval: true,
         storage: storage as never,
         runtime: { apiKey: 'test-key', provider: 'openai' },
       }
@@ -1125,8 +1196,40 @@ describe('mastra streaming integration', () => {
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
       maxSteps: 20,
+      requireToolApproval: true,
     });
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
+  });
+
+  it('validates tool approval actions before initializing Mastra runtime resources', async () => {
+    await expectMastraAgentError(
+      streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: ' ',
+          toolCallId: 'tool-call-1',
+          toolName: 'workspace.writeFile',
+        },
+        {
+          storage: { id: 'workflow-storage' } as never,
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          mcpConfig: {
+            servers: [
+              {
+                transport: 'stdio',
+                name: 'filesystem',
+                command: 'echo',
+              },
+            ],
+          },
+        }
+      ),
+      'mastra_agent_runtime_init_failed'
+    );
+
+    expect(agentInstances).toHaveLength(0);
+    expect(mastraInstances).toHaveLength(0);
+    expect(mcpInstances).toHaveLength(0);
   });
 
   it('uses the cached tool name when approval pauses omit the tool name', async () => {
@@ -1456,17 +1559,21 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agentConfig = agentInstances[0]?.config.tools ?? {};
 
-    expect(Object.keys(agentConfig)).toEqual(expect.arrayContaining(['local_tool', 'remote_tool']));
+    expect(Object.keys(agentConfig)).toEqual(
+      expect.arrayContaining(['local_tool', 'filesystem_remote_tool'])
+    );
 
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
-    expect(runtime.toolNameMap.get('remote_tool')).toBe('remote tool');
+    expect(runtime.toolNameMap.get('filesystem_remote_tool')).toBe('filesystem.remote tool');
   });
 
   it('uses model-facing Brainstrike native tool names in default instructions', async () => {
-    mcpToolList = {
-      'filesystem.search_files': {
-        id: 'filesystem.search_files',
-        description: 'Search files',
+    mcpToolsets = {
+      filesystem: {
+        search_files: {
+          id: 'search_files',
+          description: 'Search files',
+        },
       },
     };
 
@@ -1730,5 +1837,3 @@ describe('resolveRuntimeConfiguration', () => {
     expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_provider');
   });
 });
-
-import { ReadableStream } from 'node:stream/web';

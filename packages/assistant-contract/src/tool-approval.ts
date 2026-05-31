@@ -18,6 +18,10 @@ export interface AssistantToolApprovalAction {
   toolName?: string;
 }
 
+export type ToolApprovalRunConfigActionReadResult =
+  | { readonly action: AssistantToolApprovalAction }
+  | { readonly invalid: true };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -34,4 +38,24 @@ export function isAssistantToolApprovalAction(
     value['toolCallId'].trim().length > 0 &&
     (value['toolName'] === undefined || typeof value['toolName'] === 'string')
   );
+}
+
+export function readToolApprovalRunConfigAction(
+  runConfig: unknown
+): ToolApprovalRunConfigActionReadResult | undefined {
+  if (!isRecord(runConfig)) {
+    return;
+  }
+  const custom = runConfig['custom'];
+  if (!isRecord(custom)) {
+    return;
+  }
+  const rawAction = custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
+  if (rawAction === undefined) {
+    return;
+  }
+  if (!isAssistantToolApprovalAction(rawAction)) {
+    return { invalid: true };
+  }
+  return { action: rawAction };
 }

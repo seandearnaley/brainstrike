@@ -73,15 +73,17 @@ export function mapMastraToolEvent(
       const result =
         readMastraStreamPartValue(candidate, 'result') ??
         readMastraStreamPartValue(candidate, 'output');
+      const isError = readMastraStreamPartValue(candidate, 'isError') === true;
       return {
         type: 'tool-event',
         name: displayName,
-        status: 'success',
+        status: isError ? 'error' : 'success',
         payload: {
           callId,
           toolCallId: callId,
-          output: result,
+          ...(isError ? { error: result } : { output: result }),
           result,
+          isError,
           providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
           dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
           preliminary: readMastraStreamPartValue(candidate, 'preliminary'),

@@ -54,6 +54,7 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
 
   const knownObjectKeys: ReadonlySet<string> = new Set([
     'text',
+    'type',
     'value',
     'content',
     'parts',

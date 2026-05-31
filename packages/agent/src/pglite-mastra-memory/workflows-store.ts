@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils/logger';
 import type {
   StorageListWorkflowRunsInput,
   UpdateWorkflowStateOptions,
@@ -31,6 +32,7 @@ interface PgliteWorkflowsStoreOptions {
 }
 
 const PENDING_MARKER_KEY = '__mastra_pending__';
+const logger = createLogger('PgliteWorkflowsStore');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -52,29 +54,15 @@ function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
-function emptyWorkflowSnapshot(runId: string): WorkflowRunState {
-  return {
-    activePaths: [],
-    activeStepsPath: {},
-    context: {},
-    resumeLabels: {},
-    runId,
-    serializedStepGraph: [],
-    status: 'pending',
-    suspendedPaths: {},
-    timestamp: Date.now(),
-    value: {},
-    waitingPaths: {},
-  };
-}
-
 function parseWorkflowSnapshot(value: WorkflowRunState | string): WorkflowRunState {
   const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
   if (!isRecord(parsed)) {
     throw new Error('Stored Mastra workflow snapshot is not an object');
   }
   if (!isRecord(parsed['context'])) {
-    throw new Error(`Snapshot not found for runId ${String(parsed['runId'] ?? 'unknown')}`);
+    throw new Error(
+      `Stored Mastra workflow snapshot for runId ${String(parsed['runId'] ?? 'unknown')} is missing context`
+    );
   }
   return cloneJson(parsed as unknown as WorkflowRunState);
 }
@@ -88,6 +76,20 @@ function workflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun {
     workflowName: row.workflowName,
     ...(row.resourceId === null ? {} : { resourceId: row.resourceId }),
   };
+}
+
+function safeWorkflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun | undefined {
+  try {
+    return workflowRunFromRow(row);
+  } catch (error) {
+    logger.warn('Skipping malformed Mastra workflow snapshot while listing workflow runs', {
+      code: 'mastra_workflow_snapshot_list_skip_malformed',
+      error: error instanceof Error ? error.message : String(error),
+      runId: row.runId,
+      workflowName: row.workflowName,
+    });
+    return;
+  }
 }
 
 function mergeStepResult(existingResult: unknown, result: WorkflowStepResult): WorkflowStepResult {
@@ -125,15 +127,19 @@ function appendLimit(
   page: number | undefined,
   perPage: number | false | undefined
 ): string {
-  if (page === undefined || perPage === undefined || perPage === false) {
+  if (perPage === undefined || perPage === false) {
     return sql;
   }
   if (!Number.isSafeInteger(perPage) || perPage < 0) {
     throw new Error('perPage must be false or a non-negative safe integer');
   }
+  const resolvedPage = page ?? 0;
+  if (!Number.isSafeInteger(resolvedPage) || resolvedPage < 0) {
+    throw new Error('page must be >= 0');
+  }
   values.push(perPage);
   const limitParam = `$${values.length}`;
-  values.push(page * perPage);
+  values.push(resolvedPage * perPage);
   return `${sql} LIMIT ${limitParam} OFFSET $${values.length}`;
 }
 
@@ -218,10 +224,14 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
   }
 
   supportsConcurrentUpdates(): boolean {
+    // PGlite runs in-process on a single connection, so transaction callbacks
+    // serialize this store's read-modify-write workflow snapshot updates.
+    // A pooled Postgres-backed implementation would need row locks here.
     return typeof this.database.transaction === 'function';
   }
 
   async dangerouslyClearAll(): Promise<void> {
+    await this.initialize();
     await this.database.exec(`DELETE FROM ${MASTRA_WORKFLOW_TABLE};`);
   }
 
@@ -250,7 +260,6 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
          ON CONFLICT (workflow_name, run_id) DO UPDATE SET
           "resourceId" = EXCLUDED."resourceId",
           snapshot = EXCLUDED.snapshot,
-          "createdAt" = EXCLUDED."createdAt",
           "updatedAt" = EXCLUDED."updatedAt"`,
         [
           workflowName,
@@ -293,15 +302,12 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     return runTransaction(this.database, async (tx) => {
       const row = await selectWorkflowRun(tx, workflowName, runId);
       if (!row) {
-        return {};
+        throw new Error(
+          `Cannot update workflow results before snapshot is persisted for workflow ${workflowName} run ${runId}`
+        );
       }
 
-      const snapshot = row.snapshot
-        ? parseWorkflowSnapshot(row.snapshot)
-        : emptyWorkflowSnapshot(runId);
-      if (!snapshot.context) {
-        throw new Error(`Snapshot not found for runId ${runId}`);
-      }
+      const snapshot = parseWorkflowSnapshot(row.snapshot);
       snapshot.context[stepId] = mergeStepResult(snapshot.context[stepId], result);
       snapshot.requestContext = {
         ...(snapshot.requestContext ?? {}),
@@ -328,12 +334,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
         return;
       }
 
-      const snapshot = row.snapshot
-        ? parseWorkflowSnapshot(row.snapshot)
-        : emptyWorkflowSnapshot(runId);
-      if (!snapshot.context) {
-        throw new Error(`Snapshot not found for runId ${runId}`);
-      }
+      const snapshot = parseWorkflowSnapshot(row.snapshot);
       const nextSnapshot: WorkflowRunState = { ...snapshot, ...opts };
       await writeWorkflowSnapshot(tx, workflowName, runId, nextSnapshot);
       return nextSnapshot;
@@ -343,7 +344,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
   async listWorkflowRuns({
     workflowName,
     fromDate,
-    toDate,
+    toDate: toDateFilter,
     perPage,
     page,
     resourceId,
@@ -364,8 +365,8 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
       values.push(fromDate);
       where.push(`"createdAt" >= $${values.length}`);
     }
-    if (toDate) {
-      values.push(toDate);
+    if (toDateFilter) {
+      values.push(toDateFilter);
       where.push(`"createdAt" <= $${values.length}`);
     }
     if (resourceId) {
@@ -387,7 +388,7 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
       `SELECT workflow_name AS "workflowName", run_id AS "runId", "resourceId", snapshot, "createdAt", "updatedAt"
        FROM ${MASTRA_WORKFLOW_TABLE}
        ${whereSql}
-       ORDER BY "createdAt" DESC`,
+       ORDER BY "createdAt" DESC, run_id ASC, workflow_name ASC`,
       queryValues,
       page,
       perPage
@@ -395,7 +396,10 @@ export class PgliteWorkflowsStore extends WorkflowsStorage {
     const result = await this.database.query<WorkflowSnapshotRow>(sql, queryValues);
 
     return {
-      runs: result.rows.map(workflowRunFromRow),
+      runs: result.rows.flatMap((row) => {
+        const run = safeWorkflowRunFromRow(row);
+        return run ? [run] : [];
+      }),
       total: Number(countResult.rows[0]?.count ?? 0),
     };
   }
