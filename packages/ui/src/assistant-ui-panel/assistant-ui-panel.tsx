@@ -1,12 +1,15 @@
 import {
   ActionBarPrimitive,
+  type AssistantDataUIProps,
   AssistantRuntimeProvider,
   BranchPickerPrimitive,
   ChainOfThoughtPrimitive,
   ComposerPrimitive,
+  type DataMessagePartComponent,
   MessagePrimitive,
   type ThreadHistoryAdapter,
   ThreadPrimitive,
+  useAssistantDataUI,
   useAui,
   useAuiState,
   useLocalRuntime,
@@ -58,6 +61,24 @@ import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-ut
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
+
+const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => (
+  <AssistantRunTimeline data={data} />
+);
+
+const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
+  <AssistantToolApprovalNotice data={data} />
+);
+
+const assistantRunTimelineDataUI = {
+  name: ASSISTANT_RUN_EVENT_DATA_NAME,
+  render: AssistantRunTimelineDataPart,
+} satisfies AssistantDataUIProps;
+
+const assistantToolApprovalDataUI = {
+  name: TOOL_APPROVAL_DATA_NAME,
+  render: AssistantToolApprovalDataPart,
+} satisfies AssistantDataUIProps;
 
 // Re-export types needed by consumers
 export type { ModelPickerModel, ModelPickerProvider };
@@ -320,6 +341,13 @@ const LocalChainOfThought: FC = () => {
       </div>
     </ChainOfThoughtPrimitive.Root>
   );
+};
+
+const AssistantDataRendererRegistration: FC = () => {
+  useAssistantDataUI(assistantRunTimelineDataUI);
+  useAssistantDataUI(assistantToolApprovalDataUI);
+
+  return null;
 };
 
 // Keep this in sync with the collapsed-history nth-last-child selector in overrides.css.
@@ -715,6 +743,7 @@ const ChatThreadUI: FC<{
       className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col"
       data-history-collapsed={historyCollapsed ? 'true' : undefined}
     >
+      <AssistantDataRendererRegistration />
       {/**
        * Messages Viewport
        *
@@ -1052,13 +1081,6 @@ const AssistantMessage: FC = () => {
             ChainOfThought: LocalChainOfThought,
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
             Text: AssistantMessageText,
-            data: {
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
-              by_name: {
-                [ASSISTANT_RUN_EVENT_DATA_NAME]: AssistantRunTimeline,
-                [TOOL_APPROVAL_DATA_NAME]: AssistantToolApprovalNotice,
-              },
-            },
           }}
         />
       </div>
