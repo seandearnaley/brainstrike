@@ -56,7 +56,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "pnpm db:generate && pnpm db:export",
     "dev": "tsc --build --watch",
-    "eval:retrieval": "tsx src/evaluation/retrieval-eval-cli.ts",
+    "eval:retrieval": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/utils run build && tsx src/evaluation/retrieval-eval-cli.ts",
     "mutation": "npx @stryker-mutator/core run",
     "test": "node scripts/test-lanes.mjs run all",
     "test:all": "vitest run",

@@ -12,7 +12,7 @@ describe('retrieval eval runner', () => {
     expect(report.dataset.name).toBe('retrieval-golden');
     expect(report.summary.totalQueries).toBe(retrievalGoldenDataset.queries.length);
     expect(report.summary.failedQueries).toBe(0);
-    expect(report.summary.failedThresholds).toBe(0);
+    expect(report.summary.failureCount).toBe(0);
     expect(report.summary.passedQueries).toBe(retrievalGoldenDataset.queries.length);
     expect(report.summary.meanPrecisionAt1).toBe(1);
     expect(report.passed).toBe(true);
@@ -44,7 +44,7 @@ describe('retrieval eval runner', () => {
 
     expect(report.passed).toBe(false);
     expect(report.summary.failedQueries).toBe(1);
-    expect(report.summary.failedThresholds).toBe(2);
+    expect(report.summary.failureCount).toBe(2);
     expect(report.failures).toEqual([
       'query-auth precision@1 0.0000 < 1',
       'mean precision@1 0.6667 < 1',
@@ -66,7 +66,7 @@ describe('retrieval eval runner', () => {
 
     expect(report.passed).toBe(false);
     expect(report.summary.failedQueries).toBe(0);
-    expect(report.summary.failedThresholds).toBe(1);
+    expect(report.summary.failureCount).toBe(1);
     expect(report.summary.passedQueries).toBe(retrievalGoldenDataset.queries.length);
     expect(report.failures).toEqual(['mean precision@1 0.6667 < 0.8']);
   });

@@ -40,8 +40,8 @@ export interface RetrievalEvaluationReport {
   passed: boolean;
   queries: RetrievalEvaluationQueryResult[];
   summary: {
+    failureCount: number;
     failedQueries: number;
-    failedThresholds: number;
     meanPrecisionAt1: number;
     passedQueries: number;
     totalQueries: number;
@@ -217,7 +217,7 @@ export async function runRetrievalEvaluation(
         totalQueries: queryResults.length,
         passedQueries: passedQueryCount,
         failedQueries: queryResults.length - passedQueryCount,
-        failedThresholds: failures.length,
+        failureCount: failures.length,
         meanPrecisionAt1,
       },
       queries: queryResults,
