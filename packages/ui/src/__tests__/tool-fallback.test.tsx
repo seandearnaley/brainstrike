@@ -51,15 +51,15 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.queryByText(/Input/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Output/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Result:/)).not.toBeInTheDocument();
 
       const expandButton = screen.getByRole('button', { name: /expand details/i });
       await user.click(expandButton);
 
-      expect(screen.getByText(/Input/)).toBeInTheDocument();
+      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
       expect(screen.getByText(/"input":"test value"/)).toBeInTheDocument();
-      expect(screen.getByText(/Output/)).toBeInTheDocument();
+      expect(screen.getByText(/Result:/)).toBeInTheDocument();
       expect(screen.getByText(/result value/)).toBeInTheDocument();
     });
 
@@ -76,11 +76,11 @@ describe('ToolFallback', () => {
 
       const expandButton = screen.getByRole('button', { name: /expand details/i });
       await user.click(expandButton);
-      expect(screen.getByText(/Input/)).toBeInTheDocument();
+      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/i });
       await user.click(collapseButton);
-      expect(screen.queryByText(/Input/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
     });
   });
 
@@ -128,22 +128,6 @@ describe('ToolFallback', () => {
       expect(screen.getByText(/Failed/)).toBeInTheDocument();
       expect(
         screen.getByText('Select an active embedding set to enable retrieval.')
-      ).toBeInTheDocument();
-    });
-
-    it('shows assistant-stream isError tool results as failed tool cards', () => {
-      render(
-        <ToolFallback
-          {...mockBaseProps}
-          isError={true}
-          result='Function parameter parsing failed. "Unexpected end of JSON input"'
-          status={{ type: 'complete' }}
-        />
-      );
-
-      expect(screen.getByText(/Failed/)).toBeInTheDocument();
-      expect(
-        screen.getByText('Function parameter parsing failed. "Unexpected end of JSON input"')
       ).toBeInTheDocument();
     });
 
@@ -210,18 +194,18 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.queryByText(/Input/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
 
       const expandButton = screen.getByRole('button', { name: /expand details/i });
       await user.click(expandButton);
 
-      expect(screen.getByText(/Input/)).toBeInTheDocument();
+      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
       expect(screen.getByText(/"param":"value"/)).toBeInTheDocument();
-      expect(screen.queryByText(/Output/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Result:/)).not.toBeInTheDocument();
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/i });
       await user.click(collapseButton);
-      expect(screen.queryByText(/Input/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
     });
   });
 
@@ -265,7 +249,7 @@ describe('ToolFallback', () => {
       );
 
       await user.click(screen.getByRole('button', { name: /expand details/i }));
-      expect(screen.getByText(/Output/)).toBeInTheDocument();
+      expect(screen.getByText(/Result:/)).toBeInTheDocument();
       expect(screen.getByText(/complex/)).toBeInTheDocument();
       expect(screen.getByText(/nested/)).toBeInTheDocument();
     });
@@ -281,36 +265,8 @@ describe('ToolFallback', () => {
       );
 
       await user.click(screen.getByRole('button', { name: /expand details/i }));
-      expect(screen.getByText(/Output/)).toBeInTheDocument();
+      expect(screen.getByText(/Result:/)).toBeInTheDocument();
       expect(screen.getByText('Simple string result')).toBeInTheDocument();
-    });
-
-    it('bounds oversized tool output details before rendering', async () => {
-      const user = userEvent.setup();
-      render(
-        <ToolFallback
-          {...mockBaseProps}
-          result={{ output: 'x'.repeat(20_000) }}
-          status={{ type: 'complete' }}
-        />
-      );
-
-      await user.click(screen.getByRole('button', { name: /expand details/i }));
-
-      expect(screen.getByText(/\.\.\.\[truncated\]$/).textContent?.length).toBeLessThan(13_000);
-    });
-
-    it('bounds oversized tool error messages before rendering', () => {
-      render(
-        <ToolFallback
-          {...mockBaseProps}
-          isError={true}
-          result={'x'.repeat(20_000)}
-          status={{ type: 'complete' }}
-        />
-      );
-
-      expect(screen.getByText(/\.\.\.\[truncated\]$/).textContent?.length).toBeLessThan(13_000);
     });
   });
 

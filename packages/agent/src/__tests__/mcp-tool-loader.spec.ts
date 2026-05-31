@@ -1,8 +1,24 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectCombinedTools } from '../mastra/mcp-tool-loader';
 import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
+
+interface MockMcpClient {
+  listTools: ReturnType<typeof vi.fn>;
+  listToolsetsWithErrors: ReturnType<typeof vi.fn>;
+}
+
+function createMockMcpClient(
+  toolsets: Record<string, ToolsInput>,
+  errors: Record<string, string> = {}
+): MockMcpClient {
+  return {
+    listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+    listToolsetsWithErrors: vi.fn().mockResolvedValue({ toolsets, errors }),
+  };
+}
 
 describe('mcp-tool-loader', () => {
   afterEach(() => {
@@ -75,18 +91,262 @@ describe('mcp-tool-loader', () => {
       expect(result).toEqual(localTools);
     });
 
+    it('loads MCP tools from the official server-grouped toolsets API', async () => {
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            filesystem: {
+              read_file: { id: 'read_file', description: 'read file' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const toolNameMap = new Map<string, string>();
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(mockMcpClient.listToolsetsWithErrors).toHaveBeenCalledOnce();
+      expect(mockMcpClient.listTools).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('filesystem_read_file');
+      expect(toolNameMap.get('filesystem_read_file')).toBe('filesystem.read_file');
+    });
+
+    it('keeps healthy MCP server tools when another server reports a discovery error', async () => {
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            healthy: {
+              search: { id: 'search', description: 'search' },
+            },
+          },
+          errors: {
+            broken: 'Connection closed',
+          },
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'healthy',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'broken',
+              transport: 'stdio' as const,
+              command: 'false',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).toHaveProperty('healthy_search');
+      expect(result).not.toHaveProperty('broken_search');
+    });
+
+    it('logs when a configured MCP server has neither a toolset nor a discovery error', async () => {
+      const logRecords: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => logRecords.push(record));
+      const mockMcpClient = createMockMcpClient({
+        healthy: {
+          search: { id: 'search', description: 'search' },
+        },
+      });
+
+      try {
+        const result = await collectCombinedTools({
+          sanitizedLocalTools: undefined,
+          mcpClient: mockMcpClient as unknown as MCPClient,
+          mcpConfig: {
+            servers: [
+              {
+                name: 'healthy',
+                transport: 'stdio' as const,
+                command: 'echo',
+              },
+              {
+                name: 'missing',
+                transport: 'stdio' as const,
+                command: 'echo',
+              },
+            ],
+          },
+          toolNameMap: new Map(),
+          timeoutOverrideMs: undefined,
+        });
+
+        expect(result).toHaveProperty('healthy_search');
+        expect(logRecords).toContainEqual(
+          expect.objectContaining({
+            level: 'warn',
+            message: 'MCP toolset did not match configured server',
+            scope: 'MastraAgentMcpTools',
+            args: [
+              'MCP toolset did not match configured server',
+              expect.objectContaining({
+                code: 'mcp_toolset_server_key_missing',
+                serverName: 'missing',
+              }),
+            ],
+          })
+        );
+      } finally {
+        removeLogListener();
+      }
+    });
+
+    it('does not infer server ownership from substring matches', async () => {
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            github: {
+              create_issue: { id: 'create_issue', description: 'create issue' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'git',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'github',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).toHaveProperty('github_create_issue');
+      expect(Object.keys(result)).toEqual(['github_create_issue']);
+    });
+
+    it('applies persisted dot-id disablement to grouped Mastra tools after flattening', async () => {
+      mcpToolRegistry.register('filesystem', {
+        'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
+        'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
+      });
+      mcpToolRegistry.disableTools(['filesystem.read_file']);
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            filesystem: {
+              read_file: { id: 'read_file', description: 'read file' },
+              list_directory: { id: 'list_directory', description: 'list dir' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+    });
+
+    it('applies persisted raw-id disablement to grouped Mastra tools after flattening', async () => {
+      mcpToolRegistry.register('filesystem', {
+        read_file: { id: 'read_file', description: 'read file' },
+        list_directory: { id: 'list_directory', description: 'list dir' },
+      });
+      mcpToolRegistry.disableTools(['read_file']);
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            filesystem: {
+              read_file: { id: 'read_file', description: 'read file' },
+              list_directory: { id: 'list_directory', description: 'list dir' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+    });
+
     it('merges local and MCP tools', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },
       };
 
-      const mockMcpTools: ToolsInput = {
-        'server1.remote_tool': { id: 'server1.remote_tool', description: 'remote' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        server1: {
+          remote_tool: { id: 'remote_tool', description: 'remote' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: localTools,
@@ -106,21 +366,24 @@ describe('mcp-tool-loader', () => {
 
       expect(Object.keys(result)).toHaveLength(2);
       expect(result['local_tool']).toBeDefined();
-      // Tool names are sanitized: '.' gets replaced with '_'
       expect(result['server1_remote_tool']).toBeDefined();
     });
 
-    it('bounds MCP tool output before Mastra sends it back to the model', async () => {
-      const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
-      const mockMcpTools: ToolsInput = {
-        'filesystem.search_files': {
-          id: 'filesystem.search_files',
-          description: 'search files',
-          execute: vi.fn(async () => oversizedOutput),
-        } as ToolsInput[string] & { execute: () => Promise<string> },
-      };
+    it('prefers grouped MCP toolsets to preserve same-name tools across servers', async () => {
+      const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            alpha: {
+              search: { id: 'search', description: 'alpha search' },
+            },
+            beta: {
+              search: { id: 'search', description: 'beta search' },
+            },
+          },
+          errors: {},
+        }),
       };
 
       const result = await collectCombinedTools({
@@ -129,91 +392,42 @@ describe('mcp-tool-loader', () => {
         mcpConfig: {
           servers: [
             {
-              name: 'filesystem',
+              name: 'alpha',
               transport: 'stdio' as const,
               command: 'echo',
             },
-          ],
-        },
-        toolNameMap: new Map(),
-        timeoutOverrideMs: undefined,
-      });
-      const tool = result['filesystem_search_files'] as
-        | (ToolsInput[string] & { execute?: () => Promise<unknown> })
-        | undefined;
-
-      const output = await tool?.execute?.();
-      const serializedOutput = JSON.stringify(output);
-
-      expect(output).toMatchObject({
-        code: 'tool_result_too_large',
-        truncated: true,
-      });
-      expect((output as { error?: string }).error).toContain(
-        'filesystem.search_files returned too much output'
-      );
-      expect(serializedOutput.length).toBeLessThan(20_000);
-      expect(serializedOutput).not.toContain('needle-at-tail');
-    });
-
-    it('preserves non-enumerable MCP tool properties when wrapping output', async () => {
-      const tool = {
-        id: 'filesystem.search_files',
-        description: 'search files',
-        execute: vi.fn(async () => 'ok'),
-      } as ToolsInput[string] & { execute: () => Promise<string> };
-      Object.defineProperty(tool, 'internalSchema', {
-        configurable: true,
-        enumerable: false,
-        value: { shape: 'private' },
-      });
-      const mockMcpTools: ToolsInput = {
-        'filesystem.search_files': tool,
-      };
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
-
-      const result = await collectCombinedTools({
-        sanitizedLocalTools: undefined,
-        mcpClient: mockMcpClient as unknown as MCPClient,
-        mcpConfig: {
-          servers: [
             {
-              name: 'filesystem',
+              name: 'beta',
               transport: 'stdio' as const,
               command: 'echo',
             },
           ],
         },
-        toolNameMap: new Map(),
+        toolNameMap,
         timeoutOverrideMs: undefined,
       });
-      const wrappedTool = result['filesystem_search_files'] as
-        | (ToolsInput[string] & { execute?: () => Promise<unknown>; internalSchema?: unknown })
-        | undefined;
-      const descriptor = Object.getOwnPropertyDescriptor(wrappedTool, 'internalSchema');
 
-      expect(await wrappedTool?.execute?.()).toBe('ok');
-      expect(descriptor).toMatchObject({
-        enumerable: false,
-        value: { shape: 'private' },
-      });
+      expect(mockMcpClient.listToolsetsWithErrors).toHaveBeenCalledTimes(1);
+      expect(mockMcpClient.listTools).not.toHaveBeenCalled();
+      expect(Object.keys(result).sort()).toEqual(['alpha_search', 'beta_search']);
+      expect(toolNameMap.get('alpha_search')).toBe('alpha.search');
+      expect(toolNameMap.get('beta_search')).toBe('beta.search');
     });
 
-    it('executes wrapped MCP tools with the exposed cloned tool as this', async () => {
-      let receiver: unknown;
-      const tool = {
-        id: 'filesystem.search_files',
-        description: 'search files',
-        execute() {
-          receiver = this;
-          return 'ok';
-        },
-      } as ToolsInput[string] & { execute: () => string };
+    it('matches grouped MCP toolsets when returned keys use normalized server names', async () => {
+      const toolNameMap = new Map<string, string>();
       const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue({
-          'filesystem.search_files': tool,
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            'File System': {
+              read_file: { id: 'read_file', description: 'read file' },
+            },
+            notes: {
+              search: { id: 'search', description: 'search notes' },
+            },
+          },
+          errors: {},
         }),
       };
 
@@ -227,17 +441,307 @@ describe('mcp-tool-loader', () => {
               transport: 'stdio' as const,
               command: 'echo',
             },
+            {
+              name: 'notes',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result).sort()).toEqual(['filesystem_read_file', 'notes_search']);
+      expect(toolNameMap.get('filesystem_read_file')).toBe('filesystem.read_file');
+      expect(toolNameMap.get('notes_search')).toBe('notes.search');
+    });
+
+    it('does not fuzzy-match one grouped MCP toolset across multiple configured servers', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            filesystem: {
+              read_file: { id: 'read_file', description: 'read file' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'file',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result)).toEqual(['filesystem_read_file']);
+      expect(result).not.toHaveProperty('file_read_file');
+      expect(toolNameMap.get('filesystem_read_file')).toBe('filesystem.read_file');
+      expect(toolNameMap.has('file_read_file')).toBe(false);
+    });
+
+    it('reserves exact grouped MCP toolset keys for their configured server', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            alpha: {
+              search: { id: 'search', description: 'search' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'Alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(Object.keys(result)).toEqual(['alpha_search']);
+      expect(result).not.toHaveProperty('Alpha_search');
+      expect(toolNameMap.get('alpha_search')).toBe('alpha.search');
+      expect(toolNameMap.has('Alpha_search')).toBe(false);
+    });
+
+    it('warns when an exact grouped MCP toolset key is empty', async () => {
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push(record);
+      });
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            alpha: {},
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'beta',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
           ],
         },
         toolNameMap: new Map(),
         timeoutOverrideMs: undefined,
       });
-      const wrappedTool = result['filesystem_search_files'] as
-        | (ToolsInput[string] & { execute?: () => Promise<unknown> })
-        | undefined;
+      unsubscribe();
 
-      expect(await wrappedTool?.execute?.()).toBe('ok');
-      expect(receiver).toBe(wrappedTool);
+      expect(result).toEqual({});
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.args.some(
+              (arg) =>
+                typeof arg === 'object' &&
+                arg !== null &&
+                'code' in arg &&
+                arg.code === 'mcp_toolset_server_key_empty' &&
+                'serverName' in arg &&
+                arg.serverName === 'alpha'
+            )
+        )
+      ).toBe(true);
+    });
+
+    it('does not assign one normalized grouped MCP toolset to multiple configured servers', async () => {
+      const toolNameMap = new Map<string, string>();
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push(record);
+      });
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            'My Server': {
+              search: { id: 'search', description: 'search' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'my-server',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'my_server',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+      unsubscribe();
+
+      expect(Object.keys(result)).toEqual(['my-server_search']);
+      expect(result).not.toHaveProperty('my_server_search');
+      expect(toolNameMap.get('my-server_search')).toBe('my-server.search');
+      expect(toolNameMap.has('my_server_search')).toBe(false);
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.args.some(
+              (arg) =>
+                typeof arg === 'object' &&
+                arg !== null &&
+                'code' in arg &&
+                arg.code === 'mcp_toolset_server_key_duplicate'
+            )
+        )
+      ).toBe(true);
+    });
+
+    it('warns when grouped MCP toolsets miss a configured server in multi-server config', async () => {
+      const records: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push(record);
+      });
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            alpha: {
+              search: { id: 'search', description: 'search' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+            {
+              name: 'renamed-alpha',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+      unsubscribe();
+
+      expect(Object.keys(result)).toEqual(['alpha_search']);
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            record.args.some(
+              (arg) =>
+                typeof arg === 'object' &&
+                arg !== null &&
+                'code' in arg &&
+                arg.code === 'mcp_toolset_server_key_missing' &&
+                'serverName' in arg &&
+                arg.serverName === 'renamed-alpha'
+            )
+        )
+      ).toBe(true);
+    });
+
+    it('keeps grouped MCP tools for a single server when the returned key does not match', async () => {
+      const toolNameMap = new Map<string, string>();
+      const mockMcpClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockResolvedValue({
+          toolsets: {
+            discovered: {
+              search: { id: 'search', description: 'search' },
+            },
+          },
+          errors: {},
+        }),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'configured-server',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap,
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).toHaveProperty('configured-server_search');
+      expect(toolNameMap.get('configured-server_search')).toBe('configured-server.search');
     });
 
     it('handles MCP tool discovery timeout', async () => {
@@ -246,11 +750,13 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        listTools: vi.fn().mockImplementation(() => {
-          return new Promise((resolve) => {
-            setTimeout(() => resolve({}), 10_000); // Will timeout
-          });
-        }),
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              setTimeout(() => resolve({ toolsets: {}, errors: {} }), 10_000);
+            })
+        ),
       };
 
       const result = await collectCombinedTools({
@@ -279,7 +785,8 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        listTools: vi.fn().mockRejectedValue(new Error('Connection failed')),
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockRejectedValue(new Error('Connection failed')),
       };
 
       const result = await collectCombinedTools({
@@ -303,14 +810,14 @@ describe('mcp-tool-loader', () => {
     });
 
     it('filters tools for specific server', async () => {
-      const mockMcpTools: ToolsInput = {
-        'server1.tool1': { id: 'server1.tool1', description: 'server1 tool' },
-        'server2.tool2': { id: 'server2.tool2', description: 'server2 tool' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        server1: {
+          tool1: { id: 'tool1', description: 'server1 tool' },
+        },
+        server2: {
+          tool2: { id: 'tool2', description: 'server2 tool' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -328,9 +835,8 @@ describe('mcp-tool-loader', () => {
         timeoutOverrideMs: undefined,
       });
 
-      // Should only include server1 tools
       const keys = Object.keys(result);
-      expect(keys.every((key) => key.includes('server1'))).toBe(true);
+      expect(keys).toEqual(['server1_tool1']);
     });
 
     it('handles servers without names', async () => {
@@ -363,14 +869,12 @@ describe('mcp-tool-loader', () => {
     });
 
     it('handles single server with all tools', async () => {
-      const mockMcpTools: ToolsInput = {
-        tool1: { id: 'tool1', description: 'tool 1' },
-        tool2: { id: 'tool2', description: 'tool 2' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        'single-server': {
+          tool1: { id: 'tool1', description: 'tool 1' },
+          tool2: { id: 'tool2', description: 'tool 2' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -388,20 +892,17 @@ describe('mcp-tool-loader', () => {
         timeoutOverrideMs: undefined,
       });
 
-      // With single server, all tools should be included
-      expect(Object.keys(result).length).toBeGreaterThan(0);
+      expect(Object.keys(result)).toEqual(['single-server_tool1', 'single-server_tool2']);
     });
 
     it('respects enabledTools filter', async () => {
-      const mockMcpTools: ToolsInput = {
-        'server.tool1': { id: 'server.tool1', description: 'tool 1' },
-        'server.tool2': { id: 'server.tool2', description: 'tool 2' },
-        'server.tool3': { id: 'server.tool3', description: 'tool 3' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        server: {
+          tool1: { id: 'tool1', description: 'tool 1' },
+          tool2: { id: 'tool2', description: 'tool 2' },
+          tool3: { id: 'tool3', description: 'tool 3' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -420,19 +921,18 @@ describe('mcp-tool-loader', () => {
         timeoutOverrideMs: undefined,
       });
 
-      // Should only include enabled tools
-      const keys = Object.keys(result);
-      expect(keys.length).toBeLessThanOrEqual(2);
+      expect(Object.keys(result)).toEqual(['server_tool1', 'server_tool2']);
     });
 
     it('uses custom timeout value when provided', async () => {
       vi.useFakeTimers();
       let settled = false;
       const mockMcpClient = {
-        listTools: vi.fn().mockImplementation(
+        listTools: vi.fn().mockRejectedValue(new Error('listTools should not be called')),
+        listToolsetsWithErrors: vi.fn().mockImplementation(
           () =>
             new Promise((resolve) => {
-              setTimeout(() => resolve({}), 50);
+              setTimeout(() => resolve({ toolsets: {}, errors: {} }), 50);
             })
         ),
       };
@@ -464,13 +964,11 @@ describe('mcp-tool-loader', () => {
     });
 
     it('handles invalid timeout values by using default', async () => {
-      const mockMcpTools: ToolsInput = {
-        tool: { id: 'tool', description: 'tool' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        server: {
+          tool: { id: 'tool', description: 'tool' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -488,20 +986,17 @@ describe('mcp-tool-loader', () => {
         timeoutOverrideMs: -1, // Invalid timeout
       });
 
-      // Should use default timeout (5000ms) and still work
-      expect(mockMcpClient.listTools).toHaveBeenCalled();
-      expect(result).toBeDefined();
+      expect(mockMcpClient.listToolsetsWithErrors).toHaveBeenCalledOnce();
+      expect(result).toHaveProperty('server_tool');
     });
 
-    it('handles tools with case-insensitive server matching', async () => {
-      const mockMcpTools: ToolsInput = {
-        'MyServer.tool1': { id: 'MyServer.tool1', description: 'tool 1' },
-        myserver_tool2: { id: 'myserver_tool2', description: 'tool 2' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+    it('loads tools from the matching grouped server name', async () => {
+      const mockMcpClient = createMockMcpClient({
+        myserver: {
+          tool1: { id: 'tool1', description: 'tool 1' },
+          tool2: { id: 'tool2', description: 'tool 2' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -519,19 +1014,15 @@ describe('mcp-tool-loader', () => {
         timeoutOverrideMs: undefined,
       });
 
-      // Should match both variations
-      const keys = Object.keys(result);
-      expect(keys.length).toBeGreaterThan(0);
+      expect(Object.keys(result)).toEqual(['myserver_tool1', 'myserver_tool2']);
     });
 
-    it('includes all tools when single server has no matching prefix', async () => {
-      const mockMcpTools: ToolsInput = {
-        other_tool: { id: 'other_tool', description: 'other tool' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+    it('prefixes grouped single-server tools without ownership guessing', async () => {
+      const mockMcpClient = createMockMcpClient({
+        'empty-server': {
+          other_tool: { id: 'other_tool', description: 'other tool' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -549,9 +1040,8 @@ describe('mcp-tool-loader', () => {
         timeoutOverrideMs: undefined,
       });
 
-      // When there's only one server, all tools are assumed to belong to that server
       expect(Object.keys(result)).toHaveLength(1);
-      expect(result).toHaveProperty('other_tool');
+      expect(result).toHaveProperty('empty-server_other_tool');
     });
 
     it('applies persisted enabled state using original MCP ids after sanitization', async () => {
@@ -561,14 +1051,12 @@ describe('mcp-tool-loader', () => {
       });
       mcpToolRegistry.disableTools(['filesystem.read_file']);
 
-      const mockMcpTools: ToolsInput = {
-        'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
-        'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: { id: 'read_file', description: 'read file' },
+          list_directory: { id: 'list_directory', description: 'list dir' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -593,21 +1081,19 @@ describe('mcp-tool-loader', () => {
       );
     });
 
-    it('applies persisted enabled state when Mastra exposes server tools under sanitized ids', async () => {
+    it('applies persisted enabled state to grouped Mastra tool names', async () => {
       mcpToolRegistry.register('filesystem', {
         'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
         'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
       });
       mcpToolRegistry.disableTools(['filesystem.read_file']);
 
-      const mockMcpTools: ToolsInput = {
-        filesystem_read_file: { id: 'filesystem_read_file', description: 'read file' },
-        filesystem_list_directory: { id: 'filesystem_list_directory', description: 'list dir' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: { id: 'read_file', description: 'read file' },
+          list_directory: { id: 'list_directory', description: 'list dir' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -630,14 +1116,12 @@ describe('mcp-tool-loader', () => {
     });
 
     it('applies config enabledTools patterns to sanitized Mastra MCP ids through registry ids', async () => {
-      const mockMcpTools: ToolsInput = {
-        filesystem_read_file: { id: 'filesystem_read_file', description: 'read file' },
-        filesystem_list_directory: { id: 'filesystem_list_directory', description: 'list dir' },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: { id: 'read_file', description: 'read file' },
+          list_directory: { id: 'list_directory', description: 'list dir' },
+        },
+      });
 
       const result = await collectCombinedTools({
         sanitizedLocalTools: undefined,
@@ -658,6 +1142,73 @@ describe('mcp-tool-loader', () => {
 
       expect(result).not.toHaveProperty('filesystem_read_file');
       expect(result).toHaveProperty('filesystem_list_directory');
+    });
+
+    it('applies config enabledTools patterns to grouped Mastra MCP ids through raw ids', async () => {
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: { id: 'read_file', description: 'read file' },
+          list_directory: { id: 'list_directory', description: 'list dir' },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+              enabledTools: ['list_directory'],
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+    });
+
+    it('bounds oversized MCP tool output before it reaches the model stream', async () => {
+      const mockMcpClient = createMockMcpClient({
+        filesystem: {
+          read_file: {
+            id: 'read_file',
+            description: 'read file',
+            execute: vi.fn(async () => 'x'.repeat(13_000)),
+          },
+        },
+      });
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      const tool = result['filesystem_read_file'];
+      expect(typeof (tool as { execute?: unknown } | undefined)?.execute).toBe('function');
+
+      const output = await (tool as { execute: () => Promise<unknown> }).execute();
+
+      expect(output).toMatchObject({
+        code: 'tool_result_too_large',
+        truncated: true,
+      });
     });
   });
 });

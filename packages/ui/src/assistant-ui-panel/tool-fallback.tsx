@@ -1,5 +1,4 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Wrench } from 'lucide-react';
 import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useState } from 'react';
@@ -10,7 +9,6 @@ type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
 type DisplayStatus = 'running' | 'error' | 'success' | 'unknown';
-const MAX_TOOL_DETAIL_TEXT_CHARS = 12_000;
 
 const STATUS_LABELS: Record<DisplayStatus, string> = {
   error: 'Failed',
@@ -31,13 +29,7 @@ const isIncompleteStatus = (
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const readResultErrorMessage = (
-  result: ToolResult,
-  resultIsError: boolean | undefined
-): string | undefined => {
-  if (resultIsError && typeof result === 'string' && result.length > 0) {
-    return result;
-  }
+const readResultErrorMessage = (result: ToolResult): string | undefined => {
   if (typeof result === 'string') {
     return;
   }
@@ -53,17 +45,13 @@ const readResultErrorMessage = (
   if (record['isError'] === true) {
     return 'Tool execution failed.';
   }
-  if (resultIsError) {
-    return 'Tool execution failed.';
-  }
   return;
 };
 
 const resolveDisplayStatus = (
   status: ToolStatus,
   hasResult: boolean,
-  result: ToolResult,
-  resultIsError: boolean | undefined
+  result: ToolResult
 ): DisplayStatus => {
   if (status.type === 'running') {
     return 'running';
@@ -71,7 +59,7 @@ const resolveDisplayStatus = (
   if (status.type === 'incomplete') {
     return 'error';
   }
-  if (readResultErrorMessage(result, resultIsError)) {
+  if (readResultErrorMessage(result)) {
     return 'error';
   }
   if (hasResult) {
@@ -80,13 +68,9 @@ const resolveDisplayStatus = (
   return 'unknown';
 };
 
-const resolveErrorMessage = (
-  status: ToolStatus,
-  result: ToolResult,
-  resultIsError: boolean | undefined
-): string | undefined => {
+const resolveErrorMessage = (status: ToolStatus, result: ToolResult): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return readResultErrorMessage(result, resultIsError);
+    return readResultErrorMessage(result);
   }
 
   if (typeof status.error === 'string') {
@@ -112,24 +96,18 @@ const resolveErrorMessage = (
   return 'Tool incomplete: unknown';
 };
 
-function boundToolDetailText(value: string): string {
-  const sliced = sliceCodePoints(value, MAX_TOOL_DETAIL_TEXT_CHARS);
-  return sliced.length < value.length ? `${sliced}...[truncated]` : value;
-}
-
 const formatResult = (result: ToolResult): string => {
-  let text: string;
-  try {
-    text =
-      typeof result === 'string'
-        ? result
-        : result === undefined
-          ? ''
-          : JSON.stringify(result, null, 2);
-  } catch {
-    text = String(result);
+  if (typeof result === 'string') {
+    return result;
   }
-  return boundToolDetailText(text);
+  if (result === undefined) {
+    return '';
+  }
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
 };
 
 /**
@@ -144,56 +122,49 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   toolName,
   argsText,
   result,
-  isError: resultIsError,
   status,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const displayStatus = resolveDisplayStatus(status, hasResult, result, resultIsError);
+  const displayStatus = resolveDisplayStatus(status, hasResult, result);
   const statusIcon = STATUS_ICONS[displayStatus];
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
-  const errorMessage = resolveErrorMessage(status, result, resultIsError);
-  const boundedErrorMessage = errorMessage ? boundToolDetailText(errorMessage) : undefined;
-  const boundedArgsText = argsText ? boundToolDetailText(argsText) : argsText;
+  const errorMessage = resolveErrorMessage(status, result);
   const showDetails = !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 
   return (
     <m.div
-      className={`bs-tool-timeline my-1 max-w-xl rounded-md border ${
-        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border/70 bg-muted/10'
+      className={`bs-tool-timeline my-2 rounded-lg border ${
+        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
       }`}
       data-testid="tool-fallback"
       layout
-      transition={{ duration: 0.12, ease: 'easeOut' }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-2 px-3 py-2">
+      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
         <div aria-hidden="true" className="bs-tool-timeline-rail">
           {isRunning ? <Loader2 className="size-4 animate-spin" /> : statusIcon}
         </div>
         <div className="min-w-0">
-          <p
-            className={`flex min-w-0 items-center gap-1.5 font-medium text-xs ${
-              isError ? 'text-destructive' : ''
-            }`}
-          >
+          <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
             <span className="inline-flex items-center gap-1.5">
-              <Wrench className="size-3 text-muted-foreground" />
-              <span className="truncate">Used {toolName}</span>
+              <Wrench className="size-3.5 text-muted-foreground" />
+              <span>Used {toolName}</span>
             </span>
-            <span className="shrink-0 rounded-full border border-border bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <span className="ml-2 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
               {statusText}
             </span>
           </p>
           {isRunning ? (
-            <p className="mt-0.5 text-muted-foreground text-xs">Waiting for result</p>
+            <p className="mt-1 text-muted-foreground text-xs">Waiting for tool result...</p>
           ) : null}
-          {isError && boundedErrorMessage ? (
-            <p className="mt-1 text-destructive text-xs">{boundedErrorMessage}</p>
+          {isError && errorMessage ? (
+            <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
           ) : null}
         </div>
         {showDetails && (
@@ -214,15 +185,15 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
       {showDetails && !isCollapsed && (
         <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
-          {boundedArgsText && (
+          {argsText && (
             <div className="px-4 py-2">
-              <p className="mb-1 font-medium text-muted-foreground text-xs">Input</p>
-              <pre className="whitespace-pre-wrap text-xs">{boundedArgsText}</pre>
+              <p className="mb-1 font-medium text-muted-foreground text-xs">Arguments:</p>
+              <pre className="whitespace-pre-wrap text-xs">{argsText}</pre>
             </div>
           )}
           {hasResult && !isError && (
             <div className="border-t border-dashed px-4 py-2">
-              <p className="mb-1 font-medium text-muted-foreground text-xs">Output</p>
+              <p className="mb-1 font-medium text-muted-foreground text-xs">Result:</p>
               <pre className="whitespace-pre-wrap text-xs">{formattedResult}</pre>
             </div>
           )}

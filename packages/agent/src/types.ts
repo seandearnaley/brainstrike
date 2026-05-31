@@ -3,6 +3,7 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
+import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
@@ -234,6 +235,9 @@ export interface StreamChunkTool {
   status: 'start' | 'progress' | 'success' | 'error';
   type: 'tool-event';
 }
+export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
+  type: 'tool-approval-required';
+}
 export interface StreamChunkFinish {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
@@ -259,6 +263,7 @@ export type StreamChunk =
   | StreamChunkRunEvent
   | StreamChunkText
   | StreamChunkTool
+  | StreamChunkToolApprovalRequired
   | StreamChunkFinish
   | StreamChunkMessageFinish;
 

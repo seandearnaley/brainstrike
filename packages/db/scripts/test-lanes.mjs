@@ -18,6 +18,7 @@ const laneDefinitions = [
       /^db-migration-authority\.test\.ts$/,
       /^db-runtime-baseline\.test\.ts$/,
       /^dimension-hnsw-indexes\.integration\.test\.ts$/,
+      /^frontier-models-migration\.test\.ts$/,
       /^drizzle-database(\.integration)?\.test\.ts$/,
       /^drizzle-migrate\.test\.ts$/,
       /^drizzle-pglite-spike\.test\.ts$/,

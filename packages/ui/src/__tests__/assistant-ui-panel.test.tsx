@@ -1,6 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { act } from 'react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelPickerModel,
   ModelPickerProvider,
@@ -10,17 +14,14 @@ import {
   AssistantUiPanel,
   ProviderSettingsPanel,
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
-import { TooltipProvider } from '../../src/tooltip';
 
-const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test-runtime' }));
+const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
+  runtime: 'test-runtime',
+}));
+const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
+const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 const setCollapsedMock = vi.fn();
-const assistantPanelRenderFlags = vi.hoisted(() => ({
-  chainOfThoughtCount: 1,
-  currentChainOfThoughtIndex: 0,
-  includeAssistantMessage: false,
-  includeChainOfThought: false,
-}));
 let capturedLocalAdapterOptions: {
   completeRuntimeData?: (
     runtimeData: Record<string, unknown> | undefined,
@@ -40,12 +41,9 @@ let capturedLocalAdapterOptions: {
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
-vi.mock('@assistant-ui/react-data-stream', () => ({
-  useDataStreamRuntime: (options: unknown) => useDataStreamRuntimeMock(options),
-}));
-
 vi.mock('../../src/assistant-ui-panel/data-stream-runtime', () => ({
-  useBrainstrikeDataStreamRuntime: (options: unknown) => useDataStreamRuntimeMock(options),
+  useBrainstrikeDataStreamRuntime: (options: unknown) =>
+    useBrainstrikeDataStreamRuntimeMock(options),
 }));
 
 vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
@@ -55,6 +53,20 @@ vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
 
 vi.mock('../../src/assistant-ui-panel/tool-fallback', () => ({
   ToolFallback: () => <div data-testid="tool-fallback" />,
+}));
+
+vi.mock('../../src/assistant-ui-panel/tooltip-icon-button', () => ({
+  TooltipIconButton: ({
+    children,
+    tooltip,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    tooltip: string;
+  }) => (
+    <button aria-label={tooltip} type="button" {...props}>
+      {children}
+    </button>
+  ),
 }));
 
 vi.mock('../../src/assistant-ui-panel/local-runtime-adapter', () => ({
@@ -91,8 +103,6 @@ vi.mock('@assistant-ui/react', () => {
     typeof children === 'function' ? children({}) : (children ?? null);
 
   const TextStub = () => <div data-testid="assistant-text" />;
-  const chainOfThoughtKeys = ['reasoning-a', 'reasoning-b', 'reasoning-c', 'reasoning-d'];
-  const chainOfThoughtParts = chainOfThoughtKeys.map((key) => ({ id: key, type: 'reasoning' }));
 
   interface ProviderProps {
     children?: React.ReactNode;
@@ -101,16 +111,6 @@ vi.mock('@assistant-ui/react', () => {
   interface CounterProps {
     children?: React.ReactNode;
   }
-
-  interface MockChainOfThoughtScopeProps {
-    children?: React.ReactNode;
-    index: number;
-  }
-
-  const MockChainOfThoughtScope = ({ children, index }: MockChainOfThoughtScopeProps) => {
-    assistantPanelRenderFlags.currentChainOfThoughtIndex = index;
-    return <>{children}</>;
-  };
 
   type InputProps = Record<string, unknown>;
   type ButtonPrimitiveProps = PrimitiveProps & {
@@ -121,12 +121,15 @@ vi.mock('@assistant-ui/react', () => {
     components?: {
       ChainOfThought?: React.ComponentType;
       Text?: React.ComponentType;
+      data?: unknown;
     };
   }
 
   interface MessagesProps {
     components?: {
       AssistantMessage?: React.ComponentType;
+      EditComposer?: React.ComponentType;
+      UserMessage?: React.ComponentType;
     };
   }
 
@@ -171,25 +174,13 @@ vi.mock('@assistant-ui/react', () => {
     MessagePrimitive: {
       Root: Primitive,
       Parts: ({ components }: PartsProps) => {
+        messagePartsComponentsMock(components);
         const Text = components?.Text ?? TextStub;
-        const ChainOfThought = components?.ChainOfThought;
-        return (
-          <>
-            {assistantPanelRenderFlags.includeChainOfThought && ChainOfThought
-              ? chainOfThoughtKeys
-                  .slice(0, assistantPanelRenderFlags.chainOfThoughtCount)
-                  .map((key, index) => (
-                    <MockChainOfThoughtScope index={index} key={key}>
-                      <ChainOfThought />
-                    </MockChainOfThoughtScope>
-                  ))
-              : null}
-            <Text />
-          </>
-        );
+        return <Text />;
       },
       If,
     },
+    useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
       chainOfThought: () => ({
         setCollapsed: setCollapsedMock,
@@ -197,23 +188,10 @@ vi.mock('@assistant-ui/react', () => {
     }),
     useAuiState: <T,>(
       selector: (state: {
-        chainOfThought: { collapsed: boolean; parts: Array<{ id: string; type: string }> };
-        message: { parts: Array<{ id: string; type: string }> };
+        chainOfThought: { collapsed: boolean };
         thread: { messages: Array<{ id: string }> };
       }) => T
-    ) => {
-      const currentIndex = assistantPanelRenderFlags.currentChainOfThoughtIndex;
-      return selector({
-        chainOfThought: {
-          collapsed: true,
-          parts: chainOfThoughtParts.slice(currentIndex, currentIndex + 1),
-        },
-        message: {
-          parts: chainOfThoughtParts.slice(0, assistantPanelRenderFlags.chainOfThoughtCount),
-        },
-        thread: { messages: [] },
-      });
-    },
+    ) => selector({ chainOfThought: { collapsed: true }, thread: { messages: [] } }),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       type: 'reasoning' as const,
@@ -224,10 +202,8 @@ vi.mock('@assistant-ui/react', () => {
       Root: Primitive,
       Viewport: Primitive,
       Messages: ({ components }: MessagesProps) => {
-        const AssistantMessage = components?.AssistantMessage;
-        return assistantPanelRenderFlags.includeAssistantMessage && AssistantMessage ? (
-          <AssistantMessage />
-        ) : null;
+        const Assistant = components?.AssistantMessage;
+        return Assistant ? <Assistant /> : null;
       },
       If,
     },
@@ -296,8 +272,8 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'claude-sonnet-4-5',
-            label: 'Claude Sonnet 4.5',
+            id: 'claude-sonnet-4-6',
+            label: 'Claude Sonnet 4.6',
             type: 'llm',
             enabled: true,
             supportsStreaming: true,
@@ -324,9 +300,9 @@ const pickerModels: ModelPickerModel[] = [
     capabilities: { type: 'llm', streaming: true },
   },
   {
-    id: 'claude-sonnet-4-5',
+    id: 'claude-sonnet-4-6',
     providerId: 'anthropic',
-    name: 'Claude Sonnet 4.5',
+    name: 'Claude Sonnet 4.6',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
@@ -344,9 +320,6 @@ describe('AssistantUiPanel model picker', () => {
   beforeEach(() => {
     Object.assign(window, { assistant: undefined });
     capturedLocalAdapterOptions = null;
-    assistantPanelRenderFlags.chainOfThoughtCount = 1;
-    assistantPanelRenderFlags.includeAssistantMessage = false;
-    assistantPanelRenderFlags.includeChainOfThought = false;
   });
 
   afterEach(() => {
@@ -355,55 +328,35 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   it('uses the Brainstrike data-stream runtime for hosted providers', () => {
-    render(
-      <TooltipProvider>
-        <AssistantUiPanel {...baseProps} onModelChange={() => {}} />
-      </TooltipProvider>
-    );
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
-    expect(useDataStreamRuntimeMock).toHaveBeenCalledWith(
+    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         api: '/api/assistant',
       })
     );
   });
 
-  it('renders reasoning as a compact disclosure without explanatory copy', () => {
-    assistantPanelRenderFlags.includeAssistantMessage = true;
-    assistantPanelRenderFlags.includeChainOfThought = true;
+  it('registers assistant data renderers through assistant-ui data UI', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
-    render(
-      <TooltipProvider>
-        <AssistantUiPanel {...baseProps} onModelChange={() => {}} />
-      </TooltipProvider>
+    expect(useAssistantDataUIMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: ASSISTANT_RUN_EVENT_DATA_NAME,
+        render: expect.any(Function),
+      })
     );
-
-    const toggle = screen.getByTestId('local-chain-of-thought');
-    expect(toggle).toHaveAttribute('aria-label', 'Show reasoning');
-    expect(toggle).toHaveTextContent('Thinking');
-    expect(toggle).not.toHaveTextContent('Reasoning and tool activity');
-    expect(toggle).not.toHaveTextContent('Inspect reasoning');
-    expect(toggle).toHaveClass('rounded-full');
-  });
-
-  it('collapses repeated reasoning parts into continuation dots', async () => {
-    assistantPanelRenderFlags.chainOfThoughtCount = 3;
-    assistantPanelRenderFlags.includeAssistantMessage = true;
-    assistantPanelRenderFlags.includeChainOfThought = true;
-
-    render(
-      <TooltipProvider>
-        <AssistantUiPanel {...baseProps} onModelChange={() => {}} />
-      </TooltipProvider>
+    expect(useAssistantDataUIMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: TOOL_APPROVAL_DATA_NAME,
+        render: expect.any(Function),
+      })
     );
-
-    await waitFor(() => {
-      const toggles = screen.getAllByTestId('local-chain-of-thought');
-      expect(toggles).toHaveLength(3);
-      expect(toggles[0]).toHaveTextContent('Thinking');
-      expect(toggles[1]).not.toHaveTextContent('Thinking');
-      expect(toggles[2]).not.toHaveTextContent('Thinking');
-    });
+    expect(messagePartsComponentsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.anything(),
+      })
+    );
   });
 
   it('prepares per-run request data when the hosted runtime starts a request', async () => {
@@ -424,7 +377,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
     };
 
@@ -462,7 +415,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onCancel?: () => void;
       onError?: (error: Error) => void;
@@ -515,7 +468,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onFinish?: () => void;
     };
@@ -573,7 +526,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onCancel?: () => void;
     };
@@ -618,7 +571,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onError?: (error: Error) => void;
     };
@@ -909,11 +862,11 @@ describe('AssistantUiPanel model picker', () => {
     fireEvent.click(trigger);
 
     // Wait for the popover to open and find the Claude model option
-    const option = await screen.findByText('Claude Sonnet 4.5');
+    const option = await screen.findByText('Claude Sonnet 4.6');
     fireEvent.click(option);
 
     // Should be called with composite key format: "provider::model"
-    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-5');
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
   });
 
   it('shows placeholder when no models are enabled', () => {

@@ -37,7 +37,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
-            --model claude-opus-4-6
+            --model claude-opus-4-8
             --max-turns 16
             --append-system-prompt "Follow AGENTS.md and apps/docs/docs/development/code-review-guidelines.md as required standards. Prioritize determinism, performance, test coverage, simplification, and architecture integrity."
 

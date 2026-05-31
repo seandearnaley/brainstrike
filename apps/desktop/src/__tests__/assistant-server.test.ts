@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
@@ -44,57 +45,50 @@ vi.mock('../secrets', () => ({
   getSecretsService: vi.fn(() => mockSecretsService),
 }));
 
-vi.mock('@brainstrike/agent', () => ({
-  assistantDataStreamSessions: {
-    create: vi.fn(() => ({
-      createResponse: vi.fn(() => ({
-        status: 200,
-        headers: new Headers(),
-        body: null,
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return {
+    ...actual,
+    assistantDataStreamSessions: {
+      create: vi.fn(() => ({
+        createResponse: vi.fn(() => ({
+          status: 200,
+          headers: new Headers(),
+          body: null,
+        })),
       })),
+    },
+    convertAssistantUiMessages: vi.fn((messages) => messages),
+    createEmbeddingProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
+      apiKey,
+      model,
+      provider,
+      type: 'embedding-model',
     })),
-  },
-  convertAssistantUiMessages: vi.fn((messages) => messages),
-  createEmbeddingProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
-    apiKey,
-    model,
-    provider,
-    type: 'embedding-model',
-  })),
-  createProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
-    apiKey,
-    model,
-    provider,
-  })),
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS: {
-    observationalMemory: {
-      enabled: true,
-      modelTarget: 'openai/gpt-5.2-chat-latest',
-      scope: 'thread',
-      messageTokens: 30_000,
-      observationTokens: 40_000,
-      retrievalMode: 'off',
-    },
-    semanticRecall: {
-      enabled: false,
-      embeddingModelTarget: 'openai/text-embedding-3-small',
-      scope: 'resource',
-      topK: 5,
-      messageRange: 2,
-    },
-  },
-  resolveDataStreamSession: vi.fn(() => {}),
-  sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
-  toAiSdkStyleStream: vi.fn(async () => ({
-    async *[Symbol.asyncIterator]() {
-      yield { type: 'text', content: 'test' };
-    },
-  })),
-  isSupportedProvider: (provider: string) =>
-    ['openai', 'anthropic', 'google', 'openrouter', 'cohere', 'voyage'].includes(provider),
-}));
+    createProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
+      apiKey,
+      model,
+      provider,
+    })),
+    resolveDataStreamSession: vi.fn(() => {}),
+    sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
+    streamMastraToolApprovalAction: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'approval resumed' };
+      },
+    })),
+    toAiSdkStyleStream: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text', content: 'test' };
+      },
+    })),
+    isSupportedProvider: (provider: string) =>
+      ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
+  };
+});
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
+const mockPgliteMastraStorage = { id: 'desktop-storage' };
 const mockDesktopDatabase = {
   exec: vi.fn(),
   query: vi.fn(),
@@ -104,9 +98,10 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
   createPgliteMastraMemory: vi.fn(() =>
     Promise.resolve({
       memory: mockPgliteMastraMemory,
-      storage: {},
+      storage: mockPgliteMastraStorage,
       store: {},
       vector: {},
+      workflows: {},
     })
   ),
 }));
@@ -559,6 +554,23 @@ describe('assistant-server', () => {
       expect(data.message).toBe('Request body must be valid JSON.');
     }, 10_000);
 
+    it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: { 'content-type': 'application/json' },
+        body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
+      });
+
+      expect(response.status).toBe(413);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data.error).toBe('request_body_too_large');
+      expect(data.message).toBe(
+        `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`
+      );
+      expect(response.headers['connection']).toBe('close');
+    }, 10_000);
+
     it('should handle POST to assistant route with valid message', async () => {
       const loggerInfoSpy = vi
         .spyOn(desktopAssistantServerLogger, 'info')
@@ -713,9 +725,7 @@ describe('assistant-server', () => {
     });
 
     it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
-      const { toAiSdkStyleStream, convertAssistantUiMessages, createProvider } = await import(
-        '@brainstrike/agent'
-      );
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
       const { getDatabase } = await import('../db-main');
       const { streamResponse } = await import('../assistant-server/http');
@@ -744,10 +754,6 @@ describe('assistant-server', () => {
             memory: {
               threadId: 'thread-1',
               resourceId: 'workspace-a',
-              memoryOptions: {
-                lastMessages: false,
-                workingMemory: { enabled: false },
-              },
               memorySettings: {
                 observationalMemory: {
                   enabled: true,
@@ -770,13 +776,17 @@ describe('assistant-server', () => {
         }),
       });
 
+      const { createProvider } = await import('@brainstrike/agent');
+
       expect(getDatabase).toHaveBeenCalledTimes(1);
+      expect(createProvider).toHaveBeenCalledWith(
+        'anthropic',
+        'test-api-key',
+        'claude-haiku-4-5',
+        expect.objectContaining({ provider: 'openai', apiKey: 'test-api-key' })
+      );
       expect(createPgliteMastraMemory).toHaveBeenCalledWith({
         database: expect.anything(),
-        memoryOptions: {
-          lastMessages: false,
-          workingMemory: { enabled: false },
-        },
         memorySettings: {
           observationalMemory: {
             enabled: true,
@@ -800,35 +810,25 @@ describe('assistant-server', () => {
           provider: 'anthropic',
         },
       });
-      expect(createProvider).toHaveBeenCalledWith(
-        'anthropic',
-        'test-api-key',
-        'claude-haiku-4-5',
-        expect.objectContaining({ provider: 'openai' })
-      );
       expect(toAiSdkStyleStream).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
           memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
         }),
-        { memory: mockPgliteMastraMemory }
+        { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
       );
     });
 
-    it('uses the active Desktop provider key for matching Mastra observational memory models', async () => {
-      const { toAiSdkStyleStream, convertAssistantUiMessages, createProvider } = await import(
-        '@brainstrike/agent'
-      );
+    it('routes tool approval actions through Mastra approval resume without requiring a new prompt', async () => {
+      const { streamMastraToolApprovalAction, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
       const { streamResponse } = await import('../assistant-server/http');
 
-      mockSecretsService.getKey.mockResolvedValueOnce('openai-runtime-key');
-      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
-      ]);
-      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([]);
+      (streamMastraToolApprovalAction as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { type: 'text-delta', value: 'Approved and continued.' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -841,166 +841,95 @@ describe('assistant-server', () => {
         url: '/',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'workspace.writeFile',
+              },
+            },
+          },
           data: {
             provider: 'openai',
             memory: {
               threadId: 'thread-1',
               resourceId: 'workspace-a',
-              memorySettings: {
-                observationalMemory: {
-                  enabled: true,
-                  modelTarget: 'openai/gpt-5.2-chat-latest',
-                  scope: 'thread',
-                  messageTokens: 20_000,
-                  observationTokens: 40_000,
-                  retrievalMode: 'off',
-                },
-                semanticRecall: {
-                  enabled: false,
-                  embeddingModelTarget: 'openai/text-embedding-3-small',
-                  scope: 'resource',
-                  topK: 5,
-                  messageRange: 2,
-                },
-              },
             },
           },
         }),
       });
 
-      expect(createProvider).toHaveBeenCalledWith(
-        'openai',
-        'openai-runtime-key',
-        'gpt-5.2-chat-latest',
-        expect.objectContaining({ provider: 'openai', apiKey: 'openai-runtime-key' })
-      );
-      expect(createPgliteMastraMemory).toHaveBeenCalledWith(
-        expect.objectContaining({
-          observationalMemoryModel: {
-            apiKey: 'openai-runtime-key',
-            model: 'gpt-5.2-chat-latest',
-            provider: 'openai',
-          },
-        })
-      );
-    });
-
-    it('creates a concrete hosted embedder when Mastra semantic recall is enabled', async () => {
-      const { toAiSdkStyleStream, convertAssistantUiMessages, createEmbeddingProvider } =
-        await import('@brainstrike/agent');
-      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-      const { streamResponse } = await import('../assistant-server/http');
-
-      mockSecretsService.getKey.mockResolvedValue('semantic-openai-key');
-      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Recall this later' }] },
-      ]);
-      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
-        async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+      expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+      expect(streamMastraToolApprovalAction).toHaveBeenCalledWith(
+        {
+          action: 'approve',
+          runId: 'run-approval-1',
+          toolCallId: 'tool-call-1',
+          toolName: 'workspace.writeFile',
         },
-      });
-      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
-        const response = res as { end?: () => void };
-        response.end?.();
-      });
-
-      await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Recall this later' }] }],
-          data: {
+        expect.objectContaining({
+          memory: mockPgliteMastraMemory,
+          requireToolApproval: true,
+          storage: mockPgliteMastraStorage,
+          runtime: expect.objectContaining({
+            apiKey: 'test-api-key',
             provider: 'openai',
-            memory: {
+            memory: expect.objectContaining({
               threadId: 'thread-1',
               resourceId: 'workspace-a',
-              memorySettings: {
-                observationalMemory: {
-                  enabled: false,
-                  modelTarget: 'openai/gpt-5.2-chat-latest',
-                  scope: 'thread',
-                  messageTokens: 20_000,
-                  observationTokens: 40_000,
-                  retrievalMode: 'off',
-                },
-                semanticRecall: {
-                  enabled: true,
-                  embeddingModelTarget: 'openai/text-embedding-3-small',
-                  scope: 'resource',
-                  topK: 5,
-                  messageRange: 2,
-                },
-              },
-            },
-          },
-        }),
-      });
-
-      expect(createEmbeddingProvider).toHaveBeenCalledWith(
-        'openai',
-        'semantic-openai-key',
-        'text-embedding-3-small'
-      );
-      expect(createPgliteMastraMemory).toHaveBeenCalledWith(
-        expect.objectContaining({
-          embedder: {
-            apiKey: 'semantic-openai-key',
-            model: 'text-embedding-3-small',
-            provider: 'openai',
-            type: 'embedding-model',
-          },
+            }),
+          }),
         })
       );
     });
 
-    it('fails explicitly when semantic recall selects an unsupported embedder provider', async () => {
-      const { toAiSdkStyleStream, convertAssistantUiMessages, createEmbeddingProvider } =
-        await import('@brainstrike/agent');
+    it('rejects tool approval resume when workflow storage is missing from memory', async () => {
+      const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
 
-      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Recall this later' }] },
-      ]);
+      (createPgliteMastraMemory as Mock).mockResolvedValueOnce({
+        memory: mockPgliteMastraMemory,
+        store: {},
+        vector: {},
+        workflows: {},
+      });
 
       const response = await runRequest({
         method: 'POST',
         url: '/',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Recall this later' }] }],
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'workspace.writeFile',
+              },
+            },
+          },
           data: {
             provider: 'openai',
             memory: {
               threadId: 'thread-1',
               resourceId: 'workspace-a',
-              memorySettings: {
-                observationalMemory: {
-                  enabled: false,
-                  modelTarget: 'openai/gpt-5.2-chat-latest',
-                  scope: 'thread',
-                  messageTokens: 20_000,
-                  observationTokens: 40_000,
-                  retrievalMode: 'off',
-                },
-                semanticRecall: {
-                  enabled: true,
-                  embeddingModelTarget: 'cohere/embed-english-v3.0',
-                  scope: 'resource',
-                  topK: 5,
-                  messageRange: 2,
-                },
-              },
             },
           },
         }),
       });
 
-      expect(response.status).toBe(502);
-      expect(response.body).toContain('Desktop Mastra semantic recall currently supports');
-      expect(createEmbeddingProvider).not.toHaveBeenCalled();
-      expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'tool_approval_memory_required',
+        message: 'Tool approval resume requires Mastra memory context with workflow storage.',
+      });
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
     });
 
     it('retries desktop Mastra memory initialization after a transient failure', async () => {
@@ -1036,9 +965,10 @@ describe('assistant-server', () => {
         .mockRejectedValueOnce(new Error('temporary memory init failure'))
         .mockResolvedValueOnce({
           memory: mockPgliteMastraMemory,
-          storage: {},
+          storage: mockPgliteMastraStorage,
           store: {},
           vector: {},
+          workflows: {},
         });
       (toAiSdkStyleStream as Mock).mockResolvedValue({
         async *[Symbol.asyncIterator]() {
@@ -1112,207 +1042,6 @@ describe('assistant-server', () => {
 
       expect(firstMemory).toBe(thirdMemory);
       expect(firstMemory).not.toBe(secondMemory);
-    });
-
-    it('deduplicates concurrent Mastra memory initialization while keychain resolution is pending', async () => {
-      mockDesktopDatabase.exec.mockResolvedValue(undefined);
-      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-      const memorySettings = {
-        observationalMemory: {
-          enabled: true,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
-          messageTokens: 10_000,
-          observationTokens: 20_000,
-          retrievalMode: 'off',
-        },
-        semanticRecall: {
-          enabled: false,
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          scope: 'resource',
-          topK: 3,
-          messageRange: 1,
-        },
-      };
-      const resolveKeyCallbacks: Array<(value: string) => void> = [];
-      mockSecretsService.getKey.mockImplementation(
-        () =>
-          new Promise<string>((resolve) => {
-            resolveKeyCallbacks.push(resolve);
-          })
-      );
-
-      const firstRequest = getDesktopMastraMemoryForTests(memorySettings);
-      const secondRequest = getDesktopMastraMemoryForTests(memorySettings);
-      await vi.waitFor(() => {
-        expect(resolveKeyCallbacks).toHaveLength(1);
-      });
-
-      for (const resolveKey of resolveKeyCallbacks) {
-        resolveKey('test-api-key');
-      }
-      const [firstMemory, secondMemory] = await Promise.all([firstRequest, secondRequest]);
-
-      expect(mockSecretsService.getKey).toHaveBeenCalledTimes(1);
-      expect(firstMemory).toBe(secondMemory);
-      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
-    });
-
-    it('bounds pending desktop Mastra memory keychain resolution entries', async () => {
-      mockDesktopDatabase.exec.mockResolvedValue(undefined);
-      const resolveKeyCallbacks: Array<(value: string) => void> = [];
-      mockSecretsService.getKey.mockImplementation(
-        () =>
-          new Promise<string>((resolve) => {
-            resolveKeyCallbacks.push(resolve);
-          })
-      );
-      const createMemorySettings = (messageTokens: number) => ({
-        observationalMemory: {
-          enabled: true,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
-          messageTokens,
-          observationTokens: 20_000,
-          retrievalMode: 'off',
-        },
-        semanticRecall: {
-          enabled: false,
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          scope: 'resource',
-          topK: 3,
-          messageRange: 1,
-        },
-      });
-      const pendingRequests = Array.from({ length: 17 }, (_, index) =>
-        getDesktopMastraMemoryForTests(createMemorySettings(10_000 + index))
-      );
-      await vi.waitFor(() => {
-        expect(mockSecretsService.getKey).toHaveBeenCalledTimes(17);
-      });
-
-      const evictedFirstRequest = getDesktopMastraMemoryForTests(createMemorySettings(10_000));
-      await vi.waitFor(() => {
-        expect(mockSecretsService.getKey).toHaveBeenCalledTimes(18);
-      });
-
-      for (const resolveKey of resolveKeyCallbacks) {
-        resolveKey('test-api-key');
-      }
-      await Promise.all([...pendingRequests, evictedFirstRequest]);
-    });
-
-    it('keeps separate desktop Mastra memory instances keyed by runtime memory options', async () => {
-      mockDesktopDatabase.exec.mockResolvedValue(undefined);
-      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-      const memorySettings = {
-        observationalMemory: {
-          enabled: false,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
-          messageTokens: 10_000,
-          observationTokens: 20_000,
-          retrievalMode: 'off',
-        },
-        semanticRecall: {
-          enabled: false,
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          scope: 'resource',
-          topK: 3,
-          messageRange: 1,
-        },
-      };
-
-      const firstMemory = await getDesktopMastraMemoryForTests(memorySettings, {
-        memory: {
-          threadId: 'thread-a',
-          resourceId: 'workspace-a',
-          memoryOptions: {
-            lastMessages: 8,
-            workingMemory: { enabled: true, scope: 'resource' },
-          },
-        },
-      });
-      const secondMemory = await getDesktopMastraMemoryForTests(memorySettings, {
-        memory: {
-          threadId: 'thread-b',
-          resourceId: 'workspace-a',
-          memoryOptions: {
-            lastMessages: false,
-            workingMemory: { enabled: false },
-          },
-        },
-      });
-      const thirdMemory = await getDesktopMastraMemoryForTests(memorySettings, {
-        memory: {
-          threadId: 'thread-c',
-          resourceId: 'workspace-a',
-          memoryOptions: {
-            workingMemory: { enabled: true, scope: 'resource' },
-            lastMessages: 8,
-          },
-        },
-      });
-
-      expect(firstMemory).toBe(thirdMemory);
-      expect(firstMemory).not.toBe(secondMemory);
-      expect(createPgliteMastraMemory).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({
-          memoryOptions: {
-            lastMessages: 8,
-            workingMemory: { enabled: true, scope: 'resource' },
-          },
-        })
-      );
-      expect(createPgliteMastraMemory).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({
-          memoryOptions: {
-            lastMessages: false,
-            workingMemory: { enabled: false },
-          },
-        })
-      );
-    });
-
-    it('reuses runtime-key Mastra memory without reading keychain or recreating providers', async () => {
-      mockDesktopDatabase.exec.mockResolvedValue(undefined);
-      const { createProvider } = await import('@brainstrike/agent');
-      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-      const memorySettings = {
-        observationalMemory: {
-          enabled: true,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
-          messageTokens: 10_000,
-          observationTokens: 20_000,
-          retrievalMode: 'off',
-        },
-        semanticRecall: {
-          enabled: false,
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          scope: 'resource',
-          topK: 3,
-          messageRange: 1,
-        },
-      };
-      const runtimeData = {
-        apiKey: 'runtime-openai-key',
-        provider: 'openai',
-        memory: {
-          threadId: 'thread-a',
-          resourceId: 'workspace-a',
-        },
-      };
-
-      const firstMemory = await getDesktopMastraMemoryForTests(memorySettings, runtimeData);
-      const secondMemory = await getDesktopMastraMemoryForTests(memorySettings, runtimeData);
-
-      expect(firstMemory).toBe(secondMemory);
-      expect(mockSecretsService.getKey).not.toHaveBeenCalled();
-      expect(createProvider).toHaveBeenCalledTimes(1);
-      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
     });
 
     it('reuses desktop Mastra memory for semantically identical settings with different key order', async () => {
@@ -1477,6 +1206,20 @@ describe('assistant-server', () => {
               timestamp: '2026-04-24T10:00:01.000Z',
             },
           };
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-3',
+              kind: 'tool.completed',
+              label: 'Tool completed',
+              metadata: {
+                toolCallId: 'call-1',
+                toolName: 'brainstrike.queryEmbeddingSpace',
+              },
+              status: 'completed',
+              timestamp: '2026-04-24T10:00:02.000Z',
+            },
+          };
           yield { type: 'text-delta', value: 'Response' };
         },
       });
@@ -1527,6 +1270,10 @@ describe('assistant-server', () => {
       expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
         expect.arrayContaining(['event-2', 'run-1', 6, 'run.step.started', 'running'])
+      );
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
+        expect.arrayContaining(['event-3', 'run-1', 7, 'tool.completed', 'completed'])
       );
     });
 

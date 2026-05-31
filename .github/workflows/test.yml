@@ -290,11 +290,24 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [static, unit, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # Run inside the official Playwright image: browsers and their system
+    # dependencies are baked in, so there is NO `playwright install` step and
+    # NO download from cdn.playwright.dev at job time. This removes the CDN
+    # browser download that was stalling at 100% and hanging the job to its
+    # timeout. The image tag MUST match the installed @playwright/test version.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      # `--user 1001` (pwuser) is the configuration shown in Playwright's
+      # official GitHub Actions container example. The browsers under
+      # /ms-playwright are owned by this user; it is the documented, tested path.
+      options: --user 1001
+    timeout-minutes: 25
     env:
       NODE_ENV: production
       PORT: "8080"
       BASE_URL: http://127.0.0.1:8080
+      # Browsers are preinstalled here in the image; point Playwright at them.
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -317,27 +330,6 @@ jobs:
           name: build-artifacts
           path: .
 
-      - name: Get Playwright version
-        id: playwright-version
-        run: |
-          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers and dependencies
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
-
       - name: Run web smoke
         run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
 
@@ -355,7 +347,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [static, unit, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       NODE_ENV: test
       CI: "true"
@@ -395,26 +387,45 @@ jobs:
           name: build-artifacts
           path: .
 
-      - name: Get Playwright version
-        id: playwright-version
-        run: |
-          version=$(node -p "require('./apps/desktop/package.json').devDependencies['@playwright/test']")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers and dependencies
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
+      # Desktop E2E drives the app through Playwright's Electron API
+      # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
+      # binary — it does NOT use a `playwright install chromium` browser. So we
+      # only need the Chromium system libraries (apt), not the browser binary
+      # download from cdn.playwright.dev (which was stalling and hanging the
+      # job). `install-deps` is apt-only and does not touch the browser CDN.
+      - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
+
+      # The desktop smoke launches the REAL Electron binary via
+      # `_electron.launch`. On an ~/.cache/electron cache miss the binary may
+      # not be extracted into node_modules, so the app throws "Electron failed
+      # to install correctly". Force-extract it (uses the warm cache when
+      # present, else downloads from GitHub Releases — NOT the Playwright CDN),
+      # then VERIFY the binary exists so any provisioning gap fails loudly here
+      # rather than cryptically inside the test. This runs immediately before
+      # the smoke so no later step (e.g. artifact extraction) can disturb it.
+      # Provision the Electron binary deterministically. electron/install.js is
+      # unreliable here: on an @electron/get cache hit it reaches its
+      # `extract-zip` step but the (un-awaited) extraction never completes and
+      # the process exits 0, leaving no dist/ or path.txt — so the app throws
+      # "Electron failed to install correctly". Instead, download the prebuilt
+      # zip directly from GitHub Releases (reliable host, NOT the Playwright
+      # CDN) and extract it with the system `unzip`, then write path.txt and
+      # hard-verify the executable exists before the smoke launches it.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
       # dbus-run-session provides an ephemeral D-Bus session so Chromium
       # inside Electron doesn't spew `[ERROR:dbus/bus.cc:405] Failed to

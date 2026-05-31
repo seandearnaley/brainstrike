@@ -159,6 +159,117 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 5, outputTokens: 7 });
   });
 
+  it('emits completed tool-call args before successful non-streaming tool results', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'tool-event',
+        name: 'weather.lookup',
+        status: 'start',
+        payload: { toolCallId: 'call-direct', args: { city: 'SF' } },
+      },
+      {
+        type: 'tool-event',
+        name: 'weather.lookup',
+        status: 'success',
+        payload: { toolCallId: 'call-direct', output: { tempC: 18 } },
+      },
+      { type: 'finish', usage: { promptTokens: 5, completionTokens: 7 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'direct-tool-success',
+      messageId: 'msg-direct-tool-success',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const toolCallIndex = events.findIndex((evt) => evt.code === '9');
+    const toolResultIndex = events.findIndex((evt) => evt.code === 'a');
+
+    expect(toolCallIndex).toBeGreaterThan(-1);
+    expect(toolResultIndex).toBeGreaterThan(-1);
+    expect(toolCallIndex).toBeLessThan(toolResultIndex);
+    expect(events[toolCallIndex]).toStrictEqual({
+      code: '9',
+      value: {
+        toolCallId: 'call-direct',
+        toolName: 'weather.lookup',
+        args: { city: 'SF' },
+      },
+    });
+    expect(events[toolResultIndex]).toStrictEqual({
+      code: 'a',
+      value: { toolCallId: 'call-direct', result: { tempC: 18 } },
+    });
+  });
+
+  it('encodes approval-required tool chunks as pending approval data', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+        resumeSchema: '{}',
+        runId: 'run-approval-1',
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        type: 'tool-approval-required',
+      },
+      {
+        type: 'message-finish',
+        finishReason: 'tool-calls',
+        path: [],
+        usage: { promptTokens: 0, completionTokens: 0 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'approval-required',
+      messageId: 'msg-approval-required',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const toolCallIndex = events.findIndex((evt) => evt.code === '9');
+    const approvalIndex = events.findIndex(
+      (evt) =>
+        evt.code === 'aui-data' &&
+        (evt.value as { name?: unknown }).name === 'brainstrike.tool-approval'
+    );
+    const finishIndex = events.findIndex((evt) => evt.code === 'd');
+
+    expect(toolCallIndex).toBeGreaterThan(-1);
+    expect(approvalIndex).toBeGreaterThan(toolCallIndex);
+    expect(finishIndex).toBeGreaterThan(approvalIndex);
+    expect(events.find((evt) => evt.code === 'a')).toBeUndefined();
+    expect(events.find((evt) => evt.code === '3')).toBeUndefined();
+    expect(events[toolCallIndex]).toStrictEqual({
+      code: '9',
+      value: {
+        toolCallId: 'approval-1',
+        toolName: 'brainstrike.updateWorkspaceContextSelection',
+        args: { mode: 'replace', paths: ['src/index.ts'] },
+      },
+    });
+    expect(events[approvalIndex]).toStrictEqual({
+      code: 'aui-data',
+      value: {
+        data: {
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+          runId: 'run-approval-1',
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        name: 'brainstrike.tool-approval',
+      },
+    });
+    expect(events[finishIndex]).toStrictEqual({
+      code: 'd',
+      value: {
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        path: [],
+      },
+    });
+  });
+
   it('prefers data-stream usage fields over legacy prompt/completion aliases', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello' },

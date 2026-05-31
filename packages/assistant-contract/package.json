@@ -77,6 +77,11 @@
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
     },
+    "./tool-approval": {
+      "types": "./dist/tool-approval.d.ts",
+      "import": "./dist/tool-approval.js",
+      "require": "./dist/tool-approval.js"
+    },
     "./tool-metadata": {
       "types": "./dist/tool-metadata.d.ts",
       "import": "./dist/tool-metadata.js",

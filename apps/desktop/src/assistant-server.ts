@@ -3,6 +3,7 @@ import http from 'node:http';
 import type {
   AgentMessage,
   AssistantRunEvent,
+  AssistantToolApprovalAction,
   AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
@@ -10,14 +11,22 @@ import type {
   StreamChunk,
 } from '@brainstrike/agent';
 import {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantInvalidJsonError,
+  AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
   createEmbeddingProvider,
   createProvider,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  hasNonEmptyAssistantPrompt,
   isSupportedProvider,
+  parseAssistantRequestPayloadText,
+  readToolApprovalRunConfigAction,
+  resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   sanitizeAssistantRunEventMetadata,
+  streamMastraToolApprovalAction,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
@@ -29,6 +38,8 @@ type AssistantRoute = 'status' | 'assistant' | 'not-found';
 interface AssistantRequestPayload {
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessage[];
+  toolApprovalAction?: AssistantToolApprovalAction;
+  toolApprovalActionInvalid?: boolean;
 }
 interface AgentStreamSuccess {
   ok: true;
@@ -55,6 +66,9 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
+const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+  process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
+);
 type DesktopMastraMemoryResult =
   import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
@@ -80,31 +94,25 @@ const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 
-interface DesktopObservationalMemoryModelTarget {
-  readonly apiKey: string;
-  readonly cacheKey: string;
-  readonly model: string;
-  readonly provider: SupportedProvider;
-}
-
-interface DesktopSemanticRecallEmbeddingModelTarget {
-  readonly apiKey: string;
-  readonly cacheKey: string;
-  readonly model: string;
-  readonly provider: SupportedProvider;
-}
-
 interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;
   readonly provider: SupportedProvider;
 }
 
+interface DesktopObservationalMemoryModelTarget extends DesktopMemoryModelTargetDescriptor {
+  readonly apiKey: string;
+  readonly cacheKey: string;
+}
+
+interface DesktopSemanticRecallEmbeddingModelTarget extends DesktopMemoryModelTargetDescriptor {
+  readonly apiKey: string;
+  readonly cacheKey: string;
+}
+
 type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
 interface DesktopMastraMemoryCacheState {
-  readonly cachedPromise?:
-    | Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
-    | undefined;
+  readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
   readonly observationalMemoryDescriptor?: DesktopMemoryModelTargetDescriptor | undefined;
   readonly observationalMemoryTarget?: DesktopObservationalMemoryModelTarget | undefined;
   readonly semanticRecallEmbeddingDescriptor?: DesktopMemoryModelTargetDescriptor | undefined;
@@ -196,7 +204,7 @@ async function handleAssistantPost(
   if (!prepared) {
     return;
   }
-  const { messages, runtimeData, apiKey } = prepared;
+  const { messages, runtimeData, apiKey, toolApprovalAction } = prepared;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -212,6 +220,7 @@ async function handleAssistantPost(
       apiKey,
       signal,
       runId,
+      toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
       },
@@ -262,6 +271,7 @@ async function streamAssistantPostResponse({
   apiKey,
   signal,
   runId,
+  toolApprovalAction,
   toolDependencies,
 }: {
   readonly res: http.ServerResponse;
@@ -270,6 +280,7 @@ async function streamAssistantPostResponse({
   readonly apiKey: string | undefined;
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
+  readonly toolApprovalAction?: AssistantToolApprovalAction;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   };
@@ -282,6 +293,7 @@ async function streamAssistantPostResponse({
     mcpConfig,
     signal,
     runId,
+    toolApprovalAction,
     toolDependencies
   );
   if (!streamResult.ok) {
@@ -501,6 +513,7 @@ interface PreparedAssistantPostRequest {
   apiKey: string;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
+  toolApprovalAction?: AssistantToolApprovalAction;
 }
 
 async function prepareAssistantPostRequest(
@@ -509,15 +522,27 @@ async function prepareAssistantPostRequest(
 ): Promise<PreparedAssistantPostRequest | undefined> {
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
+  let toolApprovalAction: AssistantToolApprovalAction | undefined;
+  let toolApprovalActionInvalid = false;
   try {
     const payload = await parseAssistantRequestPayload(req);
     rawMessages = payload.rawMessages;
     data = payload.data;
+    toolApprovalAction = payload.toolApprovalAction;
+    toolApprovalActionInvalid = Boolean(payload.toolApprovalActionInvalid);
   } catch (error) {
-    if (error instanceof SyntaxError) {
+    if (error instanceof AssistantInvalidJsonError) {
       respondJson(res, 400, {
-        error: 'invalid_json',
-        message: 'Request body must be valid JSON.',
+        error: error.code,
+        message: error.message,
+      });
+      return;
+    }
+    if (error instanceof AssistantRequestBodyTooLargeError) {
+      res.setHeader('Connection', 'close');
+      respondJson(res, 413, {
+        error: error.code,
+        message: error.message,
       });
       return;
     }
@@ -526,6 +551,14 @@ async function prepareAssistantPostRequest(
 
   const messages = convertAssistantUiMessages(rawMessages);
   const provider = resolveRequestedProvider(data);
+
+  if (toolApprovalActionInvalid) {
+    respondJson(res, 400, {
+      error: 'invalid_tool_approval_action',
+      message: 'Tool approval action must include action, runId, and toolCallId.',
+    });
+    return;
+  }
 
   if (!provider) {
     respondJson(res, 400, {
@@ -563,7 +596,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!hasNonEmptyPrompt(messages)) {
+  if (!(toolApprovalAction || hasNonEmptyPrompt(messages))) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -574,6 +607,7 @@ async function prepareAssistantPostRequest(
     messages,
     runtimeData,
     apiKey: apiKey ?? '',
+    ...(toolApprovalAction ? { toolApprovalAction } : {}),
   };
 }
 
@@ -681,28 +715,6 @@ function resolveRequestedProvider(data: RuntimeData | undefined): string | undef
   return isSupportedProvider(normalized) ? normalized : undefined;
 }
 
-async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
-  if (!isSupportedProvider(provider)) {
-    return;
-  }
-
-  const supportedProvider = provider as SupportedProvider;
-
-  const envKey = resolveProviderEnvKey(supportedProvider);
-  if (envKey) {
-    logger.info('Using environment API key for provider', { provider });
-    return envKey;
-  }
-
-  const storedKey = await readProviderSecretKey(supportedProvider);
-  if (storedKey) {
-    logger.info('Retrieved stored API key for provider', { provider });
-    return storedKey;
-  }
-
-  return;
-}
-
 function parseModelTarget(
   modelTarget: string,
   {
@@ -716,10 +728,7 @@ function parseModelTarget(
     readonly formatLabel: string;
     readonly unsupportedProviderLabel: string;
   }
-): {
-  readonly model: string;
-  readonly provider: SupportedProvider;
-} {
+): DesktopMemoryModelTargetDescriptor {
   const trimmed = modelTarget.trim();
   const separatorIndex = trimmed.indexOf('/');
   if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
@@ -740,10 +749,9 @@ function parseModelTarget(
   return { provider, model };
 }
 
-function parseObservationalMemoryModelTarget(modelTarget: string): {
-  readonly model: string;
-  readonly provider: SupportedProvider;
-} {
+function parseObservationalMemoryModelTarget(
+  modelTarget: string
+): DesktopMemoryModelTargetDescriptor {
   return parseModelTarget(modelTarget, {
     allowedProviders: DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS,
     formatLabel: 'Observational memory model target',
@@ -753,10 +761,9 @@ function parseObservationalMemoryModelTarget(modelTarget: string): {
   });
 }
 
-function parseSemanticRecallEmbeddingModelTarget(modelTarget: string): {
-  readonly model: string;
-  readonly provider: SupportedProvider;
-} {
+function parseSemanticRecallEmbeddingModelTarget(
+  modelTarget: string
+): DesktopMemoryModelTargetDescriptor {
   return parseModelTarget(modelTarget, {
     allowedProviders: DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS,
     formatLabel: 'Semantic recall embedding model target',
@@ -766,229 +773,26 @@ function parseSemanticRecallEmbeddingModelTarget(modelTarget: string): {
   });
 }
 
-async function resolveDesktopObservationalMemoryModelTarget(
-  target: DesktopMemoryModelTargetDescriptor,
-  runtimeData?: RuntimeData | undefined
-): Promise<DesktopObservationalMemoryModelTarget | undefined> {
-  return resolveDesktopMemoryModelTarget(target, runtimeData, 'Observational memory model');
-}
-
-function resolveDesktopObservationalMemoryModelTargetDescriptor(
-  memorySettings: RuntimeAssistantMemorySettings | undefined
-): DesktopMemoryModelTargetDescriptor | undefined {
-  const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
-  const observationalMemorySettings = effectiveSettings.observationalMemory;
-  if (!observationalMemorySettings.enabled) {
+async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
+  if (!isSupportedProvider(provider)) {
     return;
   }
 
-  return parseObservationalMemoryModelTarget(observationalMemorySettings.modelTarget);
-}
+  const supportedProvider = provider as SupportedProvider;
 
-async function resolveDesktopSemanticRecallEmbeddingModelTarget(
-  target: DesktopMemoryModelTargetDescriptor,
-  runtimeData?: RuntimeData | undefined
-): Promise<DesktopSemanticRecallEmbeddingModelTarget | undefined> {
-  return resolveDesktopMemoryModelTarget(target, runtimeData, 'Semantic recall embedding model');
-}
-
-function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
-  memorySettings: RuntimeAssistantMemorySettings | undefined
-): DesktopMemoryModelTargetDescriptor | undefined {
-  const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
-  const semanticRecallSettings = effectiveSettings.semanticRecall;
-  if (!semanticRecallSettings.enabled) {
-    return;
-  }
-  if (!semanticRecallSettings.embeddingModelTarget?.trim()) {
-    throw new Error('Semantic recall requires a configured embedding model target.');
+  const envKey = resolveProviderEnvKey(supportedProvider);
+  if (envKey) {
+    logger.info('Using environment API key for provider', { provider });
+    return envKey;
   }
 
-  return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);
-}
-
-async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
-  target: T,
-  runtimeData: RuntimeData | undefined,
-  label: string
-): Promise<T & { readonly apiKey: string; readonly cacheKey: string }> {
-  const { model, provider } = target;
-  const runtimeProvider = resolveRequestedProvider(runtimeData);
-  const runtimeApiKey =
-    runtimeProvider === provider && runtimeData?.apiKey?.trim()
-      ? runtimeData.apiKey.trim()
-      : undefined;
-  const apiKey = runtimeApiKey ?? (await resolveProviderApiKey(provider));
-  if (!apiKey) {
-    throw new Error(`${label} "${provider}/${model}" requires a configured ${provider} API key.`);
+  const storedKey = await readProviderSecretKey(supportedProvider);
+  if (storedKey) {
+    logger.info('Retrieved stored API key for provider', { provider });
+    return storedKey;
   }
 
-  return {
-    ...target,
-    apiKey,
-    cacheKey: `${provider}/${model}:${hashSecretForCacheKey(apiKey)}`,
-  };
-}
-
-function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
-  target: T | undefined,
-  runtimeData: RuntimeData | undefined
-): (T & { readonly apiKey: string; readonly cacheKey: string }) | undefined {
-  if (!target) {
-    return;
-  }
-  const runtimeProvider = resolveRequestedProvider(runtimeData);
-  const apiKey =
-    runtimeProvider === target.provider && runtimeData?.apiKey?.trim()
-      ? runtimeData.apiKey.trim()
-      : undefined;
-  if (!apiKey) {
-    return;
-  }
-  return {
-    ...target,
-    apiKey,
-    cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
-  };
-}
-
-function buildDesktopMastraMemoryCacheKey({
-  memoryOptions,
-  memorySettings,
-  observationalMemoryTarget,
-  semanticRecallEmbeddingTarget,
-}: {
-  readonly memoryOptions: RuntimeMemoryOptions | undefined;
-  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
-  readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
-  readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
-}): string {
-  return stableJsonStringify({
-    memoryOptions: memoryOptions ?? null,
-    memorySettings: memorySettings ?? null,
-    observationalMemoryModel: observationalMemoryTarget?.cacheKey ?? null,
-    semanticRecallEmbedder: semanticRecallEmbeddingTarget?.cacheKey ?? null,
-  });
-}
-
-function buildDesktopMastraMemoryResolutionKey({
-  memoryOptions,
-  memorySettings,
-  observationalMemoryDescriptor,
-  semanticRecallEmbeddingDescriptor,
-}: {
-  readonly memoryOptions: RuntimeMemoryOptions | undefined;
-  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
-  readonly observationalMemoryDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
-  readonly semanticRecallEmbeddingDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
-}): string {
-  return stableJsonStringify({
-    memoryOptions: memoryOptions ?? null,
-    memorySettings: memorySettings ?? null,
-    observationalMemoryDescriptor: observationalMemoryDescriptor ?? null,
-    semanticRecallEmbeddingDescriptor: semanticRecallEmbeddingDescriptor ?? null,
-  });
-}
-
-function createDesktopMastraMemoryCacheState({
-  memoryOptions,
-  memorySettings,
-  runId,
-  runtimeData,
-}: {
-  readonly memoryOptions: RuntimeMemoryOptions | undefined;
-  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
-  readonly runId: string | undefined;
-  readonly runtimeData: RuntimeData | undefined;
-}): DesktopMastraMemoryCacheState {
-  const observationalMemoryDescriptor =
-    resolveDesktopObservationalMemoryModelTargetDescriptor(memorySettings);
-  const semanticRecallEmbeddingDescriptor =
-    resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(memorySettings);
-  const observationalMemoryTarget = resolveRuntimeMemoryModelTarget(
-    observationalMemoryDescriptor,
-    runtimeData
-  );
-  const semanticRecallEmbeddingTarget = resolveRuntimeMemoryModelTarget(
-    semanticRecallEmbeddingDescriptor,
-    runtimeData
-  );
-  if (
-    runId ||
-    (observationalMemoryDescriptor && !observationalMemoryTarget) ||
-    (semanticRecallEmbeddingDescriptor && !semanticRecallEmbeddingTarget)
-  ) {
-    return {
-      observationalMemoryDescriptor,
-      observationalMemoryTarget,
-      semanticRecallEmbeddingDescriptor,
-      semanticRecallEmbeddingTarget,
-    };
-  }
-
-  const cacheKey = buildDesktopMastraMemoryCacheKey({
-    memoryOptions,
-    memorySettings,
-    observationalMemoryTarget,
-    semanticRecallEmbeddingTarget,
-  });
-  return {
-    cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
-    observationalMemoryDescriptor,
-    observationalMemoryTarget,
-    semanticRecallEmbeddingDescriptor,
-    semanticRecallEmbeddingTarget,
-  };
-}
-
-function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheState): boolean {
-  return Boolean(
-    (cacheState.observationalMemoryDescriptor && !cacheState.observationalMemoryTarget) ||
-      (cacheState.semanticRecallEmbeddingDescriptor && !cacheState.semanticRecallEmbeddingTarget)
-  );
-}
-
-function cleanupDesktopMastraMemoryResolutionPromise(
-  resolutionKey: string,
-  pendingMemory: DesktopMastraMemoryPromise
-): void {
-  if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
-    desktopMastraMemoryResolutionPromises.delete(resolutionKey);
-  }
-}
-
-function createDesktopMastraMemoryProviderBindings({
-  observationalMemoryTarget,
-  runtimeData,
-  semanticRecallEmbeddingTarget,
-}: {
-  readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
-  readonly runtimeData: RuntimeData | undefined;
-  readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
-}): {
-  readonly embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
-  readonly observationalMemoryModel: ReturnType<typeof createProvider> | undefined;
-} {
-  const observationalMemoryModel = observationalMemoryTarget
-    ? createProvider(
-        observationalMemoryTarget.provider,
-        observationalMemoryTarget.apiKey,
-        observationalMemoryTarget.model,
-        runtimeData
-      )
-    : undefined;
-  const embedder = semanticRecallEmbeddingTarget
-    ? createEmbeddingProvider(
-        semanticRecallEmbeddingTarget.provider,
-        semanticRecallEmbeddingTarget.apiKey,
-        semanticRecallEmbeddingTarget.model
-      )
-    : undefined;
-  return { embedder, observationalMemoryModel };
-}
-
-function hashSecretForCacheKey(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return;
 }
 
 async function collectAvailableProviders(): Promise<string[]> {
@@ -1057,10 +861,7 @@ function hydrateRuntimeDataWithLocalRuntimeToken(
 }
 
 function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
-  const lastUser = messages.length > 0 ? messages.at(-1) : undefined;
-  const lastText =
-    lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
-  return Boolean(lastText && lastText.trim().length > 0);
+  return hasNonEmptyAssistantPrompt(messages);
 }
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {
@@ -1121,14 +922,18 @@ function respondForbiddenOrigin(res: http.ServerResponse): void {
 async function parseAssistantRequestPayload(
   req: http.IncomingMessage
 ): Promise<AssistantRequestPayload> {
-  const body = await readRequestBody(req);
-  const parsed: unknown = JSON.parse(body || '{}');
-  const maybePayload = parsed as Partial<{ messages: AssistantUiMessage[]; data: RuntimeData }>;
-  const rawMessages = Array.isArray(maybePayload?.messages)
-    ? (maybePayload.messages as AssistantUiMessage[])
-    : [];
-  const data = maybePayload?.data ?? undefined;
-  return { rawMessages, data };
+  const body = await readRequestBody(req, {
+    maxBodyBytes: assistantRequestBodyLimitBytes,
+  });
+  const payload = parseAssistantRequestPayloadText(body);
+  const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
+  if (!toolApprovalActionResult) {
+    return payload;
+  }
+  if ('invalid' in toolApprovalActionResult) {
+    return { ...payload, toolApprovalActionInvalid: true };
+  }
+  return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
 }
 
 async function resumeStreamIfAvailable(
@@ -1155,6 +960,7 @@ async function initializeAgentStream(
   mcpConfig: McpConfig | undefined,
   signal: AbortSignal,
   runId: string | undefined,
+  toolApprovalAction: AssistantToolApprovalAction | undefined,
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   }
@@ -1187,11 +993,27 @@ async function initializeAgentStream(
           runtime
         )
       : undefined;
-    const stream = await toAiSdkStyleStream(
-      messages,
-      runtime,
-      memoryResult ? { memory: memoryResult.memory } : {}
-    );
+    if (toolApprovalAction && !memoryResult?.storage) {
+      return {
+        ok: false,
+        status: 400,
+        payload: {
+          error: 'tool_approval_memory_required',
+          message: 'Tool approval resume requires Mastra memory context with workflow storage.',
+        },
+      };
+    }
+    const stream = toolApprovalAction
+      ? await streamMastraToolApprovalAction(toolApprovalAction, {
+          ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+          requireToolApproval: true,
+          runtime,
+        })
+      : await toAiSdkStyleStream(
+          messages,
+          runtime,
+          memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}
+        );
     logger.info('Assistant stream initialized');
     return {
       ok: true,
@@ -1263,6 +1085,64 @@ async function getDesktopMastraMemory(
   });
 }
 
+function createDesktopMastraMemoryCacheState({
+  memoryOptions,
+  memorySettings,
+  runId,
+  runtimeData,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly runId: string | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+}): DesktopMastraMemoryCacheState {
+  const observationalMemoryDescriptor =
+    resolveDesktopObservationalMemoryModelTargetDescriptor(memorySettings);
+  const semanticRecallEmbeddingDescriptor =
+    resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(memorySettings);
+  const observationalMemoryTarget = resolveRuntimeMemoryModelTarget(
+    observationalMemoryDescriptor,
+    runtimeData
+  );
+  const semanticRecallEmbeddingTarget = resolveRuntimeMemoryModelTarget(
+    semanticRecallEmbeddingDescriptor,
+    runtimeData
+  );
+  if (
+    runId ||
+    (observationalMemoryDescriptor && !observationalMemoryTarget) ||
+    (semanticRecallEmbeddingDescriptor && !semanticRecallEmbeddingTarget)
+  ) {
+    return {
+      observationalMemoryDescriptor,
+      observationalMemoryTarget,
+      semanticRecallEmbeddingDescriptor,
+      semanticRecallEmbeddingTarget,
+    };
+  }
+
+  const cacheKey = buildDesktopMastraMemoryCacheKey({
+    memoryOptions,
+    memorySettings,
+    observationalMemoryTarget,
+    semanticRecallEmbeddingTarget,
+  });
+  return {
+    cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
+    observationalMemoryDescriptor,
+    observationalMemoryTarget,
+    semanticRecallEmbeddingDescriptor,
+    semanticRecallEmbeddingTarget,
+  };
+}
+
+function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheState): boolean {
+  return Boolean(
+    (cacheState.observationalMemoryDescriptor && !cacheState.observationalMemoryTarget) ||
+      (cacheState.semanticRecallEmbeddingDescriptor && !cacheState.semanticRecallEmbeddingTarget)
+  );
+}
+
 async function createDesktopMastraMemoryFromCacheState({
   cacheState,
   eventSink,
@@ -1279,22 +1159,24 @@ async function createDesktopMastraMemoryFromCacheState({
   readonly runtimeData: RuntimeData | undefined;
 }): Promise<DesktopMastraMemoryResult> {
   const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-  const observationalMemoryTarget = cacheState.observationalMemoryTarget
-    ? cacheState.observationalMemoryTarget
-    : cacheState.observationalMemoryDescriptor
-      ? await resolveDesktopObservationalMemoryModelTarget(
+  const observationalMemoryTarget =
+    cacheState.observationalMemoryTarget ??
+    (cacheState.observationalMemoryDescriptor
+      ? await resolveDesktopMemoryModelTarget(
           cacheState.observationalMemoryDescriptor,
-          runtimeData
+          runtimeData,
+          'Observational memory model'
         )
-      : undefined;
-  const semanticRecallEmbeddingTarget = cacheState.semanticRecallEmbeddingTarget
-    ? cacheState.semanticRecallEmbeddingTarget
-    : cacheState.semanticRecallEmbeddingDescriptor
-      ? await resolveDesktopSemanticRecallEmbeddingModelTarget(
+      : undefined);
+  const semanticRecallEmbeddingTarget =
+    cacheState.semanticRecallEmbeddingTarget ??
+    (cacheState.semanticRecallEmbeddingDescriptor
+      ? await resolveDesktopMemoryModelTarget(
           cacheState.semanticRecallEmbeddingDescriptor,
-          runtimeData
+          runtimeData,
+          'Semantic recall embedding model'
         )
-      : undefined;
+      : undefined);
   const { embedder, observationalMemoryModel } = createDesktopMastraMemoryProviderBindings({
     observationalMemoryTarget,
     runtimeData,
@@ -1344,6 +1226,155 @@ async function createDesktopMastraMemoryFromCacheState({
   return memoryPromise;
 }
 
+function resolveDesktopObservationalMemoryModelTargetDescriptor(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): DesktopMemoryModelTargetDescriptor | undefined {
+  const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
+  const observationalMemorySettings = effectiveSettings.observationalMemory;
+  if (!observationalMemorySettings.enabled) {
+    return;
+  }
+
+  return parseObservationalMemoryModelTarget(observationalMemorySettings.modelTarget);
+}
+
+function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): DesktopMemoryModelTargetDescriptor | undefined {
+  const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
+  const semanticRecallSettings = effectiveSettings.semanticRecall;
+  if (!semanticRecallSettings.enabled) {
+    return;
+  }
+  if (!semanticRecallSettings.embeddingModelTarget?.trim()) {
+    throw new Error('Semantic recall requires a configured embedding model target.');
+  }
+
+  return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);
+}
+
+async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T,
+  runtimeData: RuntimeData | undefined,
+  label: string
+): Promise<T & { readonly apiKey: string; readonly cacheKey: string }> {
+  const { model, provider } = target;
+  const runtimeProvider = resolveRequestedProvider(runtimeData);
+  const runtimeApiKey =
+    runtimeProvider === provider && runtimeData?.apiKey?.trim()
+      ? runtimeData.apiKey.trim()
+      : undefined;
+  const apiKey = runtimeApiKey ?? (await resolveProviderApiKey(provider));
+  if (!apiKey) {
+    throw new Error(`${label} "${provider}/${model}" requires a configured ${provider} API key.`);
+  }
+
+  return {
+    ...target,
+    apiKey,
+    cacheKey: `${provider}/${model}:${hashSecretForCacheKey(apiKey)}`,
+  };
+}
+
+function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T | undefined,
+  runtimeData: RuntimeData | undefined
+): (T & { readonly apiKey: string; readonly cacheKey: string }) | undefined {
+  if (!target) {
+    return;
+  }
+  const runtimeProvider = resolveRequestedProvider(runtimeData);
+  const apiKey =
+    runtimeProvider === target.provider && runtimeData?.apiKey?.trim()
+      ? runtimeData.apiKey.trim()
+      : undefined;
+  if (!apiKey) {
+    return;
+  }
+  return {
+    ...target,
+    apiKey,
+    cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
+  };
+}
+
+function createDesktopMastraMemoryProviderBindings({
+  observationalMemoryTarget,
+  runtimeData,
+  semanticRecallEmbeddingTarget,
+}: {
+  readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+  readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
+}): {
+  readonly embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
+  readonly observationalMemoryModel: ReturnType<typeof createProvider> | undefined;
+} {
+  const observationalMemoryModel = observationalMemoryTarget
+    ? createProvider(
+        observationalMemoryTarget.provider,
+        observationalMemoryTarget.apiKey,
+        observationalMemoryTarget.model,
+        runtimeData
+      )
+    : undefined;
+  const embedder = semanticRecallEmbeddingTarget
+    ? createEmbeddingProvider(
+        semanticRecallEmbeddingTarget.provider,
+        semanticRecallEmbeddingTarget.apiKey,
+        semanticRecallEmbeddingTarget.model
+      )
+    : undefined;
+  return { embedder, observationalMemoryModel };
+}
+
+function buildDesktopMastraMemoryCacheKey({
+  memoryOptions,
+  memorySettings,
+  observationalMemoryTarget,
+  semanticRecallEmbeddingTarget,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
+  readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
+}): string {
+  return stableJsonStringify({
+    memoryOptions: memoryOptions ?? null,
+    memorySettings: memorySettings ?? null,
+    observationalMemoryModel: observationalMemoryTarget?.cacheKey ?? null,
+    semanticRecallEmbedder: semanticRecallEmbeddingTarget?.cacheKey ?? null,
+  });
+}
+
+function buildDesktopMastraMemoryResolutionKey({
+  memoryOptions,
+  memorySettings,
+  observationalMemoryDescriptor,
+  semanticRecallEmbeddingDescriptor,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly observationalMemoryDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
+  readonly semanticRecallEmbeddingDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
+}): string {
+  return stableJsonStringify({
+    memoryOptions: memoryOptions ?? null,
+    memorySettings: memorySettings ?? null,
+    observationalMemoryDescriptor: observationalMemoryDescriptor ?? null,
+    semanticRecallEmbeddingDescriptor: semanticRecallEmbeddingDescriptor ?? null,
+  });
+}
+
+function cleanupDesktopMastraMemoryResolutionPromise(
+  resolutionKey: string,
+  pendingMemory: DesktopMastraMemoryPromise
+): void {
+  if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
+    desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+  }
+}
+
 function evictOldestDesktopMastraMemoryPromise(): void {
   if (desktopMastraMemoryPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
     return;
@@ -1362,6 +1393,10 @@ function evictOldestDesktopMastraMemoryResolutionPromise(): void {
   if (typeof oldestKey === 'string') {
     desktopMastraMemoryResolutionPromises.delete(oldestKey);
   }
+}
+
+function hashSecretForCacheKey(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function stableJsonStringify(value: unknown): string {

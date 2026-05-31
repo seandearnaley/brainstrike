@@ -48,8 +48,6 @@ export interface ActionButtonsProps {
   /** Whether the tree is being loaded for select all */
   isLoadingForSelectAll?: boolean | undefined;
   maxSelectionCount: number;
-  /** Called when bulk selection caps at the maximum selection count. */
-  onSelectionLimitReached?: (() => void) | undefined;
   /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.
@@ -86,7 +84,6 @@ export const ActionButtons = React.memo(
     addMultipleSelectedFiles,
     addMultipleSelectedFilesChunked,
     visibleFilePaths,
-    onSelectionLimitReached,
   }: ActionButtonsProps) => {
     /**
      * Performs recursive selection using the tree worker API.
@@ -120,7 +117,7 @@ export const ActionButtons = React.memo(
      * Only selects from currently displayed files.
      */
     const performFallbackSelection = useCallback(
-      (folderId: string): boolean => {
+      (folderId: string): void => {
         const sourcePaths =
           hasActiveQuickFilter && visibleFilePaths && visibleFilePaths.length > 0
             ? visibleFilePaths
@@ -131,7 +128,6 @@ export const ActionButtons = React.memo(
           .map((path) => encodeFileSelection(folderId, path));
 
         setSelectedFiles(new Set(filesToSelect));
-        return sourcePaths.length > filesToSelect.length;
       },
       [
         hasActiveQuickFilter,
@@ -152,25 +148,16 @@ export const ActionButtons = React.memo(
       }
 
       if (hasActiveQuickFilter) {
-        const limitReached = performFallbackSelection(currentFolderId);
-        if (limitReached) {
-          onSelectionLimitReached?.();
-        }
+        performFallbackSelection(currentFolderId);
         return;
       }
 
       const canUseRecursive = selectAllRecursively && addMultipleSelectedFiles && filteredTree;
 
       if (canUseRecursive) {
-        const result = await performRecursiveSelection(currentFolderId);
-        if (result?.limitReached) {
-          onSelectionLimitReached?.();
-        }
+        await performRecursiveSelection(currentFolderId);
       } else {
-        const limitReached = performFallbackSelection(currentFolderId);
-        if (limitReached) {
-          onSelectionLimitReached?.();
-        }
+        performFallbackSelection(currentFolderId);
       }
     }, [
       currentFolderId,
@@ -180,7 +167,6 @@ export const ActionButtons = React.memo(
       performRecursiveSelection,
       performFallbackSelection,
       hasActiveQuickFilter,
-      onSelectionLimitReached,
     ]);
 
     // Clears all selected files

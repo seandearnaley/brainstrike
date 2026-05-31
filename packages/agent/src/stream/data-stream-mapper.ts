@@ -1,3 +1,7 @@
+import {
+  type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -7,6 +11,7 @@ import type {
   StreamChunkRunEvent,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalRequired,
   StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
@@ -14,6 +19,7 @@ import { toJsonSafe } from './json';
 import { boundToolOutputForModel, readToolOutputErrorText } from './tool-output-limits';
 
 interface ToolState {
+  argsEmitted: boolean;
   lastInput?: unknown;
   pendingArgsText: string;
   toolName: string;
@@ -129,7 +135,7 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
-      return MISSING_FINISH_ERROR_TEXT;
+      return 'Assistant stream ended without a normal stop signal.';
     case 'stop':
     case 'tool-calls':
     case 'error':
@@ -211,6 +217,9 @@ export class DataStreamMapper {
         return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
+        return;
+      case 'tool-approval-required':
+        yield* this.handleToolApprovalRequired(chunk);
         return;
       case 'finish':
       case 'message-finish':
@@ -349,6 +358,51 @@ export class DataStreamMapper {
     }
   }
 
+  private *handleToolApprovalRequired(
+    chunk: StreamChunkToolApprovalRequired
+  ): Generator<EncodedChunk> {
+    const callId = sanitizeToolCallId(chunk.toolCallId);
+    if (!callId) {
+      return;
+    }
+
+    if (!this.toolState.has(callId)) {
+      yield* this.handleToolStart(chunk.toolName, callId, {
+        args: chunk.args,
+        input: chunk.args,
+      });
+    }
+
+    const state = this.toolState.get(callId);
+    const args = chunk.args ?? state?.lastInput;
+    if (state && !state.argsEmitted) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          toolCallId: callId,
+          toolName: state.toolName,
+          args: toArgsObject(args, state.pendingArgsText),
+        },
+      } satisfies EncodedChunk;
+    }
+
+    const data: AssistantToolApprovalRequest = {
+      runId: chunk.runId,
+      toolCallId: callId,
+      toolName: chunk.toolName,
+      ...(args === undefined ? {} : { args: toJsonSafe(args) }),
+      ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+    };
+    yield {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        name: TOOL_APPROVAL_DATA_NAME,
+        data,
+      },
+    } satisfies EncodedChunk;
+  }
+
   private *handleToolStart(
     toolName: string,
     callId: string,
@@ -357,6 +411,7 @@ export class DataStreamMapper {
     yield* this.finalizeCurrentTextIfNeeded();
     yield* this.startStepIfNeeded();
     this.toolState.set(callId, {
+      argsEmitted: false,
       toolName,
       pendingArgsText: '',
       lastInput: extractToolInput(payload),
@@ -390,6 +445,7 @@ export class DataStreamMapper {
         return;
       }
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
         value: { toolCallId: callId, toolName: state.toolName, args },
@@ -402,18 +458,19 @@ export class DataStreamMapper {
     callId: string,
     payload: unknown
   ): Generator<EncodedChunk> {
-    const state = this.toolState.get(callId);
     const output = toJsonSafe(
       (payload as { output?: unknown; result?: unknown }).output ??
         (payload as { result?: unknown }).result
     );
+    const state = this.toolState.get(callId);
     // MCP tools are also bounded at the loader edge, but stream events can come
     // from non-MCP tools and replay paths. The bounder is idempotent for
     // already-bounded results, so keep this as the final model-facing guard.
     const bounded = boundToolOutputForModel(state?.toolName ?? toolName, output);
     if (bounded.errorText) {
-      if (state) {
+      if (state && !state.argsEmitted) {
         const args = toArgsObject(state.lastInput, state.pendingArgsText);
+        state.argsEmitted = true;
         yield {
           code: DataStreamCode.toolCall,
           value: { toolCallId: callId, toolName: state.toolName, args },
@@ -427,6 +484,14 @@ export class DataStreamMapper {
       this.pendingToolErrorTexts.push(bounded.errorText);
       this.startNewStepForNextText = true;
       return;
+    }
+    if (state && !state.argsEmitted) {
+      const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: { toolCallId: callId, toolName: state.toolName, args },
+      } satisfies EncodedChunk;
     }
     this.toolState.delete(callId);
     yield {
@@ -445,8 +510,9 @@ export class DataStreamMapper {
 
     // Emit ToolCall with args if we haven't already (needed for UI to display tool)
     const state = this.toolState.get(callId);
-    if (state) {
+    if (state && !state.argsEmitted) {
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
         value: { toolCallId: callId, toolName: state.toolName, args },
@@ -454,9 +520,6 @@ export class DataStreamMapper {
     }
 
     this.toolState.delete(callId);
-    // Tool errors are recoverable at the assistant-message level. Consumers
-    // should use this tool result's isError flag rather than finishReason to
-    // detect failed tool execution.
     yield {
       code: DataStreamCode.toolCallResult,
       value: { toolCallId: callId, result: output, isError: true },

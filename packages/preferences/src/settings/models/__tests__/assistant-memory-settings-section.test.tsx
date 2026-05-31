@@ -32,9 +32,9 @@ function seedRegistry(): void {
     ],
     models: [
       {
-        id: 'gpt-5.2-chat-latest',
+        id: 'gpt-5.4-mini',
         providerId: 'openai',
-        name: 'GPT-5.2 Chat',
+        name: 'GPT-5.4 Mini',
         description: null,
         tagline: null,
         bestFor: null,
@@ -127,7 +127,7 @@ describe('AssistantMemorySettingsSection', () => {
     render(<AssistantMemorySettingsSection />);
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
-    expect(within(select).getByRole('option', { name: /GPT-5.2 Chat/i })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/i })).toBeInTheDocument();
     expect(within(select).queryByRole('option', { name: /Gemma 4 Built-in/i })).toBeNull();
     expect(within(select).queryByRole('option', { name: /OpenRouter/i })).toBeNull();

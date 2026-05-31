@@ -121,7 +121,7 @@ export function AssistantMemorySettingsSection() {
           </select>
           <p className="text-muted-foreground text-xs">
             Observers and reflectors use Mastra model routing strings like{' '}
-            <span className="font-mono">openai/gpt-5.2-chat-latest</span>.
+            <span className="font-mono">openai/gpt-5.4-mini</span>.
           </p>
         </div>
 

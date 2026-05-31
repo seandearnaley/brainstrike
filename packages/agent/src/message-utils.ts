@@ -54,6 +54,7 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
 
   const knownObjectKeys: ReadonlySet<string> = new Set([
     'text',
+    'type',
     'value',
     'content',
     'parts',
@@ -198,7 +199,7 @@ export function convertAssistantUiMessages(
 export async function toAiSdkStyleStream(
   messages: AgentMessage[],
   runtime?: RuntimeData,
-  optionsOverride: Pick<MastraAgentRuntimeOptions, 'memory'> = {}
+  optionsOverride: Pick<MastraAgentRuntimeOptions, 'memory' | 'storage'> = {}
 ): Promise<StreamIterator> {
   const options: MastraAgentRuntimeOptions = { ...optionsOverride };
   if (runtime) {

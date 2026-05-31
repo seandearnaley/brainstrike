@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import { type IpcMainInvokeEvent, ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerAgentIpcHandlers } from '../ipc-agent';
@@ -66,38 +67,6 @@ describe('registerAgentIpcHandlers', () => {
   });
 
   describe('agent:chat handler', () => {
-    // Local minimal types mirroring ipc-agent.ts
-    interface AgentMessage {
-      id: string;
-      parts: Array<{ type: 'text'; text: string }>;
-      role: 'user' | 'assistant' | 'system';
-    }
-    interface RuntimeData {
-      mcpConfig?: unknown;
-      mcpEnabled?: boolean;
-      model?: string;
-      projectId?: string;
-      provider?: string;
-    }
-    type StreamChunk =
-      | { type: 'text-delta'; value: string }
-      | {
-          type: 'tool-event';
-          name: string;
-          status: 'start' | 'progress' | 'success' | 'error';
-          payload?: unknown;
-        }
-      | {
-          type: 'finish';
-          usage: { promptTokens: number; completionTokens: number };
-        }
-      | {
-          type: 'message-finish';
-          finishReason: 'stop';
-          usage: { promptTokens: number; completionTokens: number };
-          path: readonly number[];
-        };
-
     let chatHandler: (
       e: IpcMainInvokeEvent,
       messages: AgentMessage[],
@@ -313,6 +282,65 @@ describe('registerAgentIpcHandlers', () => {
       expect(result).toEqual(mockStreamChunks);
     });
 
+    it('passes pending tool approval chunks through the IPC bridge', async () => {
+      const mockStreamChunks: StreamChunk[] = [
+        {
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+          runId: 'run-approval-1',
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+          type: 'tool-approval-required',
+        },
+        {
+          type: 'message-finish',
+          finishReason: 'tool-calls',
+          usage: { promptTokens: 0, completionTokens: 0 },
+          path: [],
+        },
+      ];
+
+      const mockAsyncIterator = {
+        [Symbol.asyncIterator]: () => {
+          let index = 0;
+          return {
+            async next() {
+              if (index < mockStreamChunks.length) {
+                return { done: false, value: mockStreamChunks[index++] };
+              }
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
+
+      const streamMastraAgent = vi.fn().mockReturnValue(mockAsyncIterator);
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent,
+      } as unknown as typeof import('@brainstrike/agent');
+
+      const { loadMcpConfig } = await import('../mcp-loader');
+      const { readOpenAIApiKey } = await import('../openai-api-key');
+
+      vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
+      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
+
+      const messages: AgentMessage[] = [
+        {
+          id: '1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Update selected context' }],
+        },
+      ];
+
+      const result = await chatHandler({} as IpcMainInvokeEvent, messages, {
+        provider: 'openai',
+      });
+
+      expect(result).toEqual(mockStreamChunks);
+    });
+
     it('should pass runtime data and API key to streamMastraAgent', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
@@ -348,7 +376,7 @@ describe('registerAgentIpcHandlers', () => {
       const runtime = {
         projectId: 'proj-123',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',
         mcpEnabled: false,
       };
 
@@ -358,7 +386,7 @@ describe('registerAgentIpcHandlers', () => {
         runtime: {
           projectId: 'proj-123',
           provider: 'anthropic',
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           mcpEnabled: false,
           mcpConfig,
           apiKey: 'secret-key',

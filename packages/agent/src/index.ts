@@ -1,6 +1,27 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  type AssistantToolApprovalAction,
+  type AssistantToolApprovalDecision,
+  type AssistantToolApprovalRequest,
+  isAssistantToolApprovalAction,
+  readToolApprovalRunConfigAction,
+  TOOL_APPROVAL_DATA_NAME,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+  type ToolApprovalRunConfigActionReadResult,
+} from '@brainstrike/assistant-contract/tool-approval';
+export type { AssistantRequestPayload } from './assistant-request';
+export {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantInvalidJsonError,
+  AssistantRequestBodyLimitConfigError,
+  AssistantRequestBodyTooLargeError,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  hasNonEmptyAssistantPrompt,
+  parseAssistantRequestPayloadText,
+  resolveAssistantRequestBodyLimitBytes,
+} from './assistant-request';
+export {
   ContextPacker,
   type ContextPackerChunk,
   type ContextPackerOptions,
@@ -35,13 +56,13 @@ export {
   sampleGoldenDataset,
   type TestCaseResult,
 } from './evaluation';
-
 export {
   convertMessagesToMastra,
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
   streamMastraAgent,
+  streamMastraToolApprovalAction,
 } from './mastra/agent-runtime';
 export {
   createMastraAgentError,
@@ -379,5 +400,6 @@ export type {
   StreamChunkMessageFinish,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalRequired,
   StreamIterator,
 } from './types';

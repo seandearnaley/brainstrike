@@ -15,6 +15,17 @@ export default defineConfig({
     testTimeout: getAdjustedTimeout('uiComponent'),
     // Use threads pool to avoid process forks (prevents EPERM kills in constrained sandboxes)
     pool: 'threads',
+    server: {
+      deps: {
+        // Force `electron` through Vite's transform pipeline so the
+        // `resolve.alias` stub applies during `vi.mock('electron', …)`
+        // resolution too — not just plain `import` statements. Without this,
+        // the mocker resolves the bare specifier to the real
+        // node_modules/electron/index.js and evaluates it, which throws when
+        // the prebuilt binary is absent (cache-miss CI lanes).
+        inline: ['electron'],
+      },
+    },
     // Desktop tests spin up mocked Electron, PGlite, MCP, and renderer-host
     // surfaces with process-wide module state. Keep this package serialized so
     // those globals cannot bleed across files under load.
@@ -42,6 +53,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // The real `electron` entrypoint only exports the binary path and throws
+      // when the prebuilt binary is absent (e.g. cache-miss CI lanes). Tests
+      // never need the runtime module — they `vi.mock('electron', …)` — so
+      // alias it to an inert stub. This keeps desktop unit tests independent of
+      // the Electron binary being installed. See electron-test-stub.mts.
+      electron: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
       '@': path.resolve(import.meta.dirname, './src/renderer'),
       ...createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent')),
       '@brainstrike/embeddings/runtime-config': path.resolve(

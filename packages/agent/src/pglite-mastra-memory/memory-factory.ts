@@ -13,6 +13,7 @@ import type { AssistantRunEventSink } from '../run-events';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
 import { PgliteVectorStore } from './vector-store';
+import { PgliteWorkflowsStore } from './workflows-store';
 
 type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
 
@@ -34,6 +35,7 @@ export interface PgliteMastraMemoryResult {
   storage: MastraCompositeStore;
   store: PgliteMemoryStore;
   vector: PgliteVectorStore;
+  workflows: PgliteWorkflowsStore;
 }
 
 function buildObservationalMemoryOption(
@@ -114,6 +116,12 @@ export async function createPgliteMastraMemory({
   if (semanticRecallEnabled && !embedder) {
     throw new Error('PGlite Mastra semantic recall requires an explicit embedder.');
   }
+  const observationalVectorRetrievalEnabled =
+    memorySettings.observationalMemory.enabled &&
+    memorySettings.observationalMemory.retrievalMode === 'vector';
+  if (observationalVectorRetrievalEnabled && !embedder) {
+    throw new Error('PGlite Mastra observational vector retrieval requires an explicit embedder.');
+  }
 
   const store = new PgliteMemoryStore({
     database,
@@ -121,9 +129,11 @@ export async function createPgliteMastraMemory({
     ...(runId ? { runId } : {}),
   });
   await store.init();
+  const workflows = new PgliteWorkflowsStore({ database });
+  await workflows.init();
   const storage = new MastraCompositeStore({
     id: `${id}-storage`,
-    domains: { memory: store },
+    domains: { memory: store, workflows },
   });
   const vector = new PgliteVectorStore({
     database,
@@ -143,5 +153,5 @@ export async function createPgliteMastraMemory({
     }),
   });
 
-  return { memory, storage, store, vector };
+  return { memory, storage, store, vector, workflows };
 }
