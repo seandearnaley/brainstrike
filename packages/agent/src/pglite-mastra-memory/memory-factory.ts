@@ -9,6 +9,7 @@ import type { AssistantRunEventSink } from '../run-events';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
 import { PgliteVectorStore } from './vector-store';
+import { PgliteWorkflowsStore } from './workflows-store';
 
 export interface PgliteMastraMemoryOptions {
   database: PgliteDatabase;
@@ -26,6 +27,7 @@ export interface PgliteMastraMemoryResult {
   storage: MastraCompositeStore;
   store: PgliteMemoryStore;
   vector: PgliteVectorStore;
+  workflows: PgliteWorkflowsStore;
 }
 
 function buildObservationalMemoryOption(
@@ -89,9 +91,11 @@ export async function createPgliteMastraMemory({
     ...(runId ? { runId } : {}),
   });
   await store.init();
+  const workflows = new PgliteWorkflowsStore({ database });
+  await workflows.init();
   const storage = new MastraCompositeStore({
     id: `${id}-storage`,
-    domains: { memory: store },
+    domains: { memory: store, workflows },
   });
   const vector = new PgliteVectorStore({
     database,
@@ -113,5 +117,5 @@ export async function createPgliteMastraMemory({
     },
   });
 
-  return { memory, storage, store, vector };
+  return { memory, storage, store, vector, workflows };
 }
