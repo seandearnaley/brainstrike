@@ -1,8 +1,12 @@
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { AssistantRunTimeline } from '../assistant-ui-panel/assistant-run-timeline';
+import {
+  AssistantRunTimeline,
+  resolveAssistantRunEventStatus,
+} from '../assistant-ui-panel/assistant-run-timeline';
 
 const baseEvent = {
   id: 'event-1',
@@ -17,6 +21,17 @@ const baseEvent = {
     resourceId: 'workspace-1',
   },
 } satisfies AssistantRunEvent;
+
+function createMessageWithRunEvents(events: readonly AssistantRunEvent[]): unknown {
+  return {
+    role: 'assistant',
+    content: events.map((event) => ({
+      data: event,
+      name: ASSISTANT_RUN_EVENT_DATA_NAME,
+      type: 'data',
+    })),
+  };
+}
 
 describe('AssistantRunTimeline', () => {
   it('renders a compact assistant activity row by default', () => {
@@ -60,6 +75,25 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByText('Cancelled')).toBeInTheDocument();
     expect(screen.getByText('Context budget')).toBeInTheDocument();
     expect(screen.getByText('Observed')).toBeInTheDocument();
+  });
+
+  it('renders an overridden status for stale running events', () => {
+    render(
+      <AssistantRunTimeline
+        data={{
+          ...baseEvent,
+          id: 'event-running',
+          kind: 'run.step.started',
+          label: 'Generation step started',
+          status: 'running',
+        }}
+        statusOverride="completed"
+      />
+    );
+
+    expect(screen.getByText('Generation step started')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+    expect(screen.queryByText('Running')).not.toBeInTheDocument();
   });
 
   it('expands to show sanitized event metadata', async () => {
@@ -126,5 +160,205 @@ describe('AssistantRunTimeline', () => {
     const { container } = render(<AssistantRunTimeline data={{ label: 'Missing fields' }} />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('resolveAssistantRunEventStatus', () => {
+  it('marks started run and step events completed when terminal events arrive later', () => {
+    const runStarted = {
+      ...baseEvent,
+      id: 'run-started',
+      kind: 'run.started',
+      label: 'Assistant run started',
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const stepStarted = {
+      ...baseEvent,
+      id: 'step-started',
+      kind: 'run.step.started',
+      label: 'Generation step started',
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const stepFinished = {
+      ...baseEvent,
+      id: 'step-finished',
+      kind: 'run.step.finished',
+      label: 'Generation step completed',
+      status: 'completed',
+    } satisfies AssistantRunEvent;
+    const runFinished = {
+      ...baseEvent,
+      id: 'run-finished',
+      kind: 'run.finished',
+      label: 'Assistant run completed',
+      status: 'completed',
+    } satisfies AssistantRunEvent;
+
+    const messages = [
+      createMessageWithRunEvents([runStarted, stepStarted, stepFinished, runFinished]),
+    ];
+
+    expect(resolveAssistantRunEventStatus(messages, runStarted)).toBe('completed');
+    expect(resolveAssistantRunEventStatus(messages, stepStarted)).toBe('completed');
+  });
+
+  it('matches tool completion by tool call id', () => {
+    const toolStarted = {
+      ...baseEvent,
+      id: 'tool-started',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'call-1', toolName: 'read_file' },
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const otherToolCompleted = {
+      ...baseEvent,
+      id: 'other-tool-completed',
+      kind: 'tool.completed',
+      label: 'Tool completed',
+      metadata: { toolCallId: 'call-2', toolName: 'read_file' },
+      status: 'completed',
+    } satisfies AssistantRunEvent;
+    const toolCompleted = {
+      ...baseEvent,
+      id: 'tool-completed',
+      kind: 'tool.completed',
+      label: 'Tool completed',
+      metadata: { toolCallId: 'call-1', toolName: 'read_file' },
+      status: 'completed',
+    } satisfies AssistantRunEvent;
+
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([toolStarted, otherToolCompleted])],
+        toolStarted
+      )
+    ).toBe('running');
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([toolStarted, otherToolCompleted, toolCompleted])],
+        toolStarted
+      )
+    ).toBe('completed');
+  });
+
+  it('marks matching started events failed or cancelled from terminal run events', () => {
+    const stepStarted = {
+      ...baseEvent,
+      id: 'step-started',
+      kind: 'run.step.started',
+      runId: 'run-2',
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const otherRunFailed = {
+      ...baseEvent,
+      id: 'other-run-failed',
+      kind: 'run.failed',
+      runId: 'run-3',
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+    const runFailed = {
+      ...baseEvent,
+      id: 'run-failed',
+      kind: 'run.failed',
+      runId: 'run-2',
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+    const runCancelled = {
+      ...baseEvent,
+      id: 'run-cancelled',
+      kind: 'run.cancelled',
+      runId: 'run-2',
+      status: 'cancelled',
+    } satisfies AssistantRunEvent;
+
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([stepStarted, otherRunFailed, runFailed])],
+        stepStarted
+      )
+    ).toBe('failed');
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([stepStarted, otherRunFailed, runCancelled])],
+        stepStarted
+      )
+    ).toBe('cancelled');
+  });
+
+  it('matches failed tool completions by tool call id', () => {
+    const toolStarted = {
+      ...baseEvent,
+      id: 'tool-started',
+      kind: 'tool.started',
+      metadata: { toolCallId: 'call-1', toolName: 'write_file' },
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const otherToolFailed = {
+      ...baseEvent,
+      id: 'other-tool-failed',
+      kind: 'tool.failed',
+      metadata: { toolCallId: 'call-2', toolName: 'write_file' },
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+    const toolFailed = {
+      ...baseEvent,
+      id: 'tool-failed',
+      kind: 'tool.failed',
+      metadata: { toolCallId: 'call-1', toolName: 'write_file' },
+      status: 'failed',
+    } satisfies AssistantRunEvent;
+
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([toolStarted, otherToolFailed])],
+        toolStarted
+      )
+    ).toBe('running');
+    expect(
+      resolveAssistantRunEventStatus(
+        [createMessageWithRunEvents([toolStarted, otherToolFailed, toolFailed])],
+        toolStarted
+      )
+    ).toBe('failed');
+  });
+
+  it('reads assistant run events from message parts arrays', () => {
+    const runStarted = {
+      ...baseEvent,
+      id: 'run-started',
+      kind: 'run.started',
+      status: 'running',
+    } satisfies AssistantRunEvent;
+    const runFinished = {
+      ...baseEvent,
+      id: 'run-finished',
+      kind: 'run.finished',
+      status: 'completed',
+    } satisfies AssistantRunEvent;
+
+    const messages = [
+      {
+        parts: [
+          { data: runStarted, name: ASSISTANT_RUN_EVENT_DATA_NAME, type: 'data' },
+          { data: runFinished, name: ASSISTANT_RUN_EVENT_DATA_NAME, type: 'data' },
+        ],
+      },
+    ];
+
+    expect(resolveAssistantRunEventStatus(messages, runStarted)).toBe('completed');
+  });
+
+  it('keeps non-running and unsupported running statuses unchanged', () => {
+    expect(resolveAssistantRunEventStatus([], null)).toBe('info');
+    expect(resolveAssistantRunEventStatus([], baseEvent)).toBe('completed');
+    expect(
+      resolveAssistantRunEventStatus([], {
+        ...baseEvent,
+        id: 'memory-running',
+        kind: 'memory.configured',
+        status: 'running',
+      })
+    ).toBe('running');
   });
 });

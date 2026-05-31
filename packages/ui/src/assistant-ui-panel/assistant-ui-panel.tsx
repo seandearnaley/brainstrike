@@ -55,16 +55,19 @@ import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/type
 import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
-import { AssistantRunTimeline } from './assistant-run-timeline';
+import { AssistantRunTimeline, resolveAssistantRunEventStatus } from './assistant-run-timeline';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
 
-const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => (
-  <AssistantRunTimeline data={data} />
-);
+const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
+  const statusOverride = useAuiState((state) =>
+    resolveAssistantRunEventStatus(state.thread.messages, data)
+  );
+  return <AssistantRunTimeline data={data} statusOverride={statusOverride} />;
+};
 
 const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
   <AssistantToolApprovalNotice data={data} />
