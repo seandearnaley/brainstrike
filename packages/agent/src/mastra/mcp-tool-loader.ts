@@ -2,7 +2,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
-import { isToolEnabledByFilterConfig, toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
+import {
+  isAnyToolIdEnabledByFilterConfig,
+  toolRegistry as mcpToolRegistry,
+} from '../mcp/tool-registry';
 import { createMastraAgentError } from './mastra-agent-error';
 import { sanitizeTools } from './tool-sanitizer';
 
@@ -19,6 +22,7 @@ export interface CollectCombinedToolsOptions {
 }
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
+type McpToolsets = Record<string, ToolsInput>;
 type McpToolsetsWithErrors = Awaited<ReturnType<MCPClient['listToolsetsWithErrors']>>;
 
 export async function collectCombinedTools({
@@ -46,13 +50,19 @@ export async function collectCombinedTools({
     return combined;
   }
   logMcpToolsetErrors(discovered.errors, timeoutMs);
-  logMissingConfiguredMcpToolsets(discovered, namedServers, timeoutMs);
+
+  const isSingleServer = namedServers.length === 1;
+  const configuredServerNames = new Set(namedServers.map((server) => server.name));
+  const assignedToolsetNames = new Set<string>();
 
   for (const server of namedServers) {
-    const toolsForServer = buildSanitizedServerTools(
-      discovered.toolsets[server.name],
+    const toolsForServer = selectToolsetForServer(
+      discovered.toolsets,
       server.name,
-      toolNameMap
+      isSingleServer,
+      toolNameMap,
+      configuredServerNames,
+      assignedToolsetNames
     );
     if (!toolsForServer || Object.keys(toolsForServer).length === 0) {
       continue;
@@ -67,23 +77,131 @@ export async function collectCombinedTools({
   return combined;
 }
 
-function buildSanitizedServerTools(
-  serverToolset: ToolsInput | undefined,
+function selectToolsetForServer(
+  toolsets: McpToolsets,
   serverName: string,
-  toolNameMap: Map<string, string>
+  isSingleServer: boolean,
+  toolNameMap: Map<string, string>,
+  configuredServerNames: Set<string>,
+  assignedToolsetNames: Set<string>
 ): ToolsInput | undefined {
-  if (!serverToolset || Object.keys(serverToolset).length === 0) {
+  const selected = findToolsetForServer(toolsets, serverName, isSingleServer);
+  if (!selected) {
+    const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
+    logToolsetDrop('MCP toolset did not match configured server', {
+      availableServerNames: Object.keys(toolsets),
+      code: 'mcp_toolset_server_key_missing',
+      serverName,
+    });
     return;
   }
-  return sanitizeTools(flattenMcpServerToolset(serverName, serverToolset), toolNameMap);
+
+  if (Object.keys(selected.tools).length === 0) {
+    const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
+    logToolsetDrop('MCP toolset matched configured server but contained no tools', {
+      code: 'mcp_toolset_server_key_empty',
+      matchedServerName: selected.matchedServerName,
+      serverName,
+    });
+    return;
+  }
+
+  if (
+    selected.matchedServerName !== serverName &&
+    configuredServerNames.has(selected.matchedServerName)
+  ) {
+    logger.debug('MCP toolset matched another configured server exact key', {
+      code: 'mcp_toolset_server_key_exact_owner_deferred',
+      matchedServerName: selected.matchedServerName,
+      serverName,
+    });
+    return;
+  }
+
+  if (assignedToolsetNames.has(selected.matchedServerName)) {
+    const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
+    logToolsetDrop('MCP toolset already matched another configured server', {
+      code: 'mcp_toolset_server_key_duplicate',
+      matchedServerName: selected.matchedServerName,
+      serverName,
+    });
+    return;
+  }
+  assignedToolsetNames.add(selected.matchedServerName);
+
+  if (selected.matchedServerName !== serverName) {
+    logger.debug('MCP toolset matched configured server by compatibility key normalization', {
+      code: 'mcp_toolset_server_key_normalized_match',
+      matchedServerName: selected.matchedServerName,
+      serverName,
+    });
+  }
+
+  return sanitizeTools(namespaceServerTools(serverName, selected.tools), toolNameMap);
 }
 
-function flattenMcpServerToolset(serverName: string, serverToolset: ToolsInput): ToolsInput {
-  const flattened: ToolsInput = {};
-  for (const [toolName, tool] of Object.entries(serverToolset)) {
-    flattened[`${serverName}.${toolName}`] = tool;
+function findToolsetForServer(
+  toolsets: McpToolsets,
+  serverName: string,
+  isSingleServer: boolean
+): { matchedServerName: string; tools: ToolsInput } | undefined {
+  const directTools = toolsets[serverName];
+  if (Object.hasOwn(toolsets, serverName)) {
+    return { matchedServerName: serverName, tools: directTools ?? {} };
   }
-  return flattened;
+
+  const toolsetEntries = Object.entries(toolsets).filter(
+    ([, tools]) => Object.keys(tools).length > 0
+  );
+  const normalizedServerName = normalizeMcpServerName(serverName);
+  if (normalizedServerName.length === 0) {
+    return findSingleServerFallbackToolset(toolsetEntries, isSingleServer);
+  }
+
+  const normalizedMatches = toolsetEntries.filter(
+    ([toolsetName]) => normalizeMcpServerName(toolsetName) === normalizedServerName
+  );
+  if (normalizedMatches.length === 1) {
+    const match = normalizedMatches[0];
+    if (!match) {
+      return;
+    }
+    const [matchedServerName, tools] = match;
+    return { matchedServerName, tools };
+  }
+
+  if (!isSingleServer) {
+    return;
+  }
+
+  return findSingleServerFallbackToolset(toolsetEntries, isSingleServer);
+}
+
+function normalizeMcpServerName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findSingleServerFallbackToolset(
+  toolsetEntries: [string, ToolsInput][],
+  isSingleServer: boolean
+): { matchedServerName: string; tools: ToolsInput } | undefined {
+  if (!(isSingleServer && toolsetEntries.length === 1)) {
+    return;
+  }
+
+  const match = toolsetEntries[0];
+  if (!match) {
+    return;
+  }
+
+  const [matchedServerName, tools] = match;
+  return { matchedServerName, tools };
+}
+
+function namespaceServerTools(serverName: string, serverTools: ToolsInput): ToolsInput {
+  return Object.fromEntries(
+    Object.entries(serverTools).map(([toolId, tool]) => [`${serverName}.${toolId}`, tool])
+  );
 }
 
 function filterEnabledServerTools(
@@ -104,8 +222,8 @@ function filterEnabledServerTools(
         return persistedMetadata.enabled;
       }
 
-      return isToolEnabledByFilterConfig(
-        candidateToolIds[0] ?? sanitizedToolId,
+      return isAnyToolIdEnabledByFilterConfig(
+        candidateToolIds,
         server.enabledTools ? { enabledTools: server.enabledTools } : undefined
       );
     })
@@ -124,11 +242,19 @@ function getRegistryCandidateToolIds(
 
   if (server.name) {
     const serverPrefix = `${server.name}_`;
+    const serverDotPrefix = `${server.name}.`;
     if (sanitizedToolId.startsWith(serverPrefix)) {
-      candidates.add(`${server.name}.${sanitizedToolId.slice(serverPrefix.length)}`);
+      const rawToolId = sanitizedToolId.slice(serverPrefix.length);
+      candidates.add(`${server.name}.${rawToolId}`);
+      candidates.add(rawToolId);
+    }
+    if (originalToolId.startsWith(serverDotPrefix)) {
+      candidates.add(originalToolId.slice(serverDotPrefix.length));
     }
     if (originalToolId.startsWith(serverPrefix)) {
-      candidates.add(`${server.name}.${originalToolId.slice(serverPrefix.length)}`);
+      const rawToolId = originalToolId.slice(serverPrefix.length);
+      candidates.add(`${server.name}.${rawToolId}`);
+      candidates.add(rawToolId);
     }
   }
 
@@ -186,34 +312,10 @@ function logMcpToolsetErrors(errors: Record<string, string>, timeoutMs: number):
   }
 }
 
-function logMissingConfiguredMcpToolsets(
-  discovered: McpToolsetsWithErrors,
-  namedServers: McpServerConfig[],
-  timeoutMs: number
-): void {
-  const availableServers = Object.keys(discovered.toolsets);
-  for (const server of namedServers) {
-    if (
-      Object.hasOwn(discovered.toolsets, server.name) ||
-      Object.hasOwn(discovered.errors, server.name)
-    ) {
-      continue;
-    }
-
-    logMcpDiscoverySkip('MCP server toolset missing', {
-      availableServers,
-      code: 'mcp_server_toolset_missing',
-      reason: 'configured_server_not_returned',
-      serverName: server.name,
-      timeoutMs,
-    });
-  }
-}
-
 function logMcpDiscoverySkip(
   message: string,
   details: {
-    availableServers?: string[];
+    availableServerNames?: string[];
     code: string;
     reason: string;
     serverName?: string;

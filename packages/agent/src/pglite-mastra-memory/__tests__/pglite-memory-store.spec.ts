@@ -123,10 +123,41 @@ describe('PgliteMemoryStore', () => {
       orderBy: { field: 'updatedAt', direction: 'DESC' },
       perPage: false,
     });
+    const emptyResourceListed = await store.listThreads({
+      filter: { resourceId: '' },
+      perPage: false,
+    });
 
     expect(listed.threads.map((thread) => thread.id)).toEqual([secondThread.id, firstThread.id]);
     expect(listed.total).toBe(2);
     expect(listed.hasMore).toBe(false);
+    expect(emptyResourceListed.threads).toEqual([]);
+    expect(emptyResourceListed.total).toBe(0);
+  });
+
+  it('honors resourceId when loading a thread by id', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-resource-scoped',
+        resourceId: 'workspace-a',
+        title: 'Workspace A thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-a' })
+    ).resolves.toMatchObject({
+      id: 'thread-resource-scoped',
+      resourceId: 'workspace-a',
+    });
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-b' })
+    ).resolves.toBeNull();
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: '' })
+    ).resolves.toBeNull();
   });
 
   it('persists messages and supports thread/resource recall queries', async () => {
@@ -174,10 +205,17 @@ describe('PgliteMemoryStore', () => {
       perPage: false,
       orderBy: { field: 'createdAt', direction: 'ASC' },
     });
+    const byEmptyResource = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: '',
+      perPage: false,
+    });
     const byId = await store.listMessagesById({ messageIds: ['message-2'] });
 
     expect(byThread.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
     expect(byResource.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+    expect(byEmptyResource.messages).toEqual([]);
+    expect(byEmptyResource.total).toBe(0);
     expect(byId.messages.map((message) => message.id)).toEqual(['message-2']);
   });
 
