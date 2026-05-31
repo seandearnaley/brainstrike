@@ -10,14 +10,19 @@ import type {
   StreamChunk,
 } from '@brainstrike/agent';
 import {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantInvalidJsonError,
+  AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
-  isAssistantToolApprovalAction,
+  hasNonEmptyAssistantPrompt,
   isSupportedProvider,
+  parseAssistantRequestPayloadText,
+  readToolApprovalRunConfigAction,
+  resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
@@ -57,6 +62,9 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
+const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+  process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
+);
 const desktopMastraMemoryPromises = new Map<
   string,
   Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
@@ -478,10 +486,18 @@ async function prepareAssistantPostRequest(
     toolApprovalAction = payload.toolApprovalAction;
     toolApprovalActionInvalid = Boolean(payload.toolApprovalActionInvalid);
   } catch (error) {
-    if (error instanceof SyntaxError) {
+    if (error instanceof AssistantInvalidJsonError) {
       respondJson(res, 400, {
-        error: 'invalid_json',
-        message: 'Request body must be valid JSON.',
+        error: error.code,
+        message: error.message,
+      });
+      return;
+    }
+    if (error instanceof AssistantRequestBodyTooLargeError) {
+      res.setHeader('Connection', 'close');
+      respondJson(res, 413, {
+        error: error.code,
+        message: error.message,
       });
       return;
     }
@@ -742,10 +758,7 @@ function hydrateRuntimeDataWithLocalRuntimeToken(
 }
 
 function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
-  const lastUser = messages.length > 0 ? messages.at(-1) : undefined;
-  const lastText =
-    lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
-  return Boolean(lastText && lastText.trim().length > 0);
+  return hasNonEmptyAssistantPrompt(messages);
 }
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {
@@ -806,40 +819,18 @@ function respondForbiddenOrigin(res: http.ServerResponse): void {
 async function parseAssistantRequestPayload(
   req: http.IncomingMessage
 ): Promise<AssistantRequestPayload> {
-  const body = await readRequestBody(req);
-  const parsed: unknown = JSON.parse(body || '{}');
-  const maybePayload = parsed as Partial<{
-    data: RuntimeData;
-    messages: AssistantUiMessage[];
-    runConfig: Record<string, unknown>;
-  }>;
-  const rawMessages = Array.isArray(maybePayload?.messages)
-    ? (maybePayload.messages as AssistantUiMessage[])
-    : [];
-  const data = maybePayload?.data ?? undefined;
-  const rawToolApprovalAction = readToolApprovalRunConfigAction(maybePayload?.runConfig);
-  if (rawToolApprovalAction === undefined) {
-    return { rawMessages, data };
+  const body = await readRequestBody(req, {
+    maxBodyBytes: assistantRequestBodyLimitBytes,
+  });
+  const payload = parseAssistantRequestPayloadText(body);
+  const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
+  if (!toolApprovalActionResult) {
+    return payload;
   }
-  if (!isAssistantToolApprovalAction(rawToolApprovalAction)) {
-    return { rawMessages, data, toolApprovalActionInvalid: true };
+  if ('invalid' in toolApprovalActionResult) {
+    return { ...payload, toolApprovalActionInvalid: true };
   }
-  return { rawMessages, data, toolApprovalAction: rawToolApprovalAction };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function readToolApprovalRunConfigAction(runConfig: unknown): unknown {
-  if (!isRecord(runConfig)) {
-    return;
-  }
-  const custom = runConfig['custom'];
-  if (!isRecord(custom)) {
-    return;
-  }
-  return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
+  return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
 }
 
 async function resumeStreamIfAvailable(
@@ -898,7 +889,7 @@ async function initializeAgentStream(
             : undefined
         )
       : undefined;
-    if (toolApprovalAction && !memoryResult) {
+    if (toolApprovalAction && !memoryResult?.storage) {
       return {
         ok: false,
         status: 400,
@@ -911,6 +902,7 @@ async function initializeAgentStream(
     const stream = toolApprovalAction
       ? await streamMastraToolApprovalAction(toolApprovalAction, {
           ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+          requireToolApproval: true,
           runtime,
         })
       : await toAiSdkStyleStream(
