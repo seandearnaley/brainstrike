@@ -61,6 +61,13 @@ function normalizeCachePath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
 
+function denormalizeCachePath(filePath: string): string {
+  if (process.platform !== 'win32') {
+    return filePath;
+  }
+  return filePath.replaceAll('/', '\\');
+}
+
 /**
  * LRU+TTL Metadata Cache
  *
@@ -248,7 +255,7 @@ export class MetadataCache {
   invalidateWhere(predicate: (path: string, entry: MetadataCacheEntry) => boolean): number {
     let count = 0;
     for (const [path, entry] of this.cache.entries()) {
-      if (predicate(path, entry)) {
+      if (predicate(denormalizeCachePath(path), entry)) {
         this.cache.delete(path);
         count++;
       }
@@ -293,7 +300,7 @@ export class MetadataCache {
    * Get all cached paths (for debugging/testing).
    */
   getPaths(): string[] {
-    return Array.from(this.cache.keys());
+    return Array.from(this.cache.keys()).map(denormalizeCachePath);
   }
 
   /**

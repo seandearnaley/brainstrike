@@ -7,6 +7,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMetadataCache, MetadataCache } from '../metadata-cache';
 
+const processPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+
+function withPlatform<T>(platform: NodeJS.Platform, callback: () => T): T {
+  Object.defineProperty(process, 'platform', {
+    ...processPlatformDescriptor,
+    value: platform,
+  });
+
+  try {
+    return callback();
+  } finally {
+    if (processPlatformDescriptor) {
+      Object.defineProperty(process, 'platform', processPlatformDescriptor);
+    }
+  }
+}
+
 describe('MetadataCache', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -278,6 +295,23 @@ describe('MetadataCache', () => {
       expect(cache.get('/file2.ts')).toBeUndefined();
       expect(cache.get('/file3.ts')).toBeDefined();
     });
+
+    it('should expose native Windows paths to invalidateWhere predicates', () => {
+      withPlatform('win32', () => {
+        const cache = new MetadataCache();
+
+        cache.set('C:\\project\\src\\file.ts', {
+          size: 100,
+          mtimeMs: 1000,
+          isDirectory: false,
+        });
+
+        const count = cache.invalidateWhere((path) => path === 'C:\\project\\src\\file.ts');
+
+        expect(count).toBe(1);
+        expect(cache.get('C:\\project\\src\\file.ts')).toBeUndefined();
+      });
+    });
   });
 
   describe('statistics', () => {
@@ -348,6 +382,20 @@ describe('MetadataCache', () => {
       expect(paths).toContain('/file1.ts');
       expect(paths).toContain('/file2.ts');
       expect(paths).toContain('/dir');
+    });
+
+    it('should return native Windows paths after internal normalization', () => {
+      withPlatform('win32', () => {
+        const cache = new MetadataCache();
+
+        cache.set('C:\\project\\src\\file.ts', {
+          size: 100,
+          mtimeMs: 1000,
+          isDirectory: false,
+        });
+
+        expect(cache.getPaths()).toEqual(['C:\\project\\src\\file.ts']);
+      });
     });
   });
 

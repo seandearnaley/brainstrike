@@ -24,11 +24,7 @@ export function runEnv(argv = process.argv, platform = process.platform) {
     const key = assignment.slice(0, equalsIndex);
     const value = assignment.slice(equalsIndex + 1);
 
-    if (value === '') {
-      delete env[key];
-    } else {
-      env[key] = value;
-    }
+    env[key] = value;
   }
 
   let [command, ...args] = argv.slice(separatorIndex + 1);

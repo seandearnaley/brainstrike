@@ -26,4 +26,9 @@ describe('spawn command helpers', () => {
       }
     );
   });
+
+  it('quotes Windows shell arguments that contain cmd expansion markers', () => {
+    assert.equal(quoteWindowsShellArg('%PATH%'), '"%PATH%"');
+    assert.equal(quoteWindowsShellArg('value!'), '"value!"');
+  });
 });

@@ -1,4 +1,4 @@
-const WINDOWS_SHELL_META_RE = /[\s"&|<>^()]/;
+const WINDOWS_SHELL_META_RE = /[\s"&|<>^()%!]/;
 
 export function quoteWindowsShellArg(arg) {
   if (arg.length === 0) {
@@ -18,6 +18,8 @@ export function createSpawnInvocation(command, args, platform = process.platform
     return { args, command, shell: false };
   }
 
+  // Windows package-manager shims require a shell; call sites pass trusted script args.
+  // This quoting preserves argv boundaries, but is not a sanitizer for untrusted cmd.exe input.
   return {
     args: [],
     command: [command, ...args].map(quoteWindowsShellArg).join(' '),
