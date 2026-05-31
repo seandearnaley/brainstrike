@@ -10,10 +10,16 @@ import type {
   StreamChunk,
 } from '@brainstrike/agent';
 import {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantInvalidJsonError,
+  AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
   convertAssistantUiMessages,
+  hasNonEmptyAssistantPrompt,
   isSupportedProvider,
+  parseAssistantRequestPayloadText,
   readToolApprovalRunConfigAction,
+  resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
@@ -56,6 +62,9 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
+const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+  process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
+);
 const desktopMastraMemoryPromises = new Map<
   string,
   Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
@@ -477,10 +486,18 @@ async function prepareAssistantPostRequest(
     toolApprovalAction = payload.toolApprovalAction;
     toolApprovalActionInvalid = Boolean(payload.toolApprovalActionInvalid);
   } catch (error) {
-    if (error instanceof SyntaxError) {
+    if (error instanceof AssistantInvalidJsonError) {
       respondJson(res, 400, {
-        error: 'invalid_json',
-        message: 'Request body must be valid JSON.',
+        error: error.code,
+        message: error.message,
+      });
+      return;
+    }
+    if (error instanceof AssistantRequestBodyTooLargeError) {
+      res.setHeader('Connection', 'close');
+      respondJson(res, 413, {
+        error: error.code,
+        message: error.message,
       });
       return;
     }
@@ -741,10 +758,7 @@ function hydrateRuntimeDataWithLocalRuntimeToken(
 }
 
 function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
-  const lastUser = messages.length > 0 ? messages.at(-1) : undefined;
-  const lastText =
-    lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
-  return Boolean(lastText && lastText.trim().length > 0);
+  return hasNonEmptyAssistantPrompt(messages);
 }
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {
@@ -805,25 +819,18 @@ function respondForbiddenOrigin(res: http.ServerResponse): void {
 async function parseAssistantRequestPayload(
   req: http.IncomingMessage
 ): Promise<AssistantRequestPayload> {
-  const body = await readRequestBody(req);
-  const parsed: unknown = JSON.parse(body || '{}');
-  const maybePayload = parsed as Partial<{
-    data: RuntimeData;
-    messages: AssistantUiMessage[];
-    runConfig: Record<string, unknown>;
-  }>;
-  const rawMessages = Array.isArray(maybePayload?.messages)
-    ? (maybePayload.messages as AssistantUiMessage[])
-    : [];
-  const data = maybePayload?.data ?? undefined;
-  const toolApprovalActionResult = readToolApprovalRunConfigAction(maybePayload?.runConfig);
+  const body = await readRequestBody(req, {
+    maxBodyBytes: assistantRequestBodyLimitBytes,
+  });
+  const payload = parseAssistantRequestPayloadText(body);
+  const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   if (!toolApprovalActionResult) {
-    return { rawMessages, data };
+    return payload;
   }
   if ('invalid' in toolApprovalActionResult) {
-    return { rawMessages, data, toolApprovalActionInvalid: true };
+    return { ...payload, toolApprovalActionInvalid: true };
   }
-  return { rawMessages, data, toolApprovalAction: toolApprovalActionResult.action };
+  return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
 }
 
 async function resumeStreamIfAvailable(

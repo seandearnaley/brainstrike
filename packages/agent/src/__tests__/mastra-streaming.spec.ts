@@ -1,3 +1,4 @@
+import { ReadableStream } from 'node:stream/web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -18,8 +19,10 @@ const agentInstances: Array<{
 }> = [];
 const mcpInstances: unknown[] = [];
 const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
-let mcpToolList: Record<string, { description: string; id: string }> = {
-  'remote tool': { id: 'remote tool', description: 'remote' },
+let mcpToolsets: Record<string, Record<string, { description: string; id: string }>> = {
+  filesystem: {
+    'remote tool': { id: 'remote tool', description: 'remote' },
+  },
 };
 let streamParts: unknown[] = [];
 
@@ -160,8 +163,8 @@ vi.mock('@mastra/mcp', () => ({
       mcpInstances.push(this);
     }
 
-    async listTools() {
-      return mcpToolList;
+    async listToolsetsWithErrors() {
+      return { toolsets: mcpToolsets, errors: {} };
     }
 
     async disconnect() {
@@ -175,8 +178,10 @@ describe('mastra streaming integration', () => {
     agentInstances.length = 0;
     mastraInstances.length = 0;
     mcpInstances.length = 0;
-    mcpToolList = {
-      'remote tool': { id: 'remote tool', description: 'remote' },
+    mcpToolsets = {
+      filesystem: {
+        'remote tool': { id: 'remote tool', description: 'remote' },
+      },
     };
     setMockStreamParts([]);
   });
@@ -950,17 +955,21 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agentConfig = agentInstances[0]?.config.tools ?? {};
 
-    expect(Object.keys(agentConfig)).toEqual(expect.arrayContaining(['local_tool', 'remote_tool']));
+    expect(Object.keys(agentConfig)).toEqual(
+      expect.arrayContaining(['local_tool', 'filesystem_remote_tool'])
+    );
 
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
-    expect(runtime.toolNameMap.get('remote_tool')).toBe('remote tool');
+    expect(runtime.toolNameMap.get('filesystem_remote_tool')).toBe('filesystem.remote tool');
   });
 
   it('uses model-facing Brainstrike native tool names in default instructions', async () => {
-    mcpToolList = {
-      'filesystem.search_files': {
-        id: 'filesystem.search_files',
-        description: 'Search files',
+    mcpToolsets = {
+      filesystem: {
+        search_files: {
+          id: 'search_files',
+          description: 'Search files',
+        },
       },
     };
 
@@ -1224,5 +1233,3 @@ describe('resolveRuntimeConfiguration', () => {
     expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_provider');
   });
 });
-
-import { ReadableStream } from 'node:stream/web';

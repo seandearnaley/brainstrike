@@ -78,6 +78,12 @@ export async function createPgliteMastraMemory({
   if (semanticRecallEnabled && !embedder) {
     throw new Error('PGlite Mastra semantic recall requires an explicit embedder.');
   }
+  const observationalVectorRetrievalEnabled =
+    memorySettings.observationalMemory.enabled &&
+    memorySettings.observationalMemory.retrievalMode === 'vector';
+  if (observationalVectorRetrievalEnabled && !embedder) {
+    throw new Error('PGlite Mastra observational vector retrieval requires an explicit embedder.');
+  }
 
   const store = new PgliteMemoryStore({
     database,

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
+import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
@@ -44,73 +45,36 @@ vi.mock('../secrets', () => ({
   getSecretsService: vi.fn(() => mockSecretsService),
 }));
 
-vi.mock('@brainstrike/agent', () => ({
-  TOOL_APPROVAL_RUN_CONFIG_KEY: 'brainstrikeToolApproval',
-  assistantDataStreamSessions: {
-    create: vi.fn(() => ({
-      createResponse: vi.fn(() => ({
-        status: 200,
-        headers: new Headers(),
-        body: null,
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return {
+    ...actual,
+    assistantDataStreamSessions: {
+      create: vi.fn(() => ({
+        createResponse: vi.fn(() => ({
+          status: 200,
+          headers: new Headers(),
+          body: null,
+        })),
       })),
+    },
+    convertAssistantUiMessages: vi.fn((messages) => messages),
+    resolveDataStreamSession: vi.fn(() => {}),
+    sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
+    streamMastraToolApprovalAction: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'approval resumed' };
+      },
     })),
-  },
-  convertAssistantUiMessages: vi.fn((messages) => messages),
-  resolveDataStreamSession: vi.fn(() => {}),
-  sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
-  streamMastraToolApprovalAction: vi.fn(async () => ({
-    async *[Symbol.asyncIterator]() {
-      yield { type: 'text-delta', value: 'approval resumed' };
-    },
-  })),
-  toAiSdkStyleStream: vi.fn(async () => ({
-    async *[Symbol.asyncIterator]() {
-      yield { type: 'text', content: 'test' };
-    },
-  })),
-  isAssistantToolApprovalAction: (value: unknown): boolean => {
-    if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-      return false;
-    }
-    const action = value as Record<string, unknown>;
-    return (
-      (action['action'] === 'approve' || action['action'] === 'decline') &&
-      typeof action['runId'] === 'string' &&
-      action['runId'].trim().length > 0 &&
-      typeof action['toolCallId'] === 'string' &&
-      action['toolCallId'].trim().length > 0
-    );
-  },
-  readToolApprovalRunConfigAction: (runConfig: unknown) => {
-    if (!(runConfig && typeof runConfig === 'object' && !Array.isArray(runConfig))) {
-      return;
-    }
-    const custom = (runConfig as Record<string, unknown>)['custom'];
-    if (!(custom && typeof custom === 'object' && !Array.isArray(custom))) {
-      return;
-    }
-    const action = (custom as Record<string, unknown>)['brainstrikeToolApproval'];
-    if (action === undefined) {
-      return;
-    }
-    if (!(action && typeof action === 'object' && !Array.isArray(action))) {
-      return { invalid: true };
-    }
-    const record = action as Record<string, unknown>;
-    if (
-      (record['action'] === 'approve' || record['action'] === 'decline') &&
-      typeof record['runId'] === 'string' &&
-      record['runId'].trim().length > 0 &&
-      typeof record['toolCallId'] === 'string' &&
-      record['toolCallId'].trim().length > 0
-    ) {
-      return { action };
-    }
-    return { invalid: true };
-  },
-  isSupportedProvider: (provider: string) =>
-    ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
-}));
+    toAiSdkStyleStream: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text', content: 'test' };
+      },
+    })),
+    isSupportedProvider: (provider: string) =>
+      ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
+  };
+});
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
 const mockPgliteMastraStorage = { id: 'desktop-storage' };
@@ -577,6 +541,23 @@ describe('assistant-server', () => {
       const data = JSON.parse(response.body) as { error: string; message: string };
       expect(data.error).toBe('invalid_json');
       expect(data.message).toBe('Request body must be valid JSON.');
+    }, 10_000);
+
+    it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: { 'content-type': 'application/json' },
+        body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
+      });
+
+      expect(response.status).toBe(413);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data.error).toBe('request_body_too_large');
+      expect(data.message).toBe(
+        `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`
+      );
+      expect(response.headers['connection']).toBe('close');
     }, 10_000);
 
     it('should handle POST to assistant route with valid message', async () => {
