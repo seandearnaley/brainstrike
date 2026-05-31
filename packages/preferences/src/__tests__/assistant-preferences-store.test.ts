@@ -804,19 +804,82 @@ describe('assistant-preferences-store', () => {
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
-    expect(store.modelsByProvider['openai']).toBe('gpt-5.2');
-    expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-5');
-    expect(store.modelsByProvider['google']).toBe('gemini-3-pro-preview');
-    expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.2');
+    expect(store.modelsByProvider['openai']).toBe('gpt-5.4');
+    expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-6');
+    expect(store.modelsByProvider['google']).toBe('gemini-2.5-pro');
+    expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.4');
     expect(store.modelsByProvider['local']).toBe('onnx-community/gemma-4-E2B-it-ONNX');
-    expect(store.selectedModel).toBe('openai::gpt-5.2');
-    expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.2');
-    expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.2-chat-latest');
+    expect(store.selectedModel).toBe('openai::gpt-5.4');
+    expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.4');
+    expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.4-mini');
     expect(store.enabledModelsByProvider['openai']).not.toContain('gpt-4o');
     expect(store.enabledModelsByProvider['local']).toContain('onnx-community/gemma-4-E2B-it-ONNX');
     expect(store.enabledModelsByProvider['local']).not.toContain(
       'LiquidAI/LFM2.5-1.2B-Instruct-ONNX'
     );
+  });
+
+  it('migrates superseded frontier IDs and leaves first-class models untouched', async () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const priorState: StorageValue<unknown> = {
+      version: 5,
+      state: {
+        selectedModel: 'anthropic::claude-sonnet-4-5',
+        modelsByProvider: {
+          openai: 'gpt-5.2-chat-latest',
+          anthropic: 'claude-sonnet-4-5',
+          google: 'gemini-3-flash-preview',
+          openrouter: 'anthropic/claude-sonnet-4.5',
+        },
+        enabledModelsByProvider: {
+          openai: ['gpt-5.2-chat-latest'],
+          anthropic: ['claude-sonnet-4-5', 'claude-opus-4-5'],
+          google: ['gemini-3-flash-preview', 'gemini-2.5-flash'],
+          openrouter: [
+            'anthropic/claude-sonnet-4.5',
+            'anthropic/claude-opus-4.5',
+            'google/gemini-3-pro-preview',
+            'google/gemini-2.5-pro',
+          ],
+        },
+        providerSettings: {},
+      },
+    };
+
+    options.storage.setItem(options.name, priorState);
+    await persistApi.rehydrate?.();
+
+    const store = useAssistantPreferencesStore.getState();
+    // OpenRouter legacy slugs remap for symmetry with the direct-provider map.
+    expect(store.enabledModelsByProvider['openrouter']).toContain('anthropic/claude-opus-4.8');
+    expect(store.enabledModelsByProvider['openrouter']).not.toContain('anthropic/claude-opus-4.5');
+    expect(store.enabledModelsByProvider['openrouter']).toContain('google/gemini-3.1-pro-preview');
+    expect(store.enabledModelsByProvider['openrouter']).not.toContain(
+      'google/gemini-3-pro-preview'
+    );
+    // google/gemini-2.5-pro is not in the OpenRouter catalog, so it remaps to Flash.
+    expect(store.enabledModelsByProvider['openrouter']).toContain('google/gemini-2.5-flash');
+    expect(store.enabledModelsByProvider['openrouter']).not.toContain('google/gemini-2.5-pro');
+    expect(store.modelsByProvider['openai']).toBe('gpt-5.4');
+    expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-6');
+    expect(store.modelsByProvider['google']).toBe('gemini-3.5-flash');
+    expect(store.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.6');
+    expect(store.selectedModel).toBe('anthropic::claude-sonnet-4-6');
+
+    // Removed 4-5 generation IDs are remapped...
+    expect(store.enabledModelsByProvider['anthropic']).toContain('claude-sonnet-4-6');
+    expect(store.enabledModelsByProvider['anthropic']).toContain('claude-opus-4-8');
+    expect(store.enabledModelsByProvider['anthropic']).not.toContain('claude-sonnet-4-5');
+    expect(store.enabledModelsByProvider['anthropic']).not.toContain('claude-opus-4-5');
+    // ...but gemini-2.5-flash is now a first-class model and must NOT be rewritten.
+    expect(store.enabledModelsByProvider['google']).toContain('gemini-2.5-flash');
+    expect(store.enabledModelsByProvider['google']).toContain('gemini-3.5-flash');
+    expect(store.enabledModelsByProvider['google']).not.toContain('gemini-3-flash-preview');
   });
 
   it('switches between providers using composite keys', () => {

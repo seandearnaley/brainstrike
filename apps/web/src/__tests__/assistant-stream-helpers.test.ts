@@ -7,9 +7,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // sanitizeStreamChunk) while mocking functions that make HTTP calls or manage state.
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value && typeof value === 'object' && !Array.isArray(value));
   return {
     ...actual,
     assistantDataStreamSessions: { create: vi.fn() },
+    readToolApprovalRunConfigAction: (runConfig: unknown) => {
+      if (!isRecord(runConfig)) {
+        return;
+      }
+      const custom = runConfig['custom'];
+      if (!isRecord(custom)) {
+        return;
+      }
+      const action = custom[actual.TOOL_APPROVAL_RUN_CONFIG_KEY];
+      if (action === undefined) {
+        return;
+      }
+      return actual.isAssistantToolApprovalAction(action) ? { action } : { invalid: true };
+    },
     resolveDataStreamSession: vi.fn(),
     toAiSdkStyleStream: vi.fn(),
   };
@@ -29,6 +45,7 @@ import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent
 import {
   assistantDataStreamSessions,
   resolveDataStreamSession,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import {
@@ -168,6 +185,61 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('ok');
+  });
+
+  it('rejects tool approval resume actions on the web assistant helper route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [{ id: '1', role: 'user', parts: [] }],
+      runConfig: {
+        custom: {
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+            action: 'decline',
+            runId: 'run-approval-1',
+            toolCallId: 'tool-call-1',
+            toolName: 'workspace.writeFile',
+          },
+        },
+      },
+    });
+
+    expect(res.status).toBe(501);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'tool_approval_resume_unsupported',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(assistantDataStreamSessions.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed tool approval actions on the web assistant helper route', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [{ id: '1', role: 'user', parts: [] }],
+      runConfig: {
+        custom: {
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+            action: 'decline',
+            runId: 'run-approval-1',
+          },
+        },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'invalid_tool_approval_action',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
   it('streams chat response as JSON lines when provider is enabled', async () => {

@@ -28,12 +28,13 @@ function seedRegistry(): void {
       { id: 'anthropic', name: 'Anthropic', icon: null, isEnabled: true, sortOrder: 2 },
       { id: 'transformers', name: 'Local Models', icon: null, isEnabled: true, sortOrder: 3 },
       { id: 'openrouter', name: 'OpenRouter', icon: null, isEnabled: false, sortOrder: 4 },
+      { id: 'cohere', name: 'Cohere', icon: null, isEnabled: true, sortOrder: 5 },
     ],
     models: [
       {
-        id: 'gpt-5.2-chat-latest',
+        id: 'gpt-5.4-mini',
         providerId: 'openai',
-        name: 'GPT-5.2 Chat',
+        name: 'GPT-5.4 Mini',
         description: null,
         tagline: null,
         bestFor: null,
@@ -95,6 +96,19 @@ function seedRegistry(): void {
         parameters: null,
         sortOrder: 2,
       },
+      {
+        id: 'embed-english-v3.0',
+        providerId: 'cohere',
+        name: 'Cohere Embed English',
+        description: null,
+        tagline: null,
+        bestFor: null,
+        icon: null,
+        isEnabled: true,
+        capabilities: { type: 'embedding', defaultDimension: 1024 },
+        parameters: null,
+        sortOrder: 1,
+      },
     ],
     hasLoaded: true,
     isLoading: false,
@@ -113,7 +127,7 @@ describe('AssistantMemorySettingsSection', () => {
     render(<AssistantMemorySettingsSection />);
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
-    expect(within(select).getByRole('option', { name: /GPT-5.2 Chat/i })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/i })).toBeInTheDocument();
     expect(within(select).queryByRole('option', { name: /Gemma 4 Built-in/i })).toBeNull();
     expect(within(select).queryByRole('option', { name: /OpenRouter/i })).toBeNull();
@@ -147,5 +161,32 @@ describe('AssistantMemorySettingsSection', () => {
       enabled: true,
       embeddingModelTarget: 'openai/text-embedding-3-small',
     });
+    expect(
+      within(
+        screen.getByRole('combobox', { name: /semantic recall embedding model/i })
+      ).queryByRole('option', { name: /Cohere Embed English/i })
+    ).toBeNull();
+  });
+
+  it('warns and allows disabling semantic recall when a persisted embedder is unsupported', async () => {
+    const user = userEvent.setup();
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      semanticRecall: {
+        ...state.semanticRecall,
+        enabled: true,
+        embeddingModelTarget: 'cohere/embed-english-v3.0',
+      },
+    }));
+
+    render(<AssistantMemorySettingsSection />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Configured semantic recall embedder cohere/embed-english-v3.0 is not available'
+    );
+    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeEnabled();
+
+    await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
+
+    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
   });
 });

@@ -867,6 +867,95 @@ describe('generateReportFromAdapter', () => {
     spy.mockRestore();
   });
 
+  it('skips ignored adapter paths without traversing ignored directories', async () => {
+    const readDirectoryCalls: string[] = [];
+
+    class IgnorePathAdapter implements FileSystemAdapter {
+      async requestDirectoryAccess(): Promise<DirectoryHandle> {
+        return { path: 'root', name: 'root', kind: 'directory', platform: 'web' };
+      }
+
+      async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+        readDirectoryCalls.push(handle.path);
+
+        if (handle.path === 'root/node_modules') {
+          throw new Error('Ignored directory should not be traversed');
+        }
+
+        if (handle.path !== 'root') {
+          return [];
+        }
+
+        return [
+          {
+            name: 'src',
+            path: 'root/src',
+            type: 'directory',
+            handle: {
+              path: 'root/src',
+              name: 'src',
+              kind: 'directory',
+              platform: 'web',
+            } as unknown as FileSystemDirectoryHandle,
+            depth: 0,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+          {
+            name: 'node_modules',
+            path: 'root/node_modules',
+            type: 'directory',
+            handle: {
+              path: 'root/node_modules',
+              name: 'node_modules',
+              kind: 'directory',
+              platform: 'web',
+            } as unknown as FileSystemDirectoryHandle,
+            depth: 0,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ];
+      }
+
+      async readFile(): Promise<string> {
+        return '';
+      }
+
+      async exists(): Promise<boolean> {
+        return false;
+      }
+    }
+
+    const treeModule = await import('../tree-generator');
+    let capturedTree: IFileNode[] = [];
+    const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
+      capturedTree = nodes;
+      return 'project tree';
+    });
+
+    try {
+      const ignoreAdapter = new IgnorePathAdapter();
+      const ignoreRoot = await ignoreAdapter.requestDirectoryAccess();
+
+      await generateReportFromAdapter(
+        new Set(),
+        {},
+        ignoreAdapter,
+        ignoreRoot,
+        [],
+        [],
+        false,
+        true
+      );
+
+      expect(readDirectoryCalls).toEqual(['root', 'root/src']);
+      expect(capturedTree.map((node) => node.name)).toEqual(['src']);
+    } finally {
+      treeSpy.mockRestore();
+    }
+  });
+
   it('flags symlinks, depth truncation, and ignores standard paths', async () => {
     // Minimal helper functions to create file and directory nodes (unused but kept for future use)
     // const dirNode = (path: string, name?: string): MockFileEntry => ({

@@ -31,6 +31,7 @@ import { migration029FileRecordSourceRootPath } from './029-file-record-source-r
 import { migration030CollectionIndexingStats } from './030-collection-indexing-stats.js';
 import { migration031ProviderCatalogTimestamps } from './031-provider-catalog-timestamps.js';
 import { migration032FileChunkSourceRanges } from './032-file-chunk-source-ranges.js';
+import { migration033UpdateProviderModels2026Frontier } from './033-update-provider-models-2026-frontier.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -68,6 +69,7 @@ export const migrations: Migration[] = [
   migration030CollectionIndexingStats,
   migration031ProviderCatalogTimestamps,
   migration032FileChunkSourceRanges,
+  migration033UpdateProviderModels2026Frontier,
 ];
 
 // Export base migrations (without chunks table) for test environments

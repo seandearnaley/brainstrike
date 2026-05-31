@@ -24,10 +24,21 @@ export interface RuntimeAssistantMemorySettings {
   semanticRecall: RuntimeAssistantSemanticRecallSettings;
 }
 
+export const DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES = 40;
+
+export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
+  enabled: true,
+  scope: 'resource',
+} as const;
+
 export const DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
   observationalMemory: {
     enabled: true,
-    modelTarget: 'openai/gpt-5.2-chat-latest',
+    // Background observation/reflection runs frequently, so default to a
+    // fast, low-cost model. Must be a currently-supported model ID (see
+    // provider-registry.ts) — the previous default (gpt-5.2-chat-latest) was
+    // dropped in the 2026 frontier refresh.
+    modelTarget: 'openai/gpt-5.4-mini',
     scope: 'thread',
     messageTokens: 30_000,
     observationTokens: 40_000,
