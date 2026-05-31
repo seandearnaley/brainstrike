@@ -2,6 +2,7 @@ import http from 'node:http';
 import type {
   AgentMessage,
   AssistantRunEvent,
+  AssistantToolApprovalAction,
   AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
@@ -17,9 +18,11 @@ import {
   hasNonEmptyAssistantPrompt,
   isSupportedProvider,
   parseAssistantRequestPayloadText,
+  readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   sanitizeAssistantRunEventMetadata,
+  streamMastraToolApprovalAction,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
@@ -31,6 +34,8 @@ type AssistantRoute = 'status' | 'assistant' | 'not-found';
 interface AssistantRequestPayload {
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessage[];
+  toolApprovalAction?: AssistantToolApprovalAction;
+  toolApprovalActionInvalid?: boolean;
 }
 interface AgentStreamSuccess {
   ok: true;
@@ -154,7 +159,7 @@ async function handleAssistantPost(
   if (!prepared) {
     return;
   }
-  const { messages, runtimeData, apiKey } = prepared;
+  const { messages, runtimeData, apiKey, toolApprovalAction } = prepared;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -170,6 +175,7 @@ async function handleAssistantPost(
       apiKey,
       signal,
       runId,
+      toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
       },
@@ -220,6 +226,7 @@ async function streamAssistantPostResponse({
   apiKey,
   signal,
   runId,
+  toolApprovalAction,
   toolDependencies,
 }: {
   readonly res: http.ServerResponse;
@@ -228,6 +235,7 @@ async function streamAssistantPostResponse({
   readonly apiKey: string | undefined;
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
+  readonly toolApprovalAction?: AssistantToolApprovalAction;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   };
@@ -240,6 +248,7 @@ async function streamAssistantPostResponse({
     mcpConfig,
     signal,
     runId,
+    toolApprovalAction,
     toolDependencies
   );
   if (!streamResult.ok) {
@@ -459,6 +468,7 @@ interface PreparedAssistantPostRequest {
   apiKey: string;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
+  toolApprovalAction?: AssistantToolApprovalAction;
 }
 
 async function prepareAssistantPostRequest(
@@ -467,10 +477,14 @@ async function prepareAssistantPostRequest(
 ): Promise<PreparedAssistantPostRequest | undefined> {
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
+  let toolApprovalAction: AssistantToolApprovalAction | undefined;
+  let toolApprovalActionInvalid = false;
   try {
     const payload = await parseAssistantRequestPayload(req);
     rawMessages = payload.rawMessages;
     data = payload.data;
+    toolApprovalAction = payload.toolApprovalAction;
+    toolApprovalActionInvalid = Boolean(payload.toolApprovalActionInvalid);
   } catch (error) {
     if (error instanceof AssistantInvalidJsonError) {
       respondJson(res, 400, {
@@ -492,6 +506,14 @@ async function prepareAssistantPostRequest(
 
   const messages = convertAssistantUiMessages(rawMessages);
   const provider = resolveRequestedProvider(data);
+
+  if (toolApprovalActionInvalid) {
+    respondJson(res, 400, {
+      error: 'invalid_tool_approval_action',
+      message: 'Tool approval action must include action, runId, and toolCallId.',
+    });
+    return;
+  }
 
   if (!provider) {
     respondJson(res, 400, {
@@ -529,7 +551,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!hasNonEmptyPrompt(messages)) {
+  if (!(toolApprovalAction || hasNonEmptyPrompt(messages))) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -540,6 +562,7 @@ async function prepareAssistantPostRequest(
     messages,
     runtimeData,
     apiKey: apiKey ?? '',
+    ...(toolApprovalAction ? { toolApprovalAction } : {}),
   };
 }
 
@@ -799,7 +822,15 @@ async function parseAssistantRequestPayload(
   const body = await readRequestBody(req, {
     maxBodyBytes: assistantRequestBodyLimitBytes,
   });
-  return parseAssistantRequestPayloadText(body);
+  const payload = parseAssistantRequestPayloadText(body);
+  const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
+  if (!toolApprovalActionResult) {
+    return payload;
+  }
+  if ('invalid' in toolApprovalActionResult) {
+    return { ...payload, toolApprovalActionInvalid: true };
+  }
+  return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
 }
 
 async function resumeStreamIfAvailable(
@@ -826,6 +857,7 @@ async function initializeAgentStream(
   mcpConfig: McpConfig | undefined,
   signal: AbortSignal,
   runId: string | undefined,
+  toolApprovalAction: AssistantToolApprovalAction | undefined,
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   }
@@ -857,11 +889,27 @@ async function initializeAgentStream(
             : undefined
         )
       : undefined;
-    const stream = await toAiSdkStyleStream(
-      messages,
-      runtime,
-      memoryResult ? { memory: memoryResult.memory } : {}
-    );
+    if (toolApprovalAction && !memoryResult?.storage) {
+      return {
+        ok: false,
+        status: 400,
+        payload: {
+          error: 'tool_approval_memory_required',
+          message: 'Tool approval resume requires Mastra memory context with workflow storage.',
+        },
+      };
+    }
+    const stream = toolApprovalAction
+      ? await streamMastraToolApprovalAction(toolApprovalAction, {
+          ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
+          requireToolApproval: true,
+          runtime,
+        })
+      : await toAiSdkStyleStream(
+          messages,
+          runtime,
+          memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}
+        );
     logger.info('Assistant stream initialized');
     return {
       ok: true,

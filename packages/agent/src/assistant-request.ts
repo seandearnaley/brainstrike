@@ -7,6 +7,7 @@ export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 export interface AssistantRequestPayload {
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessageStrict[];
+  runConfig: unknown;
 }
 
 export class AssistantInvalidJsonError extends Error {
@@ -56,17 +57,19 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
   }
 
   if (!(parsed && typeof parsed === 'object')) {
-    return { data: undefined, rawMessages: [] };
+    return { data: undefined, rawMessages: [], runConfig: undefined };
   }
 
   const maybePayload = parsed as Partial<{
     data: RuntimeData;
     messages: AssistantUiMessageStrict[];
+    runConfig: unknown;
   }>;
   const rawMessages = Array.isArray(maybePayload.messages) ? maybePayload.messages : [];
   return {
     data: maybePayload.data,
     rawMessages,
+    runConfig: maybePayload.runConfig,
   };
 }
 

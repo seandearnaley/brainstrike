@@ -1,7 +1,16 @@
-import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
-import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
-import { useId, useMemo, useState } from 'react';
+import { type CreateAppendMessage, useAui, useAuiState } from '@assistant-ui/react';
+import type {
+  AssistantToolApprovalAction,
+  AssistantToolApprovalDecision,
+  AssistantToolApprovalRequest,
+} from '@brainstrike/assistant-contract/tool-approval';
+import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import { createLogger } from '@brainstrike/utils/logger';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
+
+const logger = createLogger('AssistantToolApprovalNotice');
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;
@@ -27,10 +36,137 @@ function formatJsonValue(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+type ApprovalRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+
+interface ApprovalRunOutcome {
+  action: AssistantToolApprovalDecision | null;
+  state: ApprovalRunOutcomeState;
+}
+
+const emptyApprovalRunOutcome: ApprovalRunOutcome = { action: null, state: 'none' };
+const APPROVAL_RUN_OUTCOME_SEPARATOR = ':';
+
+type ApprovalRunOutcomeKey =
+  `${AssistantToolApprovalDecision | 'none'}${typeof APPROVAL_RUN_OUTCOME_SEPARATOR}${ApprovalRunOutcomeState}`;
+
+function toApprovalRunOutcomeKey(outcome: ApprovalRunOutcome): ApprovalRunOutcomeKey {
+  return `${outcome.action ?? 'none'}${APPROVAL_RUN_OUTCOME_SEPARATOR}${outcome.state}`;
+}
+
+function fromApprovalRunOutcomeKey(key: ApprovalRunOutcomeKey): ApprovalRunOutcome {
+  const [action, state] = key.split(APPROVAL_RUN_OUTCOME_SEPARATOR) as [
+    AssistantToolApprovalDecision | 'none',
+    ApprovalRunOutcomeState,
+  ];
+  return { action: action === 'none' ? null : action, state };
+}
+
+function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprovalRequest): boolean {
+  return (
+    isRecord(value) &&
+    value['runId'] === approval.runId &&
+    value['toolCallId'] === approval.toolCallId
+  );
+}
+
+function getMessageRole(message: unknown): unknown {
+  return isRecord(message) ? message['role'] : undefined;
+}
+
+function getMessageStatus(message: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(message)) {
+    return;
+  }
+  const status = message['status'];
+  return isRecord(status) ? status : undefined;
+}
+
+function getToolApprovalActionFromMessage(message: unknown): unknown {
+  if (!isRecord(message)) {
+    return;
+  }
+  const metadata = message['metadata'];
+  if (!isRecord(metadata)) {
+    return;
+  }
+  const custom = metadata['custom'];
+  if (!isRecord(custom)) {
+    return;
+  }
+  return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
+}
+
+function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const action = value['action'];
+  return action === 'approve' || action === 'decline' ? action : null;
+}
+
+function resolveApprovalRunOutcome(
+  messages: readonly unknown[],
+  approval: AssistantToolApprovalRequest | null
+): ApprovalRunOutcome {
+  if (!approval) {
+    return emptyApprovalRunOutcome;
+  }
+
+  let submittedMessageIndex = -1;
+  let submittedAction: AssistantToolApprovalDecision | null = null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const approvalAction = getToolApprovalActionFromMessage(message);
+    if (getMessageRole(message) === 'user' && isMatchingApprovalAction(approvalAction, approval)) {
+      submittedMessageIndex = index;
+      submittedAction = getToolApprovalDecision(approvalAction);
+      break;
+    }
+  }
+  if (submittedMessageIndex < 0) {
+    return emptyApprovalRunOutcome;
+  }
+
+  for (let index = submittedMessageIndex + 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    const role = getMessageRole(message);
+    if (role === 'user') {
+      return { action: submittedAction, state: 'pending' };
+    }
+    if (role !== 'assistant') {
+      continue;
+    }
+
+    const status = getMessageStatus(message);
+    if (status?.['type'] === 'complete') {
+      return { action: submittedAction, state: 'completed' };
+    }
+    if (status?.['type'] === 'incomplete') {
+      return { action: submittedAction, state: 'retryable' };
+    }
+    return { action: submittedAction, state: 'pending' };
+  }
+
+  return { action: submittedAction, state: 'pending' };
+}
+
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
+  const aui = useAui();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [submittedAction, setSubmittedAction] = useState<AssistantToolApprovalDecision | null>(
+    null
+  );
   const detailsId = useId();
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
+  const approvalRunOutcomeKey = useAuiState((state) =>
+    toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
+  );
+  const approvalRunOutcome = useMemo(
+    () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
+    [approvalRunOutcomeKey]
+  );
+  const actionLockedByRun =
+    approvalRunOutcome.state === 'pending' || approvalRunOutcome.state === 'completed';
   const detailEntries = useMemo(() => {
     if (!approval) {
       return [];
@@ -42,10 +178,78 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
       ['resumeSchema', approval.resumeSchema],
     ].filter((entry): entry is [string, unknown] => entry[1] !== undefined);
   }, [approval]);
+  const submitApprovalAction = useCallback(
+    (action: AssistantToolApprovalDecision): void => {
+      if (!(approval && submittedAction === null && !actionLockedByRun)) {
+        return;
+      }
+
+      const approvalAction: AssistantToolApprovalAction = {
+        action,
+        runId: approval.runId,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+      };
+      const verb = action === 'approve' ? 'Approved' : 'Declined';
+      const message = {
+        content: [{ type: 'text', text: `${verb} ${approval.toolName}.` }],
+        metadata: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction,
+          },
+        },
+        role: 'user',
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction,
+          },
+        },
+        startRun: true,
+      } satisfies CreateAppendMessage;
+
+      setSubmittedAction(action);
+      try {
+        void Promise.resolve(aui.thread().append(message)).catch((error: unknown) => {
+          setSubmittedAction(null);
+          logger.warn('Failed to append tool approval action', {
+            error,
+            runId: approval.runId,
+            toolCallId: approval.toolCallId,
+          });
+        });
+      } catch (error) {
+        setSubmittedAction(null);
+        logger.warn('Failed to append tool approval action', {
+          error,
+          runId: approval.runId,
+          toolCallId: approval.toolCallId,
+        });
+      }
+    },
+    [actionLockedByRun, approval, aui, submittedAction]
+  );
+
+  useEffect(() => {
+    if (submittedAction === null || approvalRunOutcome.state !== 'retryable') {
+      return;
+    }
+    setSubmittedAction(null);
+  }, [approvalRunOutcome.state, submittedAction]);
 
   if (!approval) {
     return null;
   }
+
+  const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
+  const approvalStatus =
+    displayedAction === 'approve'
+      ? 'Approved'
+      : displayedAction === 'decline'
+        ? 'Declined'
+        : actionLockedByRun
+          ? 'Submitted'
+          : 'Pending';
+  const actionButtonsDisabled = submittedAction !== null || actionLockedByRun;
 
   return (
     <div
@@ -62,10 +266,34 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
               <span className="truncate">Tool approval required</span>
             </span>
             <span className="ml-2 rounded-full border border-amber-500/40 bg-amber-100/70 px-2 py-0.5 text-[10px] text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-              Pending
+              {approvalStatus}
             </span>
           </p>
           <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              aria-label={`Approve ${approval.toolName}`}
+              disabled={actionButtonsDisabled}
+              onClick={() => submitApprovalAction('approve')}
+              size="sm"
+              title={`Approve ${approval.toolName}`}
+              variant="default"
+            >
+              <Check className="size-3.5" />
+              Approve
+            </Button>
+            <Button
+              aria-label={`Decline ${approval.toolName}`}
+              disabled={actionButtonsDisabled}
+              onClick={() => submitApprovalAction('decline')}
+              size="sm"
+              title={`Decline ${approval.toolName}`}
+              variant="outline"
+            >
+              <X className="size-3.5" />
+              Decline
+            </Button>
+          </div>
         </div>
         <Button
           aria-controls={isExpanded ? detailsId : undefined}

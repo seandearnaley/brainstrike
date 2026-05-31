@@ -61,6 +61,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     convertAssistantUiMessages: vi.fn((messages) => messages),
     resolveDataStreamSession: vi.fn(() => {}),
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
+    streamMastraToolApprovalAction: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'approval resumed' };
+      },
+    })),
     toAiSdkStyleStream: vi.fn(async () => ({
       async *[Symbol.asyncIterator]() {
         yield { type: 'text', content: 'test' };
@@ -72,6 +77,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 });
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
+const mockPgliteMastraStorage = { id: 'desktop-storage' };
 const mockDesktopDatabase = {
   exec: vi.fn(),
   query: vi.fn(),
@@ -81,9 +87,10 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
   createPgliteMastraMemory: vi.fn(() =>
     Promise.resolve({
       memory: mockPgliteMastraMemory,
-      storage: {},
+      storage: mockPgliteMastraStorage,
       store: {},
       vector: {},
+      workflows: {},
     })
   ),
 }));
@@ -784,8 +791,121 @@ describe('assistant-server', () => {
         expect.objectContaining({
           memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
         }),
-        { memory: mockPgliteMastraMemory }
+        { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
       );
+    });
+
+    it('routes tool approval actions through Mastra approval resume without requiring a new prompt', async () => {
+      const { streamMastraToolApprovalAction, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([]);
+      (streamMastraToolApprovalAction as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text-delta', value: 'Approved and continued.' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'workspace.writeFile',
+              },
+            },
+          },
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+            },
+          },
+        }),
+      });
+
+      expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+      expect(streamMastraToolApprovalAction).toHaveBeenCalledWith(
+        {
+          action: 'approve',
+          runId: 'run-approval-1',
+          toolCallId: 'tool-call-1',
+          toolName: 'workspace.writeFile',
+        },
+        expect.objectContaining({
+          memory: mockPgliteMastraMemory,
+          requireToolApproval: true,
+          storage: mockPgliteMastraStorage,
+          runtime: expect.objectContaining({
+            apiKey: 'test-api-key',
+            provider: 'openai',
+            memory: expect.objectContaining({
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+            }),
+          }),
+        })
+      );
+    });
+
+    it('rejects tool approval resume when workflow storage is missing from memory', async () => {
+      const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+
+      (createPgliteMastraMemory as Mock).mockResolvedValueOnce({
+        memory: mockPgliteMastraMemory,
+        store: {},
+        vector: {},
+        workflows: {},
+      });
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolApproval: {
+                action: 'approve',
+                runId: 'run-approval-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'workspace.writeFile',
+              },
+            },
+          },
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'tool_approval_memory_required',
+        message: 'Tool approval resume requires Mastra memory context with workflow storage.',
+      });
+      expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
     });
 
     it('retries desktop Mastra memory initialization after a transient failure', async () => {
@@ -821,9 +941,10 @@ describe('assistant-server', () => {
         .mockRejectedValueOnce(new Error('temporary memory init failure'))
         .mockResolvedValueOnce({
           memory: mockPgliteMastraMemory,
-          storage: {},
+          storage: mockPgliteMastraStorage,
           store: {},
           vector: {},
+          workflows: {},
         });
       (toAiSdkStyleStream as Mock).mockResolvedValue({
         async *[Symbol.asyncIterator]() {

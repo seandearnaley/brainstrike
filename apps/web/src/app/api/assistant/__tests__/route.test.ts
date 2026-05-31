@@ -2,9 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value && typeof value === 'object' && !Array.isArray(value));
   return {
     ...actual,
     assistantDataStreamSessions: { create: vi.fn() },
+    readToolApprovalRunConfigAction: (runConfig: unknown) => {
+      if (!isRecord(runConfig)) {
+        return;
+      }
+      const custom = runConfig['custom'];
+      if (!isRecord(custom)) {
+        return;
+      }
+      const action = custom[actual.TOOL_APPROVAL_RUN_CONFIG_KEY];
+      if (action === undefined) {
+        return;
+      }
+      return actual.isAssistantToolApprovalAction(action) ? { action } : { invalid: true };
+    },
     resolveDataStreamSession: vi.fn(),
     toAiSdkStyleStream: vi.fn(),
   };
@@ -25,6 +41,7 @@ import {
   assistantDataStreamSessions,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   resolveDataStreamSession,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { resolveAssistantProviderConfig } from '../../../../server/assistant-config';
@@ -174,6 +191,59 @@ describe('assistant route', () => {
     const payload = await res.json();
     expect(payload).toMatchObject({ error: 'agent_stream_init_failed' });
     expect(payload.message).toBe('Assistant stream initialization failed');
+  });
+
+  it('rejects tool approval resume actions on the web assistant route', async () => {
+    const req = new Request('http://localhost/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ id: '1', role: 'user', parts: [] }],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'approve',
+              runId: 'run-approval-1',
+              toolCallId: 'tool-call-1',
+              toolName: 'workspace.writeFile',
+            },
+          },
+        },
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(501);
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'tool_approval_resume_unsupported',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(assistantDataStreamSessions.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed tool approval actions on the web assistant route', async () => {
+    const req = new Request('http://localhost/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ id: '1', role: 'user', parts: [] }],
+        runConfig: {
+          custom: {
+            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+              action: 'approve',
+              runId: 'run-approval-1',
+            },
+          },
+        },
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'invalid_tool_approval_action',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
   });
 
   it('creates a new session when provider is enabled', async () => {

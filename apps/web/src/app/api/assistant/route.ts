@@ -11,6 +11,7 @@ import {
   convertAssistantUiMessages,
   hasNonEmptyAssistantPrompt,
   parseAssistantRequestPayloadText,
+  readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   toAiSdkStyleStream,
@@ -34,11 +35,13 @@ export async function POST(req: Request): Promise<Response> {
 
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
+  let runConfig: unknown;
   try {
     const body = await readAssistantRequestText(req, assistantRequestBodyLimitBytes);
     const payload = parseAssistantRequestPayloadText(body);
     rawMessages = payload.rawMessages;
     data = payload.data;
+    runConfig = payload.runConfig;
   } catch (error) {
     if (error instanceof AssistantInvalidJsonError) {
       return jsonError(400, error.code, error.message);
@@ -47,6 +50,10 @@ export async function POST(req: Request): Promise<Response> {
       return jsonError(413, error.code, error.message);
     }
     throw error;
+  }
+  const toolApprovalResponse = resolveToolApprovalResponse(runConfig);
+  if (toolApprovalResponse) {
+    return toolApprovalResponse;
   }
   const agentMessages = convertAssistantUiMessages(rawMessages);
 
@@ -93,6 +100,37 @@ export async function POST(req: Request): Promise<Response> {
 
   const session = assistantDataStreamSessions.create(agentStream);
   return session.createResponse();
+}
+
+function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
+  const toolApprovalAction = readToolApprovalRunConfigAction(runConfig);
+  if (!toolApprovalAction) {
+    return;
+  }
+
+  if ('invalid' in toolApprovalAction) {
+    return new Response(
+      JSON.stringify({
+        error: 'invalid_tool_approval_action',
+        message: 'Tool approval action must include action, runId, and toolCallId.',
+      }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      }
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      error: 'tool_approval_resume_unsupported',
+      message: 'Tool approval resume requires the desktop assistant backend.',
+    }),
+    {
+      status: 501,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }
+  );
 }
 
 async function readAssistantRequestText(req: Request, bodyLimitBytes: number): Promise<string> {
