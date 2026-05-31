@@ -40,6 +40,45 @@ describe('assistant-server/http utilities', () => {
       const body = await readRequestBody(mockReq);
       expect(body).toBe('');
     });
+
+    it('rejects and pauses the request when chunked input exceeds the byte limit', async () => {
+      let dataHandler: ((chunk: Buffer) => void) | undefined;
+      let errorHandler: ((error: Error) => void) | undefined;
+      const pauseMock = vi.fn();
+      const destroyMock = vi.fn((error?: Error) => {
+        if (error) {
+          errorHandler?.(error);
+        }
+      });
+      const mockReq = {
+        destroy: destroyMock,
+        on: vi.fn((event: string, handler: (chunk?: unknown) => void) => {
+          if (event === 'data') {
+            dataHandler = handler as (chunk: Buffer) => void;
+          }
+          if (event === 'error') {
+            errorHandler = handler as (error: Error) => void;
+          }
+          return mockReq;
+        }),
+        pause: pauseMock,
+      } as unknown as http.IncomingMessage;
+
+      const bodyPromise = readRequestBody(mockReq, { maxBodyBytes: 5 });
+      const timedBodyPromise = Promise.race([
+        bodyPromise,
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('readRequestBody did not reject')), 50)
+        ),
+      ]);
+
+      dataHandler?.(Buffer.from('123'));
+      dataHandler?.(Buffer.from('456'));
+
+      await expect(timedBodyPromise).rejects.toThrow('Assistant request body exceeds 5 bytes.');
+      expect(pauseMock).toHaveBeenCalledOnce();
+      expect(destroyMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('writeHeaders', () => {

@@ -1,4 +1,5 @@
 import type http from 'node:http';
+import { AssistantRequestBodyTooLargeError } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('DesktopAssistantHttpStream');
@@ -8,13 +9,71 @@ type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
 };
 
-export async function readRequestBody(req: http.IncomingMessage): Promise<string> {
-  let body = '';
-  req.on('data', (c) => {
-    body += c;
+export interface ReadRequestBodyOptions {
+  maxBodyBytes?: number;
+}
+
+export async function readRequestBody(
+  req: http.IncomingMessage,
+  options: ReadRequestBodyOptions = {}
+): Promise<string> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+
+    function cleanup() {
+      req.removeListener?.('data', onData);
+      req.removeListener?.('end', onEnd);
+      req.removeListener?.('error', onError);
+    }
+
+    function settleReject(error: Error) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function onData(chunk: string | Buffer | Uint8Array) {
+      if (settled) {
+        return;
+      }
+
+      const chunkBuffer =
+        typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : Buffer.from(chunk);
+      totalBytes += chunkBuffer.byteLength;
+      if (options.maxBodyBytes !== undefined && totalBytes > options.maxBodyBytes) {
+        const error = new AssistantRequestBodyTooLargeError(options.maxBodyBytes);
+        // Keep the socket alive long enough for the caller to write a JSON 413;
+        // the handler marks that response Connection: close before ending it.
+        req.pause();
+        settleReject(error);
+        return;
+      }
+      chunks.push(chunkBuffer);
+    }
+
+    function onEnd() {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(Buffer.concat(chunks).toString('utf-8'));
+    }
+
+    function onError(error: Error) {
+      settleReject(error);
+    }
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
   });
-  await new Promise<void>((resolve) => req.on('end', () => resolve()));
-  return body;
 }
 
 export async function streamResponse(

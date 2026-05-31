@@ -36,9 +36,6 @@ async function runAgentChat(
   messages: AgentMessage[],
   runtime: RuntimeData | undefined
 ): Promise<StreamChunk[]> {
-  const agentModule = resolveAgentModule();
-  const config = await loadMcpConfig();
-  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
   const provider = resolveAgentProvider(runtime);
   if (!provider) {
     throw new Error('missing_provider');
@@ -47,6 +44,10 @@ async function runAgentChat(
   if (!apiKey) {
     throw new Error(`missing_api_key:${provider}`);
   }
+
+  const agentModule = resolveAgentModule();
+  const config = await loadMcpConfig();
+  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
 
   const maybeStream = agentModule.streamMastraAgent(messages, {
     runtime: {

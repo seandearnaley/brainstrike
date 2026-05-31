@@ -77,6 +77,11 @@ interface CountRow {
   [key: string]: unknown;
 }
 
+type MessageListArgs = (StorageListMessagesInput | StorageListMessagesByResourceIdInput) & {
+  threadIds?: string[];
+};
+type MessageIncludeItem = NonNullable<StorageListMessagesInput['include']>[number];
+
 interface ObservationalMemoryRow {
   activeObservations: string;
   activeObservationsPendingUpdate: string | null;
@@ -212,6 +217,106 @@ function orderBySql(
     throw new Error(`Unsupported order direction: ${direction}`);
   }
   return `"${field}" ${direction}, id ${direction}`;
+}
+
+function normalizeMessageOrder(orderBy: StorageListMessagesInput['orderBy'] | undefined): {
+  direction: ThreadSortDirection;
+} {
+  const field = orderBy?.field ?? 'createdAt';
+  const direction = orderBy?.direction ?? 'DESC';
+  if (field !== 'createdAt') {
+    throw new Error(`Unsupported message order field: ${field}`);
+  }
+  if (!THREAD_ORDER_DIRECTIONS.has(direction)) {
+    throw new Error(`Unsupported order direction: ${direction}`);
+  }
+  return { direction };
+}
+
+function compareMessagesByOrder(
+  left: MastraDBMessage,
+  right: MastraDBMessage,
+  order: { direction: ThreadSortDirection }
+): number {
+  const leftTime = toDate(left.createdAt).getTime();
+  const rightTime = toDate(right.createdAt).getTime();
+  const dateDelta = leftTime - rightTime;
+  if (dateDelta !== 0) {
+    return order.direction === 'ASC' ? dateDelta : -dateDelta;
+  }
+  return order.direction === 'ASC'
+    ? left.id.localeCompare(right.id)
+    : right.id.localeCompare(left.id);
+}
+
+function normalizeIncludeWindowCount(value: number | undefined, label: string): number {
+  if (value === undefined) {
+    return 0;
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return value;
+}
+
+function normalizeIncludeThreadId(threadId: string | undefined, fallbackThreadId: string): string {
+  if (threadId === undefined) {
+    return fallbackThreadId;
+  }
+  if (!threadId.trim()) {
+    throw new Error('include.threadId must be a non-empty string when provided');
+  }
+  return threadId;
+}
+
+function messageMatchesListScope(message: MastraDBMessage, args: MessageListArgs): boolean {
+  if (args.threadIds) {
+    const threadId = message.threadId;
+    if (!(threadId && args.threadIds.includes(threadId))) {
+      return false;
+    }
+  }
+  if (args.resourceId && message.resourceId !== args.resourceId) {
+    return false;
+  }
+  return true;
+}
+
+function createdAtMatchesDateRange(createdAt: Date | string, args: MessageListArgs): boolean {
+  const dateRange = args.filter?.dateRange;
+  if (!dateRange) {
+    return true;
+  }
+  const time = toDate(createdAt).getTime();
+  if (dateRange.start) {
+    const startTime = toDate(dateRange.start).getTime();
+    if (dateRange.startExclusive ? time <= startTime : time < startTime) {
+      return false;
+    }
+  }
+  if (dateRange.end) {
+    const endTime = toDate(dateRange.end).getTime();
+    if (dateRange.endExclusive ? time >= endTime : time > endTime) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function messageMatchesListFilters(message: MastraDBMessage, args: MessageListArgs): boolean {
+  return (
+    messageMatchesListScope(message, args) && createdAtMatchesDateRange(message.createdAt, args)
+  );
+}
+
+function messageRowMatchesListScope(row: MessageRow, args: MessageListArgs): boolean {
+  if (args.threadIds && !args.threadIds.includes(row.threadId)) {
+    return false;
+  }
+  if (args.resourceId && row.resourceId !== args.resourceId) {
+    return false;
+  }
+  return true;
 }
 
 function appendLimit(
@@ -1188,11 +1293,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     await this.saveObservationalMemoryRecord(record);
   }
 
-  private async listMessagesWhere(
-    args: (StorageListMessagesInput | StorageListMessagesByResourceIdInput) & {
-      threadIds?: string[];
-    }
-  ): Promise<StorageListMessagesOutput> {
+  private async listMessagesWhere(args: MessageListArgs): Promise<StorageListMessagesOutput> {
     const page = normalizePage(args.page);
     const perPage = normalizePerPage(args.perPage, DEFAULT_MESSAGES_PER_PAGE);
     const where: string[] = [];
@@ -1231,10 +1332,144 @@ export class PgliteMemoryStore extends MemoryStorage {
       appendLimit(baseSql, queryValues, page, perPage),
       queryValues
     );
+    const messages = result.rows.map(messageFromRow);
+    if (args.include?.length) {
+      const messageIds = new Set(messages.map((message) => message.id));
+      await this.appendIncludedMessages(messages, messageIds, args.include, args);
+      const messageOrder = normalizeMessageOrder(args.orderBy);
+      messages.sort((left, right) => compareMessagesByOrder(left, right, messageOrder));
+    }
+    const pageInfo = pagination(total, page, perPage);
+    const hasMore = args.include?.length
+      ? new Set(
+          messages
+            .filter((message) => messageMatchesListFilters(message, args))
+            .map((message) => message.id)
+        ).size < total
+      : pageInfo.hasMore;
     return {
-      messages: result.rows.map(messageFromRow),
-      ...pagination(total, page, perPage),
+      messages,
+      ...pageInfo,
+      hasMore,
     };
+  }
+
+  private async appendIncludedMessages(
+    messages: MastraDBMessage[],
+    messageIds: Set<string>,
+    includeItems: MessageIncludeItem[],
+    args: MessageListArgs
+  ): Promise<void> {
+    for (const includeItem of includeItems) {
+      if (!includeItem.id.trim()) {
+        throw new Error('include.id must be a non-empty string');
+      }
+
+      const targetRow = await this.findMessageRowById(includeItem.id);
+      if (!targetRow) {
+        continue;
+      }
+      if (!messageRowMatchesListScope(targetRow, args)) {
+        continue;
+      }
+
+      this.appendMessageIfMissing(messages, messageIds, targetRow);
+
+      const withPreviousMessages = normalizeIncludeWindowCount(
+        includeItem.withPreviousMessages,
+        'include.withPreviousMessages'
+      );
+      const withNextMessages = normalizeIncludeWindowCount(
+        includeItem.withNextMessages,
+        'include.withNextMessages'
+      );
+      if (withPreviousMessages === 0 && withNextMessages === 0) {
+        continue;
+      }
+
+      const threadId = normalizeIncludeThreadId(includeItem.threadId, targetRow.threadId);
+      if (threadId !== targetRow.threadId) {
+        continue;
+      }
+
+      const previousRows = await this.listAdjacentThreadMessageRows(
+        targetRow,
+        'previous',
+        withPreviousMessages
+      );
+      for (const row of previousRows) {
+        this.appendMessageIfInListScope(messages, messageIds, row, args);
+      }
+
+      const nextRows = await this.listAdjacentThreadMessageRows(
+        targetRow,
+        'next',
+        withNextMessages
+      );
+      for (const row of nextRows) {
+        this.appendMessageIfInListScope(messages, messageIds, row, args);
+      }
+    }
+  }
+
+  private appendMessageIfInListScope(
+    messages: MastraDBMessage[],
+    messageIds: Set<string>,
+    row: MessageRow,
+    args: MessageListArgs
+  ): void {
+    if (!messageRowMatchesListScope(row, args)) {
+      return;
+    }
+    this.appendMessageIfMissing(messages, messageIds, row);
+  }
+
+  private appendMessageIfMissing(
+    messages: MastraDBMessage[],
+    messageIds: Set<string>,
+    row: MessageRow
+  ): void {
+    if (messageIds.has(row.id)) {
+      return;
+    }
+    messages.push(messageFromRow(row));
+    messageIds.add(row.id);
+  }
+
+  private async findMessageRowById(id: string): Promise<MessageRow | null> {
+    const result = await this.database.query<MessageRow>(
+      `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
+       FROM ${MASTRA_MEMORY_TABLES.messages}
+       WHERE id = $1`,
+      [id]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  private async listAdjacentThreadMessageRows(
+    targetRow: MessageRow,
+    direction: 'previous' | 'next',
+    limit: number
+  ): Promise<MessageRow[]> {
+    if (limit === 0) {
+      return [];
+    }
+    const isPrevious = direction === 'previous';
+    const comparisonOperator = isPrevious ? '<' : '>';
+    const sortDirection = isPrevious ? 'DESC' : 'ASC';
+    const result = await this.database.query<MessageRow>(
+      `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
+       FROM ${MASTRA_MEMORY_TABLES.messages}
+       WHERE thread_id = $1
+         AND (
+           "createdAt" ${comparisonOperator} $2
+           OR ("createdAt" = $2 AND id ${comparisonOperator} $3)
+         )
+       ORDER BY "createdAt" ${sortDirection}, id ${sortDirection}
+       LIMIT $4`,
+      [targetRow.threadId, toDate(targetRow.createdAt), targetRow.id, limit]
+    );
+    return isPrevious ? [...result.rows].reverse() : result.rows;
   }
 
   private async findObservationalMemoryRecordById(id: string): Promise<ObservationalMemoryRecord> {
