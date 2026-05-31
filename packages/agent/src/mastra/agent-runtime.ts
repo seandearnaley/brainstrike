@@ -329,6 +329,15 @@ function makeErrorFinishChunk(): StreamChunk {
   };
 }
 
+function makeToolCallsFinishChunk(): StreamChunk {
+  return {
+    type: 'message-finish',
+    finishReason: 'tool-calls',
+    usage: { promptTokens: 0, completionTokens: 0 },
+    path: [],
+  };
+}
+
 function normalizeFinishReason(reason: string): StreamFinishReason {
   switch (reason) {
     case 'stop':
@@ -415,6 +424,23 @@ function readTripwireReason(part: unknown): string | undefined {
   return p.tripwireReason ?? p.payload?.tripwireReason;
 }
 
+function getUnsupportedApprovalDetail(
+  isSuspended: boolean,
+  missingToolCallId: boolean,
+  missingRunId: boolean
+): string {
+  if (missingToolCallId) {
+    return `Mastra ${isSuspended ? 'suspended a tool call' : 'requires tool approval'} without a tool call id, so Brainstrike cannot safely resume it.`;
+  }
+  if (missingRunId && !isSuspended) {
+    return 'Mastra requires tool approval without a run id, so Brainstrike cannot safely approve or decline it.';
+  }
+  if (isSuspended) {
+    return 'Mastra suspended a tool call, but this Brainstrike client cannot resume suspended tool calls yet.';
+  }
+  return 'Mastra requires tool approval, but this Brainstrike client cannot approve or decline tool calls yet.';
+}
+
 function makeUnsupportedApprovalChunks(
   part: unknown,
   toolNames: Map<string, string>,
@@ -432,19 +458,19 @@ function makeUnsupportedApprovalChunks(
     'unknown-tool';
   const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
   const runId = readMastraStreamPartString(part, 'runId');
+  const missingRunId = runId === undefined;
   const args = readMastraStreamPartValue(part, 'args');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
   const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
   const isSuspended = eventType === 'tool-call-suspended';
-  const detail = isSuspended
-    ? 'Mastra suspended a tool call, but this Brainstrike client cannot resume suspended tool calls yet.'
-    : 'Mastra requires tool approval, but this Brainstrike client cannot approve or decline tool calls yet.';
+  const detail = getUnsupportedApprovalDetail(isSuspended, missingToolCallId, missingRunId);
   const label = isSuspended ? 'Tool resume required' : 'Tool approval required';
 
   logger.warn('mastra tool approval pause requires unsupported client action', {
     code: 'mastra_agent_tool_action_required',
     eventType,
     missingToolCallId,
+    missingRunId,
     ...(runId ? { runId } : {}),
     toolCallId,
     toolName,
@@ -462,6 +488,7 @@ function makeUnsupportedApprovalChunks(
         detail,
         error: detail,
         ...(missingToolCallId ? { missingToolCallId: true } : {}),
+        ...(missingRunId ? { missingRunId: true } : {}),
         toolCallId,
         ...(args === undefined ? {} : { args, input: args }),
         ...(runId ? { runId } : {}),
@@ -477,10 +504,52 @@ function makeUnsupportedApprovalChunks(
       ...(runId ? { runId } : {}),
       ...(isSuspended ? { suspended: true } : {}),
       ...(missingToolCallId ? { missingToolCallId: true } : {}),
+      ...(missingRunId ? { missingRunId: true } : {}),
       toolCallId,
       toolName,
     }),
     makeErrorFinishChunk(),
+  ];
+}
+
+function makeApprovalRequiredChunks(
+  part: unknown,
+  toolNames: Map<string, string>,
+  sanitizedNameMap: Map<string, string> | undefined
+): StreamChunk[] {
+  const toolCallId =
+    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
+  const runId = readMastraStreamPartString(part, 'runId');
+  if (!(toolCallId && runId)) {
+    return makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, 'tool-call-approval');
+  }
+
+  const rawToolName =
+    readMastraStreamPartString(part, 'toolName') ??
+    readMastraStreamPartString(part, 'name') ??
+    toolNames.get(toolCallId) ??
+    'unknown-tool';
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  const args = readMastraStreamPartValue(part, 'args');
+  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
+
+  logger.info('mastra tool approval pause surfaced for client approval', {
+    code: 'mastra_agent_tool_approval_required',
+    runId,
+    toolCallId,
+    toolName,
+  });
+
+  return [
+    {
+      type: 'tool-approval-required',
+      runId,
+      toolCallId,
+      toolName,
+      ...(args === undefined ? {} : { args }),
+      ...(resumeSchema === undefined ? {} : { resumeSchema }),
+    },
+    makeToolCallsFinishChunk(),
   ];
 }
 
@@ -570,9 +639,16 @@ function processMastraStreamPart(
       return evt ? { chunks: [evt], finished: false } : { chunks: [], finished: false };
     }
     case 'tool-call-approval':
+      // Stop at the first approval pause and surface resumable metadata. Later
+      // stream parts are only valid after an explicit approve/decline action.
+      return {
+        chunks: makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap),
+        finished: true,
+      };
     case 'tool-call-suspended':
-      // This client cannot approve or resume yet, so stop at the first pause
-      // instead of consuming later stream parts that would imply forward progress.
+      // This client cannot resume suspended tool calls yet, so stop at the
+      // first pause instead of consuming later stream parts that would imply
+      // forward progress.
       return {
         chunks: makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
         finished: true,

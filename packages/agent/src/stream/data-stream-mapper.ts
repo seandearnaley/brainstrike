@@ -1,3 +1,7 @@
+import {
+  type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -7,6 +11,7 @@ import type {
   StreamChunkRunEvent,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalRequired,
   StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
@@ -189,6 +194,9 @@ export class DataStreamMapper {
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;
+      case 'tool-approval-required':
+        yield* this.handleToolApprovalRequired(chunk);
+        return;
       case 'finish':
       case 'message-finish':
         yield* this.handleFinish(chunk);
@@ -311,6 +319,51 @@ export class DataStreamMapper {
       default:
         break;
     }
+  }
+
+  private *handleToolApprovalRequired(
+    chunk: StreamChunkToolApprovalRequired
+  ): Generator<EncodedChunk> {
+    const callId = sanitizeToolCallId(chunk.toolCallId);
+    if (!callId) {
+      return;
+    }
+
+    if (!this.toolState.has(callId)) {
+      yield* this.handleToolStart(chunk.toolName, callId, {
+        args: chunk.args,
+        input: chunk.args,
+      });
+    }
+
+    const state = this.toolState.get(callId);
+    const args = chunk.args ?? state?.lastInput;
+    if (state && !state.argsEmitted) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          toolCallId: callId,
+          toolName: state.toolName,
+          args: toArgsObject(args, state.pendingArgsText),
+        },
+      } satisfies EncodedChunk;
+    }
+
+    const data: AssistantToolApprovalRequest = {
+      runId: chunk.runId,
+      toolCallId: callId,
+      toolName: chunk.toolName,
+      ...(args === undefined ? {} : { args: toJsonSafe(args) }),
+      ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+    };
+    yield {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        name: TOOL_APPROVAL_DATA_NAME,
+        data,
+      },
+    } satisfies EncodedChunk;
   }
 
   private *handleToolStart(

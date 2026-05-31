@@ -1,5 +1,9 @@
 // Types — all inline type definitions live in types.ts
 
+export {
+  type AssistantToolApprovalRequest,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
@@ -388,5 +392,6 @@ export type {
   StreamChunkMessageFinish,
   StreamChunkText,
   StreamChunkTool,
+  StreamChunkToolApprovalRequired,
   StreamIterator,
 } from './types';
