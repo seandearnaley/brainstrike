@@ -333,7 +333,7 @@ describe('AssistantUiPanelWrapper', () => {
     // Wait for model to update and panel to remain enabled
     await waitFor(() => {
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-      expect(modelSelect.value).toBe('claude-sonnet-4-5');
+      expect(modelSelect.value).toBe('claude-sonnet-4-6');
       expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
     });
   });
@@ -342,7 +342,7 @@ describe('AssistantUiPanelWrapper', () => {
     const user = userEvent.setup();
 
     // Enable an additional model for testing model switching (via DB mock)
-    testEnabledModels.add('anthropic/claude-sonnet-4.5');
+    testEnabledModels.add('anthropic/claude-sonnet-4.6');
 
     await renderAssistantPanel(['openrouter'], () =>
       waitFor(
@@ -356,14 +356,14 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Change model
     const modelSelect = screen.getByTestId('model-select');
-    await user.selectOptions(modelSelect, 'anthropic/claude-sonnet-4.5');
+    await user.selectOptions(modelSelect, 'anthropic/claude-sonnet-4.6');
 
     // Verify model changed in store
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
       expect(state.getSelectedProvider()).toBe('openrouter');
-      expect(state.getSelectedModel()).toBe('openrouter::anthropic/claude-sonnet-4.5');
-      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.5');
+      expect(state.getSelectedModel()).toBe('openrouter::anthropic/claude-sonnet-4.6');
+      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.6');
     });
   });
 
@@ -414,7 +414,7 @@ describe('AssistantUiPanelWrapper', () => {
           expect(providerSelect.value).toBe('anthropic');
 
           const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-          expect(modelSelect.value).toBe('claude-sonnet-4-5');
+          expect(modelSelect.value).toBe('claude-sonnet-4-6');
 
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
         },
@@ -462,14 +462,14 @@ describe('AssistantUiPanelWrapper', () => {
 
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
       const options = Array.from(modelSelect.options).map((o) => o.value);
-      expect(options).toContain('gemini-3-flash-preview'); // default model for google
+      expect(options).toContain('gemini-3.5-flash'); // default model for google
       expect(options).not.toContain('gpt-5.2'); // openai model shouldn't be here
     });
   });
 
   test('persists provider and model selections in store', async () => {
     // Enable an additional model for testing model switching (via DB mock)
-    testEnabledModels.add('anthropic/claude-sonnet-4.5');
+    testEnabledModels.add('anthropic/claude-sonnet-4.6');
 
     await renderAssistantPanel(['openai', 'openrouter'], () =>
       waitFor(() => {
@@ -490,11 +490,11 @@ describe('AssistantUiPanelWrapper', () => {
     });
 
     // Change model (to the model we enabled above)
-    await user.selectOptions(screen.getByTestId('model-select'), 'anthropic/claude-sonnet-4.5');
+    await user.selectOptions(screen.getByTestId('model-select'), 'anthropic/claude-sonnet-4.6');
 
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.5');
+      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.6');
     });
   });
 
@@ -1283,7 +1283,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
     });
     expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
   });
@@ -1323,16 +1323,16 @@ describe('AssistantUiPanelWrapper', () => {
 
     act(() => {
       window.__brainstrikeAssistantRuntimeTestHooks__?.setCurrentThreadModel(
-        'anthropic::claude-sonnet-4-5'
+        'anthropic::claude-sonnet-4-6'
       );
     });
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-6',
     });
     expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
-      'anthropic::claude-sonnet-4-5'
+      'anthropic::claude-sonnet-4-6'
     );
 
     unmount();
@@ -1389,6 +1389,27 @@ describe('AssistantUiPanelWrapper', () => {
         expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
         expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
           'Assistant memory for hosted providers requires the desktop assistant backend.'
+        );
+      })
+    );
+  });
+
+  test('blocks unsupported persisted semantic recall embedding providers before assistant requests run', async () => {
+    useAssistantMemoryPreferencesStore.setState({
+      semanticRecall: {
+        enabled: true,
+        embeddingModelTarget: 'cohere/embed-english-v3.0',
+        scope: 'resource',
+        topK: 5,
+        messageRange: 2,
+      },
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+          'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.'
         );
       })
     );
@@ -1668,8 +1689,8 @@ describe('AssistantUiPanelWrapper', () => {
   test('builds provider options for anthropic settings', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       selectedProvider: 'anthropic',
-      selectedModel: 'anthropic::claude-sonnet-4-5',
-      modelsByProvider: { ...state.modelsByProvider, anthropic: 'claude-sonnet-4-5' },
+      selectedModel: 'anthropic::claude-sonnet-4-6',
+      modelsByProvider: { ...state.modelsByProvider, anthropic: 'claude-sonnet-4-6' },
       providerSettings: {
         ...state.providerSettings,
         anthropic: {
@@ -1695,12 +1716,12 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('drops invalid google thinking level for gemini-3-pro-preview and opens tool settings', async () => {
-    testEnabledModels.add('gemini-3-pro-preview');
+  test('drops invalid google thinking level for gemini-3.1-pro-preview and opens tool settings', async () => {
+    testEnabledModels.add('gemini-3.1-pro-preview');
     useAssistantPreferencesStore.setState((state) => ({
       selectedProvider: 'google',
-      selectedModel: 'google::gemini-3-pro-preview',
-      modelsByProvider: { ...state.modelsByProvider, google: 'gemini-3-pro-preview' },
+      selectedModel: 'google::gemini-3.1-pro-preview',
+      modelsByProvider: { ...state.modelsByProvider, google: 'gemini-3.1-pro-preview' },
       providerSettings: {
         ...state.providerSettings,
         google: {

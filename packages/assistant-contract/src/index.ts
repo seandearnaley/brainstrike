@@ -9,4 +9,5 @@ export * from './memory-settings.js';
 export * from './provider-metadata.js';
 export * from './run-events.js';
 export * from './runtime-data.js';
+export * from './tool-approval.js';
 export * from './tool-metadata.js';

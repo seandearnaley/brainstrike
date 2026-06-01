@@ -54,6 +54,20 @@ export interface MetadataCacheStats {
 const DEFAULT_MAX_ENTRIES = 10_000;
 const DEFAULT_TTL_MS = 30_000; // 30 seconds
 
+function normalizeCachePath(filePath: string): string {
+  if (process.platform !== 'win32') {
+    return filePath;
+  }
+  return filePath.replaceAll('\\', '/');
+}
+
+function denormalizeCachePath(filePath: string): string {
+  if (process.platform !== 'win32') {
+    return filePath;
+  }
+  return filePath.replaceAll('/', '\\');
+}
+
 /**
  * LRU+TTL Metadata Cache
  *
@@ -97,7 +111,8 @@ export class MetadataCache {
    * Moves accessed entries to end for LRU ordering.
    */
   get(path: string): MetadataCacheEntry | undefined {
-    const entry = this.cache.get(path);
+    const cachePath = normalizeCachePath(path);
+    const entry = this.cache.get(cachePath);
 
     if (!entry) {
       this.misses++;
@@ -106,15 +121,15 @@ export class MetadataCache {
 
     // Check TTL expiration
     if (this.isExpired(entry)) {
-      this.cache.delete(path);
+      this.cache.delete(cachePath);
       this.expirations++;
       this.misses++;
       return;
     }
 
     // Move to end for LRU (delete and re-insert)
-    this.cache.delete(path);
-    this.cache.set(path, entry);
+    this.cache.delete(cachePath);
+    this.cache.set(cachePath, entry);
     this.hits++;
 
     return entry;
@@ -124,12 +139,13 @@ export class MetadataCache {
    * Check if an entry exists and is not expired (without updating LRU position).
    */
   has(path: string): boolean {
-    const entry = this.cache.get(path);
+    const cachePath = normalizeCachePath(path);
+    const entry = this.cache.get(cachePath);
     if (!entry) {
       return false;
     }
     if (this.isExpired(entry)) {
-      this.cache.delete(path);
+      this.cache.delete(cachePath);
       this.expirations++;
       return false;
     }
@@ -141,9 +157,10 @@ export class MetadataCache {
    * Automatically evicts oldest entries if at capacity.
    */
   set(path: string, metadata: Omit<MetadataCacheEntry, 'cachedAt'>): void {
+    const cachePath = normalizeCachePath(path);
     // If updating existing entry, delete first to maintain insertion order
-    if (this.cache.has(path)) {
-      this.cache.delete(path);
+    if (this.cache.has(cachePath)) {
+      this.cache.delete(cachePath);
     }
 
     // Evict oldest entries if at capacity
@@ -156,7 +173,7 @@ export class MetadataCache {
       this.evictions++;
     }
 
-    this.cache.set(path, {
+    this.cache.set(cachePath, {
       ...metadata,
       cachedAt: Date.now(),
     });
@@ -170,9 +187,10 @@ export class MetadataCache {
     const now = Date.now();
 
     for (const { path, metadata } of entries) {
+      const cachePath = normalizeCachePath(path);
       // Delete if exists to maintain insertion order
-      if (this.cache.has(path)) {
-        this.cache.delete(path);
+      if (this.cache.has(cachePath)) {
+        this.cache.delete(cachePath);
       }
 
       // Evict oldest entries if at capacity
@@ -185,7 +203,7 @@ export class MetadataCache {
         this.evictions++;
       }
 
-      this.cache.set(path, {
+      this.cache.set(cachePath, {
         ...metadata,
         cachedAt: now,
       });
@@ -197,7 +215,7 @@ export class MetadataCache {
    * Returns true if the entry existed.
    */
   invalidatePath(path: string): boolean {
-    return this.cache.delete(path);
+    return this.cache.delete(normalizeCachePath(path));
   }
 
   /**
@@ -208,11 +226,12 @@ export class MetadataCache {
    * @returns Number of entries invalidated
    */
   invalidateDirectory(dirPath: string): number {
-    const prefix = dirPath.endsWith('/') ? dirPath : `${dirPath}/`;
+    const normalizedPath = normalizeCachePath(dirPath);
+    const prefix = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
     let count = 0;
 
     // Also invalidate the directory itself
-    if (this.cache.delete(dirPath)) {
+    if (this.cache.delete(normalizedPath)) {
       count++;
     }
 
@@ -236,7 +255,7 @@ export class MetadataCache {
   invalidateWhere(predicate: (path: string, entry: MetadataCacheEntry) => boolean): number {
     let count = 0;
     for (const [path, entry] of this.cache.entries()) {
-      if (predicate(path, entry)) {
+      if (predicate(denormalizeCachePath(path), entry)) {
         this.cache.delete(path);
         count++;
       }
@@ -281,7 +300,7 @@ export class MetadataCache {
    * Get all cached paths (for debugging/testing).
    */
   getPaths(): string[] {
-    return Array.from(this.cache.keys());
+    return Array.from(this.cache.keys()).map(denormalizeCachePath);
   }
 
   /**

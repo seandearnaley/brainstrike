@@ -55,6 +55,24 @@ describe('convertAssistantUiMessages', () => {
     ]);
   });
 
+  it('does not extract assistant-ui part discriminators as prompt text', () => {
+    const messages = convertAssistantUiMessages([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: [{ type: 'text', text: 'Hello' }],
+      },
+    ]);
+
+    expect(messages).toEqual([
+      {
+        id: 'msg-1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Hello' }],
+      },
+    ]);
+  });
+
   it('falls back to the last message with a default role when conversion produced no entries', () => {
     const fallbackMessages = convertAssistantUiMessages([
       { role: 'unknown', text: '' },

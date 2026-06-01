@@ -73,13 +73,17 @@ describe('tool-persistence', () => {
   });
 
   it('returns undefined when read fails with a non-ENOENT error', async () => {
-    await expect(loadToolPreferences('/dev/null')).resolves.toBeUndefined();
+    const fileRoot = join(userDataDir, 'not-a-directory');
+    await writeFile(fileRoot, 'blocked', 'utf-8');
+
+    await expect(loadToolPreferences(fileRoot)).resolves.toBeUndefined();
   });
 
   it('throws when save fails due to invalid directory path', async () => {
-    await expect(saveToolPreferences('/dev/null', createPreferences())).rejects.toBeInstanceOf(
-      Error
-    );
+    const fileRoot = join(userDataDir, 'not-a-directory');
+    await writeFile(fileRoot, 'blocked', 'utf-8');
+
+    await expect(saveToolPreferences(fileRoot, createPreferences())).rejects.toBeInstanceOf(Error);
   });
 
   it('deletes an existing preferences file', async () => {

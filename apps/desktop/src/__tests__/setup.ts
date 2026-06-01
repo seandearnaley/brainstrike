@@ -43,6 +43,18 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Mock `electron-store` globally. Its module body destructures
+// `const {app, ipcMain, shell} = electron` at import time, so when `electron`
+// is aliased to the test stub (see vitest.config.mts) any per-test
+// `vi.mock('electron', …)` that returns only a partial surface would otherwise
+// crash electron-store at import. Tests inject fake stores via DI, so an inert
+// constructor is sufficient here; files that exercise electron-store directly
+// still override this with their own per-file `vi.mock('electron-store', …)`.
+vi.mock('electron-store', () => {
+  const MockElectronStore = vi.fn();
+  return { default: MockElectronStore };
+});
+
 // Mock Electron APIs
 const mockElectronAPI = {
   storage: {
@@ -147,7 +159,7 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
     capabilities: { llm: true, embeddings: false, streaming: true },
     envKeys: ['ANTHROPIC_API_KEY'],
-    models: [{ id: 'claude-sonnet-4-5', type: 'llm' as const, default: true }],
+    models: [{ id: 'claude-sonnet-4-6', type: 'llm' as const, default: true }],
   },
   {
     id: 'google',
@@ -156,7 +168,7 @@ const mockProviderDefinitions = [
     capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
     models: [
-      { id: 'gemini-3-flash-preview', type: 'llm' as const, default: true },
+      { id: 'gemini-3.5-flash', type: 'llm' as const, default: true },
       {
         id: 'gemini-embedding-001',
         type: 'embedding' as const,

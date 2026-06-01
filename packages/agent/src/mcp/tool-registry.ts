@@ -72,6 +72,35 @@ export function isToolEnabledByFilterConfig(
   return enabledTools.some((pattern) => matchToolPattern(toolId, pattern));
 }
 
+export function isAnyToolIdEnabledByFilterConfig(
+  toolIds: readonly string[],
+  filterConfig?: ToolFilterConfig
+): boolean {
+  if (!filterConfig?.enabledTools) {
+    return true;
+  }
+
+  const { enabledTools } = filterConfig;
+
+  if (
+    enabledTools.some(
+      (pattern) =>
+        pattern.startsWith('!') &&
+        toolIds.some((toolId) => matchToolPattern(toolId, pattern.slice(1)))
+    )
+  ) {
+    return false;
+  }
+
+  if (enabledTools.includes('*')) {
+    return true;
+  }
+
+  return enabledTools.some((pattern) =>
+    toolIds.some((toolId) => matchToolPattern(toolId, pattern))
+  );
+}
+
 /**
  * Registry for tracking MCP tools discovered from servers.
  * Manages tool metadata, enabled/disabled state, and filtering.

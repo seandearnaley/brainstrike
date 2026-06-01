@@ -23,6 +23,10 @@ function createWorkspacePaths(prefix: string) {
   return { appDir, pnpmDir };
 }
 
+function toVitePath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
 describe('findPGliteWasm - Enhanced Coverage', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -46,7 +50,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       writeFileSync(wasmFile, '');
 
       const result = findPGliteWasm(appDir);
-      expect(result).toBe(wasmFile);
+      expect(result).toBe(toVitePath(wasmFile));
     });
 
     it('should handle multiple pglite versions in pnpm directory', () => {
@@ -71,7 +75,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       const result = findPGliteWasm(appDir);
       // Should find one of them
       expect(result).toMatch(/pglite\.wasm$/);
-      expect([wasmFile1, wasmFile2]).toContain(result);
+      expect([toVitePath(wasmFile1), toVitePath(wasmFile2)]).toContain(result);
     });
 
     it('should skip non-pglite directories in pnpm', () => {
@@ -137,9 +141,9 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       writeFileSync(wasmFile, '');
 
       const result = findPGliteWasmInDevelopment(appDir);
-      expect(result).toBe(wasmFile);
+      expect(result).toBe(toVitePath(wasmFile));
       expect(stdoutWrite).toHaveBeenCalledWith(
-        `[PGliteLocator] DEBUG Found PGLite WASM {"wasmPath":"${wasmFile}"}\n`
+        `[PGliteLocator] DEBUG Found PGLite WASM {"wasmPath":"${toVitePath(wasmFile)}"}\n`
       );
     });
 
@@ -165,7 +169,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
 
       // Should prefer standard path
       const result = findPGliteWasm(appDir);
-      expect(result).toBe(standardWasm);
+      expect(result).toBe(toVitePath(standardWasm));
     });
   });
 
@@ -190,7 +194,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       writeFileSync(wasmFile, '');
 
       const result = findPGliteWasm(appDir);
-      expect(result).toBe(wasmFile);
+      expect(result).toBe(toVitePath(wasmFile));
     });
   });
 });

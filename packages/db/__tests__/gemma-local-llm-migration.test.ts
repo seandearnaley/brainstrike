@@ -2,15 +2,14 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 describe('gemma local llm migration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-gemma-migration-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-gemma-migration');
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
   });

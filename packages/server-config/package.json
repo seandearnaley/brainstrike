@@ -22,8 +22,8 @@
   "module": "dist/index.js",
   "private": true,
   "scripts": {
-    "build": "rm -rf dist && tsc -b .",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",

@@ -42,22 +42,23 @@ const FORBIDDEN_EXECUTION_IMPORTS: readonly ForbiddenExecutionImportRule[] = [
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 const MAX_SOURCE_WALK_DEPTH = 20;
 
+function toSourcePath(filePath: string): string {
+  return filePath.replaceAll(path.sep, '/');
+}
+
 function isRendererSource(filePath: string): boolean {
-  return (
-    filePath.startsWith('src/renderer/') ||
-    filePath.includes('/src/renderer/') ||
-    filePath.includes('\\src\\renderer\\')
-  );
+  const normalizedPath = toSourcePath(filePath);
+  return normalizedPath.startsWith('src/renderer/') || normalizedPath.includes('/src/renderer/');
 }
 
 function isTestSource(filePath: string): boolean {
+  const normalizedPath = toSourcePath(filePath);
   return (
-    filePath.includes('/__tests__/') ||
-    filePath.includes('\\__tests__\\') ||
-    filePath.endsWith('.test.ts') ||
-    filePath.endsWith('.test.tsx') ||
-    filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.tsx')
+    normalizedPath.includes('/__tests__/') ||
+    normalizedPath.endsWith('.test.ts') ||
+    normalizedPath.endsWith('.test.tsx') ||
+    normalizedPath.endsWith('.spec.ts') ||
+    normalizedPath.endsWith('.spec.tsx')
   );
 }
 
@@ -108,7 +109,7 @@ function collectDesktopSourceFilesFrom(
     }
 
     files.push({
-      path: path.relative(rootDirectory, absolutePath),
+      path: toSourcePath(path.relative(rootDirectory, absolutePath)),
       source: (() => {
         try {
           return readFileSync(absolutePath, 'utf8');

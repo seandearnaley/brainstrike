@@ -21,6 +21,10 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+function toVitePath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
 describe('findPGliteWasm', () => {
   it('returns path when wasm exists', () => {
     const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-'));
@@ -30,7 +34,7 @@ describe('findPGliteWasm', () => {
     const wasmFile = path.join(wasmDir, 'pglite.wasm');
     writeFileSync(wasmFile, '');
 
-    expect(findPGliteWasm(appDir)).toBe(wasmFile);
+    expect(findPGliteWasm(appDir)).toBe(toVitePath(wasmFile));
   });
 
   it('returns null when wasm is missing', () => {
@@ -103,7 +107,7 @@ describe('assistant vite helpers', () => {
     const entries = getLazySurfaceOptimizeDepsEntries(appDir);
 
     expect(entries).toEqual([
-      `${appDir}/index.html`,
+      `${toVitePath(appDir)}/index.html`,
       expect.stringContaining('/packages/app-shell/src/database-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-chat-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
@@ -195,14 +199,12 @@ describe('fullReloadOnCompilerHotspots', () => {
 
 describe('getWorkerpoolBrowserStubAliases', () => {
   it('returns explicit browser-safe aliases for workerpool node builtins', () => {
-    const aliases = getWorkerpoolBrowserStubAliases('/tmp/brainstrike-app');
-    expect(aliases['child_process']).toBe(
-      '/packages/build-utils/src/browser-node-stubs/child-process.ts'
-    );
-    expect(aliases['os']).toBe('/packages/build-utils/src/browser-node-stubs/os.ts');
-    expect(aliases['worker_threads']).toBe(
-      '/packages/build-utils/src/browser-node-stubs/worker-threads.ts'
-    );
+    const baseDir = '/tmp/brainstrike-app';
+    const stubDir = path.resolve(baseDir, '../../packages/build-utils/src/browser-node-stubs');
+    const aliases = getWorkerpoolBrowserStubAliases(baseDir);
+    expect(aliases['child_process']).toBe(toVitePath(path.resolve(stubDir, 'child-process.ts')));
+    expect(aliases['os']).toBe(toVitePath(path.resolve(stubDir, 'os.ts')));
+    expect(aliases['worker_threads']).toBe(toVitePath(path.resolve(stubDir, 'worker-threads.ts')));
   });
 });
 
@@ -227,7 +229,11 @@ describe('getTreeSitterGrammarCopyTargets', () => {
     expect(pythonTarget).toBeDefined();
     // Expected resolution: <baseDir>/../../packages/chunking-worker/grammars/python.wasm
     // (mirrors the findPGliteWasm baseDir convention)
-    expect(pythonTarget?.src).toBe('/packages/chunking-worker/grammars/python.wasm');
+    expect(pythonTarget?.src).toBe(
+      toVitePath(
+        path.resolve('/tmp/brainstrike-app', '../../packages/chunking-worker/grammars/python.wasm')
+      )
+    );
   });
 
   it('sets rename.stripBase so the wasm lands flat at dest/<lang>.wasm', () => {

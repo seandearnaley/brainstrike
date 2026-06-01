@@ -27,7 +27,7 @@
   "private": true,
   "scripts": {
     "build": "tsc --build",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "ultracite check src",
     "lint:fix": "ultracite fix src",
     "test": "vitest run",

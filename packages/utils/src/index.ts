@@ -36,6 +36,7 @@ export * from './relative-file-path';
 export * from './report-generator';
 export * from './safe-storage';
 export * from './selection-utils';
+export * from './string-utils';
 export * from './throttled-state';
 export * from './token-counting-heuristics';
 export * from './tree-generator';

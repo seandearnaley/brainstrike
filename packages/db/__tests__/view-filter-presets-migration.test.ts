@@ -7,6 +7,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 interface ViewFilterPresetRow {
   description: string | null;
@@ -26,9 +27,7 @@ describe('View Filter Presets Migration (027)', () => {
   const TEST_TIMEOUT = 60_000;
 
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-view-filter-presets-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-view-filter-presets');
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();

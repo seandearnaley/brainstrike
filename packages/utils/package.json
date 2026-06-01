@@ -158,6 +158,11 @@
       "import": "./dist/selection-utils.mjs",
       "require": "./dist/selection-utils.js"
     },
+    "./string-utils": {
+      "types": "./dist/string-utils.d.ts",
+      "import": "./dist/string-utils.mjs",
+      "require": "./dist/string-utils.js"
+    },
     "./tree-generator": {
       "types": "./dist/tree-generator.d.ts",
       "import": "./dist/tree-generator.mjs",

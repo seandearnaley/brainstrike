@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { addLogListener } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -634,7 +635,7 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining('renderer/index.html')
+        expect.stringContaining(path.join('renderer', 'index.html'))
       );
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
@@ -646,7 +647,7 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining('renderer/index.html')
+        expect.stringContaining(path.join('renderer', 'index.html'))
       );
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
@@ -684,7 +685,7 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining('renderer/index.html')
+        expect.stringContaining(path.join('renderer', 'index.html'))
       );
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();

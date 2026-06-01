@@ -1,5 +1,6 @@
 import type { FSWatcher, Stats } from 'node:fs';
 import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FS_WATCH_BATCH_WINDOW_MS,
@@ -98,9 +99,9 @@ describe('startFsWatch', () => {
     const changes: FileSystemChange[] = callback.mock.calls[0]![0];
     expect(changes).toHaveLength(3);
     expect(changes.map((c) => c.path)).toEqual([
-      '/test/dir/a.txt',
-      '/test/dir/b.txt',
-      '/test/dir/c.txt',
+      path.join(mockHandle.path, 'a.txt'),
+      path.join(mockHandle.path, 'b.txt'),
+      path.join(mockHandle.path, 'c.txt'),
     ]);
 
     statMock.mockRestore();
@@ -162,7 +163,11 @@ describe('startFsWatch', () => {
     await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith([
-      expect.objectContaining({ type: 'removed', path: '/test/dir/deleted.txt', kind: 'file' }),
+      expect.objectContaining({
+        kind: 'file',
+        path: path.join(mockHandle.path, 'deleted.txt'),
+        type: 'removed',
+      }),
     ]);
 
     statMock.mockRestore();

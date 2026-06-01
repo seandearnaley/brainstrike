@@ -31,8 +31,8 @@
   "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",

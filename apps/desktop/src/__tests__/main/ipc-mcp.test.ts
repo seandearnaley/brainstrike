@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { mcpToolRegistry } from '@brainstrike/agent';
 import { dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { registerMcpIpcHandlers } from '../../ipc-mcp';
+import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from '../../ipc-mcp';
 import { disposeClients, initClients } from '../../mcp';
 import {
   getMcpConfigPath,
@@ -35,6 +36,9 @@ function mockWatchImpl(setter: (cb: WatchCallback) => void, ret: { close: () => 
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
+    on: vi.fn(),
+    removeHandler: vi.fn(),
+    removeListener: vi.fn(),
   },
   dialog: {
     showOpenDialog: vi.fn(),
@@ -106,6 +110,7 @@ describe('ipc-mcp handlers', () => {
   });
 
   afterEach(() => {
+    mcpToolRegistry.clear();
     vi.restoreAllMocks();
   });
 
@@ -140,6 +145,50 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:createSample', expect.any(Function));
 
       expect(ipcMain.handle).toHaveBeenCalledTimes(16);
+    });
+
+    it('cleans up active watcher, MCP clients, and registry state on shutdown', async () => {
+      const mockWatcher = { close: vi.fn() };
+      vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
+      mcpToolRegistry.register('server', {
+        'server.tool': { description: 'test tool' },
+      });
+
+      const watchHandler = handlers.get('mcp:config:watch');
+      if (!watchHandler) {
+        throw new Error('watch handler not registered');
+      }
+      await watchHandler({});
+
+      await cleanupMcpRuntimeForShutdown();
+
+      expect(mockWatcher.close).toHaveBeenCalledTimes(1);
+      expect(disposeClients).toHaveBeenCalled();
+      expect(mcpToolRegistry.getStats()).toEqual({
+        disabled: 0,
+        enabled: 0,
+        servers: 0,
+        total: 0,
+      });
+    });
+
+    it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {
+      const mockWatcher = { close: vi.fn() };
+      vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
+      const unregister = registerMcpIpcHandlers();
+
+      const watchHandler = handlers.get('mcp:config:watch');
+      if (!watchHandler) {
+        throw new Error('watch handler not registered');
+      }
+      await watchHandler({});
+
+      const disposeCallsBeforeUnregister = vi.mocked(disposeClients).mock.calls.length;
+      unregister();
+
+      expect(mockWatcher.close).not.toHaveBeenCalled();
+      expect(vi.mocked(disposeClients).mock.calls.length).toBe(disposeCallsBeforeUnregister);
+      expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:get');
     });
   });
 
@@ -558,7 +607,7 @@ describe('ipc-mcp handlers', () => {
       }
       const result = await handler();
 
-      expect(result).toBe('/tmp/mcp.json');
+      expect(result).toBe(path.resolve('/tmp/mcp.json'));
     });
   });
 
@@ -585,10 +634,10 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
-      await expect(selectHandler()).resolves.toBe('/tmp/new.json');
+      await expect(selectHandler()).resolves.toBe(path.resolve('/tmp/new.json'));
       const result = await handler({} as never, '/tmp/new.json');
 
-      expect(setCustomMcpConfigPath).toHaveBeenCalledWith('/tmp/new.json');
+      expect(setCustomMcpConfigPath).toHaveBeenCalledWith(path.resolve('/tmp/new.json'));
       expect(loadMcpConfig).toHaveBeenCalled();
       expect(watchMcpConfig).toHaveBeenCalled();
       expect(result).toEqual({ success: true, path: '/tmp/new.json' });

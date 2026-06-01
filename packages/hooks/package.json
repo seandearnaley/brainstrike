@@ -54,7 +54,7 @@
   },
   "scripts": {
     "build": "tsc -b . && tsup",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
     "lint": "pnpm run --dir=../.. lint",
     "mutation": "npx @stryker-mutator/core run",

@@ -15,6 +15,23 @@ function createDeferred<T>(): {
   return { promise, resolve };
 }
 
+function textMessage(
+  id: string,
+  threadId: string,
+  resourceId: string,
+  createdAt: string
+): MastraDBMessage {
+  return {
+    id,
+    role: id.endsWith('-assistant') ? 'assistant' : 'user',
+    type: 'text',
+    threadId,
+    resourceId,
+    createdAt: new Date(createdAt),
+    content: { content: id },
+  };
+}
+
 describe('PgliteMemoryStore', () => {
   let db: PGlite;
   let store: PgliteMemoryStore;
@@ -106,10 +123,41 @@ describe('PgliteMemoryStore', () => {
       orderBy: { field: 'updatedAt', direction: 'DESC' },
       perPage: false,
     });
+    const emptyResourceListed = await store.listThreads({
+      filter: { resourceId: '' },
+      perPage: false,
+    });
 
     expect(listed.threads.map((thread) => thread.id)).toEqual([secondThread.id, firstThread.id]);
     expect(listed.total).toBe(2);
     expect(listed.hasMore).toBe(false);
+    expect(emptyResourceListed.threads).toEqual([]);
+    expect(emptyResourceListed.total).toBe(0);
+  });
+
+  it('honors resourceId when loading a thread by id', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-resource-scoped',
+        resourceId: 'workspace-a',
+        title: 'Workspace A thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-a' })
+    ).resolves.toMatchObject({
+      id: 'thread-resource-scoped',
+      resourceId: 'workspace-a',
+    });
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-b' })
+    ).resolves.toBeNull();
+    await expect(
+      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: '' })
+    ).resolves.toBeNull();
   });
 
   it('persists messages and supports thread/resource recall queries', async () => {
@@ -157,11 +205,278 @@ describe('PgliteMemoryStore', () => {
       perPage: false,
       orderBy: { field: 'createdAt', direction: 'ASC' },
     });
+    const byEmptyResource = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: '',
+      perPage: false,
+    });
     const byId = await store.listMessagesById({ messageIds: ['message-2'] });
 
     expect(byThread.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
     expect(byResource.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+    expect(byEmptyResource.messages).toEqual([]);
+    expect(byEmptyResource.total).toBe(0);
     expect(byId.messages.map((message) => message.id)).toEqual(['message-2']);
+  });
+
+  it('expands included thread messages with semantic recall context windows', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-a', '2026-04-22T10:00:03Z'),
+        textMessage('message-4', 'thread-1', 'workspace-a', '2026-04-22T10:00:04Z'),
+        textMessage('message-5', 'thread-1', 'workspace-a', '2026-04-22T10:00:05Z'),
+      ],
+    });
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [{ id: 'message-4', withPreviousMessages: 2, withNextMessages: 1 }],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-2',
+      'message-3',
+      'message-4',
+      'message-5',
+    ]);
+    expect(result.total).toBe(5);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('expands resource-level included messages using the include thread id', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'First thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveThread({
+      thread: {
+        id: 'thread-2',
+        resourceId: 'workspace-a',
+        title: 'Second thread',
+        createdAt: new Date('2026-04-22T11:00:00Z'),
+        updatedAt: new Date('2026-04-22T11:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('thread-1-message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('thread-1-message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('thread-2-message-1', 'thread-2', 'workspace-a', '2026-04-22T11:00:01Z'),
+        textMessage('thread-2-message-2', 'thread-2', 'workspace-a', '2026-04-22T11:00:02Z'),
+        textMessage('thread-2-message-3', 'thread-2', 'workspace-a', '2026-04-22T11:00:03Z'),
+      ],
+    });
+
+    const result = await store.listMessagesByResourceId({
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [
+        {
+          id: 'thread-2-message-2',
+          threadId: 'thread-2',
+          withPreviousMessages: 1,
+          withNextMessages: 1,
+        },
+      ],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual([
+      'thread-1-message-1',
+      'thread-2-message-1',
+      'thread-2-message-2',
+      'thread-2-message-3',
+    ]);
+    expect(result.total).toBe(5);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('does not return included messages outside the requested thread or resource scope', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Scoped thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveThread({
+      thread: {
+        id: 'thread-foreign',
+        resourceId: 'workspace-b',
+        title: 'Foreign thread',
+        createdAt: new Date('2026-04-22T11:00:00Z'),
+        updatedAt: new Date('2026-04-22T11:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('thread-1-message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('thread-1-message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('foreign-message-1', 'thread-foreign', 'workspace-b', '2026-04-22T11:00:01Z'),
+        textMessage('foreign-message-2', 'thread-foreign', 'workspace-b', '2026-04-22T11:00:02Z'),
+        textMessage('foreign-message-3', 'thread-foreign', 'workspace-b', '2026-04-22T11:00:03Z'),
+      ],
+    });
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [
+        {
+          id: 'foreign-message-2',
+          withPreviousMessages: 1,
+          withNextMessages: 1,
+        },
+      ],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual(['thread-1-message-1']);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('uses bounded adjacent-message queries for include windows', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-a', '2026-04-22T10:00:03Z'),
+        textMessage('message-4', 'thread-1', 'workspace-a', '2026-04-22T10:00:04Z'),
+        textMessage('message-5', 'thread-1', 'workspace-a', '2026-04-22T10:00:05Z'),
+      ],
+    });
+    const querySpy = vi.spyOn(db, 'query');
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [{ id: 'message-3', withPreviousMessages: 1, withNextMessages: 1 }],
+    });
+
+    const sqlStatements = querySpy.mock.calls.map(([sql]) => String(sql));
+    expect(result.messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-2',
+      'message-3',
+      'message-4',
+    ]);
+    expect(sqlStatements).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/ORDER BY "createdAt" DESC, id DESC\s+LIMIT/),
+        expect.stringMatching(/ORDER BY "createdAt" ASC, id ASC\s+LIMIT/),
+      ])
+    );
+    expect(sqlStatements).not.toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/WHERE thread_id = \$1\s+ORDER BY "createdAt" ASC, id ASC\s*$/),
+      ])
+    );
+  });
+
+  it('keeps hasMore tied to the date-filtered base page when include windows cross the date range', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-a', '2026-04-22T10:00:03Z'),
+        textMessage('message-4', 'thread-1', 'workspace-a', '2026-04-22T10:00:04Z'),
+        textMessage('message-5', 'thread-1', 'workspace-a', '2026-04-22T10:00:05Z'),
+      ],
+    });
+
+    const result = await store.listMessages({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      filter: {
+        dateRange: { start: new Date('2026-04-22T10:00:04Z') },
+      },
+      include: [{ id: 'message-2', withPreviousMessages: 1, withNextMessages: 1 }],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual([
+      'message-1',
+      'message-2',
+      'message-3',
+      'message-4',
+    ]);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('does not append adjacent include-window messages outside the requested resource scope', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage('message-1', 'thread-1', 'workspace-a', '2026-04-22T10:00:01Z'),
+        textMessage('message-2', 'thread-1', 'workspace-a', '2026-04-22T10:00:02Z'),
+        textMessage('message-3', 'thread-1', 'workspace-b', '2026-04-22T10:00:03Z'),
+      ],
+    });
+
+    const result = await store.listMessagesByResourceId({
+      resourceId: 'workspace-a',
+      perPage: 1,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+      include: [{ id: 'message-2', withNextMessages: 1 }],
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(false);
   });
 
   it('emits compact run events from real history and working-memory hooks', async () => {

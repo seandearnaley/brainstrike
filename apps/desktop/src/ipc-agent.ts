@@ -1,50 +1,17 @@
-import { isSupportedProvider } from '@brainstrike/agent';
+import {
+  type AgentMessage,
+  isSupportedProvider,
+  type RuntimeData,
+  type StreamChunk,
+} from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
-import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
-
-// Minimal local types to avoid cross-project TS coupling during type-check
-interface AgentMessage {
-  id: string;
-  parts: Array<{ type: 'text'; text: string }>;
-  role: 'user' | 'assistant' | 'system';
-}
-interface RuntimeData {
-  mcpConfig?: McpConfig;
-  mcpEnabled?: boolean;
-  model?: string;
-  projectId?: string;
-  provider?: string;
-}
-type StreamChunk =
-  | { type: 'reasoning-delta'; value: string }
-  | {
-      type: 'run-event';
-      event: unknown;
-    }
-  | { type: 'text-delta'; value: string }
-  | {
-      type: 'tool-event';
-      name: string;
-      status: 'start' | 'progress' | 'success' | 'error';
-      payload?: unknown;
-    }
-  | {
-      type: 'finish';
-      usage: { promptTokens: number; completionTokens: number };
-    }
-  | {
-      type: 'message-finish';
-      finishReason: string;
-      usage: { promptTokens: number; completionTokens: number };
-      path: readonly number[];
-    };
 
 const logger = createLogger('DesktopIpcAgent');
 type AgentModule = typeof import('@brainstrike/agent');
@@ -69,9 +36,6 @@ async function runAgentChat(
   messages: AgentMessage[],
   runtime: RuntimeData | undefined
 ): Promise<StreamChunk[]> {
-  const agentModule = resolveAgentModule();
-  const config = await loadMcpConfig();
-  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
   const provider = resolveAgentProvider(runtime);
   if (!provider) {
     throw new Error('missing_provider');
@@ -80,6 +44,10 @@ async function runAgentChat(
   if (!apiKey) {
     throw new Error(`missing_api_key:${provider}`);
   }
+
+  const agentModule = resolveAgentModule();
+  const config = await loadMcpConfig();
+  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
 
   const maybeStream = agentModule.streamMastraAgent(messages, {
     runtime: {
