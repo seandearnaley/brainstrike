@@ -62,6 +62,11 @@ interface MockLlmGenerateRequest {
   requestId: string;
 }
 
+interface AssistantThreadStartupEvent {
+  readonly kind: 'error' | 'loading';
+  readonly marker: string;
+}
+
 test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ page }) => {
     const tree = {
@@ -73,6 +78,53 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
       // @ts-expect-error test-only override
       window.__assistantAvailabilityOverride = { state: 'enabled' };
+      const startupEvents: AssistantThreadStartupEvent[] = [];
+      const startupEventKeys = new Set<string>();
+      const recordStartupEvent = (kind: AssistantThreadStartupEvent['kind'], marker: string) => {
+        const key = `${kind}:${marker}`;
+        if (startupEventKeys.has(key)) {
+          return;
+        }
+        startupEventKeys.add(key);
+        startupEvents.push({ kind, marker });
+      };
+      const recordAssistantThreadStartupText = () => {
+        const surfaces = [
+          ...document.querySelectorAll<HTMLElement>('[data-testid="threads-panel"]'),
+          ...document.querySelectorAll<HTMLElement>(
+            '[data-testid="assistant-thread-tabs-workspace"]'
+          ),
+        ];
+        for (const surface of surfaces) {
+          const loadingSurfaces = surface.querySelectorAll(
+            '[data-testid="threads-loading-card"], [data-testid="assistant-thread-workspace-state"]:not([data-variant="error"])'
+          );
+          for (const element of loadingSurfaces) {
+            recordStartupEvent('loading', element.getAttribute('data-testid') ?? 'loading');
+          }
+          const errorSurfaces = surface.querySelectorAll(
+            '[data-testid="threads-error-card"], [data-testid="assistant-thread-workspace-state"][data-variant="error"]'
+          );
+          for (const element of errorSurfaces) {
+            recordStartupEvent('error', element.getAttribute('data-testid') ?? 'error');
+          }
+        }
+      };
+      const installAssistantThreadStartupObserver = () => {
+        const target = document.documentElement;
+        if (!target) {
+          window.setTimeout(installAssistantThreadStartupObserver, 0);
+          return;
+        }
+        const observer = new MutationObserver(recordAssistantThreadStartupText);
+        observer.observe(target, { characterData: true, childList: true, subtree: true });
+        recordAssistantThreadStartupText();
+      };
+      Object.defineProperty(window, '__assistantThreadStartupEvents', {
+        configurable: true,
+        value: startupEvents,
+      });
+      installAssistantThreadStartupObserver();
       const progressListeners = new Set<(event: MockProgressEvent) => void>();
 
       const emitProgress = (requestId: string, payload: MockProgressPayloadInput) => {
@@ -176,6 +228,21 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       rootName: 'assistant-ui-panel',
       tree,
     });
+  });
+
+  test('loads assistant thread surfaces without startup error states', async ({ page }) => {
+    await expect(page.getByTestId('threads-panel')).toBeVisible();
+    await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible();
+    const startupEvents = await page.evaluate(
+      () =>
+        (window as unknown as { __assistantThreadStartupEvents?: AssistantThreadStartupEvent[] })
+          .__assistantThreadStartupEvents ?? []
+    );
+    expect(startupEvents.filter((event) => event.kind === 'error')).toEqual([]);
+    await expect(page.getByText('Failed to load threads')).toHaveCount(0);
+    await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
+    await expect(page.getByText('Assistant memory database unavailable')).toHaveCount(0);
+    await expect(page.getByText('Memory database unavailable')).toHaveCount(0);
   });
 
   test('send message and see assistant stream with tool progress', async ({ page }) => {

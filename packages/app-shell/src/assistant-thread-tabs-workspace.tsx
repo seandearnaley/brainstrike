@@ -1,10 +1,16 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import {
+  useDbInitializationStatus,
+  useDbInitializing,
+  useDbProviderError,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
 import type { ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
+import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
@@ -29,12 +35,21 @@ export function AssistantThreadTabsWorkspace({
   loadLocalLlmBackend,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
   const database = usePGliteDatabase();
+  const databaseInitializing = useDbInitializing();
+  const databaseStatus = useDbInitializationStatus();
+  const databaseError = useDbProviderError();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
+  const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
+    databaseError,
+    databaseInitializing,
+    databaseStatus,
+    repositoryReady: Boolean(repository),
+  });
 
   const activeThreadIdByResourceId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId
@@ -166,11 +181,26 @@ export function AssistantThreadTabsWorkspace({
     );
   }
 
+  if (!repository && databaseStartupLoading) {
+    return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
+  }
+
+  if (!repository && databaseError) {
+    return (
+      <ThreadWorkspaceState
+        description={databaseError.message}
+        title="Memory database failed"
+        variant="error"
+      />
+    );
+  }
+
   if (!repository) {
     return (
       <ThreadWorkspaceState
         description="Assistant memory requires an initialized PGlite database."
         title="Memory database unavailable"
+        variant="error"
       />
     );
   }
@@ -329,7 +359,11 @@ function ThreadWorkspaceState({
 }): ReactElement {
   const tone = variant === 'error' ? 'text-destructive' : 'text-muted-foreground';
   return (
-    <div className={`p-4 text-xs ${tone}`} data-testid="assistant-thread-workspace-state">
+    <div
+      className={`p-4 text-xs ${tone}`}
+      data-testid="assistant-thread-workspace-state"
+      data-variant={variant}
+    >
       <div className="font-medium text-sm">{title}</div>
       <div className="mt-1">{description}</div>
     </div>

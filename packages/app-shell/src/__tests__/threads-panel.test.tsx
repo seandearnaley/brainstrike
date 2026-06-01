@@ -1,10 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
-const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+  dbMocks: {
+    database: undefined as unknown,
+    initializing: false,
+    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+    providerError: null as Error | null,
+  },
   fileExplorerMocks: {
     rootDirectoryHandle: {
       name: 'workspace-a',
@@ -21,7 +27,10 @@ const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => mockDb,
+  useDbInitializing: () => dbMocks.initializing,
+  useDbInitializationStatus: () => dbMocks.initializationStatus,
+  useDbProviderError: () => dbMocks.providerError,
+  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -35,6 +44,10 @@ describe('ThreadsPanel', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    dbMocks.database = undefined;
+    dbMocks.initializing = false;
+    dbMocks.initializationStatus = 'ready';
+    dbMocks.providerError = null;
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: {},
       draftRuntimeByThreadId: {},
@@ -121,13 +134,84 @@ describe('ThreadsPanel', () => {
     expect(screen.getByText('No workspace open')).toBeVisible();
   });
 
+  it('shows loading instead of unavailable while the database is initializing', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = true;
+    dbMocks.initializationStatus = 'initializing';
+
+    render(<ThreadsPanel />);
+
+    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+    expect(screen.getByText('Loading threads...')).toBeVisible();
+    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
+    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
+  });
+
+  it('shows loading instead of unavailable before lazy database initialization starts', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = false;
+    dbMocks.initializationStatus = 'idle';
+
+    render(<ThreadsPanel />);
+
+    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+    expect(screen.getByText('Loading threads...')).toBeVisible();
+    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
+    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
+  });
+
+  it('keeps loading while lazy database initialization has not completed', () => {
+    vi.useFakeTimers();
+    try {
+      dbMocks.database = null;
+      dbMocks.initializing = false;
+      dbMocks.initializationStatus = 'idle';
+
+      render(<ThreadsPanel />);
+
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+      expect(screen.getByText('Loading threads...')).toBeVisible();
+      expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows unavailable when the database stays missing after startup settles', async () => {
+    dbMocks.database = null;
+    dbMocks.initializing = false;
+    dbMocks.initializationStatus = 'ready';
+
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Assistant memory database unavailable')).toBeVisible();
+    });
+    expect(screen.queryByText('Loading threads...')).not.toBeInTheDocument();
+  });
+
+  it('shows the database provider error after initialization fails', () => {
+    dbMocks.database = null;
+    dbMocks.providerError = new Error('PGlite startup failed.');
+
+    render(<ThreadsPanel />);
+
+    expect(screen.getByTestId('threads-error-card')).toBeVisible();
+    expect(screen.getByText('Assistant memory database failed')).toBeVisible();
+    expect(screen.getByText('PGlite startup failed.')).toBeVisible();
+    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
+  });
+
   it('lists workspace-scoped historical Mastra threads from PGlite', async () => {
     render(<ThreadsPanel />);
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    expect(mockDb.exec).toHaveBeenCalled();
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
       '/tmp/workspace-a',
     ]);

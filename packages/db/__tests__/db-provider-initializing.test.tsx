@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vite
 import { createPriorityDbHandle } from '../src/database-work-scheduler';
 import {
   DbProvider,
+  useDbInitializationStatus,
   useDbInitializing,
   useFileChunkRepository,
   useFileRecordRepository,
@@ -69,9 +70,10 @@ describe('DbProvider initializing state', () => {
 
     const { result } = renderHook(
       () => {
+        const initializationStatus = useDbInitializationStatus();
         const initializing = useDbInitializing();
         const repo = useFileRecordRepository(); // triggers initialization
-        return { initializing, repo };
+        return { initializationStatus, initializing, repo };
       },
       { wrapper }
     );
@@ -79,6 +81,7 @@ describe('DbProvider initializing state', () => {
     // Initially, initializing should be true (since we're blocking init)
     await waitFor(
       () => {
+        expect(result.current.initializationStatus).toBe('initializing');
         expect(result.current.initializing).toBe(true);
       },
       { timeout: 5000 }
@@ -92,6 +95,7 @@ describe('DbProvider initializing state', () => {
     // After initialization completes, initializing should be false
     await waitFor(
       () => {
+        expect(result.current.initializationStatus).toBe('ready');
         expect(result.current.initializing).toBe(false);
       },
       { timeout: 10_000 }
@@ -105,9 +109,10 @@ describe('DbProvider initializing state', () => {
 
     const { result } = renderHook(
       () => {
+        const initializationStatus = useDbInitializationStatus();
         const initializing = useDbInitializing();
         const repo = useFileRecordRepository(); // triggers initialization
-        return { initializing, repo };
+        return { initializationStatus, initializing, repo };
       },
       { wrapper }
     );
@@ -116,6 +121,7 @@ describe('DbProvider initializing state', () => {
     await waitFor(
       () => {
         expect(result.current.repo).toBeDefined();
+        expect(result.current.initializationStatus).toBe('ready');
         expect(result.current.initializing).toBe(false);
       },
       { timeout: 10_000 }

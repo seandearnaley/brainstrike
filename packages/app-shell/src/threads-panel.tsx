@@ -1,4 +1,9 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import {
+  useDbInitializationStatus,
+  useDbInitializing,
+  useDbProviderError,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { Check, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
@@ -9,6 +14,7 @@ import {
   type AssistantThreadRepository,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
+import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 
 type ThreadPanelLoadState =
@@ -430,6 +436,8 @@ function ThreadBadge({ children }: { readonly children: string }): ReactElement 
 }
 
 function ThreadsPanelContent({
+  databaseError,
+  databaseStartupLoading,
   loadState,
   onDeleteThread,
   onRenameThread,
@@ -439,6 +447,8 @@ function ThreadsPanelContent({
   selectedThreadId,
   threads,
 }: {
+  readonly databaseError: Error | null;
+  readonly databaseStartupLoading: boolean;
   readonly loadState: ThreadPanelLoadState | null;
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
@@ -454,6 +464,25 @@ function ThreadsPanelContent({
         description="Open a workspace to load its Mastra memory threads."
         testId="threads-placeholder-card"
         title="No workspace open"
+      />
+    );
+  }
+  if (!repository && databaseStartupLoading) {
+    return (
+      <ThreadStateCard
+        description="Reading Mastra memory from PGlite."
+        testId="threads-loading-card"
+        title="Loading threads..."
+      />
+    );
+  }
+  if (!repository && databaseError) {
+    return (
+      <ThreadStateCard
+        description={databaseError.message}
+        testId="threads-error-card"
+        title="Assistant memory database failed"
+        variant="error"
       />
     );
   }
@@ -508,12 +537,21 @@ function ThreadsPanelContent({
 
 export function ThreadsPanel(): ReactElement {
   const database = usePGliteDatabase();
+  const databaseInitializing = useDbInitializing();
+  const databaseStatus = useDbInitializationStatus();
+  const databaseError = useDbProviderError();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
+  const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
+    databaseError,
+    databaseInitializing,
+    databaseStatus,
+    repositoryReady: Boolean(repository),
+  });
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
@@ -603,6 +641,8 @@ export function ThreadsPanel(): ReactElement {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <ThreadsPanelContent
+          databaseError={databaseError}
+          databaseStartupLoading={databaseStartupLoading}
           loadState={loadState}
           onDeleteThread={handleDeleteThread}
           onRenameThread={handleRenameThread}
