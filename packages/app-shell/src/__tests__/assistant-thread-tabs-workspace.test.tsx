@@ -9,6 +9,7 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     database: undefined as unknown,
     initializing: false,
     providerError: null as Error | null,
+    ready: true,
   },
   fileExplorerMocks: {
     rootDirectoryHandle: {
@@ -28,6 +29,7 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
+  useDbReady: () => dbMocks.ready,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
@@ -54,6 +56,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     dbMocks.database = undefined;
     dbMocks.initializing = false;
     dbMocks.providerError = null;
+    dbMocks.ready = true;
     threadRows.splice(
       0,
       threadRows.length,
@@ -218,6 +221,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('shows loading instead of unavailable before lazy database initialization starts', () => {
     dbMocks.database = null;
     dbMocks.initializing = false;
+    dbMocks.ready = false;
 
     render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
 
@@ -227,9 +231,31 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
 
+  it('keeps loading while lazy database initialization has not completed', () => {
+    vi.useFakeTimers();
+    try {
+      dbMocks.database = null;
+      dbMocks.initializing = false;
+      dbMocks.ready = false;
+
+      render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(screen.getByText('Loading')).toBeInTheDocument();
+      expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
+      expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows unavailable when the database stays missing after startup settles', async () => {
     dbMocks.database = null;
     dbMocks.initializing = false;
+    dbMocks.ready = true;
 
     render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
 

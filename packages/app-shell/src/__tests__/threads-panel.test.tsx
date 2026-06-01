@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
@@ -9,6 +9,7 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     database: undefined as unknown,
     initializing: false,
     providerError: null as Error | null,
+    ready: true,
   },
   fileExplorerMocks: {
     rootDirectoryHandle: {
@@ -28,6 +29,7 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
+  useDbReady: () => dbMocks.ready,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
@@ -45,6 +47,7 @@ describe('ThreadsPanel', () => {
     dbMocks.database = undefined;
     dbMocks.initializing = false;
     dbMocks.providerError = null;
+    dbMocks.ready = true;
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: {},
       draftRuntimeByThreadId: {},
@@ -146,6 +149,7 @@ describe('ThreadsPanel', () => {
   it('shows loading instead of unavailable before lazy database initialization starts', () => {
     dbMocks.database = null;
     dbMocks.initializing = false;
+    dbMocks.ready = false;
 
     render(<ThreadsPanel />);
 
@@ -155,9 +159,31 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
   });
 
+  it('keeps loading while lazy database initialization has not completed', () => {
+    vi.useFakeTimers();
+    try {
+      dbMocks.database = null;
+      dbMocks.initializing = false;
+      dbMocks.ready = false;
+
+      render(<ThreadsPanel />);
+
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+      expect(screen.getByText('Loading threads...')).toBeVisible();
+      expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows unavailable when the database stays missing after startup settles', async () => {
     dbMocks.database = null;
     dbMocks.initializing = false;
+    dbMocks.ready = true;
 
     render(<ThreadsPanel />);
 

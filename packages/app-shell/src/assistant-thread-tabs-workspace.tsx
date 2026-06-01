@@ -1,4 +1,9 @@
-import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
+import {
+  useDbInitializing,
+  useDbProviderError,
+  useDbReady,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
@@ -8,7 +13,6 @@ import { createPgliteAssistantThreadRepository } from './assistant-memory-reposi
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
-import { useDatabaseStartupGrace } from './use-database-startup-grace';
 
 interface TabScrollState {
   readonly canScrollBack: boolean;
@@ -19,6 +23,23 @@ const EMPTY_TAB_SCROLL_STATE: TabScrollState = {
   canScrollBack: false,
   canScrollForward: false,
 };
+
+function shouldRenderDatabaseStartupLoading({
+  databaseError,
+  databaseInitializing,
+  databaseReady,
+  repositoryReady,
+}: {
+  readonly databaseError: Error | null;
+  readonly databaseInitializing: boolean;
+  readonly databaseReady: boolean;
+  readonly repositoryReady: boolean;
+}): boolean {
+  if (repositoryReady || databaseError) {
+    return false;
+  }
+  return databaseInitializing || !databaseReady;
+}
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
@@ -32,15 +53,17 @@ export function AssistantThreadTabsWorkspace({
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
   const databaseError = useDbProviderError();
+  const databaseReady = useDbReady();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
-  const databaseStartupLoading = useDatabaseStartupGrace({
+  const databaseStartupLoading = shouldRenderDatabaseStartupLoading({
     databaseError,
     databaseInitializing,
+    databaseReady,
     repositoryReady: Boolean(repository),
   });
 

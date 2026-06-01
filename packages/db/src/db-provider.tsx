@@ -963,6 +963,19 @@ export function useDbInitializing(): boolean {
   return ctx.initializing;
 }
 
+/**
+ * Hook to check whether database initialization has completed successfully.
+ * UI surfaces can use this to distinguish "lazy initialization has not started
+ * or is still settling" from "initialization finished but no repository exists".
+ */
+export function useDbReady(): boolean {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    throw new Error('useDbReady must be used within a DbProvider');
+  }
+  return ctx.ready;
+}
+
 export function useFileRecordRepository():
   | DrizzleFileRecordRepository
   | ElectronFileRecordRepository

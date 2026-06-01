@@ -1,4 +1,9 @@
-import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
+import {
+  useDbInitializing,
+  useDbProviderError,
+  useDbReady,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { Check, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
@@ -10,7 +15,6 @@ import {
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { useAssistantThreadStore } from './assistant-thread-store';
-import { useDatabaseStartupGrace } from './use-database-startup-grace';
 
 type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
@@ -534,17 +538,15 @@ export function ThreadsPanel(): ReactElement {
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
   const databaseError = useDbProviderError();
+  const databaseReady = useDbReady();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
-  const databaseStartupLoading = useDatabaseStartupGrace({
-    databaseError,
-    databaseInitializing,
-    repositoryReady: Boolean(repository),
-  });
+  const databaseStartupLoading =
+    !(repository || databaseError) && (databaseInitializing || !databaseReady);
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
