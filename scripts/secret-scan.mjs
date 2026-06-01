@@ -44,6 +44,10 @@ const SECRET_RULES = [
     pattern: /\b(?:github_pat_[A-Za-z0-9_]{82,}|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,})\b/g,
   },
   {
+    id: 'hugging-face-token',
+    pattern: /\bhf_[A-Za-z0-9]{30,}\b/g,
+  },
+  {
     id: 'slack-token',
     pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   },

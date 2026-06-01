@@ -91,6 +91,18 @@ test('scanText detects fine-grained GitHub personal access tokens', () => {
   );
 });
 
+test('scanText detects Hugging Face access tokens', () => {
+  const findings = scanText({
+    filePath: 'fixture.env',
+    text: 'HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz12345678',
+  });
+
+  assert.deepEqual(
+    findings.map((finding) => finding.ruleId),
+    ['hugging-face-token']
+  );
+});
+
 test('filterAllowedFindings suppresses reviewed hashes only for matching files and rules', () => {
   const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
   const findings = scanText({
