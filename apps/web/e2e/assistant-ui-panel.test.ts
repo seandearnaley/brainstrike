@@ -178,6 +178,15 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     });
   });
 
+  test('loads assistant thread surfaces without startup error states', async ({ page }) => {
+    await expect(page.getByTestId('threads-panel')).toBeVisible();
+    await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible();
+    await expect(page.getByText('Failed to load threads')).toHaveCount(0);
+    await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
+    await expect(page.getByText('Assistant memory database unavailable')).toHaveCount(0);
+    await expect(page.getByText('Memory database unavailable')).toHaveCount(0);
+  });
+
   test('send message and see assistant stream with tool progress', async ({ page }) => {
     // Ensure right panel is visible
     const elements = getPanelElements(page);
