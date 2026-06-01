@@ -33,6 +33,7 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(false);
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
+      readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
       syncDatabase: vi.fn(),
     };
@@ -52,6 +53,7 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(true);
     window.__brainstrikeWebE2ETestHooks__ = {
       dbPath: 'idb://old',
+      readAssistantThreads: vi.fn(),
       readModelEnabled: vi.fn(),
       syncDatabase: vi.fn(),
     };
@@ -68,6 +70,16 @@ describe('WebE2ETestHooks', () => {
     setWebDriver(true);
     const query = vi
       .fn()
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'thread-1',
+            resourceId: 'workspace-a',
+            title: 'Debug reload',
+            metadata: { icon: 'bug', color: 'rose' },
+          },
+        ],
+      })
       .mockResolvedValueOnce({ rows: [{ is_enabled: 'true' }] })
       .mockResolvedValueOnce({ rows: [{ is_enabled: 0 }] })
       .mockResolvedValueOnce({ rows: [] });
@@ -83,6 +95,14 @@ describe('WebE2ETestHooks', () => {
       expect(window.__brainstrikeWebE2ETestHooks__?.dbPath).toBe('idb://web-e2e-test');
     });
 
+    await expect(window.__brainstrikeWebE2ETestHooks__?.readAssistantThreads()).resolves.toEqual([
+      {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Debug reload',
+        metadata: { icon: 'bug', color: 'rose' },
+      },
+    ]);
     await expect(window.__brainstrikeWebE2ETestHooks__?.readModelEnabled('model-1')).resolves.toBe(
       true
     );
@@ -94,6 +114,9 @@ describe('WebE2ETestHooks', () => {
     );
     await window.__brainstrikeWebE2ETestHooks__?.syncDatabase();
 
+    expect(query).toHaveBeenCalledWith(
+      'SELECT id, "resourceId", title, metadata FROM mastra_threads ORDER BY "updatedAt" DESC, id DESC'
+    );
     expect(query).toHaveBeenCalledWith('SELECT is_enabled FROM models WHERE id = $1', ['model-1']);
     expect(syncToFs).toHaveBeenCalledTimes(1);
 

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
@@ -7,8 +7,10 @@ import { ThreadsPanel } from '../threads-panel';
 const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   dbMocks: {
     database: undefined as unknown,
+    deleteFailureThreadId: null as string | null,
     initializing: false,
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+    metadataFailureThreadId: null as string | null,
     providerError: null as Error | null,
   },
   fileExplorerMocks: {
@@ -25,6 +27,17 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   },
   threadRows: [] as Record<string, unknown>[],
 }));
+
+function parseMetadataObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string') {
+    return {};
+  }
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {};
+  }
+  return parsed as Record<string, unknown>;
+}
 
 vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
@@ -45,8 +58,10 @@ describe('ThreadsPanel', () => {
       path: '/tmp/workspace-a',
     };
     dbMocks.database = undefined;
+    dbMocks.deleteFailureThreadId = null;
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
+    dbMocks.metadataFailureThreadId = null;
     dbMocks.providerError = null;
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: {},
@@ -64,6 +79,7 @@ describe('ThreadsPanel', () => {
         id: 'thread-b',
         resourceId: '/tmp/workspace-a',
         title: 'Second thread',
+        metadata: JSON.stringify({ icon: 'message', color: 'blue' }),
         createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
@@ -71,6 +87,7 @@ describe('ThreadsPanel', () => {
         id: 'thread-a',
         resourceId: '/tmp/workspace-a',
         title: 'First thread',
+        metadata: JSON.stringify({ icon: 'code', color: 'emerald' }),
         createdAt: new Date('2026-04-22T09:00:00Z'),
         updatedAt: new Date('2026-04-22T09:00:00Z'),
       }
@@ -89,9 +106,26 @@ describe('ThreadsPanel', () => {
       }
       if (sql.includes('DELETE FROM mastra_threads')) {
         const threadId = String(params?.[0]);
+        if (dbMocks.deleteFailureThreadId === threadId) {
+          throw new Error('Delete failed in PGlite.');
+        }
         const index = threadRows.findIndex((row) => row['id'] === threadId);
         if (index >= 0) {
           threadRows.splice(index, 1);
+        }
+      }
+      if (sql.includes('SET metadata')) {
+        const threadId = String(params?.[0]);
+        if (dbMocks.metadataFailureThreadId === threadId) {
+          throw new Error('Metadata update failed in PGlite.');
+        }
+        const row = threadRows.find((item) => item['id'] === threadId);
+        if (row) {
+          row['metadata'] = JSON.stringify({
+            ...parseMetadataObject(row['metadata']),
+            ...parseMetadataObject(params?.[1]),
+          });
+          row['updatedAt'] = params?.[2];
         }
       }
       if (sql.includes('FROM mastra_threads')) {
@@ -226,6 +260,91 @@ describe('ThreadsPanel', () => {
     );
   });
 
+  it('renders curated thread identity without using the uuid as the primary row label', async () => {
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const secondThread = screen.getAllByTestId('thread-row')[0];
+    if (!secondThread) {
+      throw new Error('Expected second thread row to render.');
+    }
+
+    expect(within(secondThread).getByTestId('thread-icon-message')).toBeVisible();
+    expect(within(secondThread).getByTestId('thread-color-blue')).toBeVisible();
+    expect(within(secondThread).getByText('Second thread')).toBeVisible();
+    expect(within(secondThread).getByText('OpenAI')).toBeVisible();
+    expect(within(secondThread).getByText('gpt-5.2')).toBeVisible();
+    expect(within(secondThread).queryByText('thread-b')).not.toBeInTheDocument();
+  });
+
+  it('saves curated icon and color metadata through Mastra thread storage', async () => {
+    const user = userEvent.setup();
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: 'Customize thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Use Bug icon' }));
+    await user.click(screen.getByRole('button', { name: 'Use Rose color' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-icon-bug')).toBeVisible();
+    });
+    expect(screen.getByTestId('thread-color-rose')).toBeVisible();
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata'), [
+      'thread-b',
+      expect.stringContaining('"icon":"bug"'),
+      expect.any(Date),
+    ]);
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata'), [
+      'thread-b',
+      expect.stringContaining('"color":"rose"'),
+      expect.any(Date),
+    ]);
+    const persistedRow = threadRows.find((row) => row['id'] === 'thread-b');
+    expect(JSON.parse(String(persistedRow?.['metadata']))).toMatchObject({
+      color: 'rose',
+      icon: 'bug',
+    });
+  });
+
+  it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
+    const user = userEvent.setup();
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const secondThread = screen.getAllByTestId('thread-row')[0];
+    if (!secondThread) {
+      throw new Error('Expected second thread row to render.');
+    }
+    expect(within(secondThread).queryByText('thread-b')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show thread details Second thread' }));
+
+    const details = within(secondThread).getByTestId('thread-expanded-details');
+    expect(within(details).getByText('Provider')).toBeVisible();
+    expect(within(details).getByText('OpenAI')).toBeVisible();
+    expect(within(details).getByText('Model')).toBeVisible();
+    expect(within(details).getByText('gpt-5.2')).toBeVisible();
+    expect(within(details).getByText('Runtime')).toBeVisible();
+    expect(within(details).getByText('hosted')).toBeVisible();
+    expect(within(details).getByText('Status')).toBeVisible();
+    expect(within(details).getByText('completed')).toBeVisible();
+    expect(within(details).getByText('Reasoning')).toBeVisible();
+    expect(within(details).getByText('high')).toBeVisible();
+    expect(within(details).getByText('Max output')).toBeVisible();
+    expect(within(details).getByText('512')).toBeVisible();
+    expect(within(details).getByText('Diagnostics')).toBeVisible();
+    expect(within(details).getByText('thread-b')).toBeVisible();
+    expect(within(details).queryByText('Notes')).not.toBeInTheDocument();
+    expect(within(details).queryByText('Description')).not.toBeInTheDocument();
+  });
+
   it('persists newly created threads through Mastra storage instead of replacing the list', async () => {
     const user = userEvent.setup();
     const uuidSpy = vi
@@ -246,7 +365,7 @@ describe('ThreadsPanel', () => {
       expect.stringContaining('INSERT INTO mastra_threads'),
       expect.arrayContaining([threadId, '/tmp/workspace-a', 'New Thread'])
     );
-    expect(screen.getByText(threadId)).toBeVisible();
+    expect(screen.queryByText(threadId)).not.toBeInTheDocument();
     expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
       threadId,
       'thread-b',
@@ -278,6 +397,23 @@ describe('ThreadsPanel', () => {
     ]);
   });
 
+  it('keeps rename validation local to the row', async () => {
+    const user = userEvent.setup();
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: 'Rename thread Second thread' }));
+    const input = screen.getByRole('textbox', { name: 'Thread title' });
+    await user.clear(input);
+    await user.click(screen.getByRole('button', { name: 'Save thread title' }));
+
+    expect(await screen.findByText('Thread title is required.')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Thread title' })).toBeVisible();
+    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
+  });
+
   it('deletes a thread only after explicit confirmation', async () => {
     const user = userEvent.setup();
     render(<ThreadsPanel />);
@@ -305,5 +441,21 @@ describe('ThreadsPanel', () => {
     expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
       'thread-a',
     ]);
+  });
+
+  it('keeps delete errors local to the row without collapsing the thread list', async () => {
+    const user = userEvent.setup();
+    dbMocks.deleteFailureThreadId = 'thread-b';
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: 'Delete thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm delete thread Second thread' }));
+
+    expect(await screen.findByText('Delete failed in PGlite.')).toBeVisible();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
   });
 });

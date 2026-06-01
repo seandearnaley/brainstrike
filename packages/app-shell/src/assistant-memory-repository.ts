@@ -24,13 +24,40 @@ export interface AssistantMemoryThread {
   readonly updatedAt: Date;
 }
 
+export const ASSISTANT_THREAD_ICON_IDS = [
+  'message',
+  'bug',
+  'code',
+  'rocket',
+  'research',
+  'plan',
+] as const;
+
+export const ASSISTANT_THREAD_COLOR_IDS = [
+  'blue',
+  'emerald',
+  'amber',
+  'rose',
+  'violet',
+  'slate',
+] as const;
+
+export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
+export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
+
 export interface AssistantThreadMetadata {
+  readonly color?: AssistantThreadColorId;
+  readonly icon?: AssistantThreadIconId;
   readonly model?: string;
   readonly modelSettings?: Record<string, unknown>;
   readonly provider?: string;
   readonly providerOptions?: Record<string, unknown>;
   readonly source?: string;
 }
+
+type MutableAssistantThreadMetadata = {
+  -readonly [Key in keyof AssistantThreadMetadata]?: AssistantThreadMetadata[Key];
+};
 
 export type AssistantThreadRunStatus = 'cancelled' | 'completed' | 'failed' | 'running';
 export type AssistantThreadRuntimeKind = 'browser' | 'gateway' | 'hosted' | 'local';
@@ -163,6 +190,17 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
 const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
+const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
+const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
+const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
+  'color',
+  'icon',
+  'model',
+  'modelSettings',
+  'provider',
+  'providerOptions',
+  'source',
+]);
 
 function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle & {
   exec: NonNullable<DbHandle['exec']>;
@@ -208,6 +246,7 @@ function toMemoryThread(thread: {
   title?: string | null;
   updatedAt: unknown;
 }): AssistantMemoryThread {
+  const metadata = sanitizeThreadMetadata(thread.metadata);
   return {
     id: thread.id,
     resourceId: thread.resourceId,
@@ -215,7 +254,7 @@ function toMemoryThread(thread: {
     createdAt: normalizeDate(thread.createdAt),
     updatedAt: normalizeDate(thread.updatedAt),
     ...(thread.latestRun ? { latestRun: thread.latestRun } : {}),
-    ...(isThreadMetadata(thread.metadata) ? { metadata: thread.metadata } : {}),
+    ...(metadata ? { metadata } : {}),
   };
 }
 
@@ -254,17 +293,86 @@ function optionalJsonRecord(value: unknown): Record<string, unknown> | undefined
   return optionalRecord(parsed);
 }
 
-function isThreadMetadata(value: unknown): value is AssistantThreadMetadata {
+function optionalThreadIconId(value: unknown): AssistantThreadIconId | undefined {
+  return typeof value === 'string' && ASSISTANT_THREAD_ICON_ID_SET.has(value)
+    ? (value as AssistantThreadIconId)
+    : undefined;
+}
+
+function optionalThreadColorId(value: unknown): AssistantThreadColorId | undefined {
+  return typeof value === 'string' && ASSISTANT_THREAD_COLOR_ID_SET.has(value)
+    ? (value as AssistantThreadColorId)
+    : undefined;
+}
+
+function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undefined {
   if (!isRecord(value)) {
-    return false;
+    return;
   }
-  return Boolean(
-    optionalString(value['provider']) ||
-      optionalString(value['model']) ||
-      optionalRecord(value['modelSettings']) ||
-      optionalRecord(value['providerOptions']) ||
-      optionalString(value['source'])
-  );
+  const metadata: MutableAssistantThreadMetadata = {};
+  const icon = optionalThreadIconId(value['icon']);
+  const color = optionalThreadColorId(value['color']);
+  const provider = optionalString(value['provider']);
+  const model = optionalString(value['model']);
+  const modelSettings = optionalRecord(value['modelSettings']);
+  const providerOptions = optionalRecord(value['providerOptions']);
+  const source = optionalString(value['source']);
+
+  if (icon) {
+    metadata.icon = icon;
+  }
+  if (color) {
+    metadata.color = color;
+  }
+  if (provider) {
+    metadata.provider = provider;
+  }
+  if (model) {
+    metadata.model = model;
+  }
+  if (modelSettings) {
+    metadata.modelSettings = modelSettings;
+  }
+  if (providerOptions) {
+    metadata.providerOptions = providerOptions;
+  }
+  if (source) {
+    metadata.source = source;
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): void {
+  const metadataValue: unknown = metadata;
+  if (!isRecord(metadataValue)) {
+    throw new Error('Assistant thread metadata must be an object.');
+  }
+  for (const key of Object.keys(metadataValue)) {
+    if (!ASSISTANT_THREAD_METADATA_KEYS.has(key)) {
+      throw new Error(`Invalid assistant thread metadata key: ${key}.`);
+    }
+  }
+  if (metadata.icon !== undefined && !ASSISTANT_THREAD_ICON_ID_SET.has(metadata.icon)) {
+    throw new Error('Invalid assistant thread metadata icon.');
+  }
+  if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
+    throw new Error('Invalid assistant thread metadata color.');
+  }
+  if (metadata.provider !== undefined && !optionalString(metadata.provider)) {
+    throw new Error('Invalid assistant thread metadata provider.');
+  }
+  if (metadata.model !== undefined && !optionalString(metadata.model)) {
+    throw new Error('Invalid assistant thread metadata model.');
+  }
+  if (metadata.source !== undefined && !optionalString(metadata.source)) {
+    throw new Error('Invalid assistant thread metadata source.');
+  }
+  if (metadata.modelSettings !== undefined && !optionalRecord(metadata.modelSettings)) {
+    throw new Error('Invalid assistant thread metadata model settings.');
+  }
+  if (metadata.providerOptions !== undefined && !optionalRecord(metadata.providerOptions)) {
+    throw new Error('Invalid assistant thread metadata provider options.');
+  }
 }
 
 function requireRunStatus(value: unknown): AssistantThreadRunStatus {
@@ -1092,6 +1200,7 @@ export function createPgliteAssistantThreadRepository(
       );
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
+      assertPersistableThreadMetadata(metadata);
       await initialize();
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}

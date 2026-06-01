@@ -17,6 +17,22 @@ function makeThread(id: string, updatedAt: string): AssistantMemoryThread {
   };
 }
 
+function makeCuratedThread(): AssistantMemoryThread {
+  return {
+    id: 'thread-curated',
+    resourceId: workspaceId,
+    title: 'Curated thread',
+    metadata: {
+      provider: 'openai',
+      model: 'gpt-5.2',
+      icon: 'message',
+      color: 'blue',
+    },
+    createdAt: new Date('2026-04-22T09:00:00Z'),
+    updatedAt: new Date('2026-04-22T10:00:00Z'),
+  };
+}
+
 function createRepository(
   threads: readonly AssistantMemoryThread[] = [
     makeThread('thread-a', '2026-04-22T11:00:00Z'),
@@ -173,6 +189,80 @@ describe('useAssistantThreadStore tab sessions', () => {
         model: 'claude-sonnet-4-6',
         modelSettings: { maxOutputTokens: 1024 },
       },
+    });
+  });
+
+  it('saves curated metadata through the repository and updates the loaded thread', async () => {
+    const repository = createRepository([makeCuratedThread()]);
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, 'thread-curated', {
+        icon: 'bug',
+        color: 'rose',
+      });
+
+    expect(repository.updateThreadMetadata).toHaveBeenCalledWith('thread-curated', {
+      icon: 'bug',
+      color: 'rose',
+    });
+    expect(
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
+    ).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.2',
+      icon: 'bug',
+      color: 'rose',
+    });
+  });
+
+  it('merges saved metadata against the latest loaded thread state', async () => {
+    const repository = createRepository([makeCuratedThread()]);
+    let resolveMetadataUpdate!: () => void;
+    vi.mocked(repository.updateThreadMetadata).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveMetadataUpdate = resolve;
+        })
+    );
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    const metadataUpdate = useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, 'thread-curated', {
+        color: 'rose',
+      });
+
+    expect(repository.updateThreadMetadata).toHaveBeenCalledWith('thread-curated', {
+      color: 'rose',
+    });
+    useAssistantThreadStore.setState((state) => ({
+      threadsByResourceId: {
+        ...state.threadsByResourceId,
+        [workspaceId]: (state.threadsByResourceId[workspaceId] ?? []).map((thread) =>
+          thread.id === 'thread-curated'
+            ? {
+                ...thread,
+                metadata: {
+                  ...(thread.metadata ?? {}),
+                  icon: 'plan',
+                },
+              }
+            : thread
+        ),
+      },
+    }));
+    resolveMetadataUpdate();
+    await metadataUpdate;
+
+    expect(
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
+    ).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.2',
+      icon: 'plan',
+      color: 'rose',
     });
   });
 });

@@ -6,8 +6,23 @@ interface ModelEnabledRow {
   readonly is_enabled: boolean | number | string | null;
 }
 
+interface AssistantThreadRow {
+  readonly id: string;
+  readonly metadata: unknown;
+  readonly resourceId: string;
+  readonly title: string | null;
+}
+
+export interface WebE2EAssistantThreadSnapshot {
+  readonly id: string;
+  readonly metadata: unknown;
+  readonly resourceId: string;
+  readonly title: string;
+}
+
 export interface WebE2ETestHooks {
   readonly dbPath: string;
+  readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
   readonly syncDatabase: () => Promise<void>;
 }
@@ -38,6 +53,17 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
 
     const hooks: WebE2ETestHooks = {
       dbPath,
+      readAssistantThreads: async (): Promise<readonly WebE2EAssistantThreadSnapshot[]> => {
+        const result = await db.query<AssistantThreadRow>(
+          'SELECT id, "resourceId", title, metadata FROM mastra_threads ORDER BY "updatedAt" DESC, id DESC'
+        );
+        return result.rows.map((row) => ({
+          id: row.id,
+          metadata: row.metadata,
+          resourceId: row.resourceId,
+          title: row.title?.trim() || 'New Thread',
+        }));
+      },
       readModelEnabled: async (modelId: string): Promise<boolean | null> => {
         const result = await db.query<ModelEnabledRow>(
           'SELECT is_enabled FROM models WHERE id = $1',

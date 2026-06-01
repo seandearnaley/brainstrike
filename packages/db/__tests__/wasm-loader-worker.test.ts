@@ -95,7 +95,7 @@ describe('wasmLoader browser worker host', () => {
         live: { name: 'live-extension' },
       },
       id: 'brainstrike-db:idb://web',
-      relaxedDurability: true,
+      relaxedDurability: false,
     });
   });
 
