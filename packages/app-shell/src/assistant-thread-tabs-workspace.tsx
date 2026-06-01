@@ -168,7 +168,7 @@ export function AssistantThreadTabsWorkspace({
     );
   }
 
-  if (databaseInitializing && !repository) {
+  if (!repository && (databaseInitializing || !databaseError)) {
     return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
   }
 

@@ -461,7 +461,7 @@ function ThreadsPanelContent({
       />
     );
   }
-  if (databaseInitializing && !repository) {
+  if (!repository && (databaseInitializing || !databaseError)) {
     return (
       <ThreadStateCard
         description="Reading Mastra memory from PGlite."

@@ -215,6 +215,18 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
 
+  it('shows loading instead of unavailable before lazy database initialization starts', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = false;
+
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    expect(screen.getByText('Loading')).toBeInTheDocument();
+    expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
+    expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
+    expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
+  });
+
   it('shows the database provider error after initialization fails', () => {
     dbMocks.database = null;
     dbMocks.providerError = new Error('PGlite startup failed.');
