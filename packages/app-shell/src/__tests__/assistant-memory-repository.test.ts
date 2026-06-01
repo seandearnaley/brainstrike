@@ -764,6 +764,46 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     ]);
   });
 
+  it('flushes supported PGlite handles after thread mutations', async () => {
+    const syncToFs = vi.fn(async () => undefined);
+    const db = {
+      ...createMockDb(),
+      syncToFs,
+    };
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.createThread('workspace-a');
+    await repository.renameThread('thread-1', 'Renamed thread');
+    await repository.updateThreadMetadata('thread-1', {
+      icon: 'bug',
+      color: 'rose',
+    });
+    await repository.deleteThread('thread-1');
+
+    expect(syncToFs).toHaveBeenCalledTimes(4);
+  });
+
+  it('propagates PGlite flush failures after metadata writes', async () => {
+    const syncError = new Error('sync failed');
+    const db = {
+      ...createMockDb(),
+      syncToFs: vi.fn(async () => {
+        throw syncError;
+      }),
+    };
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        icon: 'bug',
+      })
+    ).rejects.toThrow(syncError);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
   it('reuses the same repository instance for a shared database handle', async () => {
     const db = createMockDb();
     const repositoryA = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -851,6 +891,26 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(
       countRows(db, 'brainstrike_assistant_run_events', 'thread_id', thread.id)
     ).resolves.toBe(0);
+  });
+
+  it('persists curated metadata updates in real PGlite thread rows', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-curated-metadata');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await repository.updateThreadMetadata(thread.id, {
+      icon: 'bug',
+      color: 'rose',
+    });
+
+    const threads = await repository.listThreads('workspace-a');
+
+    expect(threads[0]?.metadata).toEqual({
+      icon: 'bug',
+      color: 'rose',
+      source: 'brainstrike',
+    });
   });
 });
 

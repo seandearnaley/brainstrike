@@ -146,18 +146,10 @@ class WasmLoader {
       }
     }
 
-    // Enable relaxed durability for IndexedDB to dramatically improve write performance.
-    // Under relaxed durability mode, PGlite doesn't wait for IndexedDB flushes after each query.
-    // The flush is scheduled asynchronously after the query returns.
-    // This is suitable for most embedded use cases where occasional data loss on crash is acceptable.
-    // See: https://pglite.dev/docs/filesystems
-    const useRelaxedDurability = isIndexedDbPGliteDataDir(normalizedDataDir);
-
     const db = normalizedDataDir
       ? new PGlite({
           dataDir: normalizedDataDir,
           extensions: { vector, live },
-          ...(useRelaxedDurability ? { relaxedDurability: true } : {}),
         })
       : new PGlite({ extensions: { vector, live } });
 
@@ -250,7 +242,9 @@ class WasmLoader {
           dataDir,
           extensions: { live },
           id: `brainstrike-db:${dataDir}`,
-          relaxedDurability: isIndexedDbPGliteDataDir(dataDir),
+          // User-visible local-first writes must survive a confirmed save followed by reload.
+          // PGlite's relaxed durability mode returns from syncToFs before the IndexedDB flush.
+          relaxedDurability: false,
         };
         const workerClientPromise = PGliteWorker.create(worker, options);
         void workerClientPromise

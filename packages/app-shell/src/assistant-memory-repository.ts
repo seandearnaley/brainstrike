@@ -210,6 +210,12 @@ function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle 
   }
 }
 
+async function flushMemoryDatabase(database: DbHandle): Promise<void> {
+  if (typeof database.syncToFs === 'function') {
+    await database.syncToFs();
+  }
+}
+
 function createThreadId(): string {
   return `thread-${crypto.randomUUID()}`;
 }
@@ -1030,6 +1036,7 @@ export function createPgliteAssistantThreadRepository(
           thread.updatedAt,
         ]
       );
+      await flushMemoryDatabase(database);
       return thread;
     },
     async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
@@ -1115,6 +1122,7 @@ export function createPgliteAssistantThreadRepository(
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
         [threadId, `thread:${threadId}`]
       );
+      await flushMemoryDatabase(database);
     },
     listThreadRunEvents,
     async listMessages(
@@ -1198,6 +1206,7 @@ export function createPgliteAssistantThreadRepository(
          WHERE id = $1`,
         [threadId, normalizedTitle, new Date()]
       );
+      await flushMemoryDatabase(database);
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
@@ -1208,6 +1217,7 @@ export function createPgliteAssistantThreadRepository(
          WHERE id = $1`,
         [threadId, JSON.stringify(metadata), new Date()]
       );
+      await flushMemoryDatabase(database);
     },
   };
   assistantThreadRepositoryCache.set(database, repository);

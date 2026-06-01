@@ -1,10 +1,16 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
+import type { WebE2ETestHooks } from '../src/web-e2e-test-hooks';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
-import { getPanelElements } from './utils/layout-helpers';
+import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 // Assistant-UI E2E (web): uses the local-runtime UI path with a mocked `window.llmHost`
 // so the shared assistant-ui message rendering and local status states are exercised
 // without downloading a real Gemma model during E2E.
+
+const ASSISTANT_UI_PANEL_ROOT_NAME = 'assistant-ui-panel';
+const ASSISTANT_UI_PANEL_TREE = {
+  'README.md': '# BrainStrike test workspace',
+};
 
 type MockProgressPayload =
   | {
@@ -67,12 +73,54 @@ interface AssistantThreadStartupEvent {
   readonly marker: string;
 }
 
+async function readWebE2eDbPath(page: Page): Promise<string> {
+  return await page.evaluate(() => {
+    const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+      .__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected web E2E hooks to be available');
+    }
+    return hooks.dbPath;
+  });
+}
+
+async function readFirstAssistantThreadMetadata(
+  page: Page,
+  resourceId = ASSISTANT_UI_PANEL_ROOT_NAME
+): Promise<unknown> {
+  return await page.evaluate(async (targetResourceId) => {
+    const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+      .__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected web E2E hooks to be available');
+    }
+    const threads = await hooks.readAssistantThreads();
+    return threads.find((thread) => thread.resourceId === targetResourceId)?.metadata ?? null;
+  }, resourceId);
+}
+
+async function restoreAssistantFixtureRoot(page: Page): Promise<void> {
+  await page.evaluate(
+    async (fixture: { readonly name: string; readonly tree: typeof ASSISTANT_UI_PANEL_TREE }) => {
+      const loadFixture = (
+        window as unknown as {
+          __BRAINSTRIKE_LOAD_FIXTURE__?: (nextFixture: unknown) => Promise<unknown>;
+        }
+      ).__BRAINSTRIKE_LOAD_FIXTURE__;
+      if (typeof loadFixture !== 'function') {
+        throw new Error('Expected fixture loader to be available after reload');
+      }
+      await loadFixture(fixture);
+    },
+    {
+      name: ASSISTANT_UI_PANEL_ROOT_NAME,
+      tree: ASSISTANT_UI_PANEL_TREE,
+    }
+  );
+}
+
 test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ page }) => {
-    const tree = {
-      'README.md': '# BrainStrike test workspace',
-    };
-
     await page.addInitScript(() => {
       const STREAM_STEP_DELAY_MS = 300;
 
@@ -225,8 +273,8 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     await openAssistantWorkspace(page, {
       enableLocalAssistantModel: true,
-      rootName: 'assistant-ui-panel',
-      tree,
+      rootName: ASSISTANT_UI_PANEL_ROOT_NAME,
+      tree: ASSISTANT_UI_PANEL_TREE,
     });
   });
 
@@ -243,6 +291,64 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
     await expect(page.getByText('Assistant memory database unavailable')).toHaveCount(0);
     await expect(page.getByText('Memory database unavailable')).toHaveCount(0);
+  });
+
+  test('customizes thread identity and keeps diagnostics out of the primary row', async ({
+    page,
+  }) => {
+    await expect(page.getByTestId('threads-panel')).toBeVisible();
+    const threadRow = page.getByTestId('thread-row').first();
+    await expect(threadRow).toBeVisible();
+    await expect(threadRow).not.toContainText(/thread-[0-9a-f-]+/i);
+
+    await threadRow.getByRole('button', { name: /Customize thread/ }).click();
+    await threadRow.getByRole('button', { name: 'Use Bug icon' }).click();
+    await threadRow.getByRole('button', { name: 'Use Rose color' }).click();
+
+    await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
+    await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
+    await expect(threadRow).not.toContainText(/thread-[0-9a-f-]+/i);
+
+    await threadRow.getByRole('button', { name: /Show thread details/ }).click();
+    await expect(threadRow.getByTestId('thread-expanded-details')).toContainText('Diagnostics');
+    await expect(threadRow.getByTestId('thread-expanded-details')).toContainText(
+      /thread-[0-9a-f-]+/i
+    );
+
+    await expect
+      .poll(async () => await readFirstAssistantThreadMetadata(page))
+      .toMatchObject({ icon: 'bug', color: 'rose' });
+    await page.waitForFunction(() =>
+      Boolean(
+        (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__
+      )
+    );
+    await page.evaluate(async () => {
+      await (
+        window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks }
+      ).__brainstrikeWebE2ETestHooks__?.syncDatabase();
+    });
+    const dbPathBeforeReload = await readWebE2eDbPath(page);
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: true });
+    await restoreAssistantFixtureRoot(page);
+    await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect
+      .poll(async () => await readWebE2eDbPath(page), {
+        message: 'Expected the Playwright E2E DB path to stay stable across reload',
+      })
+      .toBe(dbPathBeforeReload);
+    await expect
+      .poll(async () => await readFirstAssistantThreadMetadata(page))
+      .toMatchObject({ icon: 'bug', color: 'rose' });
+    const reloadedThreadRow = page.getByTestId('thread-row').first();
+    await expect(reloadedThreadRow).toBeVisible();
+    await expect(reloadedThreadRow.getByTestId('thread-icon-bug')).toBeVisible();
+    await expect(reloadedThreadRow.getByTestId('thread-color-rose')).toBeVisible();
+    await expect(reloadedThreadRow).not.toContainText(/thread-[0-9a-f-]+/i);
   });
 
   test('send message and see assistant stream with tool progress', async ({ page }) => {
