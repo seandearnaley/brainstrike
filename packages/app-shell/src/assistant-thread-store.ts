@@ -460,7 +460,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           ...(existingThread?.metadata ?? {}),
           ...metadata,
         };
-        await repository.updateThreadMetadata(threadId, nextMetadata);
+        await repository.updateThreadMetadata(threadId, metadata);
         set((state) => ({
           threadsByResourceId: {
             ...state.threadsByResourceId,

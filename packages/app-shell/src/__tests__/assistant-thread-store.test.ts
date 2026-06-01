@@ -204,8 +204,6 @@ describe('useAssistantThreadStore tab sessions', () => {
       });
 
     expect(repository.updateThreadMetadata).toHaveBeenCalledWith('thread-curated', {
-      provider: 'openai',
-      model: 'gpt-5.2',
       icon: 'bug',
       color: 'rose',
     });
