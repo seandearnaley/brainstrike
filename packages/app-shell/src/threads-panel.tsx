@@ -131,7 +131,7 @@ function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId
   return thread.metadata?.color ?? 'blue';
 }
 
-function getReasoningLabel(thread: AssistantMemoryThread): string | null {
+function getReasoningValue(thread: AssistantMemoryThread): string | null {
   const provider = thread.latestRun?.provider;
   const providerOptions = thread.latestRun?.providerOptions;
   const providerRecord =
@@ -139,12 +139,22 @@ function getReasoningLabel(thread: AssistantMemoryThread): string | null {
       ? (providerOptions[provider] as Record<string, unknown>)
       : null;
   const reasoning = providerRecord?.['reasoningEffort'] ?? providerRecord?.['effort'];
-  return typeof reasoning === 'string' && reasoning.trim() ? `Reasoning: ${reasoning}` : null;
+  return typeof reasoning === 'string' && reasoning.trim() ? reasoning : null;
+}
+
+function getReasoningLabel(thread: AssistantMemoryThread): string | null {
+  const value = getReasoningValue(thread);
+  return value ? `Reasoning: ${value}` : null;
+}
+
+function getMaxOutputValue(thread: AssistantMemoryThread): string | null {
+  const value = thread.latestRun?.modelSettings?.['maxOutputTokens'];
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : null;
 }
 
 function getMaxOutputLabel(thread: AssistantMemoryThread): string | null {
-  const value = thread.latestRun?.modelSettings?.['maxOutputTokens'];
-  return typeof value === 'number' && Number.isFinite(value) ? `Max output: ${value}` : null;
+  const value = getMaxOutputValue(thread);
+  return value ? `Max output: ${value}` : null;
 }
 
 function formatThreadDate(value: Date): string {
@@ -749,8 +759,8 @@ function ThreadExpandedDetails({
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
-  const reasoningLabel = getReasoningLabel(thread)?.replace('Reasoning: ', '');
-  const maxOutputLabel = getMaxOutputLabel(thread)?.replace('Max output: ', '');
+  const reasoningValue = getReasoningValue(thread);
+  const maxOutputValue = getMaxOutputValue(thread);
   return (
     <div
       className="mt-2 rounded-md border border-border bg-background/70 p-2"
@@ -767,8 +777,8 @@ function ThreadExpandedDetails({
         {thread.latestRun?.status ? (
           <ThreadDetail label="Status" value={thread.latestRun.status} />
         ) : null}
-        {reasoningLabel ? <ThreadDetail label="Reasoning" value={reasoningLabel} /> : null}
-        {maxOutputLabel ? <ThreadDetail label="Max output" value={maxOutputLabel} /> : null}
+        {reasoningValue ? <ThreadDetail label="Reasoning" value={reasoningValue} /> : null}
+        {maxOutputValue ? <ThreadDetail label="Max output" value={maxOutputValue} /> : null}
         <ThreadDetail label="Created" value={formatThreadDate(thread.createdAt)} />
         <ThreadDetail label="Updated" value={formatThreadDate(thread.updatedAt)} />
       </div>

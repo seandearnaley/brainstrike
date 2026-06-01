@@ -316,6 +316,10 @@ describe('ThreadsPanel', () => {
     expect(within(details).getByText('hosted')).toBeVisible();
     expect(within(details).getByText('Status')).toBeVisible();
     expect(within(details).getByText('completed')).toBeVisible();
+    expect(within(details).getByText('Reasoning')).toBeVisible();
+    expect(within(details).getByText('high')).toBeVisible();
+    expect(within(details).getByText('Max output')).toBeVisible();
+    expect(within(details).getByText('512')).toBeVisible();
     expect(within(details).getByText('Diagnostics')).toBeVisible();
     expect(within(details).getByText('thread-b')).toBeVisible();
     expect(within(details).queryByText('Notes')).not.toBeInTheDocument();
