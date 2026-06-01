@@ -6,6 +6,8 @@ interface DatabaseStartupGraceOptions {
   readonly repositoryReady: boolean;
 }
 
+const DATABASE_STARTUP_GRACE_MS = 250;
+
 export function useDatabaseStartupGrace({
   databaseError,
   databaseInitializing,
@@ -21,7 +23,7 @@ export function useDatabaseStartupGrace({
 
     const timeoutId = setTimeout(() => {
       setStartupGraceActive(false);
-    }, 0);
+    }, DATABASE_STARTUP_GRACE_MS);
 
     return () => {
       clearTimeout(timeoutId);

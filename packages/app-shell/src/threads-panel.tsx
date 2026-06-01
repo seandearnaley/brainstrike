@@ -471,7 +471,7 @@ function ThreadsPanelContent({
       />
     );
   }
-  if (databaseError) {
+  if (!repository && databaseError) {
     return (
       <ThreadStateCard
         description={databaseError.message}

@@ -178,7 +178,7 @@ export function AssistantThreadTabsWorkspace({
     return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
   }
 
-  if (databaseError) {
+  if (!repository && databaseError) {
     return (
       <ThreadWorkspaceState
         description={databaseError.message}

@@ -250,6 +250,19 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
 
+  it('keeps assistant tabs visible when a repository exists with a provider error', async () => {
+    dbMocks.database = undefined;
+    dbMocks.providerError = new Error('Stale PGlite startup warning.');
+
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+    expect(screen.queryByText('Memory database failed')).not.toBeInTheDocument();
+    expect(screen.queryByText('Stale PGlite startup warning.')).not.toBeInTheDocument();
+  });
+
   it('updates scroll affordances and scrolls the tab list from arrow buttons', async () => {
     render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
 
