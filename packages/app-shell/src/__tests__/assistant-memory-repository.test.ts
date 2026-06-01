@@ -764,46 +764,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     ]);
   });
 
-  it('flushes supported PGlite handles after thread mutations', async () => {
-    const syncToFs = vi.fn(async () => undefined);
-    const db = {
-      ...createMockDb(),
-      syncToFs,
-    };
-    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
-
-    await repository.createThread('workspace-a');
-    await repository.renameThread('thread-1', 'Renamed thread');
-    await repository.updateThreadMetadata('thread-1', {
-      icon: 'bug',
-      color: 'rose',
-    });
-    await repository.deleteThread('thread-1');
-
-    expect(syncToFs).toHaveBeenCalledTimes(4);
-  });
-
-  it('propagates PGlite flush failures after metadata writes', async () => {
-    const syncError = new Error('sync failed');
-    const db = {
-      ...createMockDb(),
-      syncToFs: vi.fn(async () => {
-        throw syncError;
-      }),
-    };
-    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
-
-    await expect(
-      repository.updateThreadMetadata('thread-1', {
-        icon: 'bug',
-      })
-    ).rejects.toThrow(syncError);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE mastra_threads'),
-      expect.anything()
-    );
-  });
-
   it('reuses the same repository instance for a shared database handle', async () => {
     const db = createMockDb();
     const repositoryA = createPgliteAssistantThreadRepository(db as unknown as DbHandle);

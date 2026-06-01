@@ -242,8 +242,9 @@ class WasmLoader {
           dataDir,
           extensions: { live },
           id: `brainstrike-db:${dataDir}`,
-          // User-visible local-first writes must survive a confirmed save followed by reload.
-          // PGlite's relaxed durability mode returns from syncToFs before the IndexedDB flush.
+          // Brainstrike treats browser PGlite as the source of truth, not a cache.
+          // PGlite's relaxed durability mode makes syncToFs fire-and-forget, so a
+          // confirmed local write can still be lost on immediate reload or close.
           relaxedDurability: false,
         };
         const workerClientPromise = PGliteWorker.create(worker, options);

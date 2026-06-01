@@ -44,11 +44,17 @@ The harness is intentionally adapter-based so the web app can create isolated
 benchmark clients with `wasmLoader.createPGliteClient()` and close them after
 each backend run.
 
-The worker host sets `relaxedDurability: true` for IndexedDB and
-`relaxedDurability: false` for OPFS AHP. This is intentional: IndexedDB needs the
-relaxed write path to avoid blocking on whole-file flushes, while OPFS AHP is an
-experimental opt-in backend and should benchmark against explicit strict
-durability unless a future measured change says otherwise.
+The worker host sets `relaxedDurability: false` for browser storage. This is a
+local-first durability requirement: Brainstrike treats PGlite as the source of
+truth, not as a cache. PGlite's relaxed durability mode makes `syncToFs()`
+fire-and-forget, so a confirmed local write can still be lost on immediate reload
+or close.
+
+Strict durability applies globally to browser PGlite writes, including
+assistant threads, model catalog updates, embedding sets, and queue rows. Do not
+enable relaxed durability for broad write-throughput improvements unless there is
+a replacement durability boundary for user-visible writes and measured evidence
+that the throughput win is worth the consistency tradeoff.
 
 ## Current Recommendation
 
