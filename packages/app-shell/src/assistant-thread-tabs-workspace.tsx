@@ -8,6 +8,7 @@ import { createPgliteAssistantThreadRepository } from './assistant-memory-reposi
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
+import { useDatabaseStartupGrace } from './use-database-startup-grace';
 
 interface TabScrollState {
   readonly canScrollBack: boolean;
@@ -37,6 +38,11 @@ export function AssistantThreadTabsWorkspace({
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
+  const databaseStartupLoading = useDatabaseStartupGrace({
+    databaseError,
+    databaseInitializing,
+    repositoryReady: Boolean(repository),
+  });
 
   const activeThreadIdByResourceId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId
@@ -168,7 +174,7 @@ export function AssistantThreadTabsWorkspace({
     );
   }
 
-  if (!repository && (databaseInitializing || !databaseError)) {
+  if (!repository && databaseStartupLoading) {
     return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
   }
 

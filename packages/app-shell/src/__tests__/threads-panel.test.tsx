@@ -155,6 +155,18 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
   });
 
+  it('shows unavailable when the database stays missing after startup settles', async () => {
+    dbMocks.database = null;
+    dbMocks.initializing = false;
+
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Assistant memory database unavailable')).toBeVisible();
+    });
+    expect(screen.queryByText('Loading threads...')).not.toBeInTheDocument();
+  });
+
   it('shows the database provider error after initialization fails', () => {
     dbMocks.database = null;
     dbMocks.providerError = new Error('PGlite startup failed.');

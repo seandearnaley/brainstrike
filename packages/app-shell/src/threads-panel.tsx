@@ -10,6 +10,7 @@ import {
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { useAssistantThreadStore } from './assistant-thread-store';
+import { useDatabaseStartupGrace } from './use-database-startup-grace';
 
 type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
@@ -431,7 +432,7 @@ function ThreadBadge({ children }: { readonly children: string }): ReactElement 
 
 function ThreadsPanelContent({
   databaseError,
-  databaseInitializing,
+  databaseStartupLoading,
   loadState,
   onDeleteThread,
   onRenameThread,
@@ -442,7 +443,7 @@ function ThreadsPanelContent({
   threads,
 }: {
   readonly databaseError: Error | null;
-  readonly databaseInitializing: boolean;
+  readonly databaseStartupLoading: boolean;
   readonly loadState: ThreadPanelLoadState | null;
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
@@ -461,7 +462,7 @@ function ThreadsPanelContent({
       />
     );
   }
-  if (!repository && (databaseInitializing || !databaseError)) {
+  if (!repository && databaseStartupLoading) {
     return (
       <ThreadStateCard
         description="Reading Mastra memory from PGlite."
@@ -539,6 +540,11 @@ export function ThreadsPanel(): ReactElement {
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
+  const databaseStartupLoading = useDatabaseStartupGrace({
+    databaseError,
+    databaseInitializing,
+    repositoryReady: Boolean(repository),
+  });
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
@@ -629,7 +635,7 @@ export function ThreadsPanel(): ReactElement {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <ThreadsPanelContent
           databaseError={databaseError}
-          databaseInitializing={databaseInitializing}
+          databaseStartupLoading={databaseStartupLoading}
           loadState={loadState}
           onDeleteThread={handleDeleteThread}
           onRenameThread={handleRenameThread}
