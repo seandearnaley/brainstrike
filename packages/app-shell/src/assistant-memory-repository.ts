@@ -985,20 +985,28 @@ export function createPgliteAssistantThreadRepository(
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();
-      await runTransaction(database, async (tx) => {
-        await tx.query(
-          `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
-           WHERE "threadId" = $1 OR "lookupKey" = $2`,
-          [threadId, `thread:${threadId}`]
-        );
-        await tx.query(`DELETE FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE thread_id = $1`, [
-          threadId,
-        ]);
-        await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
-          threadId,
-        ]);
-        await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
-      });
+      await database.query(
+        `WITH deleted_observational_memory AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+            WHERE "threadId" = $1 OR "lookupKey" = $2
+            RETURNING id
+          ),
+          deleted_messages AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
+            WHERE thread_id = $1
+            RETURNING id
+          ),
+          deleted_thread AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
+            WHERE id = $1
+            RETURNING id
+          )
+         SELECT
+          (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
+          (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
+          (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
+        [threadId, `thread:${threadId}`]
+      );
     },
     listThreadRunEvents,
     async listMessages(
@@ -1119,19 +1127,4 @@ export function createAssistantThreadHistoryAdapter({
       // only to avoid duplicate message rows with client-generated IDs.
     },
   };
-}
-
-interface TransactionalDbHandle extends DbHandle {
-  transaction?: <T>(fn: (tx: Pick<DbHandle, 'query'>) => Promise<T>) => Promise<T>;
-}
-
-async function runTransaction<T>(
-  database: DbHandle,
-  operation: (tx: Pick<DbHandle, 'query'>) => Promise<T>
-): Promise<T> {
-  const transaction = (database as TransactionalDbHandle).transaction;
-  if (typeof transaction !== 'function') {
-    throw new Error('Assistant thread repository requires PGlite transaction support');
-  }
-  return (await transaction.call(database, operation)) as T;
 }

@@ -16,13 +16,6 @@ const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
       () => Promise.resolve({ rows: [] })
     ),
-    transaction: vi.fn(
-      async <T,>(
-        callback: (tx: {
-          query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
-        }) => Promise<T>
-      ): Promise<T> => callback(mockDb)
-    ),
   },
   threadRows: [] as Record<string, unknown>[],
 }));
@@ -71,7 +64,6 @@ describe('ThreadsPanel', () => {
     );
     mockDb.exec.mockClear();
     mockDb.query.mockClear();
-    mockDb.transaction.mockClear();
     mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('INSERT INTO mastra_threads')) {
         threadRows.unshift({
@@ -222,9 +214,10 @@ describe('ThreadsPanel', () => {
     });
     expect(mockDb.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_threads'),
-      ['thread-b']
+      ['thread-b', 'thread:thread-b']
     );
     expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
     expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
       'thread-a',
     ]);
