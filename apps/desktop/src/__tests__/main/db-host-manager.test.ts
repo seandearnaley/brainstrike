@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface PostedMessage {
@@ -160,6 +161,7 @@ describe('DbHostManager', () => {
 
   it('passes the resolved desktop database root path to the utility DB host', async () => {
     process.env['NODE_ENV'] = 'development';
+    const expectedDbRootPath = path.join('/mock/documents', 'BrainStrike-dev');
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
@@ -170,7 +172,7 @@ describe('DbHostManager', () => {
       [],
       expect.objectContaining({
         env: expect.objectContaining({
-          BRAINSTRIKE_DB_ROOT_PATH: '/mock/documents/BrainStrike-dev',
+          BRAINSTRIKE_DB_ROOT_PATH: expectedDbRootPath,
         }),
         serviceName: 'brainstrike-db-host',
       })
@@ -180,6 +182,7 @@ describe('DbHostManager', () => {
   it('does not forward unrelated process environment variables to the utility DB host', async () => {
     process.env['NODE_ENV'] = 'development';
     process.env['SECRET_TOKEN'] = 'should-not-cross-process-boundary';
+    const expectedDbRootPath = path.join('/mock/documents', 'BrainStrike-dev');
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
@@ -189,7 +192,7 @@ describe('DbHostManager', () => {
       | { readonly env?: Record<string, string> }
       | undefined;
     expect(options?.env).toMatchObject({
-      BRAINSTRIKE_DB_ROOT_PATH: '/mock/documents/BrainStrike-dev',
+      BRAINSTRIKE_DB_ROOT_PATH: expectedDbRootPath,
       NODE_ENV: 'development',
     });
     expect(options?.env).not.toHaveProperty('SECRET_TOKEN');

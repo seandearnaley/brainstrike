@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -150,13 +151,14 @@ describe('ipc-handlers filesystem endpoints', () => {
 
   it('fs:readDirectory proxies to adapter for real handle', async () => {
     const handler = handlers.get('fs:readDirectory');
+    const resolvedPath = path.resolve('/users/test/docs');
     const realHandle = {
       id: 'real',
       kind: 'directory',
       path: '/users/test/docs',
     } as unknown as DirectoryHandle;
     await handler?.({} as unknown as IpcMainInvokeEvent, realHandle);
-    expect(fsAdapter.readDirectory).toHaveBeenCalledWith(realHandle);
+    expect(fsAdapter.readDirectory).toHaveBeenCalledWith({ ...realHandle, path: resolvedPath });
   });
 
   it('fs:readFile returns canned content for mock file handle', async () => {
@@ -168,12 +170,13 @@ describe('ipc-handlers filesystem endpoints', () => {
 
   it('fs:readFile proxies to adapter for real file handle', async () => {
     const handler = handlers.get('fs:readFile');
+    const resolvedPath = path.resolve('/users/test/docs/file.txt');
     const realFile = {
       id: 'real-file',
       path: '/users/test/docs/file.txt',
     } as unknown as FileHandle;
     await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
-    expect(fsAdapter.readFile).toHaveBeenCalledWith(realFile);
+    expect(fsAdapter.readFile).toHaveBeenCalledWith({ ...realFile, path: resolvedPath });
   });
 
   it('fs:readFile returns structured size-limit payload for oversized files', async () => {
@@ -222,17 +225,20 @@ describe('ipc-handlers filesystem endpoints', () => {
     expect(fsAdapter.exists).not.toHaveBeenCalled();
   });
 
-  it('fs:exists rejects sensitive directories on Unix', async () => {
-    const handler = handlers.get('fs:exists');
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/etc/passwd');
-    expect(result).toBe(false);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'fs:exists rejects sensitive directories on Unix',
+    async () => {
+      const handler = handlers.get('fs:exists');
+      const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/etc/passwd');
+      expect(result).toBe(false);
+    }
+  );
 
   it('fs:exists proxies to adapter for normal paths', async () => {
     const handler = handlers.get('fs:exists');
     const ok = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/docs');
     expect(ok).toBe(true);
-    expect(fsAdapter.exists).toHaveBeenCalledWith('/users/test/docs');
+    expect(fsAdapter.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
   });
 
   // BST-307: Tests for fs:readFileByPath endpoint
@@ -248,7 +254,7 @@ describe('ipc-handlers filesystem endpoints', () => {
       const handler = handlers.get('fs:readFileByPath');
       const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/file.txt');
       expect(content).toBe('file content by path');
-      expect(fsAdapter.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
+      expect(fsAdapter.readFileByPath).toHaveBeenCalledWith(path.resolve('/users/test/file.txt'));
     });
 
     it('returns structured size-limit payload instead of throwing for oversized files', async () => {
@@ -285,7 +291,7 @@ describe('ipc-handlers filesystem endpoints', () => {
       expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
     });
 
-    it('rejects sensitive directories on Unix', async () => {
+    it.skipIf(process.platform === 'win32')('rejects sensitive directories on Unix', async () => {
       const handler = handlers.get('fs:readFileByPath');
       await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/etc/passwd')).rejects.toThrow(
         'Invalid path'

@@ -58,7 +58,7 @@ describe('Brainstrike DB runtime baseline', () => {
       existsSync(docsPath),
       'Architecture doc must exist at apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
     ).toBe(true);
-    const doc = readFileSync(docsPath, 'utf8');
+    const doc = readFileSync(docsPath, 'utf8').replaceAll('\r\n', '\n');
 
     expect(doc).toContain('utilityProcess DB host');
     expect(doc).toContain('Web owns PGlite in a browser PGliteWorker DB host');

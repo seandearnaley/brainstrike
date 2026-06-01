@@ -23,7 +23,7 @@
   },
   "private": true,
   "scripts": {
-    "build": "rm -rf build && docusaurus build",
+    "build": "node ../../scripts/rimraf.mjs build && docusaurus build",
     "clear": "docusaurus clear",
     "dev": "docusaurus start --port 8082 --host 0.0.0.0",
     "format": "biome format --write .",

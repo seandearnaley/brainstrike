@@ -26,7 +26,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
-    "clean": "rm -rf dist",
+    "clean": "node ../../scripts/rimraf.mjs dist",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

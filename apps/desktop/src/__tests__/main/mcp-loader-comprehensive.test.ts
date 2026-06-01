@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { app, safeStorage } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -57,6 +58,9 @@ const mockedFsp = vi.mocked(
 );
 
 describe('mcp-loader comprehensive tests', () => {
+  const expectedMcpDir = path.join('/mock/user/data', 'mcp');
+  const expectedMcpConfigPath = path.join(expectedMcpDir, 'mcp.config.json');
+
   beforeEach(async () => {
     vi.clearAllMocks();
     // Default behavior: custom path file does not exist
@@ -369,8 +373,8 @@ describe('mcp-loader comprehensive tests', () => {
 
   describe('getMcpConfigPath', () => {
     it('should return correct path', async () => {
-      const path = await getMcpConfigPath();
-      expect(path).toBe('/mock/user/data/mcp/mcp.config.json');
+      const configPath = await getMcpConfigPath();
+      expect(configPath).toBe(expectedMcpConfigPath);
       expect(app.getPath).toHaveBeenCalledWith('userData');
     });
   });
@@ -378,7 +382,7 @@ describe('mcp-loader comprehensive tests', () => {
   describe('ensureMcpDirExists', () => {
     it('should create directory with recursive option', async () => {
       await ensureMcpDirExists();
-      expect(fsp.mkdir).toHaveBeenCalledWith('/mock/user/data/mcp', { recursive: true });
+      expect(fsp.mkdir).toHaveBeenCalledWith(expectedMcpDir, { recursive: true });
     });
   });
 
@@ -604,7 +608,7 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.config).toBeDefined();
       expect(result.servers).toHaveLength(1);
       expect(result.loadedAt).toBeDefined();
-      expect(fsp.readFile).toHaveBeenCalledWith('/mock/user/data/mcp/mcp.config.json', 'utf-8');
+      expect(fsp.readFile).toHaveBeenCalledWith(expectedMcpConfigPath, 'utf-8');
     });
 
     it('should handle file not found', async () => {
@@ -819,7 +823,7 @@ describe('mcp-loader comprehensive tests', () => {
       await watchMcpConfig(vi.fn());
       // Wait a tick for the void ensureMcpDirExists() call to complete
       await vi.waitFor(() => {
-        expect(fsp.mkdir).toHaveBeenCalledWith('/mock/user/data/mcp', { recursive: true });
+        expect(fsp.mkdir).toHaveBeenCalledWith(expectedMcpDir, { recursive: true });
       });
     });
   });

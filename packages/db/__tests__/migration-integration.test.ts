@@ -4,6 +4,7 @@ import { MigrationRunner, baseMigrations as migrations } from '../src/migrations
 import type { FileRecord } from '../src/models/file-record.js';
 import { createFileRecordRepository } from '../src/repositories/repository-factory.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 describe('Migration System Integration', () => {
   let db: PGlite;
@@ -13,9 +14,7 @@ describe('Migration System Integration', () => {
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   // Note: Don't run app migrations - tests will run them as part of the test
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-migration-integration-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-migration-integration');
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
   });

@@ -26,7 +26,7 @@
   "main": "index.js",
   "private": true,
   "scripts": {
-    "clean": "rm -rf dist .tsbuildinfo",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",

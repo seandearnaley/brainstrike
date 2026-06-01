@@ -7,6 +7,7 @@ import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileRecord } from '../src/models/file-record';
 import * as wasmLoaderModule from '../src/wasm-loader';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
@@ -41,7 +42,7 @@ describe('DbProvider integration', () => {
 
   it('migrates, creates and retrieves records via context repository', async () => {
     // October 2025: Fresh database per test
-    const dataDir = `/tmp/pglite-test-db-provider-migration-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-db-provider-migration');
     mockDb = await wasmLoader.createPGlite(dataDir);
     await migrate(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);

@@ -607,7 +607,7 @@ describe('ipc-mcp handlers', () => {
       }
       const result = await handler();
 
-      expect(result).toBe('/tmp/mcp.json');
+      expect(result).toBe(path.resolve('/tmp/mcp.json'));
     });
   });
 
@@ -634,10 +634,10 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
-      await expect(selectHandler()).resolves.toBe('/tmp/new.json');
+      await expect(selectHandler()).resolves.toBe(path.resolve('/tmp/new.json'));
       const result = await handler({} as never, '/tmp/new.json');
 
-      expect(setCustomMcpConfigPath).toHaveBeenCalledWith('/tmp/new.json');
+      expect(setCustomMcpConfigPath).toHaveBeenCalledWith(path.resolve('/tmp/new.json'));
       expect(loadMcpConfig).toHaveBeenCalled();
       expect(watchMcpConfig).toHaveBeenCalled();
       expect(result).toEqual({ success: true, path: '/tmp/new.json' });

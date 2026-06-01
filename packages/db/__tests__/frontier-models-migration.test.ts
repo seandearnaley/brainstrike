@@ -2,6 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 async function modelIds(db: PGlite): Promise<string[]> {
   const res = await db.query('SELECT id FROM models ORDER BY id');
@@ -13,9 +14,7 @@ describe('frontier models migration (033)', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-frontier-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-frontier');
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
   });

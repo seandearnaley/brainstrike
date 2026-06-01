@@ -9,6 +9,7 @@ import {
   isPGlite,
 } from '../src/repositories/repository-factory.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 describe('Repository Factory', () => {
   let db: PGlite | undefined;
@@ -22,7 +23,7 @@ describe('Repository Factory', () => {
 
   describe('isPGlite type guard', () => {
     it('should correctly identify PGlite instances', { timeout: 30_000 }, async () => {
-      const dataDir = `/tmp/pglite-test-repository-factory-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const dataDir = createPGliteTestDataDir('pglite-test-repository-factory');
       db = await wasmLoader.createPGlite(dataDir);
       await migrate(db);
       expect(isPGlite(db)).toBe(true);

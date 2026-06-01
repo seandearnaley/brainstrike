@@ -4,6 +4,7 @@ import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileRecord } from '../src/models/file-record';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   const now = new Date().toISOString();
@@ -27,7 +28,7 @@ describe('FileRecordRepository', () => {
 
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-file-record-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-file-record');
     db = await wasmLoader.createPGlite(dataDir);
     await migrate(db);
     repo = new FileRecordRepository(db);

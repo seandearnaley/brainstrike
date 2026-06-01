@@ -108,6 +108,7 @@ vi.mock('electron', async () => {
 });
 
 import fs from 'node:fs'; // Import mocked fs
+import path from 'node:path';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import { LogLevel } from '@brainstrike/utils';
 import { ipcRenderer } from 'electron';
@@ -223,7 +224,7 @@ describe('logging IPC handler performance', () => {
 
     const statTargets = statMock.mock.calls.map(([target]) => target);
 
-    expect(statTargets[0]).toBe('/mock/userData/logs');
-    expect(statTargets).toContain('/mock/userData/logs/test.log');
+    expect(statTargets[0]).toBe(path.resolve('/mock/userData/logs'));
+    expect(statTargets.some((target) => path.basename(String(target)) === 'test.log')).toBe(true);
   });
 });

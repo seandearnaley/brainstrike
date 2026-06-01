@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -104,6 +105,8 @@ describe('file system IPC domain', () => {
   });
 
   it('validates direct path reads before calling the adapter', async () => {
+    const validPath = path.resolve('/users/test/file.txt');
+
     await expect(
       handlers.get('fs:readFileByPath')?.({} as IpcMainInvokeEvent, '/tmp/\0bad')
     ).rejects.toThrow('Invalid path:');
@@ -112,7 +115,7 @@ describe('file system IPC domain', () => {
     await expect(
       handlers.get('fs:readFileByPath')?.({} as IpcMainInvokeEvent, '/users/test/file.txt')
     ).resolves.toBe('path content');
-    expect(fileSystem.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
+    expect(fileSystem.readFileByPath).toHaveBeenCalledWith(validPath);
   });
 
   it('validates handle paths before reading directories and files', async () => {
@@ -122,7 +125,7 @@ describe('file system IPC domain', () => {
         {
           kind: 'directory',
           name: 'bad',
-          path: '/etc/passwd',
+          path: '/tmp/\0bad',
           platform: 'electron',
         } as DirectoryHandle
       )
@@ -145,7 +148,7 @@ describe('file system IPC domain', () => {
 
   it('validates persisted last-folder paths before storing or restoring them', async () => {
     await expect(
-      handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, '/etc/passwd')
+      handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, '/tmp/\0bad')
     ).resolves.toBeUndefined();
     expect(storage.setItem).not.toHaveBeenCalled();
 
@@ -170,17 +173,18 @@ describe('file system IPC domain', () => {
   });
 
   it('restores last folder handles and unregisters file channels', async () => {
+    const restoredPath = path.resolve('/users/test/project');
     vi.mocked(storage.getItem).mockResolvedValue('/users/test/project');
 
     await expect(handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent)).resolves.toEqual(
       {
         kind: 'directory',
         name: 'project',
-        path: '/users/test/project',
+        path: restoredPath,
         platform: 'electron',
       }
     );
-    expect(fileSystem.exists).toHaveBeenCalledWith('/users/test/project');
+    expect(fileSystem.exists).toHaveBeenCalledWith(restoredPath);
 
     const unregister = registerFileSystemIpcHandlers({ fileSystem, storage });
     unregister();

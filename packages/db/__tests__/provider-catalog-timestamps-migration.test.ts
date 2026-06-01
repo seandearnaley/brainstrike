@@ -2,6 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
 
 interface ColumnTypeRow {
   column_name: string;
@@ -58,9 +59,7 @@ describe('provider catalog timestamp migration', () => {
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    const dataDir = `/tmp/pglite-test-provider-catalog-timestamps-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 9)}`;
+    const dataDir = createPGliteTestDataDir('pglite-test-provider-catalog-timestamps');
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
