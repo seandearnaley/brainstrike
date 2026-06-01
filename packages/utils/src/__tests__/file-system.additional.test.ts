@@ -284,6 +284,27 @@ describe('fileSystem', () => {
   });
 
   describe('createFileNode', () => {
+    async function withParentPathSplitForbidden(action: () => Promise<void>): Promise<void> {
+      const originalSplit = String.prototype.split;
+      String.prototype.split = function split(
+        this: string,
+        ...args: Parameters<typeof String.prototype.split>
+      ): string[] {
+        const separator: unknown = args[0];
+        if (String(this) === 'parent/nested' && separator === '/') {
+          throw new Error('parent path split should not be used for depth');
+        }
+
+        return Reflect.apply(originalSplit, this, args) as string[];
+      } as typeof String.prototype.split;
+
+      try {
+        await action();
+      } finally {
+        String.prototype.split = originalSplit;
+      }
+    }
+
     it('should create a file node from a file handle', async () => {
       const fileNode = await fileSystem.createFileNode(mockFileHandle, 'parent');
 
@@ -297,6 +318,25 @@ describe('fileSystem', () => {
         rootFolderId: 'root',
         size: 100,
         lastModified: 1_234_567_890,
+      });
+    });
+
+    it('computes file depth without splitting the parent path', async () => {
+      await withParentPathSplitForbidden(async () => {
+        const fileNode = await fileSystem.createFileNode(mockFileHandle, 'parent/nested');
+
+        expect(fileNode.depth).toBe(2);
+      });
+    });
+
+    it('computes directory depth without splitting the parent path', async () => {
+      await withParentPathSplitForbidden(async () => {
+        const directoryNode = await fileSystem.createFileNode(
+          mockDirectoryHandle1,
+          'parent/nested'
+        );
+
+        expect(directoryNode.depth).toBe(2);
       });
     });
 
