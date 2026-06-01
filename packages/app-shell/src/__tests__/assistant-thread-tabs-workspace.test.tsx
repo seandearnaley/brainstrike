@@ -271,6 +271,10 @@ describe('AssistantThreadTabsWorkspace', () => {
     await waitFor(() => {
       expect(screen.getByText('Memory database unavailable')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('assistant-thread-workspace-state')).toHaveAttribute(
+      'data-variant',
+      'error'
+    );
     expect(screen.queryByText('Loading PGlite-backed threads.')).not.toBeInTheDocument();
   });
 

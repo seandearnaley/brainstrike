@@ -200,6 +200,7 @@ export function AssistantThreadTabsWorkspace({
       <ThreadWorkspaceState
         description="Assistant memory requires an initialized PGlite database."
         title="Memory database unavailable"
+        variant="error"
       />
     );
   }
