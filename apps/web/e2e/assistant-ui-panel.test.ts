@@ -90,16 +90,33 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
         'Assistant memory database unavailable',
         'Memory database unavailable',
       ];
-      const recordAssistantThreadStartupText = () => {
-        const text = document.body?.innerText ?? '';
-        for (const marker of loadingMarkers) {
-          if (text.includes(marker)) {
-            startupEvents.push({ kind: 'loading', marker });
-          }
+      const startupEventKeys = new Set<string>();
+      const recordStartupEvent = (kind: AssistantThreadStartupEvent['kind'], marker: string) => {
+        const key = `${kind}:${marker}`;
+        if (startupEventKeys.has(key)) {
+          return;
         }
-        for (const marker of errorMarkers) {
-          if (text.includes(marker)) {
-            startupEvents.push({ kind: 'error', marker });
+        startupEventKeys.add(key);
+        startupEvents.push({ kind, marker });
+      };
+      const recordAssistantThreadStartupText = () => {
+        const surfaces = [
+          ...document.querySelectorAll<HTMLElement>('[data-testid="threads-panel"]'),
+          ...document.querySelectorAll<HTMLElement>(
+            '[data-testid="assistant-thread-tabs-workspace"]'
+          ),
+        ];
+        for (const surface of surfaces) {
+          const text = surface.innerText;
+          for (const marker of loadingMarkers) {
+            if (text.includes(marker)) {
+              recordStartupEvent('loading', marker);
+            }
+          }
+          for (const marker of errorMarkers) {
+            if (text.includes(marker)) {
+              recordStartupEvent('error', marker);
+            }
           }
         }
       };
