@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react'
 import type { ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
+import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
@@ -23,23 +24,6 @@ const EMPTY_TAB_SCROLL_STATE: TabScrollState = {
   canScrollBack: false,
   canScrollForward: false,
 };
-
-function shouldRenderDatabaseStartupLoading({
-  databaseError,
-  databaseInitializing,
-  databaseStatus,
-  repositoryReady,
-}: {
-  readonly databaseError: Error | null;
-  readonly databaseInitializing: boolean;
-  readonly databaseStatus: 'idle' | 'initializing' | 'ready' | 'error';
-  readonly repositoryReady: boolean;
-}): boolean {
-  if (repositoryReady || databaseError) {
-    return false;
-  }
-  return databaseInitializing || databaseStatus === 'idle' || databaseStatus === 'initializing';
-}
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
@@ -60,7 +44,7 @@ export function AssistantThreadTabsWorkspace({
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
-  const databaseStartupLoading = shouldRenderDatabaseStartupLoading({
+  const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
     databaseError,
     databaseInitializing,
     databaseStatus,

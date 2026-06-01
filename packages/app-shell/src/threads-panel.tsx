@@ -14,6 +14,7 @@ import {
   type AssistantThreadRepository,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
+import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 
 type ThreadPanelLoadState =
@@ -545,9 +546,12 @@ export function ThreadsPanel(): ReactElement {
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
   );
-  const databaseStartupLoading =
-    !(repository || databaseError) &&
-    (databaseInitializing || databaseStatus === 'idle' || databaseStatus === 'initializing');
+  const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
+    databaseError,
+    databaseInitializing,
+    databaseStatus,
+    repositoryReady: Boolean(repository),
+  });
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
