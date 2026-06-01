@@ -270,63 +270,52 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         resourceId: string,
         threadId: string
       ): Promise<void> => {
-        try {
-          await repository.deleteThread(threadId);
-          set((state) => {
-            const remainingThreads = (state.threadsByResourceId[resourceId] ?? []).filter(
-              (thread) => thread.id !== threadId
-            );
-            const remainingThreadIds = remainingThreads.map((thread) => thread.id);
-            const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
-            const nextOpenThreadIds = currentOpenThreadIds.filter((item) => item !== threadId);
-            const nextActiveThreadId = selectActiveThreadAfterDelete({
-              currentOpenThreadIds,
-              deletedThreadId: threadId,
-              remainingThreadIds,
-            });
-
-            return {
-              activeThreadIdByResourceId: nextActiveThreadId
-                ? {
-                    ...state.activeThreadIdByResourceId,
-                    [resourceId]: nextActiveThreadId,
-                  }
-                : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
-              draftRuntimeByThreadId: omitRecordKey(state.draftRuntimeByThreadId, threadId),
-              loadStateByResourceId: {
-                ...state.loadStateByResourceId,
-                [resourceId]: { status: 'ready' },
-              },
-              openThreadIdsByResourceId: {
-                ...state.openThreadIdsByResourceId,
-                [resourceId]: nextOpenThreadIds,
-              },
-              selectedThreadByResourceId: nextActiveThreadId
-                ? {
-                    ...state.selectedThreadByResourceId,
-                    [resourceId]: nextActiveThreadId,
-                  }
-                : omitRecordKey(state.selectedThreadByResourceId, resourceId),
-              threadIdsByResourceId: {
-                ...state.threadIdsByResourceId,
-                [resourceId]: remainingThreadIds,
-              },
-              threadsByResourceId: {
-                ...state.threadsByResourceId,
-                [resourceId]: remainingThreads,
-              },
-            };
+        await repository.deleteThread(threadId);
+        set((state) => {
+          const remainingThreads = (state.threadsByResourceId[resourceId] ?? []).filter(
+            (thread) => thread.id !== threadId
+          );
+          const remainingThreadIds = remainingThreads.map((thread) => thread.id);
+          const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+          const nextOpenThreadIds = currentOpenThreadIds.filter((item) => item !== threadId);
+          const nextActiveThreadId = selectActiveThreadAfterDelete({
+            currentOpenThreadIds,
+            deletedThreadId: threadId,
+            remainingThreadIds,
           });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          set((state) => ({
+
+          return {
+            activeThreadIdByResourceId: nextActiveThreadId
+              ? {
+                  ...state.activeThreadIdByResourceId,
+                  [resourceId]: nextActiveThreadId,
+                }
+              : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
+            draftRuntimeByThreadId: omitRecordKey(state.draftRuntimeByThreadId, threadId),
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
-              [resourceId]: { status: 'error', error: message },
+              [resourceId]: { status: 'ready' },
             },
-          }));
-          throw error;
-        }
+            openThreadIdsByResourceId: {
+              ...state.openThreadIdsByResourceId,
+              [resourceId]: nextOpenThreadIds,
+            },
+            selectedThreadByResourceId: nextActiveThreadId
+              ? {
+                  ...state.selectedThreadByResourceId,
+                  [resourceId]: nextActiveThreadId,
+                }
+              : omitRecordKey(state.selectedThreadByResourceId, resourceId),
+            threadIdsByResourceId: {
+              ...state.threadIdsByResourceId,
+              [resourceId]: remainingThreadIds,
+            },
+            threadsByResourceId: {
+              ...state.threadsByResourceId,
+              [resourceId]: remainingThreads,
+            },
+          };
+        });
       },
       ensureResourceThreads: async (
         repository: AssistantThreadRepository,
@@ -446,28 +435,17 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         title: string
       ): Promise<void> => {
         const normalizedTitle = title.trim();
-        try {
-          await repository.renameThread(threadId, normalizedTitle);
-          set((state) => ({
-            threadsByResourceId: {
-              ...state.threadsByResourceId,
-              [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
-                thread.id === threadId
-                  ? { ...thread, title: normalizedTitle, updatedAt: new Date() }
-                  : thread
-              ),
-            },
-          }));
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          set((state) => ({
-            loadStateByResourceId: {
-              ...state.loadStateByResourceId,
-              [resourceId]: { status: 'error', error: message },
-            },
-          }));
-          throw error;
-        }
+        await repository.renameThread(threadId, normalizedTitle);
+        set((state) => ({
+          threadsByResourceId: {
+            ...state.threadsByResourceId,
+            [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
+              thread.id === threadId
+                ? { ...thread, title: normalizedTitle, updatedAt: new Date() }
+                : thread
+            ),
+          },
+        }));
       },
       updateThreadMetadata: async (
         repository: AssistantThreadRepository,
@@ -482,32 +460,21 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           ...(existingThread?.metadata ?? {}),
           ...metadata,
         };
-        try {
-          await repository.updateThreadMetadata(threadId, nextMetadata);
-          set((state) => ({
-            threadsByResourceId: {
-              ...state.threadsByResourceId,
-              [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
-                thread.id === threadId
-                  ? {
-                      ...thread,
-                      metadata: nextMetadata,
-                      updatedAt: new Date(),
-                    }
-                  : thread
-              ),
-            },
-          }));
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          set((state) => ({
-            loadStateByResourceId: {
-              ...state.loadStateByResourceId,
-              [resourceId]: { status: 'error', error: message },
-            },
-          }));
-          throw error;
-        }
+        await repository.updateThreadMetadata(threadId, nextMetadata);
+        set((state) => ({
+          threadsByResourceId: {
+            ...state.threadsByResourceId,
+            [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
+              thread.id === threadId
+                ? {
+                    ...thread,
+                    metadata: nextMetadata,
+                    updatedAt: new Date(),
+                  }
+                : thread
+            ),
+          },
+        }));
       },
     }),
     {
