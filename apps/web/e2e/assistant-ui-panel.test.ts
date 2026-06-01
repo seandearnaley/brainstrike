@@ -351,6 +351,25 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(reloadedThreadRow).not.toContainText(/thread-[0-9a-f-]+/i);
   });
 
+  test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {
+    await expect(page.getByTestId('threads-panel')).toBeVisible();
+    const threadRow = page.getByTestId('thread-row').first();
+    await expect(threadRow).toBeVisible();
+    const renderedIdentity = threadRow.getByTestId('thread-color-blue');
+    await expect(renderedIdentity).toBeVisible();
+    const renderedBox = await renderedIdentity.boundingBox();
+    expect(renderedBox).not.toBeNull();
+
+    await threadRow.getByRole('button', { name: /Rename thread/ }).click();
+    const editIdentity = threadRow.getByTestId('thread-color-blue');
+    await expect(editIdentity).toBeVisible();
+    const editBox = await editIdentity.boundingBox();
+    expect(editBox).not.toBeNull();
+
+    expect(Math.abs((renderedBox?.x ?? 0) - (editBox?.x ?? 0))).toBeLessThanOrEqual(1);
+    expect(Math.abs((renderedBox?.y ?? 0) - (editBox?.y ?? 0))).toBeLessThanOrEqual(1);
+  });
+
   test('send message and see assistant stream with tool progress', async ({ page }) => {
     // Ensure right panel is visible
     const elements = getPanelElements(page);

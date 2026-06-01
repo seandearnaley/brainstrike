@@ -451,7 +451,7 @@ function ThreadRenameForm({
 }): ReactElement {
   return (
     <form
-      className="flex items-center gap-2"
+      className="flex min-h-10 items-center gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         onSavingThreadIdChange(thread.id);
@@ -552,10 +552,14 @@ function ThreadRowDisplay({
           }}
           type="button"
         >
-          <div className="flex min-w-0 items-center gap-2">
-            <ThreadIdentityMark thread={thread} />
-            <div className="min-w-0">
+          <div className="grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2">
+            <div className="flex min-h-10 items-center">
+              <ThreadIdentityMark thread={thread} />
+            </div>
+            <div className="flex min-h-10 min-w-0 items-center">
               <div className="truncate font-medium text-xs">{thread.title}</div>
+            </div>
+            <div className="col-start-2 min-w-0">
               <ThreadMetadataBadges thread={thread} />
             </div>
           </div>
