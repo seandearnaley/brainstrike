@@ -453,13 +453,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         threadId: string,
         metadata: AssistantThreadMetadata
       ): Promise<void> => {
-        const existingThread = get().threadsByResourceId[resourceId]?.find(
-          (thread) => thread.id === threadId
-        );
-        const nextMetadata: AssistantThreadMetadata = {
-          ...(existingThread?.metadata ?? {}),
-          ...metadata,
-        };
         await repository.updateThreadMetadata(threadId, metadata);
         set((state) => ({
           threadsByResourceId: {
@@ -468,7 +461,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               thread.id === threadId
                 ? {
                     ...thread,
-                    metadata: nextMetadata,
+                    metadata: {
+                      ...(thread.metadata ?? {}),
+                      ...metadata,
+                    },
                     updatedAt: new Date(),
                   }
                 : thread
