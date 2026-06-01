@@ -9,7 +9,11 @@ vi.mock('@brainstrike/agent', async () => {
   };
 });
 
-import { createMastraAgentError, toAiSdkStyleStream } from '@brainstrike/agent';
+import {
+  createMastraAgentError,
+  DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  toAiSdkStyleStream,
+} from '@brainstrike/agent';
 import { __parseChatBodyForTests, __resetRateLimiterForTests, POST } from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
@@ -221,6 +225,30 @@ describe('chat route schema', () => {
     const payload = await limitedRes.json();
     expect(payload.error).toBe('rate_limited');
     expect(typeof payload.retryAfterMs).toBe('number');
+  });
+
+  it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES));
+        controller.enqueue(new Uint8Array(1));
+        controller.close();
+      },
+    });
+
+    const res = await POST(
+      new Request('http://localhost/api/chat', {
+        body: oversizedBody,
+        method: 'POST',
+      })
+    );
+
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toEqual({
+      error: 'request_body_too_large',
+      message: `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`,
+    });
   });
 
   it('returns 502 when assistant stream fails to initialize', async () => {

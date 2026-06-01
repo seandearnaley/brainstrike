@@ -1,5 +1,11 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
-import { isMastraAgentError, toAiSdkStyleStream } from '@brainstrike/agent';
+import {
+  AssistantRequestBodyTooLargeError,
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR as BODY_LIMIT_ENV_VAR,
+  isMastraAgentError,
+  resolveAssistantRequestBodyLimitBytes as resolveBodyLimit,
+  toAiSdkStyleStream,
+} from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
@@ -8,6 +14,7 @@ import { resolveAssistantProviderConfig } from '../../../server/assistant-config
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 const logger = createLogger('WebChatRoute');
+const chatRequestBodyLimitBytes = resolveBodyLimit(process.env[BODY_LIMIT_ENV_VAR]);
 
 interface RateLimitEntry {
   blockedUntil?: number;
@@ -77,7 +84,7 @@ export async function POST(req: Request): Promise<Response> {
       return createRateLimitResponse(limitResult.retryAfterMs);
     }
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readJsonRequestBody(req, chatRequestBodyLimitBytes);
     const { messages, data } = __parseChatBodyForTests(body);
 
     const provider = resolveAssistantProviderConfig();
@@ -220,7 +227,46 @@ export function __resetRateLimiterForTests(): void {
   rateLimitState.clear();
 }
 
+async function readJsonRequestBody(req: Request, bodyLimitBytes: number): Promise<unknown> {
+  const reader = req.body?.getReader();
+  if (!reader) {
+    return {};
+  }
+
+  const decoder = new TextDecoder();
+  let text = '';
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > bodyLimitBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    return JSON.parse(`${text}${decoder.decode()}` || '{}') as unknown;
+  } catch {
+    return {};
+  }
+}
+
 function createErrorResponse(err: unknown): Response {
+  if (err instanceof AssistantRequestBodyTooLargeError) {
+    return new Response(JSON.stringify({ error: err.code, message: err.message }), {
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      status: 413,
+    });
+  }
   if (isMastraAgentError(err)) {
     logger.error('Failed to initialize chat stream', { code: err.code, error: err.message });
     return new Response(
