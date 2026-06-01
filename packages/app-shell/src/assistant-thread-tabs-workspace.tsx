@@ -358,7 +358,11 @@ function ThreadWorkspaceState({
 }): ReactElement {
   const tone = variant === 'error' ? 'text-destructive' : 'text-muted-foreground';
   return (
-    <div className={`p-4 text-xs ${tone}`} data-testid="assistant-thread-workspace-state">
+    <div
+      className={`p-4 text-xs ${tone}`}
+      data-testid="assistant-thread-workspace-state"
+      data-variant={variant}
+    >
       <div className="font-medium text-sm">{title}</div>
       <div className="mt-1">{description}</div>
     </div>

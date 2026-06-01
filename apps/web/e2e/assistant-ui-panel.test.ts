@@ -79,17 +79,6 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       // @ts-expect-error test-only override
       window.__assistantAvailabilityOverride = { state: 'enabled' };
       const startupEvents: AssistantThreadStartupEvent[] = [];
-      const loadingMarkers = [
-        'Assistant memory is loading from PGlite.',
-        'Loading PGlite-backed threads.',
-        'Loading threads...',
-      ];
-      const errorMarkers = [
-        'Failed to load threads',
-        'Assistant threads failed to load',
-        'Assistant memory database unavailable',
-        'Memory database unavailable',
-      ];
       const startupEventKeys = new Set<string>();
       const recordStartupEvent = (kind: AssistantThreadStartupEvent['kind'], marker: string) => {
         const key = `${kind}:${marker}`;
@@ -107,16 +96,17 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
           ),
         ];
         for (const surface of surfaces) {
-          const text = surface.innerText;
-          for (const marker of loadingMarkers) {
-            if (text.includes(marker)) {
-              recordStartupEvent('loading', marker);
-            }
+          const loadingSurfaces = surface.querySelectorAll(
+            '[data-testid="threads-loading-card"], [data-testid="assistant-thread-workspace-state"]:not([data-variant="error"])'
+          );
+          for (const element of loadingSurfaces) {
+            recordStartupEvent('loading', element.getAttribute('data-testid') ?? 'loading');
           }
-          for (const marker of errorMarkers) {
-            if (text.includes(marker)) {
-              recordStartupEvent('error', marker);
-            }
+          const errorSurfaces = surface.querySelectorAll(
+            '[data-testid="threads-error-card"], [data-testid="assistant-thread-workspace-state"][data-variant="error"]'
+          );
+          for (const element of errorSurfaces) {
+            recordStartupEvent('error', element.getAttribute('data-testid') ?? 'error');
           }
         }
       };

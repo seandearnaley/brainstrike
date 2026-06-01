@@ -184,6 +184,10 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(
       screen.getByText('Open a workspace before starting assistant threads.')
     ).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-thread-workspace-state')).toHaveAttribute(
+      'data-variant',
+      'muted'
+    );
     expect(
       screen.queryByRole('tablist', { name: 'Open assistant threads' })
     ).not.toBeInTheDocument();
@@ -204,6 +208,10 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     expect(screen.getByText('Assistant threads failed to load')).toBeInTheDocument();
     expect(screen.getByText('PGlite failed to initialize.')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-thread-workspace-state')).toHaveAttribute(
+      'data-variant',
+      'error'
+    );
   });
 
   it('shows loading instead of unavailable while the database is initializing', () => {
