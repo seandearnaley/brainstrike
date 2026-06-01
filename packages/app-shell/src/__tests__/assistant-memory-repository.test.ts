@@ -1,6 +1,6 @@
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
-import type { DbHandle } from '@brainstrike/db';
-import { describe, expect, it, vi } from 'vitest';
+import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   type AssistantThreadRepository,
@@ -661,22 +661,39 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(db.exec).toHaveBeenCalledTimes(2);
   });
 
-  it('deletes thread-owned rows in a transaction including observational memory', async () => {
+  it('deletes thread-owned rows in one atomic statement including observational memory', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.deleteThread('thread-1');
 
-    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
+      'thread-1',
+      'thread:thread-1',
+    ]);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_observational_memory'),
       ['thread-1', 'thread:thread-1']
     );
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_messages'), [
       'thread-1',
+      'thread:thread-1',
     ]);
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
+  });
+
+  it('deletes thread-owned rows when the database handle only exposes query and exec', async () => {
+    const db = createMockDb();
+    const { exec, query } = db;
+    const repository = createPgliteAssistantThreadRepository({
+      exec,
+      query,
+    } as unknown as DbHandle);
+
+    await repository.deleteThread('thread-1');
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
       'thread-1',
+      'thread:thread-1',
     ]);
   });
 
@@ -708,6 +725,68 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
   });
 });
 
+describe('createPgliteAssistantThreadRepository integration', () => {
+  let pgliteDataDir: string | undefined;
+
+  afterEach(async () => {
+    if (pgliteDataDir) {
+      await wasmLoader.closeCached(pgliteDataDir);
+      pgliteDataDir = undefined;
+    }
+  });
+
+  it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-cascade');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await db.query(
+      `INSERT INTO mastra_messages
+        (id, thread_id, content, role, type, "createdAt", "resourceId")
+       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)`,
+      [
+        'message-delete',
+        thread.id,
+        JSON.stringify({ content: 'Delete this thread.' }),
+        'user',
+        'text',
+        new Date('2026-04-24T12:00:00Z'),
+        'workspace-a',
+      ]
+    );
+    await repository.createThreadRun({
+      id: 'run-delete',
+      model: 'gpt-test',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-04-24T12:00:01Z'),
+      status: 'running',
+      threadId: thread.id,
+    });
+    await repository.appendThreadRunEvent('run-delete', {
+      id: 'event-delete',
+      kind: 'memory.configured',
+      label: 'Memory configured',
+      sequence: 1,
+      status: 'completed',
+      timestamp: '2026-04-24T12:00:02.000Z',
+    } satisfies AssistantRunEvent);
+
+    await repository.deleteThread(thread.id);
+
+    await expect(countRows(db, 'mastra_threads', 'id', thread.id)).resolves.toBe(0);
+    await expect(countRows(db, 'mastra_messages', 'thread_id', thread.id)).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_thread_runs', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_run_events', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+  });
+});
+
 function createMockDb(): {
   exec: ReturnType<typeof vi.fn<(sql: string) => Promise<unknown>>>;
   query: ReturnType<
@@ -731,4 +810,24 @@ function createMockDb(): {
     ...db,
     transaction: vi.fn(async (fn) => await fn(db)),
   };
+}
+
+let pgliteDataDirCounter = 0;
+
+function createPgliteTestDataDir(prefix: string): string {
+  pgliteDataDirCounter += 1;
+  return `memory://${prefix}-${pgliteDataDirCounter}`;
+}
+
+async function countRows(
+  db: Pick<DbHandle, 'query'>,
+  tableName: string,
+  columnName: string,
+  value: string
+): Promise<number> {
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM ${tableName} WHERE ${columnName} = $1`,
+    [value]
+  );
+  return Number(result.rows[0]?.count ?? 0);
 }

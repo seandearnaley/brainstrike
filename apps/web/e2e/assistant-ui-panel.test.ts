@@ -321,6 +321,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(longUserMessage).toBeVisible();
   });
 
+  test('deletes assistant thread history without loading errors', async ({ page }) => {
+    await expect(page.getByTestId('threads-panel')).toBeVisible();
+    await page.getByTestId('new-agent-button').click();
+    await expect(page.getByTestId('thread-row')).toHaveCount(2);
+
+    const newestThread = page.getByTestId('thread-row').first();
+    await newestThread.getByRole('button', { name: /Delete thread/i }).click();
+    await page.getByRole('button', { name: /Confirm delete thread/i }).click();
+
+    await expect(page.getByTestId('thread-row')).toHaveCount(1);
+    await expect(page.getByText('Failed to load threads')).toHaveCount(0);
+    await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
+  });
+
   test('keeps the assistant tab controller stable when tabs overflow', async ({ page }) => {
     const elements = getPanelElements(page);
     if (await elements.showRightPanelShim.isVisible()) {
