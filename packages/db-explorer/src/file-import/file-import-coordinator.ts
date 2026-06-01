@@ -30,7 +30,7 @@ const IMPORT_REQUEST_BATCH_SIZE = 50;
 
 export function getImportPathFileName(path: string): string {
   // Bulk imports call this per selected file; avoid split/pop segment arrays.
-  const lastSlashIdx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  const lastSlashIdx = path.lastIndexOf('/');
   return lastSlashIdx === -1 ? path : path.slice(lastSlashIdx + 1);
 }
 
