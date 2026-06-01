@@ -362,6 +362,73 @@ describe('createAssistantThreadHistoryAdapter', () => {
 });
 
 describe('createPgliteAssistantThreadRepository thread runs', () => {
+  it('loads curated thread metadata while omitting invalid curated values', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM mastra_threads')) {
+        return {
+          rows: [
+            {
+              id: 'thread-valid',
+              resourceId: '/tmp/workspace-a',
+              title: 'Valid curated thread',
+              metadata: JSON.stringify({
+                icon: 'bug',
+                color: 'rose',
+                provider: 'openai',
+                model: 'gpt-5.2',
+              }),
+              createdAt: new Date('2026-04-22T09:00:00Z'),
+              updatedAt: new Date('2026-04-22T10:00:00Z'),
+            },
+            {
+              id: 'thread-invalid',
+              resourceId: '/tmp/workspace-a',
+              title: 'Invalid curated thread',
+              metadata: JSON.stringify({
+                icon: 'raw-html',
+                color: '#ff00ff',
+                provider: 'anthropic',
+              }),
+              createdAt: new Date('2026-04-22T08:00:00Z'),
+              updatedAt: new Date('2026-04-22T09:00:00Z'),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const threads = await repository.listThreads('/tmp/workspace-a');
+
+    expect(threads[0]?.metadata).toEqual({
+      icon: 'bug',
+      color: 'rose',
+      provider: 'openai',
+      model: 'gpt-5.2',
+    });
+    expect(threads[1]?.metadata).toEqual({
+      provider: 'anthropic',
+    });
+  });
+
+  it('rejects invalid curated thread metadata before persistence', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        icon: 'raw-html',
+        color: 'rose',
+      } as never)
+    ).rejects.toThrow('Invalid assistant thread metadata icon.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
   it('bootstraps the Brainstrike-owned assistant run table before writes', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);

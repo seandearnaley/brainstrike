@@ -17,6 +17,22 @@ function makeThread(id: string, updatedAt: string): AssistantMemoryThread {
   };
 }
 
+function makeCuratedThread(): AssistantMemoryThread {
+  return {
+    id: 'thread-curated',
+    resourceId: workspaceId,
+    title: 'Curated thread',
+    metadata: {
+      provider: 'openai',
+      model: 'gpt-5.2',
+      icon: 'message',
+      color: 'blue',
+    },
+    createdAt: new Date('2026-04-22T09:00:00Z'),
+    updatedAt: new Date('2026-04-22T10:00:00Z'),
+  };
+}
+
 function createRepository(
   threads: readonly AssistantMemoryThread[] = [
     makeThread('thread-a', '2026-04-22T11:00:00Z'),
@@ -173,6 +189,33 @@ describe('useAssistantThreadStore tab sessions', () => {
         model: 'claude-sonnet-4-6',
         modelSettings: { maxOutputTokens: 1024 },
       },
+    });
+  });
+
+  it('saves curated metadata through the repository and updates the loaded thread', async () => {
+    const repository = createRepository([makeCuratedThread()]);
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, 'thread-curated', {
+        icon: 'bug',
+        color: 'rose',
+      });
+
+    expect(repository.updateThreadMetadata).toHaveBeenCalledWith('thread-curated', {
+      provider: 'openai',
+      model: 'gpt-5.2',
+      icon: 'bug',
+      color: 'rose',
+    });
+    expect(
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
+    ).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.2',
+      icon: 'bug',
+      color: 'rose',
     });
   });
 });
