@@ -53,7 +53,9 @@
     "type-check": "tsc --noEmit -p tsconfig.json",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "dist/chunk-*.js"
+  ],
   "turbo": {
     "outputs": [
       "dist/**"

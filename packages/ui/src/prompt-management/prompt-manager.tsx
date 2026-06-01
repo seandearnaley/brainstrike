@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { useToast } from '../use-toast';
-import { PromptEditor } from './components/prompt-editor';
+import { PromptEditor, type PromptEditorSaveData } from './components/prompt-editor';
 import { PromptList } from './components/prompt-list';
 import { Sidebar } from './components/sidebar';
+import { hasModelSettingsChanged } from './model-settings';
 import { usePromptStore } from './store';
 import type { Prompt } from './types';
 
@@ -20,6 +21,7 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
     filter,
     setFilter,
     addPrompt,
+    addRevision,
     updatePrompt,
     deletePrompt,
     toggleFavorite,
@@ -54,9 +56,26 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
     });
   };
 
-  const handleSavePrompt = (promptData: Partial<Prompt>) => {
+  const handleSavePrompt = (promptData: PromptEditorSaveData) => {
+    const { revisionNote, ...promptUpdate } = promptData;
+
     if (editingPromptId) {
-      updatePrompt(editingPromptId, promptData);
+      const currentPrompt = prompts.find((prompt: Prompt) => prompt.id === editingPromptId);
+      const changesVersionedFields =
+        currentPrompt &&
+        ((promptUpdate.content !== undefined && promptUpdate.content !== currentPrompt.content) ||
+          (promptUpdate.modelSettings !== undefined &&
+            hasModelSettingsChanged(promptUpdate.modelSettings, currentPrompt.modelSettings)));
+
+      if (currentPrompt && changesVersionedFields) {
+        addRevision(editingPromptId, {
+          content: currentPrompt.content,
+          modelSettings: currentPrompt.modelSettings,
+          note: revisionNote ?? 'Before edit',
+        });
+      }
+
+      updatePrompt(editingPromptId, promptUpdate);
       toast({
         title: 'Prompt updated',
         description: 'Your changes have been saved.',
@@ -65,10 +84,10 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
       // Ensure we have the required fields for a new prompt
       if (
         !(
-          promptData.title &&
-          promptData.content &&
-          promptData.categoryId &&
-          promptData.modelSettings
+          promptUpdate.title &&
+          promptUpdate.content &&
+          promptUpdate.categoryId &&
+          promptUpdate.modelSettings
         )
       ) {
         toast({
@@ -80,13 +99,13 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
       }
 
       addPrompt({
-        title: promptData.title,
-        content: promptData.content,
-        categoryId: promptData.categoryId,
-        tags: promptData.tags || [],
-        modelSettings: promptData.modelSettings,
+        title: promptUpdate.title,
+        content: promptUpdate.content,
+        categoryId: promptUpdate.categoryId,
+        tags: promptUpdate.tags || [],
+        modelSettings: promptUpdate.modelSettings,
         rating: 0,
-        ...(promptData.site ? { site: promptData.site } : {}),
+        ...(promptUpdate.site ? { site: promptUpdate.site } : {}),
         isFavorite: false,
       });
 

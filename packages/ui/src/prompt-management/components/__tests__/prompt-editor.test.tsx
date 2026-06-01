@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Category, Prompt } from '../../types';
 import { PromptEditor } from '../prompt-editor';
 
@@ -85,10 +85,13 @@ vi.mock('../../../label', () => ({
 }));
 
 vi.mock('../../../model-picker', () => ({
-  ModelPicker: ({ onChange }: { onChange: (id: string) => void }) => (
-    <button onClick={() => onChange('openai:gpt-4.1-mini')} type="button">
-      choose-model
-    </button>
+  ModelPicker: ({ onChange, value }: { onChange: (id: string) => void; value: string }) => (
+    <div>
+      <span>selected-model:{value}</span>
+      <button onClick={() => onChange('openai:gpt-4.1-mini')} type="button">
+        choose-model
+      </button>
+    </div>
   ),
 }));
 
@@ -131,9 +134,28 @@ const existingPrompt: Prompt = {
   content: 'Existing content',
   categoryId: 'coding',
   tags: ['existing-tag', 'legacy'],
-  modelSettings: { model: 'openai:gpt-4o-mini', temperature: 0.2, topP: 1 },
+  modelSettings: {
+    model: 'openai:gpt-4o-mini',
+    temperature: 0.2,
+    topP: 0.8,
+    maxTokens: 2048,
+    frequencyPenalty: 0.1,
+    presencePenalty: 0.2,
+  },
   revisions: [
-    { id: 'rev-1', content: 'old-1', timestamp: 1_700_000_000_000 },
+    {
+      id: 'rev-1',
+      content: 'old-1',
+      modelSettings: {
+        model: 'openai:gpt-4.1',
+        temperature: 0.1,
+        topP: 0.6,
+        maxTokens: 4096,
+        frequencyPenalty: 0.3,
+        presencePenalty: 0.4,
+      },
+      timestamp: 1_700_000_000_000,
+    },
     { id: 'rev-2', content: 'old-2', timestamp: 1_700_000_100_000 },
   ],
   rating: 4,
@@ -143,6 +165,10 @@ const existingPrompt: Prompt = {
 };
 
 describe('PromptEditor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('handles create flow, tags, model/category updates, save, and dialog close', () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
@@ -221,6 +247,14 @@ describe('PromptEditor', () => {
         title: 'Existing title',
         content: 'Existing content',
         categoryId: 'coding',
+        modelSettings: {
+          model: 'openai:gpt-4o-mini',
+          temperature: 0.2,
+          topP: 0.8,
+          maxTokens: 2048,
+          frequencyPenalty: 0.1,
+          presencePenalty: 0.2,
+        },
       })
     );
 
@@ -229,5 +263,248 @@ describe('PromptEditor', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('');
     expect(screen.getByLabelText('Prompt Content')).toHaveValue('');
     expect(screen.queryByText('History')).not.toBeInTheDocument();
+  });
+
+  it('clears an unsaved create draft when the create dialog is reopened', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <PromptEditor categories={categories} isOpen onClose={onClose} onSave={onSave} />
+    );
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Stale title' } });
+    fireEvent.change(screen.getByLabelText('Prompt Content'), {
+      target: { value: 'Stale content' },
+    });
+
+    rerender(
+      <PromptEditor categories={categories} isOpen={false} onClose={onClose} onSave={onSave} />
+    );
+    rerender(<PromptEditor categories={categories} isOpen onClose={onClose} onSave={onSave} />);
+
+    expect(screen.getByLabelText('Title')).toHaveValue('');
+    expect(screen.getByLabelText('Prompt Content')).toHaveValue('');
+  });
+
+  it('restores a revision into the editable prompt draft before saving', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={existingPrompt}
+      />
+    );
+
+    const restoreButtons = screen.getAllByRole('button', {
+      name: 'Restore content and model settings',
+    });
+    expect(restoreButtons[0]).toHaveAttribute('title', 'Restore content and model settings');
+
+    fireEvent.click(restoreButtons[0] as HTMLElement);
+
+    expect(screen.getByLabelText('Prompt Content')).toHaveValue('old-1');
+    expect(screen.getByText('selected-model:openai:gpt-4.1')).toBeInTheDocument();
+    expect(screen.getByRole('slider')).toHaveValue('0.1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'SaveIcon Save Prompt' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'old-1',
+        modelSettings: {
+          model: 'openai:gpt-4.1',
+          temperature: 0.1,
+          topP: 0.6,
+          maxTokens: 4096,
+          frequencyPenalty: 0.3,
+          presencePenalty: 0.4,
+        },
+      })
+    );
+  });
+
+  it('restores legacy revision content without dropping current model settings', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={existingPrompt}
+      />
+    );
+
+    fireEvent.click(
+      screen.getAllByRole('button', {
+        name: 'Restore content and model settings',
+      })[1] as HTMLElement
+    );
+
+    expect(screen.getByLabelText('Prompt Content')).toHaveValue('old-2');
+    expect(screen.getByText('selected-model:openai:gpt-4o-mini')).toBeInTheDocument();
+    expect(screen.getByRole('slider')).toHaveValue('0.2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'SaveIcon Save Prompt' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'old-2',
+        modelSettings: existingPrompt.modelSettings,
+      })
+    );
+  });
+
+  it('keeps restored drafts across same-prompt rerenders', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={existingPrompt}
+      />
+    );
+
+    fireEvent.click(
+      screen.getAllByRole('button', {
+        name: 'Restore content and model settings',
+      })[0] as HTMLElement
+    );
+
+    rerender(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={{ ...existingPrompt, rating: 5 }}
+      />
+    );
+
+    expect(screen.getByLabelText('Prompt Content')).toHaveValue('old-1');
+    expect(screen.getByText('selected-model:openai:gpt-4.1')).toBeInTheDocument();
+  });
+
+  it('does not confirm repeated restore-only changes until the user edits restorable fields', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+    const confirmRestore = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirmRestore);
+
+    render(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={existingPrompt}
+      />
+    );
+
+    const restoreButtons = screen.getAllByRole('button', {
+      name: 'Restore content and model settings',
+    });
+
+    fireEvent.click(restoreButtons[0] as HTMLElement);
+    fireEvent.click(restoreButtons[1] as HTMLElement);
+    expect(confirmRestore).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Prompt Content'), {
+      target: { value: 'User edit after restore' },
+    });
+    fireEvent.click(restoreButtons[0] as HTMLElement);
+
+    expect(confirmRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves restored content as a normal edit after the user changes it', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={existingPrompt}
+      />
+    );
+
+    fireEvent.click(
+      screen.getAllByRole('button', {
+        name: 'Restore content and model settings',
+      })[0] as HTMLElement
+    );
+    fireEvent.change(screen.getByLabelText('Prompt Content'), {
+      target: { value: 'User edit after restore' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'SaveIcon Save Prompt' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        revisionNote: 'Before restore',
+      })
+    );
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'User edit after restore',
+      })
+    );
+  });
+
+  it('confirms before restoring over dirty restorable draft fields', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+    const confirmRestore = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.stubGlobal('confirm', confirmRestore);
+
+    render(
+      <PromptEditor
+        categories={categories}
+        isOpen
+        onClose={onClose}
+        onSave={onSave}
+        prompt={existingPrompt}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Prompt Content'), {
+      target: { value: 'Unsaved draft content' },
+    });
+
+    const restoreButton = screen.getAllByRole('button', {
+      name: 'Restore content and model settings',
+    })[0] as HTMLElement;
+
+    fireEvent.click(restoreButton);
+    expect(confirmRestore).toHaveBeenCalledWith(
+      "Restore this version's content and model settings? Unsaved draft edits will be replaced. Title, category, and tags stay unchanged."
+    );
+    expect(screen.getByLabelText('Prompt Content')).toHaveValue('Unsaved draft content');
+
+    fireEvent.click(restoreButton);
+    expect(screen.getByLabelText('Prompt Content')).toHaveValue('old-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'SaveIcon Save Prompt' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'old-1',
+        revisionNote: 'Before restore',
+      })
+    );
   });
 });

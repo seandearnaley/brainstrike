@@ -10,7 +10,8 @@ import { ModelPicker } from '../../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../../model-picker/types';
 import { ScrollArea } from '../../scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
-import type { Category, Prompt } from '../types';
+import { hasModelSettingsChanged } from '../model-settings';
+import type { Category, Prompt, PromptRevision } from '../types';
 
 const DEFAULT_AVAILABLE_MODELS: ModelPickerModel[] = [];
 const DEFAULT_PROVIDERS: ModelPickerProvider[] = [];
@@ -20,23 +21,35 @@ interface PromptEditorProps {
   categories: Category[];
   isOpen: boolean;
   onClose: () => void;
-  onSave: (promptData: Partial<Prompt>) => void;
+  onSave: (promptData: PromptEditorSaveData) => void;
   prompt?: Prompt | null;
   providers?: ModelPickerProvider[];
+}
+
+export interface PromptEditorSaveData extends Partial<Prompt> {
+  revisionNote?: string;
 }
 
 interface FormState {
   categoryId: string;
   content: string;
-  model: string;
+  modelSettings: Prompt['modelSettings'];
+  restorableDraftSource: 'prompt' | 'restore' | 'user';
+  restoredRevisionId: string | null;
   tagInput: string;
   tags: string[];
-  temperature: number;
   title: string;
 }
 
 type FormAction =
-  | { type: 'SET_FIELD'; field: keyof Omit<FormState, 'tags'>; value: string | number }
+  | {
+      type: 'SET_FIELD';
+      field: keyof Pick<FormState, 'categoryId' | 'content' | 'tagInput' | 'title'>;
+      value: string;
+    }
+  | { type: 'SET_MODEL'; model: string }
+  | { type: 'RESTORE_REVISION'; revision: PromptRevision }
+  | { type: 'SET_TEMPERATURE'; temperature: number }
   | { type: 'SET_TAGS'; tags: string[] }
   | { type: 'INIT'; prompt: Prompt | null | undefined };
 
@@ -48,8 +61,9 @@ function getInitialState(prompt: Prompt | null | undefined): FormState {
       categoryId: prompt.categoryId,
       tags: prompt.tags,
       tagInput: '',
-      model: prompt.modelSettings.model,
-      temperature: prompt.modelSettings.temperature,
+      modelSettings: { ...prompt.modelSettings },
+      restorableDraftSource: 'prompt',
+      restoredRevisionId: null,
     };
   }
   return {
@@ -58,15 +72,45 @@ function getInitialState(prompt: Prompt | null | undefined): FormState {
     categoryId: 'general',
     tags: [],
     tagInput: '',
-    model: 'gpt-5.2',
-    temperature: 0.7,
+    modelSettings: { model: 'gpt-5.2', temperature: 0.7, topP: 1 },
+    restorableDraftSource: 'prompt',
+    restoredRevisionId: null,
   };
 }
 
 function formReducer(state: FormState, action: FormAction): FormState {
   switch (action.type) {
     case 'SET_FIELD':
-      return { ...state, [action.field]: action.value };
+      return {
+        ...state,
+        [action.field]: action.value,
+        restorableDraftSource: action.field === 'content' ? 'user' : state.restorableDraftSource,
+        restoredRevisionId: action.field === 'content' ? null : state.restoredRevisionId,
+      };
+    case 'SET_MODEL':
+      return {
+        ...state,
+        modelSettings: { ...state.modelSettings, model: action.model },
+        restorableDraftSource: 'user',
+        restoredRevisionId: null,
+      };
+    case 'RESTORE_REVISION':
+      return {
+        ...state,
+        content: action.revision.content,
+        modelSettings: action.revision.modelSettings
+          ? { ...action.revision.modelSettings }
+          : state.modelSettings,
+        restorableDraftSource: 'restore',
+        restoredRevisionId: action.revision.id,
+      };
+    case 'SET_TEMPERATURE':
+      return {
+        ...state,
+        modelSettings: { ...state.modelSettings, temperature: action.temperature },
+        restorableDraftSource: 'user',
+        restoredRevisionId: null,
+      };
     case 'SET_TAGS':
       return { ...state, tags: action.tags };
     case 'INIT':
@@ -86,27 +130,33 @@ export function PromptEditor({
   onSave,
 }: PromptEditorProps) {
   const [formState, dispatch] = useReducer(formReducer, getInitialState(prompt));
-  const { title, content, categoryId, tags, tagInput, model, temperature } = formState;
+  const { title, content, categoryId, tags, tagInput, modelSettings, restoredRevisionId } =
+    formState;
+  const { model, temperature } = modelSettings;
   const temperatureId = useId();
   const tagInputId = useId();
+  const promptId = prompt?.id ?? null;
 
   useEffect(() => {
+    // Key initialization to dialog sessions and prompt identity; same-prompt updates while open must not overwrite draft edits.
     dispatch({ type: 'INIT', prompt });
-  }, [prompt]);
+  }, [promptId, _isOpen]);
 
   const handleSave = () => {
-    onSave({
+    const promptData: PromptEditorSaveData = {
       title,
       content,
       categoryId,
       tags,
-      modelSettings: {
-        model,
-        temperature,
-        topP: 1, // Default
-      },
+      modelSettings,
       // If editing, we might want to create a revision, but that logic can be in the store/parent
-    });
+    };
+
+    if (restoredRevisionId) {
+      promptData.revisionNote = 'Before restore';
+    }
+
+    onSave(promptData);
     onClose();
   };
 
@@ -119,6 +169,20 @@ export function PromptEditor({
 
   const removeTag = (tagToRemove: string) => {
     dispatch({ type: 'SET_TAGS', tags: tags.filter((tag) => tag !== tagToRemove) });
+  };
+
+  const restoreRevision = (revision: PromptRevision) => {
+    if (hasRestorableDraftChanges(prompt, formState)) {
+      // biome-ignore lint/suspicious/noAlert: Restore must explicitly guard unsaved draft loss.
+      const confirmed = confirm(
+        "Restore this version's content and model settings? Unsaved draft edits will be replaced. Title, category, and tags stay unchanged."
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    dispatch({ type: 'RESTORE_REVISION', revision });
   };
 
   return (
@@ -201,9 +265,7 @@ export function PromptEditor({
                 mode="single"
                 models={availableModels}
                 modelType="llm"
-                onChange={(id) =>
-                  dispatch({ type: 'SET_FIELD', field: 'model', value: id as string })
-                }
+                onChange={(id) => dispatch({ type: 'SET_MODEL', model: id as string })}
                 placeholder="Select a model..."
                 providers={providers}
                 value={model}
@@ -222,9 +284,8 @@ export function PromptEditor({
                 min="0"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                   dispatch({
-                    type: 'SET_FIELD',
-                    field: 'temperature',
-                    value: Number.parseFloat(e.target.value),
+                    type: 'SET_TEMPERATURE',
+                    temperature: Number.parseFloat(e.target.value),
                   })
                 }
                 step="0.1"
@@ -306,10 +367,11 @@ export function PromptEditor({
                           </div>
                         </div>
                         <Button
-                          aria-label="Restore version"
+                          aria-label="Restore content and model settings"
                           className="h-6 w-6"
+                          onClick={() => restoreRevision(rev)}
                           size="icon"
-                          title="Restore version"
+                          title="Restore content and model settings"
                           type="button"
                           variant="ghost"
                         >
@@ -335,5 +397,22 @@ export function PromptEditor({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function hasRestorableDraftChanges(
+  prompt: Prompt | null | undefined,
+  formState: FormState
+): boolean {
+  if (!prompt) {
+    return false;
+  }
+  if (formState.restorableDraftSource !== 'user') {
+    return false;
+  }
+
+  return (
+    formState.content !== prompt.content ||
+    hasModelSettingsChanged(formState.modelSettings, prompt.modelSettings)
   );
 }
