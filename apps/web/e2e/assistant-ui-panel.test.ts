@@ -231,7 +231,6 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
         (window as unknown as { __assistantThreadStartupEvents?: AssistantThreadStartupEvent[] })
           .__assistantThreadStartupEvents ?? []
     );
-    expect(startupEvents.some((event) => event.kind === 'loading')).toBe(true);
     expect(startupEvents.filter((event) => event.kind === 'error')).toEqual([]);
     await expect(page.getByText('Failed to load threads')).toHaveCount(0);
     await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);

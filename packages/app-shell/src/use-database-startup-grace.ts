@@ -6,6 +6,8 @@ interface DatabaseStartupGraceOptions {
   readonly repositoryReady: boolean;
 }
 
+// Bridges the first render before DbProvider's initializeDatabase effect can
+// synchronously set initializing=true; it is not intended to mask slow startup.
 const DATABASE_STARTUP_GRACE_MS = 250;
 
 export function useDatabaseStartupGrace({
