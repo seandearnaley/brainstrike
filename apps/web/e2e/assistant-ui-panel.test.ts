@@ -62,6 +62,11 @@ interface MockLlmGenerateRequest {
   requestId: string;
 }
 
+interface AssistantThreadStartupEvent {
+  readonly kind: 'error' | 'loading';
+  readonly marker: string;
+}
+
 test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ page }) => {
     const tree = {
@@ -73,6 +78,46 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
       // @ts-expect-error test-only override
       window.__assistantAvailabilityOverride = { state: 'enabled' };
+      const startupEvents: AssistantThreadStartupEvent[] = [];
+      const loadingMarkers = [
+        'Assistant memory is loading from PGlite.',
+        'Loading PGlite-backed threads.',
+        'Loading threads...',
+      ];
+      const errorMarkers = [
+        'Failed to load threads',
+        'Assistant threads failed to load',
+        'Assistant memory database unavailable',
+        'Memory database unavailable',
+      ];
+      const recordAssistantThreadStartupText = () => {
+        const text = document.body?.innerText ?? '';
+        for (const marker of loadingMarkers) {
+          if (text.includes(marker)) {
+            startupEvents.push({ kind: 'loading', marker });
+          }
+        }
+        for (const marker of errorMarkers) {
+          if (text.includes(marker)) {
+            startupEvents.push({ kind: 'error', marker });
+          }
+        }
+      };
+      const installAssistantThreadStartupObserver = () => {
+        const target = document.documentElement;
+        if (!target) {
+          window.setTimeout(installAssistantThreadStartupObserver, 0);
+          return;
+        }
+        const observer = new MutationObserver(recordAssistantThreadStartupText);
+        observer.observe(target, { characterData: true, childList: true, subtree: true });
+        recordAssistantThreadStartupText();
+      };
+      Object.defineProperty(window, '__assistantThreadStartupEvents', {
+        configurable: true,
+        value: startupEvents,
+      });
+      installAssistantThreadStartupObserver();
       const progressListeners = new Set<(event: MockProgressEvent) => void>();
 
       const emitProgress = (requestId: string, payload: MockProgressPayloadInput) => {
@@ -181,6 +226,13 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
   test('loads assistant thread surfaces without startup error states', async ({ page }) => {
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible();
+    const startupEvents = await page.evaluate(
+      () =>
+        (window as unknown as { __assistantThreadStartupEvents?: AssistantThreadStartupEvent[] })
+          .__assistantThreadStartupEvents ?? []
+    );
+    expect(startupEvents.some((event) => event.kind === 'loading')).toBe(true);
+    expect(startupEvents.filter((event) => event.kind === 'error')).toEqual([]);
     await expect(page.getByText('Failed to load threads')).toHaveCount(0);
     await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
     await expect(page.getByText('Assistant memory database unavailable')).toHaveCount(0);

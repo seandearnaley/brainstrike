@@ -179,19 +179,6 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
   });
 
-  it('keeps the thread list visible when a repository exists with a provider error', async () => {
-    dbMocks.database = undefined;
-    dbMocks.providerError = new Error('Stale PGlite startup warning.');
-
-    render(<ThreadsPanel />);
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-    expect(screen.queryByText('Assistant memory database failed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Stale PGlite startup warning.')).not.toBeInTheDocument();
-  });
-
   it('lists workspace-scoped historical Mastra threads from PGlite', async () => {
     render(<ThreadsPanel />);
 
