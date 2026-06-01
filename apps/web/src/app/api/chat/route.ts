@@ -3,6 +3,7 @@ import {
   AssistantRequestBodyTooLargeError,
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR as BODY_LIMIT_ENV_VAR,
   isMastraAgentError,
+  readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes as resolveBodyLimit,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
@@ -84,7 +85,7 @@ export async function POST(req: Request): Promise<Response> {
       return createRateLimitResponse(limitResult.retryAfterMs);
     }
 
-    const body = await readJsonRequestBody(req, chatRequestBodyLimitBytes);
+    const body = parseJsonRequestBody(await readRequestBodyText(req, chatRequestBodyLimitBytes));
     const { messages, data } = __parseChatBodyForTests(body);
 
     const provider = resolveAssistantProviderConfig();
@@ -223,47 +224,25 @@ function createRateLimitResponse(retryAfterMs: number): Response {
   );
 }
 
-export function __resetRateLimiterForTests(): void {
-  rateLimitState.clear();
-}
-
-async function readJsonRequestBody(req: Request, bodyLimitBytes: number): Promise<unknown> {
-  const reader = req.body?.getReader();
-  if (!reader) {
-    return {};
-  }
-
-  const decoder = new TextDecoder();
-  let text = '';
-  let totalBytes = 0;
+function parseJsonRequestBody(body: string): unknown {
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      totalBytes += value.byteLength;
-      if (totalBytes > bodyLimitBytes) {
-        await reader.cancel().catch(() => undefined);
-        throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  try {
-    return JSON.parse(`${text}${decoder.decode()}` || '{}') as unknown;
+    return JSON.parse(body || '{}') as unknown;
   } catch {
     return {};
   }
 }
 
+export function __resetRateLimiterForTests(): void {
+  rateLimitState.clear();
+}
+
 function createErrorResponse(err: unknown): Response {
   if (err instanceof AssistantRequestBodyTooLargeError) {
     return new Response(JSON.stringify({ error: err.code, message: err.message }), {
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
       status: 413,
     });
   }

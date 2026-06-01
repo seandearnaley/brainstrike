@@ -48,6 +48,56 @@ export function resolveAssistantRequestBodyLimitBytes(value: string | undefined)
   return parsed;
 }
 
+export async function readRequestBodyText(
+  req: Request,
+  bodyLimitBytes: number = DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES
+): Promise<string> {
+  const contentLength = req.headers.get('content-length');
+  if (contentLength) {
+    const parsedLength = Number(contentLength);
+    if (Number.isFinite(parsedLength) && parsedLength > bodyLimitBytes) {
+      throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
+    }
+  }
+
+  if (!req.body) {
+    return '';
+  }
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > bodyLimitBytes) {
+        throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bodyBytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bodyBytes);
+}
+
 export function parseAssistantRequestPayloadText(body: string): AssistantRequestPayload {
   let parsed: unknown;
   try {

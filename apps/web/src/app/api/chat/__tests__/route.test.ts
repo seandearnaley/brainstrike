@@ -239,8 +239,9 @@ describe('chat route schema', () => {
     const res = await POST(
       new Request('http://localhost/api/chat', {
         body: oversizedBody,
+        duplex: 'half',
         method: 'POST',
-      })
+      } as RequestInit & { duplex: 'half' })
     );
 
     expect(streamMock).not.toHaveBeenCalled();
@@ -249,6 +250,21 @@ describe('chat route schema', () => {
       error: 'request_body_too_large',
       message: `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`,
     });
+  });
+
+  it('returns 413 before reading a declared oversized body', async () => {
+    const res = await POST({
+      body: null,
+      headers: new Headers({
+        'content-length': String(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
+      }),
+      method: 'POST',
+      url: 'http://localhost/api/chat',
+    } as Request);
+
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({ error: 'request_body_too_large' });
   });
 
   it('returns 502 when assistant stream fails to initialize', async () => {

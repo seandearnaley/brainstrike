@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
 } from '../assistant-request';
 
@@ -26,6 +27,35 @@ describe('assistant request helpers', () => {
   ])('throws for invalid request body byte limit override %s', (value) => {
     expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
       'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive integer byte count'
+    );
+  });
+
+  it('rejects declared oversized request bodies before reading', async () => {
+    const req = new Request('http://localhost/api/chat', {
+      headers: { 'content-length': '6' },
+      method: 'POST',
+    });
+
+    await expect(readRequestBodyText(req, 5)).rejects.toThrow(
+      'Assistant request body exceeds 5 bytes.'
+    );
+  });
+
+  it('rejects chunked request bodies when the streamed bytes exceed the limit', async () => {
+    const req = new Request('http://localhost/api/chat', {
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('hello'));
+          controller.enqueue(new TextEncoder().encode('!'));
+          controller.close();
+        },
+      }),
+      duplex: 'half',
+      method: 'POST',
+    } as RequestInit & { duplex: 'half' });
+
+    await expect(readRequestBodyText(req, 5)).rejects.toThrow(
+      'Assistant request body exceeds 5 bytes.'
     );
   });
 });

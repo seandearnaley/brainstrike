@@ -11,6 +11,7 @@ import {
   convertAssistantUiMessages,
   hasNonEmptyAssistantPrompt,
   parseAssistantRequestPayloadText,
+  readRequestBodyText,
   readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
@@ -37,7 +38,7 @@ export async function POST(req: Request): Promise<Response> {
   let data: RuntimeData | undefined;
   let runConfig: unknown;
   try {
-    const body = await readAssistantRequestText(req, assistantRequestBodyLimitBytes);
+    const body = await readRequestBodyText(req, assistantRequestBodyLimitBytes);
     const payload = parseAssistantRequestPayloadText(body);
     rawMessages = payload.rawMessages;
     data = payload.data;
@@ -131,57 +132,6 @@ function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
     }
   );
-}
-
-async function readAssistantRequestText(req: Request, bodyLimitBytes: number): Promise<string> {
-  const contentLength = req.headers.get('content-length');
-  if (contentLength) {
-    const parsedLength = Number(contentLength);
-    if (Number.isFinite(parsedLength) && parsedLength > bodyLimitBytes) {
-      throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
-    }
-  }
-
-  if (!req.body) {
-    return '';
-  }
-
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      if (!value) {
-        continue;
-      }
-      totalBytes += value.byteLength;
-      if (totalBytes > bodyLimitBytes) {
-        throw new AssistantRequestBodyTooLargeError(bodyLimitBytes);
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch {}
-    throw error;
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {}
-  }
-
-  const bodyBytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bodyBytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bodyBytes);
 }
 
 function jsonError(status: number, error: string, message?: string): Response {
