@@ -64,5 +64,5 @@
 **Action:** Use `Object.keys(value).sort((a, b) => a < b ? -1 : a > b ? 1 : 0).map((key) => [key, sortJsonValue(value[key])])` instead. This reduces intermediate allocations and avoids the `Intl.Collator` fallback mechanism, resulting in roughly a 20% performance improvement on large recursive JSON payloads.
 
 ## 2026-06-01 - Fast import filename extraction
-**Learning:** `packages/db-explorer/src/file-import/file-import-coordinator.ts` extracts file names for every selected cached or pending import path. `path.split('/').pop()` allocates a segment array per file and measured 263.31ms over 100k paths x 30 runs, while `lastIndexOf('/')` plus `slice()` measured 61.69ms for the same workload.
-**Action:** Keep import filename extraction on the `getImportPathFileName()` helper and use direct slash scanning in bulk import paths instead of split/pop.
+**Learning:** `packages/db-explorer/src/file-import/file-import-coordinator.ts` extracts file names for every selected cached or pending import path. `path.split('/').pop()` allocates a segment array per file and measured 388.04ms over 100k slash paths x 30 runs, while `Math.max(lastIndexOf('/'), lastIndexOf('\\'))` plus `slice()` measured 122.80ms for the same workload and also handles Windows-style separators.
+**Action:** Keep import filename extraction on the `getImportPathFileName()` helper and use direct separator scanning in bulk import paths instead of split/pop.
