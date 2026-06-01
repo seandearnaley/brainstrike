@@ -28,6 +28,17 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   threadRows: [] as Record<string, unknown>[],
 }));
 
+function parseMetadataObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string') {
+    return {};
+  }
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {};
+  }
+  return parsed as Record<string, unknown>;
+}
+
 vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbInitializationStatus: () => dbMocks.initializationStatus,
@@ -110,7 +121,10 @@ describe('ThreadsPanel', () => {
         }
         const row = threadRows.find((item) => item['id'] === threadId);
         if (row) {
-          row['metadata'] = params?.[1];
+          row['metadata'] = JSON.stringify({
+            ...parseMetadataObject(row['metadata']),
+            ...parseMetadataObject(params?.[1]),
+          });
           row['updatedAt'] = params?.[2];
         }
       }
@@ -290,6 +304,11 @@ describe('ThreadsPanel', () => {
       expect.stringContaining('"color":"rose"'),
       expect.any(Date),
     ]);
+    const persistedRow = threadRows.find((row) => row['id'] === 'thread-b');
+    expect(JSON.parse(String(persistedRow?.['metadata']))).toMatchObject({
+      color: 'rose',
+      icon: 'bug',
+    });
   });
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
