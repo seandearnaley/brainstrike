@@ -1,7 +1,7 @@
 import {
+  useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
-  useDbReady,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -27,18 +27,18 @@ const EMPTY_TAB_SCROLL_STATE: TabScrollState = {
 function shouldRenderDatabaseStartupLoading({
   databaseError,
   databaseInitializing,
-  databaseReady,
+  databaseStatus,
   repositoryReady,
 }: {
   readonly databaseError: Error | null;
   readonly databaseInitializing: boolean;
-  readonly databaseReady: boolean;
+  readonly databaseStatus: 'idle' | 'initializing' | 'ready' | 'error';
   readonly repositoryReady: boolean;
 }): boolean {
   if (repositoryReady || databaseError) {
     return false;
   }
-  return databaseInitializing || !databaseReady;
+  return databaseInitializing || databaseStatus === 'idle' || databaseStatus === 'initializing';
 }
 
 export interface AssistantThreadTabsWorkspaceProps {
@@ -52,8 +52,8 @@ export function AssistantThreadTabsWorkspace({
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
+  const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
-  const databaseReady = useDbReady();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
@@ -63,7 +63,7 @@ export function AssistantThreadTabsWorkspace({
   const databaseStartupLoading = shouldRenderDatabaseStartupLoading({
     databaseError,
     databaseInitializing,
-    databaseReady,
+    databaseStatus,
     repositoryReady: Boolean(repository),
   });
 

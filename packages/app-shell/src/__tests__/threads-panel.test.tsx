@@ -8,8 +8,8 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   dbMocks: {
     database: undefined as unknown,
     initializing: false,
+    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     providerError: null as Error | null,
-    ready: true,
   },
   fileExplorerMocks: {
     rootDirectoryHandle: {
@@ -28,8 +28,8 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 
 vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
+  useDbInitializationStatus: () => dbMocks.initializationStatus,
   useDbProviderError: () => dbMocks.providerError,
-  useDbReady: () => dbMocks.ready,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
@@ -46,8 +46,8 @@ describe('ThreadsPanel', () => {
     };
     dbMocks.database = undefined;
     dbMocks.initializing = false;
+    dbMocks.initializationStatus = 'ready';
     dbMocks.providerError = null;
-    dbMocks.ready = true;
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: {},
       draftRuntimeByThreadId: {},
@@ -137,6 +137,7 @@ describe('ThreadsPanel', () => {
   it('shows loading instead of unavailable while the database is initializing', () => {
     dbMocks.database = null;
     dbMocks.initializing = true;
+    dbMocks.initializationStatus = 'initializing';
 
     render(<ThreadsPanel />);
 
@@ -149,7 +150,7 @@ describe('ThreadsPanel', () => {
   it('shows loading instead of unavailable before lazy database initialization starts', () => {
     dbMocks.database = null;
     dbMocks.initializing = false;
-    dbMocks.ready = false;
+    dbMocks.initializationStatus = 'idle';
 
     render(<ThreadsPanel />);
 
@@ -164,7 +165,7 @@ describe('ThreadsPanel', () => {
     try {
       dbMocks.database = null;
       dbMocks.initializing = false;
-      dbMocks.ready = false;
+      dbMocks.initializationStatus = 'idle';
 
       render(<ThreadsPanel />);
 
@@ -183,7 +184,7 @@ describe('ThreadsPanel', () => {
   it('shows unavailable when the database stays missing after startup settles', async () => {
     dbMocks.database = null;
     dbMocks.initializing = false;
-    dbMocks.ready = true;
+    dbMocks.initializationStatus = 'ready';
 
     render(<ThreadsPanel />);
 

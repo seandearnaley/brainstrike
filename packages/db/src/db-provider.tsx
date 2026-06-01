@@ -137,6 +137,8 @@ interface QueryExecutor {
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
 type ViewFilterPresetsRepo = import('./repositories/interfaces.js').IViewFilterPresetsRepository;
 
+export type DbInitializationStatus = 'idle' | 'initializing' | 'ready' | 'error';
+
 interface DbContextValue {
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
@@ -147,6 +149,7 @@ interface DbContextValue {
   error: Error | null;
   factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
   fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  initializationStatus: DbInitializationStatus;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
   initializing: boolean; // Whether database initialization is in progress
   ready: boolean;
@@ -397,6 +400,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
   const [lazyInitialized, setLazyInitialized] = useState(false);
+  const [initializationStatus, setInitializationStatus] = useState<DbInitializationStatus>('idle');
   const [initializing, setInitializing] = useState(false);
   const [vectorEnabled, setVectorEnabled] = useState(false);
   const [exposedDb, setExposedDb] = useState<DbHandle | null>(null);
@@ -564,6 +568,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     initializingRef.current = true;
+    setInitializationStatus('initializing');
     setInitializing(true);
     logger.debug('Lazy-loading database (triggered by actual usage)');
 
@@ -574,6 +579,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           await initializeDirectPGlite({ value: false });
         }
         setLazyInitialized(true);
+        setInitializationStatus('ready');
       } catch (err) {
         logDatabaseError('Failed to initialize database', err);
         setFileRecordRepository(null);
@@ -583,6 +589,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setError(err as Error);
         setReady(true);
         setLazyInitialized(false);
+        setInitializationStatus('error');
       } finally {
         initializingRef.current = false;
         initializingPromiseRef.current = null;
@@ -827,6 +834,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setVectorEnabled(false);
     setReady(false);
     setLazyInitialized(false);
+    setInitializationStatus('idle');
     setInitializing(false);
 
     // Clear active embedding set ID from localStorage to prevent stale collections
@@ -887,6 +895,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       drizzleDb,
       error,
       ready,
+      initializationStatus,
       initializing,
       db: exposedDb,
       clearAllData,
@@ -927,6 +936,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       drizzleDb,
       error,
       ready,
+      initializationStatus,
       initializing,
       clearAllData,
       initializeDatabase,
@@ -964,16 +974,17 @@ export function useDbInitializing(): boolean {
 }
 
 /**
- * Hook to check whether database initialization has completed successfully.
- * UI surfaces can use this to distinguish "lazy initialization has not started
- * or is still settling" from "initialization finished but no repository exists".
+ * Hook to inspect the lazy database initialization lifecycle.
+ * `ready` on the provider context only means the provider is mounted; this
+ * status is the deterministic signal for whether DB init is idle, in flight,
+ * complete, or failed.
  */
-export function useDbReady(): boolean {
+export function useDbInitializationStatus(): DbInitializationStatus {
   const ctx = useContext(DbContext);
   if (!ctx) {
-    throw new Error('useDbReady must be used within a DbProvider');
+    throw new Error('useDbInitializationStatus must be used within a DbProvider');
   }
-  return ctx.ready;
+  return ctx.initializationStatus;
 }
 
 export function useFileRecordRepository():
