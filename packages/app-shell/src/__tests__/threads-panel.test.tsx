@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
-const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+  dbMocks: {
+    database: undefined as unknown,
+    initializing: false,
+    providerError: null as Error | null,
+  },
   fileExplorerMocks: {
     rootDirectoryHandle: {
       name: 'workspace-a',
@@ -21,7 +26,9 @@ const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => mockDb,
+  useDbInitializing: () => dbMocks.initializing,
+  useDbProviderError: () => dbMocks.providerError,
+  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -35,6 +42,9 @@ describe('ThreadsPanel', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    dbMocks.database = undefined;
+    dbMocks.initializing = false;
+    dbMocks.providerError = null;
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: {},
       draftRuntimeByThreadId: {},
@@ -119,6 +129,30 @@ describe('ThreadsPanel', () => {
     expect(screen.getByRole('button', { name: 'New thread' })).toBeDisabled();
     expect(screen.getByTestId('threads-placeholder-card')).toBeVisible();
     expect(screen.getByText('No workspace open')).toBeVisible();
+  });
+
+  it('shows loading instead of unavailable while the database is initializing', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = true;
+
+    render(<ThreadsPanel />);
+
+    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+    expect(screen.getByText('Loading threads...')).toBeVisible();
+    expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
+    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
+  });
+
+  it('shows the database provider error after initialization fails', () => {
+    dbMocks.database = null;
+    dbMocks.providerError = new Error('PGlite startup failed.');
+
+    render(<ThreadsPanel />);
+
+    expect(screen.getByTestId('threads-error-card')).toBeVisible();
+    expect(screen.getByText('Assistant memory database failed')).toBeVisible();
+    expect(screen.getByText('PGlite startup failed.')).toBeVisible();
+    expect(screen.queryByText('Assistant memory database unavailable')).not.toBeInTheDocument();
   });
 
   it('lists workspace-scoped historical Mastra threads from PGlite', async () => {

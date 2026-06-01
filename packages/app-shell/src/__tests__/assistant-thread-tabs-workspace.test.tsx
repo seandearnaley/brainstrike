@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
-const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+  dbMocks: {
+    database: undefined as unknown,
+    initializing: false,
+    providerError: null as Error | null,
+  },
   fileExplorerMocks: {
     rootDirectoryHandle: {
       name: 'workspace-a',
@@ -21,7 +26,9 @@ const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => mockDb,
+  useDbInitializing: () => dbMocks.initializing,
+  useDbProviderError: () => dbMocks.providerError,
+  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -44,6 +51,9 @@ describe('AssistantThreadTabsWorkspace', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    dbMocks.database = undefined;
+    dbMocks.initializing = false;
+    dbMocks.providerError = null;
     threadRows.splice(
       0,
       threadRows.length,
@@ -191,6 +201,29 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     expect(screen.getByText('Assistant threads failed to load')).toBeInTheDocument();
     expect(screen.getByText('PGlite failed to initialize.')).toBeInTheDocument();
+  });
+
+  it('shows loading instead of unavailable while the database is initializing', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = true;
+
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    expect(screen.getByText('Loading')).toBeInTheDocument();
+    expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
+    expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
+    expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
+  });
+
+  it('shows the database provider error after initialization fails', () => {
+    dbMocks.database = null;
+    dbMocks.providerError = new Error('PGlite startup failed.');
+
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    expect(screen.getByText('Memory database failed')).toBeInTheDocument();
+    expect(screen.getByText('PGlite startup failed.')).toBeInTheDocument();
+    expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
 
   it('updates scroll affordances and scrolls the tab list from arrow buttons', async () => {

@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
@@ -29,6 +29,8 @@ export function AssistantThreadTabsWorkspace({
   loadLocalLlmBackend,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
   const database = usePGliteDatabase();
+  const databaseInitializing = useDbInitializing();
+  const databaseError = useDbProviderError();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
@@ -162,6 +164,20 @@ export function AssistantThreadTabsWorkspace({
       <ThreadWorkspaceState
         description="Open a workspace before starting assistant threads."
         title="No workspace open"
+      />
+    );
+  }
+
+  if (databaseInitializing && !repository) {
+    return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
+  }
+
+  if (databaseError) {
+    return (
+      <ThreadWorkspaceState
+        description={databaseError.message}
+        title="Memory database failed"
+        variant="error"
       />
     );
   }
