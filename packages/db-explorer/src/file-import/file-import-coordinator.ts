@@ -31,8 +31,7 @@ const IMPORT_REQUEST_BATCH_SIZE = 50;
 export function getImportPathFileName(path: string): string {
   // Bulk imports call this per selected file; avoid split/pop segment arrays.
   const lastSlashIdx = path.lastIndexOf('/');
-  const fileName = lastSlashIdx === -1 ? path : path.slice(lastSlashIdx + 1);
-  return fileName.length > 0 ? fileName : 'unknown';
+  return lastSlashIdx === -1 ? path : path.slice(lastSlashIdx + 1);
 }
 
 function isContentAccessible(content: string): boolean {

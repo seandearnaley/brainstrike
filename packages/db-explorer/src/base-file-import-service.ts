@@ -8,6 +8,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   appendProcessError,
   createProcessErrorProgress,
+  getImportPathFileName,
   runFileImport,
 } from './file-import/file-import-coordinator';
 import { FileImportError, isFileImportError } from './file-import/file-import-errors';
@@ -71,7 +72,7 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
       });
     },
     async readFileBySelection(folderId, path) {
-      const name = path.split('/').pop() ?? 'unknown';
+      const name = getImportPathFileName(path);
 
       if (hasReadFileByPath(adapter)) {
         const content = await adapter.readFileByPath(path);
