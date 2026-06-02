@@ -19,6 +19,7 @@ export {
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   hasNonEmptyAssistantPrompt,
   parseAssistantRequestPayloadText,
+  readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
 } from './assistant-request';
 export {

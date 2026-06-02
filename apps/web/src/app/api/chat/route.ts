@@ -1,5 +1,12 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
-import { isMastraAgentError, toAiSdkStyleStream } from '@brainstrike/agent';
+import {
+  AssistantRequestBodyTooLargeError,
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR as BODY_LIMIT_ENV_VAR,
+  isMastraAgentError,
+  readRequestBodyText,
+  resolveAssistantRequestBodyLimitBytes as resolveBodyLimit,
+  toAiSdkStyleStream,
+} from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
@@ -8,6 +15,7 @@ import { resolveAssistantProviderConfig } from '../../../server/assistant-config
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 const logger = createLogger('WebChatRoute');
+const chatRequestBodyLimitBytes = resolveBodyLimit(process.env[BODY_LIMIT_ENV_VAR]);
 
 interface RateLimitEntry {
   blockedUntil?: number;
@@ -77,7 +85,7 @@ export async function POST(req: Request): Promise<Response> {
       return createRateLimitResponse(limitResult.retryAfterMs);
     }
 
-    const body = await req.json().catch(() => ({}));
+    const body = parseJsonRequestBody(await readRequestBodyText(req, chatRequestBodyLimitBytes));
     const { messages, data } = __parseChatBodyForTests(body);
 
     const provider = resolveAssistantProviderConfig();
@@ -216,11 +224,28 @@ function createRateLimitResponse(retryAfterMs: number): Response {
   );
 }
 
+function parseJsonRequestBody(body: string): unknown {
+  try {
+    return JSON.parse(body || '{}') as unknown;
+  } catch {
+    return {};
+  }
+}
+
 export function __resetRateLimiterForTests(): void {
   rateLimitState.clear();
 }
 
 function createErrorResponse(err: unknown): Response {
+  if (err instanceof AssistantRequestBodyTooLargeError) {
+    return new Response(JSON.stringify({ error: err.code, message: err.message }), {
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      status: 413,
+    });
+  }
   if (isMastraAgentError(err)) {
     logger.error('Failed to initialize chat stream', { code: err.code, error: err.message });
     return new Response(
