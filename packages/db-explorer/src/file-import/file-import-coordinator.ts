@@ -28,6 +28,12 @@ const IMPORT_PROCESS_LABEL = 'Import Process';
 const BINARY_FILE_ERROR_MESSAGE = 'Binary file - only text files are supported';
 const IMPORT_REQUEST_BATCH_SIZE = 50;
 
+export function getImportPathFileName(path: string): string {
+  // Bulk imports call this per selected file; avoid split/pop segment arrays.
+  const lastSlashIdx = path.lastIndexOf('/');
+  return lastSlashIdx === -1 ? path : path.slice(lastSlashIdx + 1);
+}
+
 function isContentAccessible(content: string): boolean {
   return !(
     content.startsWith('Error accessing file') ||
@@ -58,7 +64,7 @@ function prepareRequestsFromCache(
     const cachedContent = fileContents[compositeKey];
 
     if (cachedContent && isContentAccessible(cachedContent)) {
-      const fileName = path.split('/').pop() ?? 'unknown';
+      const fileName = getImportPathFileName(path);
       const request: FileImportRequest = {
         path,
         name: fileName,
@@ -79,7 +85,7 @@ function prepareRequestsFromCache(
     pending.push({
       fileNode: fileNode?.type === 'file' ? fileNode : null,
       folderId,
-      name: path.split('/').pop() ?? 'unknown',
+      name: getImportPathFileName(path),
       path,
     });
   }
@@ -296,7 +302,8 @@ function mapResultErrors(
       }
 
       const original = requestMap.get(index);
-      const fileName = original?.name ?? original?.path.split('/').pop() ?? 'Unknown';
+      const fileName =
+        original?.name ?? (original ? getImportPathFileName(original.path) : 'Unknown');
 
       return {
         file: fileName,

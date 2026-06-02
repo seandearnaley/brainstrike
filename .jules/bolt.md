@@ -62,3 +62,7 @@
 ## 2026-05-15 - [Object.entries vs Object.keys for JSON stabilization sorting]
 **Learning:** `Object.entries(obj).sort(([left], [right]) => left.localeCompare(right))` is extremely slow in performance-critical serialization paths due to allocating a temporary array for every single entry prior to sorting, combined with the heavy overhead of V8's Unicode-aware `localeCompare`.
 **Action:** Use `Object.keys(value).sort((a, b) => a < b ? -1 : a > b ? 1 : 0).map((key) => [key, sortJsonValue(value[key])])` instead. This reduces intermediate allocations and avoids the `Intl.Collator` fallback mechanism, resulting in roughly a 20% performance improvement on large recursive JSON payloads.
+
+## 2026-06-01 - Fast import filename extraction
+**Learning:** `packages/db-explorer/src/file-import/file-import-coordinator.ts` extracts file names for every selected cached or pending import path. `path.split('/').pop()` allocates a segment array per file and measured 387.07ms over 100k slash paths x 30 runs, while `lastIndexOf('/')` plus `slice()` measured 53.43ms for the same workload. Backslash handling is ambiguous without platform context because POSIX filenames can contain literal `\`.
+**Action:** Keep import filename extraction on the `getImportPathFileName()` helper and use direct slash scanning in bulk import paths instead of split/pop; handle Windows-specific separator normalization only in a platform-aware follow-up.
