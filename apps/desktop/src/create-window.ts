@@ -22,23 +22,42 @@ const resolveDistRoot = (): string => {
   const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
   return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
 };
+const DEV_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
+
+function isAllowedRendererNavigation(win: BrowserWindow, targetUrl: string): boolean {
+  try {
+    const target = new URL(targetUrl);
+    const currentUrl = getCurrentWindowUrl(win);
+
+    if (currentUrl) {
+      const current = new URL(currentUrl);
+      if (target.protocol === 'file:' && current.protocol === 'file:') {
+        return target.href === current.href;
+      }
+      if (target.origin !== 'null' && target.origin === current.origin) {
+        return true;
+      }
+    }
+
+    return !app.isPackaged && target.origin === DEV_RENDERER_ORIGIN;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Configure security settings for the browser window.
  */
 function configureSecurity(win: BrowserWindow) {
-  // Security: Prevent new window creation
   win.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    if (url.startsWith('http://localhost:') || url.startsWith('file://')) {
+    if (isAllowedRendererNavigation(win, url)) {
       return { action: 'allow' };
     }
     return { action: 'deny' };
   });
 
-  // Security: Prevent navigation to external URLs
   win.webContents.on('will-navigate', (event: Electron.Event, navigationUrl: string) => {
-    const parsedUrl = new URL(navigationUrl);
-    if (parsedUrl.hostname === 'localhost' || parsedUrl.protocol === 'file:') {
+    if (isAllowedRendererNavigation(win, navigationUrl)) {
       return;
     }
     event.preventDefault();

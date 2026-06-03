@@ -594,8 +594,11 @@ describe('createWindow', () => {
 
       const handler = mockWebContents.setWindowOpenHandler.mock.calls[0][0];
 
-      expect(handler({ url: 'http://localhost:3000' })).toEqual({ action: 'allow' });
-      expect(handler({ url: 'file://some/path' })).toEqual({ action: 'allow' });
+      expect(handler({ url: `${DESKTOP_DEV_RENDERER_URL}/debug` })).toEqual({
+        action: 'allow',
+      });
+      expect(handler({ url: 'http://localhost:3000' })).toEqual({ action: 'deny' });
+      expect(handler({ url: 'file://some/path' })).toEqual({ action: 'deny' });
       expect(handler({ url: 'https://evil.com' })).toEqual({ action: 'deny' });
     });
 
@@ -613,17 +616,20 @@ describe('createWindow', () => {
       const handler = willNavigateCall?.[1];
       const mockEvent = { preventDefault: vi.fn() };
 
-      // Should allow localhost
-      handler?.(mockEvent, 'http://localhost:3000/path');
+      // Should allow only the configured dev renderer origin
+      handler?.(mockEvent, `${DESKTOP_DEV_RENDERER_URL}/path`);
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 
-      // Should allow file protocol
+      // Should prevent arbitrary localhost and file navigation
+      handler?.(mockEvent, 'http://localhost:3000/path');
+      expect(mockEvent.preventDefault).toHaveBeenCalledTimes(1);
+
       handler?.(mockEvent, 'file:///some/path');
-      expect(mockEvent.preventDefault).not.toHaveBeenCalled();
+      expect(mockEvent.preventDefault).toHaveBeenCalledTimes(2);
 
       // Should prevent external navigation
       handler?.(mockEvent, 'https://external.com');
-      expect(mockEvent.preventDefault).toHaveBeenCalled();
+      expect(mockEvent.preventDefault).toHaveBeenCalledTimes(3);
     });
   });
 
