@@ -109,13 +109,12 @@ describe('EmbeddingCoverageNotice', () => {
 
 describe('isCollectionIndexingActive', () => {
   const base = {
-    backfillEmbeddingSetId: null,
     collectionId: 'col-1',
     managedCollectionId: 'col-1',
     syncState: 'idle' as const,
   };
 
-  it('is false when the managed collection is idle', () => {
+  it('is false when the managed collection is idle (settled — no stuck spinner)', () => {
     expect(isCollectionIndexingActive(base)).toBe(false);
   });
 
@@ -136,31 +135,20 @@ describe('isCollectionIndexingActive', () => {
     ).toBe(false);
   });
 
-  it('is true while a backfill is in flight for the displayed collection', () => {
-    expect(
-      isCollectionIndexingActive({
-        ...base,
-        managedCollectionId: null,
-        backfillEmbeddingSetId: 'col-1',
-        syncState: 'idle',
-      })
-    ).toBe(true);
+  it.each([
+    'idle',
+    'waiting',
+    'paused',
+    'error',
+    'disabled',
+  ] as const)('is false once the managed collection settles to %s (clears on its own)', (syncState) => {
+    expect(isCollectionIndexingActive({ ...base, syncState })).toBe(false);
   });
 
-  it('is false when a backfill targets a different collection', () => {
+  it('is false when there is no managed collection even if some state is active', () => {
     expect(
-      isCollectionIndexingActive({
-        ...base,
-        managedCollectionId: null,
-        backfillEmbeddingSetId: 'col-2',
-        syncState: 'idle',
-      })
+      isCollectionIndexingActive({ ...base, managedCollectionId: null, syncState: 'embedding' })
     ).toBe(false);
-  });
-
-  it('is false when the managed collection is paused or errored', () => {
-    expect(isCollectionIndexingActive({ ...base, syncState: 'paused' })).toBe(false);
-    expect(isCollectionIndexingActive({ ...base, syncState: 'error' })).toBe(false);
   });
 
   it('is false when there is no displayed collection', () => {

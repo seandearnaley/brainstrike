@@ -1,4 +1,7 @@
-import { __resetVectorStatusUIStoreForTests } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
@@ -71,6 +74,34 @@ describe('CollectionEmbeddingCoverageBanner (store-driven DOM)', () => {
 
     expect(screen.getByText(/needs re-indexing/i)).toBeInTheDocument();
     expect(screen.getByText(/17 files/i)).toBeInTheDocument();
+    expect(screen.getByTestId('embedding-coverage-notice')).toHaveAttribute(
+      'data-coverage-status',
+      'needs_reindex'
+    );
+  });
+
+  it('does not get stuck on "indexing" when a stale recovered backfill lingers after the job settled', () => {
+    // Regression for the overnight stuck spinner: the visible vector-status panel
+    // "recovers" a backfill into the shared store and does not always clear it when
+    // a background job completes. The banner must follow the authoritative, self-
+    // clearing sync state (settled to 'idle'), NOT the lingering backfill signal.
+    act(() => {
+      useVectorStatusUIStore.getState().setActiveBackfill({
+        embeddingSetId: 'col-1',
+        requestId: 'recovered:stale',
+        progress: null,
+      });
+      useWorkspaceCollectionSyncStatusStore
+        .getState()
+        .setStatus({ managedCollectionId: 'col-1', state: 'idle' });
+    });
+
+    render(
+      <CollectionEmbeddingCoverageBanner activeCollectionId="col-1" activeCollectionName="Docs" />
+    );
+
+    expect(screen.queryByText(/is indexing/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/needs re-indexing/i)).toBeInTheDocument();
     expect(screen.getByTestId('embedding-coverage-notice')).toHaveAttribute(
       'data-coverage-status',
       'needs_reindex'

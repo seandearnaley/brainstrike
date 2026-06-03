@@ -1,4 +1,3 @@
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
@@ -33,8 +32,6 @@ const ACTIVE_SYNC_STATES = new Set<WorkspaceCollectionSyncState>([
 ]);
 
 interface IndexingActiveInput {
-  /** embeddingSetId of an in-flight backfill (manual or background), if any. */
-  backfillEmbeddingSetId: string | null;
   /** The collection currently displayed in the browser. */
   collectionId: string | null;
   /** The collection the background indexer manages, if any. */
@@ -48,24 +45,23 @@ interface IndexingActiveInput {
  *
  * The DB cannot distinguish a file that is mid-chunking (transient) from one that
  * predates the line-range migration (genuinely stale) — both have
- * `chunks_processed_at IS NULL`. The disambiguator must be PER COLLECTION: global
- * "is anything importing/embedding" flags wrongly flag whichever collection is
- * selected. We instead pin the work to its target — the in-flight backfill's
- * embedding set, or the background indexer's managed collection while it is in an
- * active phase — so switching to another collection correctly drops the note.
+ * `chunks_processed_at IS NULL`. The disambiguator must be PER COLLECTION and must
+ * RELIABLY CLEAR when work finishes.
+ *
+ * We use ONLY the background indexer's managed collection + its live sync state.
+ * The sync state machine settles to `idle`/`waiting` via `setIdleStatus` when a
+ * job completes, so the note clears on its own. We deliberately do NOT key off the
+ * shared `activeBackfill` store signal: the visible vector-status panel "recovers"
+ * a backfill into that store and does not always clear it after a background job
+ * finishes, which left the banner spinning indefinitely (the overnight bug).
  */
 export function isCollectionIndexingActive({
-  backfillEmbeddingSetId,
   collectionId,
   managedCollectionId,
   syncState,
 }: IndexingActiveInput): boolean {
   if (!collectionId) {
     return false;
-  }
-  // A backfill in flight pins the exact collection being (re)indexed.
-  if (backfillEmbeddingSetId === collectionId) {
-    return true;
   }
   // The background indexer only ever works its managed collection.
   return managedCollectionId === collectionId && ACTIVE_SYNC_STATES.has(syncState);
@@ -172,12 +168,8 @@ export function CollectionEmbeddingCoverageBanner({
   const { snapshot: coverage } = useCollectionEmbeddingCoverage(activeCollectionId);
   const syncState = useWorkspaceCollectionSyncStatusStore((s) => s.state);
   const managedCollectionId = useWorkspaceCollectionSyncStatusStore((s) => s.managedCollectionId);
-  const backfillEmbeddingSetId = useVectorStatusUIStore(
-    (s) => s.activeBackfill?.embeddingSetId ?? null
-  );
 
   const indexingActive = isCollectionIndexingActive({
-    backfillEmbeddingSetId,
     collectionId: activeCollectionId,
     managedCollectionId,
     syncState,
