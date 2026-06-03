@@ -68,6 +68,11 @@ const sampleFileTree = [
       }),
     ],
   }),
+  createDirectoryNode({
+    name: 'src-generated',
+    path: '/src-generated',
+    children: [createFileNode({ name: 'fake.ts', path: '/src-generated/fake.ts' })],
+  }),
   createFileNode({ name: 'README.md', path: '/README.md' }),
 ];
 
@@ -154,6 +159,34 @@ describe('useRuleMaterialization', () => {
     expect(paths.has('/src/components/Button.tsx')).toBe(false);
     // .md not matched
     expect(paths.has('/README.md')).toBe(false);
+  });
+
+  it('materializes root rules with slash-boundary and maxDepth semantics', () => {
+    const ruleSetJson = serializeRuleSet({
+      ...createValidRuleSet('root', []),
+      rules: [
+        {
+          type: 'root-include' as const,
+          id: 'r1',
+          roots: ['/src'],
+          maxDepth: 0,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    const { store, setMaterializedPaths } = createMockStore({
+      selectionModel: {
+        ...defaultSelectionModel,
+        mode: 'rules' as const,
+        ruleSetJson,
+      },
+    });
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+    renderHook(() => useRuleMaterialization({ fileTree: sampleFileTree }));
+
+    const paths = setMaterializedPaths.mock.calls[0]?.[0] as Set<string>;
+    expect(paths).toEqual(new Set(['/src/index.ts', '/src/utils.ts']));
   });
 
   it('clears materialized paths on invalid JSON', () => {
