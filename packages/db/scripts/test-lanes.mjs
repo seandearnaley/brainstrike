@@ -72,6 +72,7 @@ const laneDefinitions = [
   {
     name: 'integration',
     matches: [
+      /^active-collection-live-counts\.test\.ts$/,
       /^browser-pglite-storage/,
       /^chunking-config\.test\.ts$/,
       /^clear-data\.test\.tsx$/,

@@ -74,6 +74,44 @@ async function queryStatsDatabase(
   return await scheduledQuery(sql, params, options);
 }
 
+/**
+ * Live file/chunk/embedding counts for a SINGLE active collection, computed
+ * directly from `file_records`/`file_chunks`.
+ *
+ * Unlike the denormalized `collection_indexing_stats` table, these reflect
+ * in-flight import/chunking/embedding work immediately — the stats table is only
+ * recomputed by periodic refreshes and is `dirty`-gated, so the actively-viewed
+ * collection would otherwise read stale zeroes mid-index. The scan is bounded to
+ * one collection and uses COUNT only (no embedding-vector materialization), so it
+ * stays cheap enough to drive a live query for the visible collection.
+ *
+ * The identity column stays lowercase (`embeddingsetid`) because PGlite live
+ * queries key on the unquoted column name.
+ */
+export const ACTIVE_COLLECTION_LIVE_COUNTS_QUERY = `
+  WITH target AS (SELECT $1::text AS embedding_set_id),
+  chunk_counts AS (
+    SELECT
+      fc.embedding_set_id,
+      COUNT(*)::int AS chunks,
+      COUNT(*) FILTER (WHERE fc.embedding IS NOT NULL)::int AS embeddings
+    FROM file_chunks fc
+    JOIN target ON fc.embedding_set_id = target.embedding_set_id
+    GROUP BY fc.embedding_set_id
+  )
+  SELECT
+    target.embedding_set_id AS embeddingsetid,
+    (
+      SELECT COUNT(*)::int
+      FROM file_records fr
+      WHERE fr.embedding_set_id = target.embedding_set_id
+    ) AS "recordsCount",
+    COALESCE(cc.chunks, 0) AS "chunksCount",
+    COALESCE(cc.embeddings, 0) AS "embeddingsCount"
+  FROM target
+  LEFT JOIN chunk_counts cc ON cc.embedding_set_id = target.embedding_set_id
+`.trim();
+
 const STATS_SELECT = `
   SELECT
     embedding_set_id AS "embeddingSetId",

@@ -96,6 +96,7 @@ export { viewFilterPresets } from './schema/index.js';
 // Search utilities (RRF fusion for hybrid search)
 export * from './search/index.js';
 export {
+  ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type CollectionIndexingStats,
   getCollectionIndexingStats,
   markCollectionIndexingStatsDirty,
