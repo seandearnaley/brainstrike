@@ -16,12 +16,35 @@ import {
   type TreeAdapter,
 } from '@brainstrike/selection-rules';
 import type { IFileNode } from '@brainstrike/types';
-import { calculatePathDepth } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreSelector } from '../shell/file-explorer-provider';
 
 const logger = createLogger('useRuleMaterialization');
+const SLASH_CODE = '/'.charCodeAt(0);
+
+function isEqualOrDescendantPath(path: string, root: string): boolean {
+  return (
+    path === root ||
+    (path.length > root.length &&
+      path.charCodeAt(root.length) === SLASH_CODE &&
+      path.startsWith(root))
+  );
+}
+
+function exceedsRelativeDepth(relativePath: string, maxDepth: number): boolean {
+  let depth = 0;
+  for (let index = 0; index < relativePath.length; index += 1) {
+    if (relativePath.charCodeAt(index) !== SLASH_CODE) {
+      continue;
+    }
+    depth += 1;
+    if (depth > maxDepth) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Evaluates rules and returns the matched paths, or null on failure.
@@ -85,11 +108,12 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
       const normalizedRoot = root.replace(/\/$/, '');
 
       for (const path of allFilePaths) {
-        if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+        // Root rules run over every file path; avoid allocating `${root}/` and
+        // stop depth scans as soon as the rule boundary is exceeded.
+        if (isEqualOrDescendantPath(path, normalizedRoot)) {
           if (maxDepth !== undefined) {
             const relativePath = path.slice(normalizedRoot.length + 1);
-            const depth = calculatePathDepth(relativePath);
-            if (depth > maxDepth) {
+            if (exceedsRelativeDepth(relativePath, maxDepth)) {
               continue;
             }
           }
