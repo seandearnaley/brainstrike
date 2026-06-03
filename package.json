@@ -44,33 +44,7 @@
   "keywords": [],
   "license": "ISC",
   "main": "index.js",
-  "packageManager": "pnpm@10.33.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@biomejs/biome",
-      "@jacobwolf/biome-unnecessary-effect",
-      "@swc/core",
-      "@tailwindcss/oxide",
-      "core-js",
-      "core-js-pure",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "lefthook",
-      "onnxruntime-node",
-      "oxc-resolver",
-      "protobufjs",
-      "puppeteer",
-      "sharp"
-    ],
-    "overrides": {
-      "react": "^19.2.4",
-      "react-dom": "^19.2.4",
-      "react-helmet-async>react": "^19.0.0",
-      "react-helmet-async>react-dom": "^19.0.0",
-      "webpack": "5.105.1"
-    }
-  },
+  "packageManager": "pnpm@11.5.1+sha512.93f7b57422ea7068257235b4c16eb60762eb68e1dc23723199cc739043ea9be2c4143274a399d8c6defa2b1176226d9ca1c4b63482d6200c1a8fbaa78c1d1485",
   "scripts": {
     "bench:chunking": "pnpm -w build --filter @brainstrike/db && node scripts/chunking-benchmark.mjs",
     "build": "turbo run build --summarize --log-order=grouped",
