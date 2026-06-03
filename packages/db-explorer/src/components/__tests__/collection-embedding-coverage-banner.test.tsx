@@ -1,7 +1,8 @@
+import { __resetVectorStatusUIStoreForTests } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
-  __resetVectorStatusUIStoreForTests,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+  __resetWorkspaceCollectionSyncStatusStoreForTests,
+  useWorkspaceCollectionSyncStatusStore,
+} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CollectionEmbeddingCoverageSnapshot } from '../../hooks/use-collection-embedding-coverage';
@@ -28,21 +29,29 @@ const STALE_SNAPSHOT: CollectionEmbeddingCoverageSnapshot = {
   totalChunks: 0,
 };
 
+function setBackgroundIndexing(
+  managedCollectionId: string,
+  state: 'importing' | 'embedding'
+): void {
+  act(() => {
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({ managedCollectionId, state });
+  });
+}
+
 describe('CollectionEmbeddingCoverageBanner (store-driven DOM)', () => {
   beforeEach(() => {
     __resetVectorStatusUIStoreForTests();
+    __resetWorkspaceCollectionSyncStatusStoreForTests();
     mockSnapshot = STALE_SNAPSHOT;
   });
 
   afterEach(() => {
     __resetVectorStatusUIStoreForTests();
+    __resetWorkspaceCollectionSyncStatusStoreForTests();
   });
 
   it('shows the stable indexing note (not the flicker-prone re-index alarm) while the collection is indexing', () => {
-    act(() => {
-      useVectorStatusUIStore.getState().setActiveEmbeddingSetId('col-1');
-      useVectorStatusUIStore.getState().setIsImporting(true);
-    });
+    setBackgroundIndexing('col-1', 'importing');
 
     render(
       <CollectionEmbeddingCoverageBanner activeCollectionId="col-1" activeCollectionName="Docs" />
@@ -68,18 +77,19 @@ describe('CollectionEmbeddingCoverageBanner (store-driven DOM)', () => {
     );
   });
 
-  it('does not claim a different collection is indexing', () => {
-    act(() => {
-      // A different collection is the indexing target.
-      useVectorStatusUIStore.getState().setActiveEmbeddingSetId('col-2');
-      useVectorStatusUIStore.getState().setIsImporting(true);
-    });
+  it('does not claim the displayed collection is indexing when a DIFFERENT collection is the indexer target', () => {
+    // The reported regression: col-2 is being indexed, user switches to col-1.
+    setBackgroundIndexing('col-2', 'embedding');
 
     render(
       <CollectionEmbeddingCoverageBanner activeCollectionId="col-1" activeCollectionName="Docs" />
     );
 
-    // The displayed (idle) collection still shows its genuine stale warning.
+    // The displayed (idle, stale) collection shows its genuine warning, not "indexing".
     expect(screen.getByText(/needs re-indexing/i)).toBeInTheDocument();
+    expect(screen.getByTestId('embedding-coverage-notice')).toHaveAttribute(
+      'data-coverage-status',
+      'needs_reindex'
+    );
   });
 });

@@ -1,4 +1,6 @@
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import {
   type CollectionEmbeddingCoverageSnapshot,
@@ -17,38 +19,56 @@ export interface EmbeddingCoverageNoticeProps {
   indexingActive?: boolean;
 }
 
+/**
+ * Background-indexer states that mean "actively doing work on the managed
+ * collection right now". `idle`/`waiting`/`paused`/`disabled`/`error` are not
+ * active, so a stale collection still shows its real re-index guidance.
+ */
+const ACTIVE_SYNC_STATES = new Set<WorkspaceCollectionSyncState>([
+  'scanning',
+  'importing',
+  'chunking',
+  'embedding',
+  'recovering',
+]);
+
 interface IndexingActiveInput {
+  /** embeddingSetId of an in-flight backfill (manual or background), if any. */
+  backfillEmbeddingSetId: string | null;
+  /** The collection currently displayed in the browser. */
   collectionId: string | null;
-  indexingTargetId: string | null;
-  isEmbeddingActive: boolean;
-  isImporting: boolean;
+  /** The collection the background indexer manages, if any. */
+  managedCollectionId: string | null;
+  /** Live background-indexer sync state. */
+  syncState: WorkspaceCollectionSyncState;
 }
 
 /**
- * Decide whether the displayed collection is the one currently being indexed.
+ * Decide whether the DISPLAYED collection is the one actively being indexed.
  *
  * The DB cannot distinguish a file that is mid-chunking (transient) from one that
  * predates the line-range migration (genuinely stale) — both have
- * `chunks_processed_at IS NULL`. The only reliable disambiguator is whether the
- * importer/embedding worker is actively running for this collection, which lives
- * in the shared vector-status store.
+ * `chunks_processed_at IS NULL`. The disambiguator must be PER COLLECTION: global
+ * "is anything importing/embedding" flags wrongly flag whichever collection is
+ * selected. We instead pin the work to its target — the in-flight backfill's
+ * embedding set, or the background indexer's managed collection while it is in an
+ * active phase — so switching to another collection correctly drops the note.
  */
 export function isCollectionIndexingActive({
+  backfillEmbeddingSetId,
   collectionId,
-  indexingTargetId,
-  isEmbeddingActive,
-  isImporting,
+  managedCollectionId,
+  syncState,
 }: IndexingActiveInput): boolean {
   if (!collectionId) {
     return false;
   }
-  if (!(isImporting || isEmbeddingActive)) {
-    return false;
+  // A backfill in flight pins the exact collection being (re)indexed.
+  if (backfillEmbeddingSetId === collectionId) {
+    return true;
   }
-  // When the target is known, only the matching collection shows the indexing
-  // note; a null target means "indexing is happening but unattributed", so we
-  // fall back to showing it rather than re-surfacing the false re-index alarm.
-  return indexingTargetId === null || indexingTargetId === collectionId;
+  // The background indexer only ever works its managed collection.
+  return managedCollectionId === collectionId && ACTIVE_SYNC_STATES.has(syncState);
 }
 
 function buildNoticeMessage(
@@ -150,15 +170,17 @@ export function CollectionEmbeddingCoverageBanner({
   activeCollectionName,
 }: CollectionEmbeddingCoverageBannerProps) {
   const { snapshot: coverage } = useCollectionEmbeddingCoverage(activeCollectionId);
-  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
-  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-  const indexingTargetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
+  const syncState = useWorkspaceCollectionSyncStatusStore((s) => s.state);
+  const managedCollectionId = useWorkspaceCollectionSyncStatusStore((s) => s.managedCollectionId);
+  const backfillEmbeddingSetId = useVectorStatusUIStore(
+    (s) => s.activeBackfill?.embeddingSetId ?? null
+  );
 
   const indexingActive = isCollectionIndexingActive({
+    backfillEmbeddingSetId,
     collectionId: activeCollectionId,
-    indexingTargetId,
-    isEmbeddingActive,
-    isImporting,
+    managedCollectionId,
+    syncState,
   });
 
   // While indexing is active we still render (with a stable note) even before

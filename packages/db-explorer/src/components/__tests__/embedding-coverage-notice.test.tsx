@@ -109,39 +109,63 @@ describe('EmbeddingCoverageNotice', () => {
 
 describe('isCollectionIndexingActive', () => {
   const base = {
+    backfillEmbeddingSetId: null,
     collectionId: 'col-1',
-    indexingTargetId: 'col-1',
-    isImporting: false,
-    isEmbeddingActive: false,
+    managedCollectionId: 'col-1',
+    syncState: 'idle' as const,
   };
 
-  it('is false when nothing is running', () => {
+  it('is false when the managed collection is idle', () => {
     expect(isCollectionIndexingActive(base)).toBe(false);
   });
 
-  it('is true while importing the displayed collection', () => {
-    expect(isCollectionIndexingActive({ ...base, isImporting: true })).toBe(true);
+  it.each([
+    'scanning',
+    'importing',
+    'chunking',
+    'embedding',
+    'recovering',
+  ] as const)('is true while the managed collection is %s', (syncState) => {
+    expect(isCollectionIndexingActive({ ...base, syncState })).toBe(true);
   });
 
-  it('is true while embedding the displayed collection', () => {
-    expect(isCollectionIndexingActive({ ...base, isEmbeddingActive: true })).toBe(true);
-  });
-
-  it('is false when a different collection is the indexing target', () => {
+  it('is false when a DIFFERENT collection is the managed/indexing target', () => {
+    // Reproduces the reported bug: switching to col-1 while col-2 indexes.
     expect(
-      isCollectionIndexingActive({ ...base, isEmbeddingActive: true, indexingTargetId: 'col-2' })
+      isCollectionIndexingActive({ ...base, managedCollectionId: 'col-2', syncState: 'embedding' })
     ).toBe(false);
   });
 
-  it('falls back to active when the indexing target is unknown', () => {
-    expect(isCollectionIndexingActive({ ...base, isImporting: true, indexingTargetId: null })).toBe(
-      true
-    );
+  it('is true while a backfill is in flight for the displayed collection', () => {
+    expect(
+      isCollectionIndexingActive({
+        ...base,
+        managedCollectionId: null,
+        backfillEmbeddingSetId: 'col-1',
+        syncState: 'idle',
+      })
+    ).toBe(true);
+  });
+
+  it('is false when a backfill targets a different collection', () => {
+    expect(
+      isCollectionIndexingActive({
+        ...base,
+        managedCollectionId: null,
+        backfillEmbeddingSetId: 'col-2',
+        syncState: 'idle',
+      })
+    ).toBe(false);
+  });
+
+  it('is false when the managed collection is paused or errored', () => {
+    expect(isCollectionIndexingActive({ ...base, syncState: 'paused' })).toBe(false);
+    expect(isCollectionIndexingActive({ ...base, syncState: 'error' })).toBe(false);
   });
 
   it('is false when there is no displayed collection', () => {
-    expect(isCollectionIndexingActive({ ...base, isImporting: true, collectionId: null })).toBe(
-      false
-    );
+    expect(
+      isCollectionIndexingActive({ ...base, syncState: 'importing', collectionId: null })
+    ).toBe(false);
   });
 });
