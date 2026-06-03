@@ -790,6 +790,70 @@ describe('useVectorQueueState', () => {
     expect(liveQueryRefresh.coverage).not.toHaveBeenCalled();
   });
 
+  it('clears a lingering recovered backfill when the queue drains for the active set', async () => {
+    // Regression: a background job populated a "recovered" backfill via the
+    // desktop reconcile path. The recovery path only re-checks on remount, so a
+    // job that drained while mounted left the recovered state stranded — which is
+    // what kept the coverage banner spinning all night. The queue-drained signal
+    // for this set must clear it.
+    vectorStatusUiStoreState.activeBackfill = {
+      embeddingSetId: 'set-1',
+      requestId: 'recovered:set-1:1700000000000',
+      progress: { done: 10, total: 10 },
+    };
+    vectorStatusUiStoreState.isJobQueueActive = true;
+
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(vectorStatusUiStoreState.activeBackfill).toBeNull();
+    });
+  });
+
+  it('does not clear a real (non-recovered) backfill when the queue drains', async () => {
+    // A genuine in-flight backfill is owned by its own completion path; a
+    // queue-drained event (possibly between batches) must not wipe it.
+    vectorStatusUiStoreState.activeBackfill = {
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:real',
+      progress: { done: 5, total: 10 },
+    };
+
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
+        })
+      );
+    });
+
+    expect(vectorStatusUiStoreState.activeBackfill).not.toBeNull();
+  });
+
   it('delegates API key validation to the queue service for the active set', async () => {
     const validateApiKeyForSet = vi.fn(async () => ({
       valid: false as const,

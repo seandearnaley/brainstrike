@@ -4,6 +4,10 @@ import {
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
@@ -384,6 +388,34 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('does not raise the foreground isImporting pause flag during background indexing', async () => {
+    // Regression: background indexing used to set the global `isImporting` flag,
+    // which gates the collection selector + count live queries (liveQueryEnabled =
+    // !isImporting). That froze the file/chunk counts at their stale value (0/0)
+    // for the entire background import. Background work must report progress via
+    // the workspace-sync status store, never via the foreground pause flag.
+    __resetVectorStatusUIStoreForTests();
+    const observedImporting: boolean[] = [];
+    const unsubscribe = useVectorStatusUIStore.subscribe((state) => {
+      observedImporting.push(state.isImporting);
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(applyManagedCacheBatchLocalMock).toHaveBeenCalledTimes(1));
+    } finally {
+      unsubscribe();
+    }
+
+    expect(observedImporting).not.toContain(true);
+    expect(useVectorStatusUIStore.getState().isImporting).toBe(false);
   });
 
   it('uses the electron managed-cache batch bridge when it is available', async () => {

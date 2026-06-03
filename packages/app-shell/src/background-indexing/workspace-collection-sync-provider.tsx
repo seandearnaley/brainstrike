@@ -14,7 +14,6 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import {
   getBackgroundWorkArbiterSnapshot,
@@ -30,6 +29,15 @@ import { WorkspaceCollectionSyncService } from './workspace-collection-sync-serv
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 export const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
+/**
+ * The sync service signals foreground-style import progress through `setImporting`.
+ * Background indexing intentionally discards it: the global `isImporting` flag is
+ * the foreground bulk-import pause switch for collection live queries, and raising
+ * it would freeze the collection selector + counts at 0/0 during background work.
+ */
+const NOOP_SET_IMPORTING = (_active: boolean): void => {
+  // intentionally empty — see comment above
+};
 const BACKGROUND_DATABASE_WORK_OPTIONS = {
   label: 'background indexing',
   priority: 'background',
@@ -112,7 +120,6 @@ export function WorkspaceCollectionSyncProvider({
     (state) => state.indexingPolicyPreset
   );
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
-  const setIsImporting = useVectorStatusUIStore((state) => state.setIsImporting);
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
   const { controller: runtimeController, service: vectorQueueService } =
@@ -210,7 +217,12 @@ export function WorkspaceCollectionSyncProvider({
           setManagedCollectionId(null);
         }
       },
-      setImporting: setIsImporting,
+      // Background indexing must NOT raise the foreground `isImporting` pause flag:
+      // that flag gates the collection selector + count live queries
+      // (liveQueryEnabled = !isImporting), so toggling it freezes the file/chunk
+      // counts the user is watching at 0/0 for the whole import. Background progress
+      // is reported through the workspace-sync status store instead.
+      setImporting: NOOP_SET_IMPORTING,
       setStatus: setSyncStatus,
       subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
       validateHostedProviderAccess,
@@ -225,7 +237,6 @@ export function WorkspaceCollectionSyncProvider({
     fileSystemAdapter,
     runtimeController,
     setManagedCollectionId,
-    setIsImporting,
     setSyncStatus,
     validateHostedProviderAccess,
     waitForBackgroundPermit,
@@ -361,9 +372,8 @@ export function WorkspaceCollectionSyncProvider({
       void service?.cancel().catch((error) => {
         reportAsyncError('cancel', error);
       });
-      setIsImporting(false);
     };
-  }, [reportAsyncError, service, triggerSync, setIsImporting]);
+  }, [reportAsyncError, service, triggerSync]);
 
   useEffect(() => {
     const handleRefresh = (): void => {

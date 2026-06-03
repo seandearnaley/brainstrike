@@ -605,13 +605,25 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         return;
       }
       void refreshCoverageAndQueueState();
+      // The drained job may have populated a "recovered" backfill (desktop reconcile
+      // path) whose only other clear point is a remount. If we don't clear it here,
+      // the recovered state — and any UI keyed off it — stays stranded until reload.
+      // A genuine in-flight backfill keeps a non-`recovered:` requestId and is left to
+      // its own completion path, so it survives drained-between-batches events.
+      const current = useVectorStatusUIStore.getState().activeBackfill;
+      if (
+        current?.embeddingSetId === activeEmbeddingSetId &&
+        current.requestId.startsWith('recovered:')
+      ) {
+        clearTransientBackfillState(activeEmbeddingSetId);
+      }
     };
 
     window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
     return () => {
       window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
     };
-  }, [activeEmbeddingSetId, refreshCoverageAndQueueState]);
+  }, [activeEmbeddingSetId, clearTransientBackfillState, refreshCoverageAndQueueState]);
 
   useEffect(() => {
     setRecentErrorCount(metrics.windowErrorCount);

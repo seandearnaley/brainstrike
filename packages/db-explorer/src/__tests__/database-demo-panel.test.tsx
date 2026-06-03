@@ -154,8 +154,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     },
     migrations: [],
     usePGliteLiveQuery: (options: { query: string }) => {
-      // Return stable object references based on query type
-      if (options.query.includes('FROM collection_indexing_stats')) {
+      // Return stable object references based on query type. The active-collection
+      // counts query is a live aggregate over file_records/file_chunks, so match it
+      // by its distinctive projection before the generic file_records branch.
+      if (options.query.includes('AS "recordsCount"')) {
         return mockCollectionCountLiveQueryResult;
       }
       if (options.query.includes('FROM file_records')) {

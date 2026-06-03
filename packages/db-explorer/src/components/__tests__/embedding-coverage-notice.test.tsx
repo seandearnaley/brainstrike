@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { CollectionEmbeddingCoverageSnapshot } from '../../hooks/use-collection-embedding-coverage';
-import { EmbeddingCoverageNotice } from '../embedding-coverage-notice';
+import { EmbeddingCoverageNotice, isCollectionIndexingActive } from '../embedding-coverage-notice';
 
 const baseCoverage: CollectionEmbeddingCoverageSnapshot = {
   pendingReindexFileCount: 0,
@@ -71,5 +71,89 @@ describe('EmbeddingCoverageNotice', () => {
 
     expect(screen.getByText(/fully indexed with line-aware chunk metadata/i)).toBeInTheDocument();
     expect(screen.getByText(/40 chunks across 4 files/i)).toBeInTheDocument();
+  });
+
+  it('suppresses the re-index alarm and shows a stable indexing note while indexing is active', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Docs"
+        coverage={{
+          ...baseCoverage,
+          status: 'needs_reindex',
+          pendingReindexFileCount: 17,
+          totalFiles: 17,
+        }}
+        indexingActive
+      />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveAttribute('data-coverage-status', 'indexing');
+    // The alarming, churn-prone re-index wording must NOT appear during indexing.
+    expect(screen.queryByText(/needs re-indexing/i)).not.toBeInTheDocument();
+    // No per-file count is rendered, so the message text stays stable (no layout shift).
+    expect(notice).not.toHaveTextContent(/\d/);
+    expect(screen.getByText(/indexing/i)).toBeInTheDocument();
+  });
+
+  it('shows the indexing note even before any files are recorded', () => {
+    render(
+      <EmbeddingCoverageNotice collectionName="Fresh" coverage={baseCoverage} indexingActive />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveAttribute('data-coverage-status', 'indexing');
+    expect(screen.getByText(/indexing/i)).toBeInTheDocument();
+  });
+});
+
+describe('isCollectionIndexingActive', () => {
+  const base = {
+    collectionId: 'col-1',
+    managedCollectionId: 'col-1',
+    syncState: 'idle' as const,
+  };
+
+  it('is false when the managed collection is idle (settled — no stuck spinner)', () => {
+    expect(isCollectionIndexingActive(base)).toBe(false);
+  });
+
+  it.each([
+    'scanning',
+    'importing',
+    'chunking',
+    'embedding',
+    'recovering',
+  ] as const)('is true while the managed collection is %s', (syncState) => {
+    expect(isCollectionIndexingActive({ ...base, syncState })).toBe(true);
+  });
+
+  it('is false when a DIFFERENT collection is the managed/indexing target', () => {
+    // Reproduces the reported bug: switching to col-1 while col-2 indexes.
+    expect(
+      isCollectionIndexingActive({ ...base, managedCollectionId: 'col-2', syncState: 'embedding' })
+    ).toBe(false);
+  });
+
+  it.each([
+    'idle',
+    'waiting',
+    'paused',
+    'error',
+    'disabled',
+  ] as const)('is false once the managed collection settles to %s (clears on its own)', (syncState) => {
+    expect(isCollectionIndexingActive({ ...base, syncState })).toBe(false);
+  });
+
+  it('is false when there is no managed collection even if some state is active', () => {
+    expect(
+      isCollectionIndexingActive({ ...base, managedCollectionId: null, syncState: 'embedding' })
+    ).toBe(false);
+  });
+
+  it('is false when there is no displayed collection', () => {
+    expect(
+      isCollectionIndexingActive({ ...base, syncState: 'importing', collectionId: null })
+    ).toBe(false);
   });
 });

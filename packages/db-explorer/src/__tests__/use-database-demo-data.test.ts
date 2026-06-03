@@ -444,9 +444,9 @@ describe('useDatabaseDemoData', () => {
     expect(totalAggregateCall?.[0]).not.toHaveProperty('mode', 'incremental');
     expect(collectionStatsCall?.[0].query).toContain('AS embeddingsetid');
     expect(collectionStatsCall?.[0].query).not.toContain('AS "embeddingSetId"');
-    expect(collectionStatsCall?.[0]).toEqual(
-      expect.objectContaining({ mode: 'incremental', key: 'embeddingsetid' })
-    );
+    // The active-collection counts are a single-row aggregate, so they run as a
+    // plain (full) live query rather than an incremental keyed diff.
+    expect(collectionStatsCall?.[0]).not.toHaveProperty('mode', 'incremental');
   });
 
   it('uses active collection cache while replacement live queries are loading', async () => {
@@ -739,7 +739,7 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
-  it('uses collection indexing stats for collection counts instead of aggregate scans', async () => {
+  it('computes active-collection counts live from file_records/file_chunks so indexing progress is visible', async () => {
     setupLiveQueries();
 
     renderHook(() =>
@@ -761,10 +761,13 @@ describe('useDatabaseDemoData', () => {
       const countQueryParams = countQueryCall?.[0].params;
 
       expect(countQuery).toBeDefined();
-      expect(countQuery).toContain('FROM collection_indexing_stats');
-      expect(countQuery).toContain('embedded_chunk_count AS "embeddingsCount"');
-      expect(countQuery).not.toContain('SELECT COUNT(*)::int');
-      expect(countQuery).not.toContain('LEFT JOIN file_chunks');
+      // Counts come straight from the live tables, NOT the dirty-gated denormalized
+      // stats — otherwise the actively-indexed collection reads stale zeroes.
+      expect(countQuery).toContain('FROM file_records fr');
+      expect(countQuery).toContain('FROM file_chunks fc');
+      expect(countQuery).toContain('AS "embeddingsCount"');
+      expect(countQuery).not.toContain('FROM collection_indexing_stats');
+      expect(countQuery).not.toContain('dirty = FALSE');
       expect(countQueryParams).toEqual(['set-1']);
     });
   });

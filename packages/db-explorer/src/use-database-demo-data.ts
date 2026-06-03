@@ -1,4 +1,5 @@
 import {
+  ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type DrizzleFileChunkRepository,
   type DrizzleFileRecordRepository,
   type ElectronFileChunkRepository,
@@ -243,18 +244,12 @@ const FILE_RECORDS_TOTAL_QUERY = `
   GROUP BY target.embedding_set_id
 `.trim();
 
-const COLLECTION_COUNTS_QUERY = `
-  SELECT
-    -- PGlite incremental live queries join on an unquoted key column, so this
-    -- identity field must stay lowercase.
-    embedding_set_id AS embeddingsetid,
-    file_count AS "recordsCount",
-    chunk_count AS "chunksCount",
-    embedded_chunk_count AS "embeddingsCount"
-  FROM collection_indexing_stats
-  WHERE embedding_set_id = $1
-    AND dirty = FALSE
-`.trim();
+// Active-collection counts are computed live from file_records/file_chunks via
+// ACTIVE_COLLECTION_LIVE_COUNTS_QUERY (owned by @brainstrike/db). The denormalized
+// collection_indexing_stats table is dirty-gated and only refreshed periodically,
+// so it reads stale zeroes for the collection being actively indexed — the live
+// query keeps the visible counts ticking up through import/chunk/embed.
+const COLLECTION_COUNTS_QUERY = ACTIVE_COLLECTION_LIVE_COUNTS_QUERY;
 
 // PERFORMANCE: chunk summaries for the collection browser are loaded per file on demand.
 // The visible renderer must not materialize every chunk row in the active collection just to
@@ -467,8 +462,8 @@ export function useDatabaseDemoData({
     cacheKey: makeLiveQueryKey('file-record-collection-counts', activeCollectionId),
     query: COLLECTION_COUNTS_QUERY,
     ...(collectionCountsQueryParams ? { params: collectionCountsQueryParams } : {}),
-    mode: 'incremental',
-    key: 'embeddingsetid',
+    // Single-row aggregate: use a plain (full) live query like the records total
+    // rather than an incremental keyed diff.
     enabled: liveQueryEnabled,
   });
 
