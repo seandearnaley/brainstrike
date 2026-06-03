@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import {
   type CollectionEmbeddingCoverageSnapshot,
   useCollectionEmbeddingCoverage,
@@ -7,13 +8,60 @@ import {
 export interface EmbeddingCoverageNoticeProps {
   collectionName?: string;
   coverage: CollectionEmbeddingCoverageSnapshot;
+  /**
+   * True while the displayed collection is actively importing/indexing. When set,
+   * the notice replaces the (churn-prone) re-index/partial alarms with a single
+   * stable "indexing" line so the banner does not flicker or shift layout as the
+   * per-file pending count ticks down.
+   */
+  indexingActive?: boolean;
+}
+
+interface IndexingActiveInput {
+  collectionId: string | null;
+  indexingTargetId: string | null;
+  isEmbeddingActive: boolean;
+  isImporting: boolean;
+}
+
+/**
+ * Decide whether the displayed collection is the one currently being indexed.
+ *
+ * The DB cannot distinguish a file that is mid-chunking (transient) from one that
+ * predates the line-range migration (genuinely stale) — both have
+ * `chunks_processed_at IS NULL`. The only reliable disambiguator is whether the
+ * importer/embedding worker is actively running for this collection, which lives
+ * in the shared vector-status store.
+ */
+export function isCollectionIndexingActive({
+  collectionId,
+  indexingTargetId,
+  isEmbeddingActive,
+  isImporting,
+}: IndexingActiveInput): boolean {
+  if (!collectionId) {
+    return false;
+  }
+  if (!(isImporting || isEmbeddingActive)) {
+    return false;
+  }
+  // When the target is known, only the matching collection shows the indexing
+  // note; a null target means "indexing is happening but unattributed", so we
+  // fall back to showing it rather than re-surfacing the false re-index alarm.
+  return indexingTargetId === null || indexingTargetId === collectionId;
 }
 
 function buildNoticeMessage(
   coverage: CollectionEmbeddingCoverageSnapshot,
+  indexingActive: boolean,
   collectionName?: string
 ): string | null {
   const label = collectionName ? `"${collectionName}"` : 'This collection';
+
+  if (indexingActive) {
+    // Intentionally count-free so the text never changes during indexing.
+    return `${label} is indexing…`;
+  }
 
   switch (coverage.status) {
     case 'needs_reindex':
@@ -27,34 +75,64 @@ function buildNoticeMessage(
   }
 }
 
+type CoverageNoticeTone = 'indexing' | 'healthy' | 'warning';
+
+const TONE_CLASS: Record<CoverageNoticeTone, string> = {
+  indexing:
+    'rounded-md border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-sky-900 text-xs dark:text-sky-100',
+  healthy:
+    'rounded-md border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-emerald-900 text-xs dark:text-emerald-100',
+  warning:
+    'rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-amber-950 text-xs dark:text-amber-50',
+};
+
+const TONE_ICON: Record<CoverageNoticeTone, typeof CheckCircle2> = {
+  indexing: Loader2,
+  healthy: CheckCircle2,
+  warning: AlertTriangle,
+};
+
+function resolveTone(
+  status: CollectionEmbeddingCoverageSnapshot['status'],
+  indexingActive: boolean
+): CoverageNoticeTone {
+  if (indexingActive) {
+    return 'indexing';
+  }
+  return status === 'fully_indexed' ? 'healthy' : 'warning';
+}
+
 /**
- * Surfaces collection-level embedding coverage: re-index required, partial skips, or healthy state.
+ * Surfaces collection-level embedding coverage: indexing-in-progress, re-index
+ * required, partial skips, or healthy state.
  */
 export function EmbeddingCoverageNotice({
   collectionName,
   coverage,
+  indexingActive = false,
 }: EmbeddingCoverageNoticeProps) {
-  const message = buildNoticeMessage(coverage, collectionName);
+  const message = buildNoticeMessage(coverage, indexingActive, collectionName);
   if (!message) {
     return null;
   }
 
-  const isHealthy = coverage.status === 'fully_indexed';
-  const Icon = isHealthy ? CheckCircle2 : AlertTriangle;
+  const tone = resolveTone(coverage.status, indexingActive);
+  const Icon = TONE_ICON[tone];
 
   return (
     <div
-      className={
-        isHealthy
-          ? 'rounded-md border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-emerald-900 text-xs dark:text-emerald-100'
-          : 'rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-amber-950 text-xs dark:text-amber-50'
-      }
-      data-coverage-status={coverage.status}
+      className={TONE_CLASS[tone]}
+      data-coverage-status={indexingActive ? 'indexing' : coverage.status}
       data-testid="embedding-coverage-notice"
       role="status"
     >
       <div className="flex items-start gap-2">
-        <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+        <Icon
+          aria-hidden
+          className={
+            tone === 'indexing' ? 'mt-0.5 h-4 w-4 shrink-0 animate-spin' : 'mt-0.5 h-4 w-4 shrink-0'
+          }
+        />
         <p>{message}</p>
       </div>
     </div>
@@ -72,7 +150,20 @@ export function CollectionEmbeddingCoverageBanner({
   activeCollectionName,
 }: CollectionEmbeddingCoverageBannerProps) {
   const { snapshot: coverage } = useCollectionEmbeddingCoverage(activeCollectionId);
-  if (!activeCollectionId || coverage.status === 'idle') {
+  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
+  const indexingTargetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
+
+  const indexingActive = isCollectionIndexingActive({
+    collectionId: activeCollectionId,
+    indexingTargetId,
+    isEmbeddingActive,
+    isImporting,
+  });
+
+  // While indexing is active we still render (with a stable note) even before
+  // the first file lands, so the user gets immediate feedback instead of nothing.
+  if (!activeCollectionId || (coverage.status === 'idle' && !indexingActive)) {
     return null;
   }
 
@@ -80,6 +171,7 @@ export function CollectionEmbeddingCoverageBanner({
     <div className="border-border border-b px-3 py-2">
       <EmbeddingCoverageNotice
         coverage={coverage}
+        indexingActive={indexingActive}
         {...(activeCollectionName === undefined ? {} : { collectionName: activeCollectionName })}
       />
     </div>

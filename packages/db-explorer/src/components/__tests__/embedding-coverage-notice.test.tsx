@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { CollectionEmbeddingCoverageSnapshot } from '../../hooks/use-collection-embedding-coverage';
-import { EmbeddingCoverageNotice } from '../embedding-coverage-notice';
+import { EmbeddingCoverageNotice, isCollectionIndexingActive } from '../embedding-coverage-notice';
 
 const baseCoverage: CollectionEmbeddingCoverageSnapshot = {
   pendingReindexFileCount: 0,
@@ -71,5 +71,77 @@ describe('EmbeddingCoverageNotice', () => {
 
     expect(screen.getByText(/fully indexed with line-aware chunk metadata/i)).toBeInTheDocument();
     expect(screen.getByText(/40 chunks across 4 files/i)).toBeInTheDocument();
+  });
+
+  it('suppresses the re-index alarm and shows a stable indexing note while indexing is active', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Docs"
+        coverage={{
+          ...baseCoverage,
+          status: 'needs_reindex',
+          pendingReindexFileCount: 17,
+          totalFiles: 17,
+        }}
+        indexingActive
+      />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveAttribute('data-coverage-status', 'indexing');
+    // The alarming, churn-prone re-index wording must NOT appear during indexing.
+    expect(screen.queryByText(/needs re-indexing/i)).not.toBeInTheDocument();
+    // No per-file count is rendered, so the message text stays stable (no layout shift).
+    expect(notice).not.toHaveTextContent(/\d/);
+    expect(screen.getByText(/indexing/i)).toBeInTheDocument();
+  });
+
+  it('shows the indexing note even before any files are recorded', () => {
+    render(
+      <EmbeddingCoverageNotice collectionName="Fresh" coverage={baseCoverage} indexingActive />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveAttribute('data-coverage-status', 'indexing');
+    expect(screen.getByText(/indexing/i)).toBeInTheDocument();
+  });
+});
+
+describe('isCollectionIndexingActive', () => {
+  const base = {
+    collectionId: 'col-1',
+    indexingTargetId: 'col-1',
+    isImporting: false,
+    isEmbeddingActive: false,
+  };
+
+  it('is false when nothing is running', () => {
+    expect(isCollectionIndexingActive(base)).toBe(false);
+  });
+
+  it('is true while importing the displayed collection', () => {
+    expect(isCollectionIndexingActive({ ...base, isImporting: true })).toBe(true);
+  });
+
+  it('is true while embedding the displayed collection', () => {
+    expect(isCollectionIndexingActive({ ...base, isEmbeddingActive: true })).toBe(true);
+  });
+
+  it('is false when a different collection is the indexing target', () => {
+    expect(
+      isCollectionIndexingActive({ ...base, isEmbeddingActive: true, indexingTargetId: 'col-2' })
+    ).toBe(false);
+  });
+
+  it('falls back to active when the indexing target is unknown', () => {
+    expect(isCollectionIndexingActive({ ...base, isImporting: true, indexingTargetId: null })).toBe(
+      true
+    );
+  });
+
+  it('is false when there is no displayed collection', () => {
+    expect(isCollectionIndexingActive({ ...base, isImporting: true, collectionId: null })).toBe(
+      false
+    );
   });
 });
