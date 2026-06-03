@@ -66,3 +66,7 @@
 ## 2026-06-01 - Fast import filename extraction
 **Learning:** `packages/db-explorer/src/file-import/file-import-coordinator.ts` extracts file names for every selected cached or pending import path. `path.split('/').pop()` allocates a segment array per file and measured 387.07ms over 100k slash paths x 30 runs, while `lastIndexOf('/')` plus `slice()` measured 53.43ms for the same workload. Backslash handling is ambiguous without platform context because POSIX filenames can contain literal `\`.
 **Action:** Keep import filename extraction on the `getImportPathFileName()` helper and use direct slash scanning in bulk import paths instead of split/pop; handle Windows-specific separator normalization only in a platform-aware follow-up.
+
+## 2026-06-03 - Rule root path scans avoid per-candidate strings
+**Learning:** `packages/file-explorer-ui/src/hooks/use-rule-materialization.ts` scans every file path for root-include rules. Allocating `${root}/` inside that loop and fully counting relative depth measured 363.69ms for maxDepth=0 and 204.62ms unlimited over 100k candidate paths x 100 runs. A slash-boundary `charCodeAt` check plus early depth exit measured 278.40ms and 123.90ms for the same workloads.
+**Action:** Keep rule adapter root matching on explicit slash-boundary checks and short-circuit maxDepth scans once the limit is exceeded; do not reintroduce template-string descendant checks in rule materialization hot loops.
