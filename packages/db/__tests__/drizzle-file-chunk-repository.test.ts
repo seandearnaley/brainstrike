@@ -10,7 +10,10 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleEmbeddingSetsRepository } from '../src/repositories/drizzle/embedding-sets-repository.js';
-import { DrizzleFileChunkRepository } from '../src/repositories/drizzle/file-chunk-repository.js';
+import {
+  DrizzleFileChunkRepository,
+  MAX_SEARCH_RESULT_LIMIT,
+} from '../src/repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from '../src/repositories/drizzle/file-record-repository.js';
 import * as schema from '../src/schema/index.js';
 
@@ -287,6 +290,28 @@ describe('DrizzleFileChunkRepository', () => {
       await expect(
         repository.searchSimilar([0.1, 0.2, 0.3, 0.4], { embeddingSetId: testEmbeddingSetId })
       ).rejects.toThrow('dimension mismatch');
+    });
+
+    it('accepts the product result-limit ceiling and rejects above it', async () => {
+      // The UI free-input ceiling (RESULT_LIMIT_MAX) clamps to this value and
+      // hybrid sizes its source pools up to it, so the web repository must accept
+      // exactly the ceiling — otherwise limits 1001–2000 throw only on web. Pin
+      // the cap so it can't silently drop below the product ceiling again.
+      await expect(
+        repository.searchSimilar([1.0, 0.0, 0.0], {
+          embeddingSetId: testEmbeddingSetId,
+          limit: MAX_SEARCH_RESULT_LIMIT,
+          threshold: 0,
+        })
+      ).resolves.toBeDefined();
+
+      await expect(
+        repository.searchSimilar([1.0, 0.0, 0.0], {
+          embeddingSetId: testEmbeddingSetId,
+          limit: MAX_SEARCH_RESULT_LIMIT + 1,
+          threshold: 0,
+        })
+      ).rejects.toThrow(/exceeds maximum allowed/);
     });
 
     it('should return similar chunks ordered by similarity', async () => {

@@ -74,10 +74,18 @@ function validateDimension(dimension: number, context: string): void {
 const MAX_OVERFETCH_LIMIT = 10_000;
 
 /**
- * Maximum user-specified limit for similarity search results.
- * Prevents excessive memory usage from user requests.
+ * Maximum result limit a similarity search may request. Bounds renderer memory
+ * for large fan-out reads.
+ *
+ * MUST stay >= the UI free-input ceiling (`RESULT_LIMIT_MAX` in `@brainstrike/ui`)
+ * — the executor clamps requested limits to that ceiling and hybrid sizes its
+ * source pools up to it, so a smaller cap here would make web search throw for
+ * limits between the two. The cross-layer invariant is pinned by a test in
+ * `@brainstrike/db-explorer` (result-limit-ceiling.test.ts). Large pools are
+ * affordable because hybrid/vector source reads project the embedding vector
+ * away (`includeEmbedding: false`), so a 2,000-row fan-out is cheap.
  */
-const MAX_USER_LIMIT = 1000;
+export const MAX_SEARCH_RESULT_LIMIT = 2000;
 
 // Explicit column list that projects only the cheap dimension count
 // (vector_dims) instead of the full embedding vector — used by large fan-out
@@ -350,9 +358,9 @@ export class DrizzleFileChunkRepository {
     } = options;
 
     // Validate limit to prevent memory exhaustion from excessive requests
-    if (limit > MAX_USER_LIMIT) {
+    if (limit > MAX_SEARCH_RESULT_LIMIT) {
       throw new Error(
-        `searchSimilar limit ${limit} exceeds maximum allowed (${MAX_USER_LIMIT}). ` +
+        `searchSimilar limit ${limit} exceeds maximum allowed (${MAX_SEARCH_RESULT_LIMIT}). ` +
           'Use pagination for larger result sets.'
       );
     }
