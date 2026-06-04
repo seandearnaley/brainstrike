@@ -39,11 +39,12 @@ const RETRIEVAL_MODES: Array<{
   },
 ];
 
-/** Result-limit bounds. The picker is now free-form so users can pull thousands
- * of hits; we clamp to a sane window and warn past LARGE so large rank passes
- * are an informed choice. */
+/** Result-limit bounds. The picker is free-form so users can pull thousands of
+ * hits; we clamp to a sane window and warn past LARGE so large rank passes are
+ * an informed choice. The ceiling bounds hybrid fan-out — each RRF source pool
+ * is sized to the limit, so the worst case fuses ~2× this many candidates. */
 const RESULT_LIMIT_MIN = 1;
-const RESULT_LIMIT_MAX = 10_000;
+const RESULT_LIMIT_MAX = 2000;
 const RESULT_LIMIT_LARGE = 1000;
 
 const ROW = 'flex min-w-0 items-center gap-2';

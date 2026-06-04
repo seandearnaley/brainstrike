@@ -164,12 +164,12 @@ describe('SearchConfigPanel', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
     const input = screen.getByLabelText('Result limit');
-    fireEvent.change(input, { target: { value: '5000' } });
+    fireEvent.change(input, { target: { value: '1500' } });
     fireEvent.blur(input);
-    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ resultLimit: 5000 }));
+    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ resultLimit: 1500 }));
   });
 
-  it('clamps the result limit to the 1–10000 range on commit', () => {
+  it('clamps the result limit to the 1–2000 range on commit', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
     const input = screen.getByLabelText('Result limit');
@@ -180,9 +180,12 @@ describe('SearchConfigPanel', () => {
 
     fireEvent.change(input, { target: { value: '99999' } });
     fireEvent.blur(input);
-    expect(onConfigChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ resultLimit: 10_000 })
-    );
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 2000 }));
+  });
+
+  it('exposes the 2000 ceiling on the number input', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
+    expect(screen.getByLabelText('Result limit')).toHaveAttribute('max', '2000');
   });
 
   it('lets the field be cleared mid-edit without snapping back, and does not commit empty', () => {
