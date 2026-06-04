@@ -160,31 +160,53 @@ describe('SearchConfigPanel', () => {
     expect(input).toHaveValue(20);
   });
 
-  it('accepts a large custom result limit and reports it via onConfigChange', () => {
+  it('commits a large custom result limit on blur', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
-    fireEvent.change(screen.getByLabelText('Result limit'), { target: { value: '5000' } });
+    const input = screen.getByLabelText('Result limit');
+    fireEvent.change(input, { target: { value: '5000' } });
+    fireEvent.blur(input);
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ resultLimit: 5000 }));
   });
 
-  it('clamps the result limit to the 1–10000 range', () => {
+  it('clamps the result limit to the 1–10000 range on commit', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
     const input = screen.getByLabelText('Result limit');
 
     fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
     expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 1 }));
 
     fireEvent.change(input, { target: { value: '99999' } });
+    fireEvent.blur(input);
     expect(onConfigChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ resultLimit: 10_000 })
     );
   });
 
-  it('ignores an empty / non-numeric result limit instead of writing NaN', () => {
+  it('lets the field be cleared mid-edit without snapping back, and does not commit empty', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
-    fireEvent.change(screen.getByLabelText('Result limit'), { target: { value: '' } });
+    const input = screen.getByLabelText('Result limit');
+
+    // Backspacing to empty must stick (draft state), not revert to the number.
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(null);
+    expect(onConfigChange).not.toHaveBeenCalled();
+
+    // Committing an empty field keeps the previous value (no NaN write).
+    fireEvent.blur(input);
+    expect(onConfigChange).not.toHaveBeenCalled();
+  });
+
+  it('does not clamp a leading zero while typing (only on commit)', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+    fireEvent.change(input, { target: { value: '0' } });
+    // While editing, the keystroke is preserved (not snapped to 1) and nothing committed yet.
+    expect(input).toHaveValue(0);
     expect(onConfigChange).not.toHaveBeenCalled();
   });
 

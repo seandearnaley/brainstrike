@@ -117,6 +117,15 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     };
   }, [isSearchExpanded, onSearchExpandedChange]);
 
+  // The cog Popover portals its content to document.body, so collapsing the
+  // panel while it is open would leave the floating options lingering over a
+  // hidden trigger. Close it whenever the panel collapses.
+  React.useEffect(() => {
+    if (!isSearchExpanded && advancedOptionsOpen) {
+      onAdvancedOptionsOpenChange?.(false);
+    }
+  }, [isSearchExpanded, advancedOptionsOpen, onAdvancedOptionsOpenChange]);
+
   const resultLabel =
     hasSearched && resultCount !== undefined
       ? `${resultCount} result${resultCount === 1 ? '' : 's'}`

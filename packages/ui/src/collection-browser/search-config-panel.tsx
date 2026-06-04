@@ -73,22 +73,37 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
     [config, onConfigChange]
   );
 
-  const handleLimitChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value.trim();
-      if (raw === '') {
-        // Don't write NaN while the field is mid-edit/empty; keep the last value.
-        return;
-      }
-      const parsed = Number.parseInt(raw, 10);
-      if (Number.isNaN(parsed)) {
-        return;
-      }
-      const clamped = Math.min(RESULT_LIMIT_MAX, Math.max(RESULT_LIMIT_MIN, parsed));
+  // Hold the raw string while the field is focused so intermediate states ("",
+  // "0", "05") are editable; parse + clamp + commit only on blur/Enter. A
+  // controlled input that clamped every keystroke couldn't be cleared or retyped.
+  const [limitDraft, setLimitDraft] = React.useState<string | null>(null);
+
+  const handleLimitChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLimitDraft(e.target.value);
+  }, []);
+
+  const commitLimit = React.useCallback(() => {
+    const raw = (limitDraft ?? '').trim();
+    setLimitDraft(null); // revert the display to the (possibly updated) config value
+    if (raw === '') {
+      return; // empty stays at the previous value — never write NaN
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) {
+      return;
+    }
+    const clamped = Math.min(RESULT_LIMIT_MAX, Math.max(RESULT_LIMIT_MIN, parsed));
+    if (clamped !== config.resultLimit) {
       onConfigChange({ ...config, resultLimit: clamped });
-    },
-    [config, onConfigChange]
-  );
+    }
+  }, [config, limitDraft, onConfigChange]);
+
+  const handleLimitKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
+  }, []);
 
   const handleMetricChange = React.useCallback(
     (value: string) => {
@@ -234,10 +249,12 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
             id="result-limit"
             max={RESULT_LIMIT_MAX}
             min={RESULT_LIMIT_MIN}
+            onBlur={commitLimit}
             onChange={handleLimitChange}
+            onKeyDown={handleLimitKeyDown}
             step={1}
             type="number"
-            value={config.resultLimit}
+            value={limitDraft ?? String(config.resultLimit)}
           />
         </div>
 

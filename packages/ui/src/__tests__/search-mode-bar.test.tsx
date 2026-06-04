@@ -340,6 +340,25 @@ describe('SearchModeBar', () => {
     expect(screen.queryByRole('button', { name: /search options/i })).not.toBeInTheDocument();
   });
 
+  it('closes the advanced-options popover when the search panel collapses', () => {
+    // The popover content portals to document.body, so if the panel collapses
+    // while it is open the floating panel would linger over a hidden trigger.
+    const onAdvancedOptionsOpenChange = vi.fn();
+    const props = {
+      advancedOptions: <div data-testid="advanced-options-slot" />,
+      advancedOptionsOpen: true,
+      onAdvancedOptionsOpenChange,
+    };
+    const { rerender } = render(
+      <SearchModeBar {...createProps({ ...props, isSearchExpanded: true })} />
+    );
+    expect(onAdvancedOptionsOpenChange).not.toHaveBeenCalled();
+
+    rerender(<SearchModeBar {...createProps({ ...props, isSearchExpanded: false })} />);
+
+    expect(onAdvancedOptionsOpenChange).toHaveBeenCalledWith(false);
+  });
+
   describe('single-line constraint for semantic query input', () => {
     it('uses a fixed-height input for long natural-language queries', () => {
       render(
