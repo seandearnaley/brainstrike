@@ -4,9 +4,32 @@ import {
   computeCosineSimilarity,
   computeOverfetchLimit,
   cosineToSearchSimilarity,
+  FILE_CHUNK_SELECT_COLUMNS,
+  FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
   MAX_OVERFETCH_LIMIT,
   parseEmbeddingLoose,
 } from '../src/repositories/_shared';
+
+describe('file_chunks column projections', () => {
+  it('keeps full and dims-only lists identical except the embedding column', () => {
+    expect(FILE_CHUNK_SELECT_COLUMNS).toContain('embedding::text AS embedding');
+    expect(FILE_CHUNK_SELECT_COLUMNS).not.toContain('vector_dims');
+
+    expect(FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY).toContain(
+      'vector_dims(embedding) AS embedding_dims'
+    );
+    expect(FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY).not.toContain('embedding::text');
+
+    // The two lists must differ ONLY in the embedding projection term — swapping
+    // it back yields the full list. Guards against the column sets drifting.
+    expect(
+      FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY.replace(
+        'vector_dims(embedding) AS embedding_dims',
+        'embedding::text AS embedding'
+      )
+    ).toBe(FILE_CHUNK_SELECT_COLUMNS);
+  });
+});
 
 describe('computeOverfetchLimit', () => {
   it('overfetches 10x the requested limit to improve rank quality', () => {

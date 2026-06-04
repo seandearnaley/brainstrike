@@ -25,6 +25,8 @@ import {
 } from '../../schema/index.js';
 import {
   computeOverfetchLimit,
+  FILE_CHUNK_SELECT_COLUMNS,
+  FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
 } from '../_shared.js';
@@ -79,17 +81,17 @@ function validateDimension(dimension: number, context: string): void {
  * — the executor clamps requested limits to that ceiling and hybrid sizes its
  * source pools up to it, so a smaller cap here would make web search throw for
  * limits between the two. The cross-layer invariant is pinned by a test in
- * `@brainstrike/db-explorer` (result-limit-ceiling.test.ts). Large pools are
- * affordable because hybrid/vector source reads project the embedding vector
- * away (`includeEmbedding: false`), so a 2,000-row fan-out is cheap.
+ * `@brainstrike/db-explorer` (result-limit-ceiling.test.ts).
+ *
+ * NOTE: this hard reject lives ONLY on this (Drizzle/web) path. The PGlite and
+ * Electron repos deliberately do NOT replicate it — they bound work via the
+ * shared `computeOverfetchLimit` cap (<=10k rows) instead, because they also
+ * serve callers that legitimately set their own limit (e.g. the assistant RAG
+ * retrieval tool passes its own topK straight to `FileChunkRepository`). The UI
+ * search path is bounded on every platform by the executor's `clampResultLimit`;
+ * this throw is an extra backstop for the web repo, not a cross-platform rule.
  */
 export const MAX_SEARCH_RESULT_LIMIT = 2000;
-
-// Explicit column list that projects only the cheap dimension count
-// (vector_dims) instead of the full embedding vector — used by large fan-out
-// reads (e.g. hybrid RRF source pools) where the vector values are never used.
-const FILE_CHUNK_COLUMNS_DIMS_ONLY =
-  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, vector_dims(embedding) AS embedding_dims, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
 
 /**
  * Safely constructs a pgvector literal string from an embedding array.
@@ -417,7 +419,7 @@ export class DrizzleFileChunkRepository {
     // The vectorLiteral is safe because it was validated via validateEmbeddingVector()
     // Large fan-out reads can project the heavy embedding vector away (keeping
     // only its dimension count) — the distance math still runs in SQL.
-    const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_COLUMNS_DIMS_ONLY;
+    const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
     let baseQuery = sql`
       SELECT ${sql.raw(selectColumns)},
         ${sql.raw(similarityExpr.replace(/\$1/g, `'${vectorLiteral}'`))} as similarity,
@@ -524,14 +526,12 @@ export class DrizzleFileChunkRepository {
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
 
     // Build WHERE clause dynamically
-    const ftsEmbeddingColumn = includeEmbedding
-      ? 'embedding::text AS embedding'
-      : 'vector_dims(embedding) AS embedding_dims';
+    const ftsColumns = includeEmbedding
+      ? FILE_CHUNK_SELECT_COLUMNS
+      : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
     let baseQuery = sql`
       SELECT
-        id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, ${sql.raw(ftsEmbeddingColumn)},
-        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ${sql.raw(ftsColumns)},
         ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
         ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,

@@ -286,6 +286,26 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
   }
 }
 
+// Shared file_chunks column projections for read queries. Single source of truth
+// so a schema change can't desync one platform — these go through sql.raw /
+// string interpolation, so a stale per-repo copy would fail only at query time
+// on that one platform, not at type-check.
+const FILE_CHUNK_COLUMNS_BEFORE_EMBEDDING =
+  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset';
+const FILE_CHUNK_COLUMNS_AFTER_EMBEDDING =
+  'embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
+
+/** Full file_chunks column list, serializing the embedding vector to text. */
+export const FILE_CHUNK_SELECT_COLUMNS = `${FILE_CHUNK_COLUMNS_BEFORE_EMBEDDING}, embedding::text AS embedding, ${FILE_CHUNK_COLUMNS_AFTER_EMBEDDING}`;
+
+/**
+ * Same columns, but projecting only the cheap dimension count
+ * (`vector_dims(embedding)`) instead of the heavy embedding vector — for large
+ * fan-out search reads (e.g. hybrid RRF source pools) that never use the vector
+ * values, only ids, scores, and the dimension count.
+ */
+export const FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY = `${FILE_CHUNK_COLUMNS_BEFORE_EMBEDDING}, vector_dims(embedding) AS embedding_dims, ${FILE_CHUNK_COLUMNS_AFTER_EMBEDDING}`;
+
 /**
  * Maximum number of candidate rows a similarity search may overfetch before
  * ranking + cutting to the requested limit. Bounds worst-case materialization

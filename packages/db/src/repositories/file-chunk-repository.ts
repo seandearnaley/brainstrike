@@ -15,6 +15,8 @@ import {
   batchArray,
   computeOverfetchLimit,
   createUpdateBuilder,
+  FILE_CHUNK_SELECT_COLUMNS,
+  FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
@@ -62,16 +64,6 @@ interface FileChunkStatsRow {
   total_chunks: string;
   type_count: string;
 }
-
-const FILE_CHUNK_SELECT_COLUMNS =
-  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
-
-// Same columns as FILE_CHUNK_SELECT_COLUMNS, but projecting only the cheap
-// dimension count (vector_dims) instead of serializing the full embedding
-// vector. Used by large fan-out search reads (e.g. hybrid RRF source pools)
-// where the vector values are never used — only ids, scores, and the dim count.
-const FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY =
-  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, vector_dims(embedding) AS embedding_dims, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
 
 export class FileChunkRepository {
   constructor(private readonly db: PGlite) {}
@@ -558,9 +550,7 @@ export class FileChunkRepository {
     // Execute search query with ts_rank for relevance scoring
     const result = await this.db.query(
       `SELECT
-        id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, ${includeEmbedding ? 'embedding::text AS embedding' : 'vector_dims(embedding) AS embedding_dims'},
-        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
         ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
         ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
