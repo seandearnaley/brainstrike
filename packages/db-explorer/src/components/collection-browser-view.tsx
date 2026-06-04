@@ -294,6 +294,31 @@ function buildSelectedNodeData(
   }
 }
 
+/** File-list pagination footer. Extracted so the collection browser stays under
+ * the cognitive-complexity budget and the pager's page math lives in one place. */
+function CollectionBrowserPaginationFooter({
+  pagination,
+}: {
+  pagination: CollectionBrowserPaginationState;
+}) {
+  return (
+    <TablePagination
+      currentPage={pagination.currentPage}
+      onPageChange={pagination.onPageChange}
+      onPageSizeChange={pagination.onPageSizeChange}
+      pageInfo="files"
+      pageSize={pagination.pageSize}
+      pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
+      showItemRange
+      totalItems={pagination.totalRecords}
+      totalPages={Math.max(
+        1,
+        Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize))
+      )}
+    />
+  );
+}
+
 /**
  * CollectionBrowserView - Connects CollectionBrowser to database data
  */
@@ -664,6 +689,11 @@ export function CollectionBrowserView({
 
   const hasActiveCollection = activeCollectionId !== null;
   const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
+  // In semantic/hybrid search mode the tree is built from the bounded search-result
+  // set (not the paginated file list), so the file-list pager is meaningless here:
+  // paging it only refetches `records` (a loading flash) without changing what is
+  // shown. Hide it while scoped search results are on screen.
+  const isShowingSemanticResults = searchMode === 'semantic' && hasScopedSemanticSearch;
   const scopedSearchResults = useMemo(() => {
     if (activeCollectionId === null) {
       return [];
@@ -1205,22 +1235,8 @@ export function CollectionBrowserView({
         </Group>
       </div>
 
-      {pagination && (
-        <TablePagination
-          currentPage={pagination.currentPage}
-          onPageChange={pagination.onPageChange}
-          onPageSizeChange={pagination.onPageSizeChange}
-          pageInfo="files"
-          pageSize={pagination.pageSize}
-          pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
-          showItemRange
-          totalItems={pagination.totalRecords}
-          totalPages={
-            pagination
-              ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
-              : 1
-          }
-        />
+      {pagination && !isShowingSemanticResults && (
+        <CollectionBrowserPaginationFooter pagination={pagination} />
       )}
 
       {/* Context menu (positioned at right-click location) */}
