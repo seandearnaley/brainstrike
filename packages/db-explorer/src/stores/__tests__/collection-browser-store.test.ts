@@ -32,7 +32,6 @@ describe('CollectionBrowserStore', () => {
       expect(state.searchConfigRetrievalMode).toBe('vector');
       expect(state.searchConfigVectorWeight).toBe(1.0);
       expect(state.searchConfigFtsWeight).toBe(1.0);
-      expect(state.searchConfigExpanded).toBe(false);
       expect(state.groupBy).toBe('none');
       expect(state.showCheckbox).toBe(false);
       expect(state.multiSelectEnabled).toBe(false);
@@ -260,11 +259,6 @@ describe('CollectionBrowserStore', () => {
     it('setSearchConfigFtsWeight updates weight', () => {
       useCollectionBrowserStore.getState().setSearchConfigFtsWeight(1.5);
       expect(useCollectionBrowserStore.getState().searchConfigFtsWeight).toBe(1.5);
-    });
-
-    it('setSearchConfigExpanded updates expanded state', () => {
-      useCollectionBrowserStore.getState().setSearchConfigExpanded(true);
-      expect(useCollectionBrowserStore.getState().searchConfigExpanded).toBe(true);
     });
   });
 

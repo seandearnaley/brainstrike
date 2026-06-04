@@ -33,8 +33,6 @@ interface CollectionBrowserData {
   nodeTypes: string[];
   /** Semantic search distance metric */
   searchConfigDistanceMetric: DistanceMetric;
-  /** Whether the search config panel is expanded */
-  searchConfigExpanded: boolean;
   /** Hybrid search FTS weight (0-2) */
   searchConfigFtsWeight: number;
   /** Semantic search result limit */
@@ -90,8 +88,6 @@ interface CollectionBrowserActions {
   setNodeTypes: (types: string[]) => void;
   /** Set semantic search distance metric */
   setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
-  /** Set search config panel expanded state */
-  setSearchConfigExpanded: (expanded: boolean) => void;
   /** Set hybrid search FTS weight */
   setSearchConfigFtsWeight: (weight: number) => void;
   /** Set semantic search result limit */
@@ -154,7 +150,6 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigRetrievalMode: 'vector',
   searchConfigVectorWeight: 1.0,
   searchConfigFtsWeight: 1.0,
-  searchConfigExpanded: false,
   searchPanelExpanded: false,
   groupBy: 'none',
   showCheckbox: false,
@@ -304,8 +299,6 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setSearchConfigFtsWeight: (weight) => set({ searchConfigFtsWeight: weight }),
 
-      setSearchConfigExpanded: (expanded) => set({ searchConfigExpanded: expanded }),
-
       setSearchPanelExpanded: (expanded) => set({ searchPanelExpanded: expanded }),
 
       setGroupBy: (groupBy) => set({ groupBy }),
@@ -341,7 +334,6 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigRetrievalMode: s.searchConfigRetrievalMode,
         searchConfigVectorWeight: s.searchConfigVectorWeight,
         searchConfigFtsWeight: s.searchConfigFtsWeight,
-        searchConfigExpanded: s.searchConfigExpanded,
         searchPanelExpanded: s.searchPanelExpanded,
         // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
@@ -378,7 +370,6 @@ export const collectionBrowserSelectors = {
     vectorWeight: s.searchConfigVectorWeight,
     ftsWeight: s.searchConfigFtsWeight,
   }),
-  searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   searchPanelExpanded: (s: CollectionBrowserStore) => s.searchPanelExpanded,
   groupBy: (s: CollectionBrowserStore) => s.groupBy,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
