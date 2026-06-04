@@ -46,10 +46,13 @@ const RESULT_LIMIT_MIN = 1;
 const RESULT_LIMIT_MAX = 10_000;
 const RESULT_LIMIT_LARGE = 1000;
 
-const ROW = 'flex items-center gap-2';
+const ROW = 'flex min-w-0 items-center gap-2';
 const ROW_LABEL = 'min-w-[56px] shrink-0 text-[10px] text-muted-foreground';
-const RANGE_INPUT = 'h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary';
-const VALUE_TEXT = 'shrink-0 font-mono text-[10px] text-primary';
+// `min-w-0` is essential: native range inputs report an intrinsic width, so
+// without it `flex-1` can't shrink them and they overflow the narrow popover.
+const RANGE_INPUT =
+  'h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary';
+const VALUE_TEXT = 'shrink-0 text-right font-mono text-[10px] text-primary';
 
 /**
  * SearchConfigPanel - pure search-tuning controls (no self-managed accordion).
@@ -164,11 +167,13 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         </fieldset>
       </div>
 
-      {/* Weight sliders (hybrid only) */}
+      {/* Weight sliders (hybrid only). Stacked vertically so each gets the full
+          track width — two side-by-side sliders don't fit a narrow popover. */}
       {isHybridMode && (
-        <div className="flex items-center gap-3 rounded-md bg-muted/30 px-2 py-1.5">
-          <div className="flex flex-1 items-center gap-2">
+        <div className="space-y-1.5 rounded-md bg-muted/30 px-2 py-1.5">
+          <div className={ROW}>
             <Zap className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="w-14 shrink-0 text-[10px] text-muted-foreground">Semantic</span>
             <input
               aria-label="Semantic search weight"
               className={RANGE_INPUT}
@@ -176,14 +181,14 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
               min="0"
               onChange={handleVectorWeightChange}
               step="0.1"
-              title={`Semantic: ${(config.vectorWeight ?? 1.0).toFixed(1)}`}
               type="range"
               value={config.vectorWeight ?? 1.0}
             />
             <span className={cn(VALUE_TEXT, 'w-6')}>{(config.vectorWeight ?? 1.0).toFixed(1)}</span>
           </div>
-          <div className="flex flex-1 items-center gap-2">
+          <div className={ROW}>
             <Sparkles className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="w-14 shrink-0 text-[10px] text-muted-foreground">Keyword</span>
             <input
               aria-label="Keyword search weight"
               className={RANGE_INPUT}
@@ -191,7 +196,6 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
               min="0"
               onChange={handleFtsWeightChange}
               step="0.1"
-              title={`Keyword: ${(config.ftsWeight ?? 1.0).toFixed(1)}`}
               type="range"
               value={config.ftsWeight ?? 1.0}
             />
@@ -237,8 +241,8 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
           />
         </div>
 
-        <div className="flex flex-1 items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 text-[10px] text-muted-foreground">
             Metric
             {metricMismatch && (
               <span

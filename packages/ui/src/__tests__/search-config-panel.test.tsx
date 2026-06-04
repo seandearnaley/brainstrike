@@ -82,6 +82,38 @@ describe('SearchConfigPanel', () => {
     expect(screen.getByLabelText('Keyword search weight')).toBeInTheDocument();
   });
 
+  it('lets every range slider shrink to fit so it cannot overflow the popover (min-w-0)', () => {
+    // Regression guard for the flexbox min-width:auto trap: native range inputs
+    // report an intrinsic width, so without min-w-0 a flex-1 slider refuses to
+    // shrink and spills out of the narrow cog popover.
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), retrievalMode: 'hybrid' } })}
+      />
+    );
+    const sliders = [
+      screen.getByLabelText('Threshold'),
+      screen.getByLabelText('Semantic search weight'),
+      screen.getByLabelText('Keyword search weight'),
+    ];
+    for (const slider of sliders) {
+      expect(slider).toHaveClass('min-w-0');
+      expect(slider).toHaveClass('flex-1');
+    }
+  });
+
+  it('stacks the hybrid weight sliders as full-width labeled rows', () => {
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), retrievalMode: 'hybrid' } })}
+      />
+    );
+    // Each weight is its own row with a visible label so it gets the full track
+    // width instead of two half-width sliders fighting for space.
+    expect(screen.getByText('Semantic')).toBeInTheDocument();
+    expect(screen.getByText('Keyword')).toBeInTheDocument();
+  });
+
   it('calls onConfigChange when vector weight changes', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(
