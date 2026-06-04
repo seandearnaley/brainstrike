@@ -143,6 +143,25 @@ describe('HybridSearchService', () => {
       );
     });
 
+    it('keeps FTS headlines on by default but lets a caller skip them for the source pool', async () => {
+      mockRepository.searchSimilar.mockResolvedValue([]);
+      mockRepository.fullTextSearch.mockResolvedValue([]);
+
+      // Default: headlines stay on (the agent RAG tool surfaces them as snippets).
+      await service.search('q', [0.1], { embeddingSetId: 'test-set' });
+      expect(mockRepository.fullTextSearch).toHaveBeenLastCalledWith(
+        'q',
+        expect.objectContaining({ includeHeadline: true })
+      );
+
+      // Opt-out: the costly per-row ts_headline is skipped for the source pool.
+      await service.search('q', [0.1], { embeddingSetId: 'test-set', includeHeadline: false });
+      expect(mockRepository.fullTextSearch).toHaveBeenLastCalledWith(
+        'q',
+        expect.objectContaining({ includeHeadline: false })
+      );
+    });
+
     it('should preserve vector similarity scores in results', async () => {
       mockRepository.searchSimilar.mockResolvedValue([
         createVectorResult('doc1', 'vector content', 0.92),

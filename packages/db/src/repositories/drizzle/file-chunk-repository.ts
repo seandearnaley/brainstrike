@@ -505,6 +505,7 @@ export class DrizzleFileChunkRepository {
       language = 'english',
       rankNormalization = 0,
       includeEmbedding = true,
+      includeHeadline = true,
     } = options;
 
     // Validate query
@@ -529,12 +530,16 @@ export class DrizzleFileChunkRepository {
     const ftsColumns = includeEmbedding
       ? FILE_CHUNK_SELECT_COLUMNS
       : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
+    // ts_headline is costly per row; skip it when the caller won't render it.
+    const headlineColumn = includeHeadline
+      ? sql`ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
+      : sql``;
     let baseQuery = sql`
       SELECT
         ${sql.raw(ftsColumns)},
         ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
-        ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
-          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ${headlineColumn}
         ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) DESC) as position
       FROM file_chunks
       WHERE content_tsvector IS NOT NULL

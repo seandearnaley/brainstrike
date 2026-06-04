@@ -66,6 +66,15 @@ export interface HybridSearchOptions {
    * needs the vector back on hybrid results can opt in with `true`.
    */
   includeEmbedding?: boolean;
+  /**
+   * Whether the FTS source read generates per-row `ts_headline` snippets.
+   * Defaults to `true` (snippets available on results). A caller that won't
+   * render the snippet — e.g. the hybrid UI search path — can pass `false` to
+   * skip generating headlines for the whole candidate pool (only the final
+   * survivors would ever show one), avoiding a costly ~per-row operation at
+   * large `ftsLimit`.
+   */
+  includeHeadline?: boolean;
   /** Maximum number of final results to return (default: 10) */
   limit?: number;
   /** Minimum sources required for result inclusion (default: 1) */
@@ -194,6 +203,8 @@ export class HybridSearchService {
       ftsLanguage = 'english',
       // Default to projecting the embedding vector away (see HybridSearchOptions).
       includeEmbedding = false,
+      // Default to generating FTS headlines (callers that won't render them opt out).
+      includeHeadline = true,
       // Common filters
       fileRecordId,
       chunkType,
@@ -235,6 +246,7 @@ export class HybridSearchService {
       queryMode: ftsQueryMode,
       language: ftsLanguage,
       includeEmbedding,
+      includeHeadline,
     };
     if (fileRecordId !== undefined) {
       ftsSearchOptions.fileRecordId = fileRecordId;

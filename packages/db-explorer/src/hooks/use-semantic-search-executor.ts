@@ -387,6 +387,9 @@ async function executeHybridSearch(
     // below the default — RRF needs a candidate pool larger than the final cut.
     vectorLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
     ftsLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
+    // The search UI doesn't render FTS headlines, so skip the costly per-row
+    // ts_headline generation across the (up to 2,000-row) FTS source pool.
+    includeHeadline: false,
     vectorThreshold: config.threshold,
     embeddingSetId,
     vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,

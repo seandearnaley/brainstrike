@@ -588,6 +588,29 @@ describe('useSemanticSearchExecutor', () => {
     expect(results[0]?.embeddingDimensions).toBe(1024);
   });
 
+  it('skips FTS headline generation on the hybrid UI path (headlines are not rendered)', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 20, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    // ts_headline is one of Postgres's costliest functions and the UI never
+    // renders the headline, so the hybrid source-pool FTS read must skip it.
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ includeHeadline: false })
+    );
+  });
+
   describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');

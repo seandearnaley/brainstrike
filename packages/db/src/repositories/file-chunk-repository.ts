@@ -503,6 +503,7 @@ export class FileChunkRepository {
       language = 'english',
       rankNormalization = 0,
       includeEmbedding = true,
+      includeHeadline = true,
     } = options;
 
     // Validate query
@@ -552,8 +553,12 @@ export class FileChunkRepository {
       `SELECT
         ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
         ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
-        ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
-          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ${
+          includeHeadline
+            ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
+            : ''
+        }
         ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC) as position
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
@@ -573,12 +578,15 @@ export class FileChunkRepository {
         continue;
       }
 
-      results.push({
+      const ftsResult: FTSSearchResult = {
         chunk: this.mapRowToChunk(ftsRow),
         rank,
         position: Number.parseInt(ftsRow.position, 10),
-        headline: ftsRow.headline,
-      });
+      };
+      if (ftsRow.headline) {
+        ftsResult.headline = ftsRow.headline;
+      }
+      results.push(ftsResult);
     }
 
     return results;

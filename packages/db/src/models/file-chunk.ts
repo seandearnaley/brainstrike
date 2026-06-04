@@ -116,6 +116,14 @@ export interface FTSSearchOptions {
    * Default `true` (full vector returned).
    */
   includeEmbedding?: boolean;
+  /**
+   * When `false`, skips per-row `ts_headline()` generation (one of Postgres's
+   * costliest functions). Use for large fan-out reads whose consumer won't
+   * render the highlighted snippet (e.g. the hybrid UI source pool), where
+   * generating a headline for every candidate is wasted work.
+   * Default `true` (headline generated).
+   */
+  includeHeadline?: boolean;
   /** Text search configuration/language (default: 'english') */
   language?: string;
   /** Maximum number of results to return (default: 10) */
