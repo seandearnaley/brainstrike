@@ -507,6 +507,56 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
+  it('clamps an over-ceiling resultLimit so hybrid fan-out stays bounded (defense-in-depth)', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    // The 2,000 ceiling is enforced in the UI input, but a persisted or
+    // programmatic resultLimit above it must not size both source pools
+    // unbounded where the fan-out actually happens. The executor clamps to
+    // RESULT_LIMIT_MAX (2000) at the source of truth.
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 5000, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 2000 })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ limit: 2000 })
+    );
+  });
+
+  it('clamps an over-ceiling resultLimit for vector-only search too', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 5000, retrievalMode: 'vector' }),
+      'set-1'
+    );
+
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 2000 })
+    );
+  });
+
   describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');

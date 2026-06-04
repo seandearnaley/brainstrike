@@ -16,6 +16,12 @@ import { Input } from '../input';
 import { cn } from '../lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import {
+  clampResultLimit,
+  RESULT_LIMIT_LARGE,
+  RESULT_LIMIT_MAX,
+  RESULT_LIMIT_MIN,
+} from './search-config-bounds';
 import type { DistanceMetric, RetrievalMode, SearchConfigPanelProps } from './types';
 
 const DISTANCE_METRICS: Array<{ value: DistanceMetric; label: string; tooltip: string }> = [
@@ -38,14 +44,6 @@ const RETRIEVAL_MODES: Array<{
     icon: 'Sparkles',
   },
 ];
-
-/** Result-limit bounds. The picker is free-form so users can pull thousands of
- * hits; we clamp to a sane window and warn past LARGE so large rank passes are
- * an informed choice. The ceiling bounds hybrid fan-out — each RRF source pool
- * is sized to the limit, so the worst case fuses ~2× this many candidates. */
-const RESULT_LIMIT_MIN = 1;
-const RESULT_LIMIT_MAX = 2000;
-const RESULT_LIMIT_LARGE = 1000;
 
 const ROW = 'flex min-w-0 items-center gap-2';
 const ROW_LABEL = 'min-w-[56px] shrink-0 text-[10px] text-muted-foreground';
@@ -93,7 +91,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
     if (Number.isNaN(parsed)) {
       return;
     }
-    const clamped = Math.min(RESULT_LIMIT_MAX, Math.max(RESULT_LIMIT_MIN, parsed));
+    const clamped = clampResultLimit(parsed);
     if (clamped !== config.resultLimit) {
       onConfigChange({ ...config, resultLimit: clamped });
     }

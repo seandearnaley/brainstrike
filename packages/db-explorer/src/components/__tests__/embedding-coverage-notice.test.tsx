@@ -40,7 +40,7 @@ describe('EmbeddingCoverageNotice', () => {
     expect(screen.getByText(/2 files/i)).toBeInTheDocument();
   });
 
-  it('keeps actionable warning states salient (toned text, not muted) with a title fallback', () => {
+  it('keeps actionable warning states salient (toned text, not muted)', () => {
     render(
       <EmbeddingCoverageNotice
         collectionName="Code"
@@ -57,11 +57,9 @@ describe('EmbeddingCoverageNotice', () => {
     // a tiny icon's color alone to signal an actionable state).
     expect(message.className).toMatch(/text-amber/);
     expect(message.className).not.toMatch(/text-muted-foreground/);
-    // A truncated warning must stay recoverable on hover.
-    expect(message).toHaveAttribute('title', expect.stringMatching(/needs re-indexing/i));
   });
 
-  it('keeps the dropped remediation guidance recoverable in the title for needs_reindex', () => {
+  it('renders needs_reindex remediation as VISIBLE text (reachable without hover), not title-only', () => {
     render(
       <EmbeddingCoverageNotice
         collectionName="Code"
@@ -74,15 +72,15 @@ describe('EmbeddingCoverageNotice', () => {
       />
     );
     const message = screen.getByText(/needs re-indexing/i);
-    // Visible line stays compact...
-    expect(message).toHaveTextContent(/needs re-indexing · 2 files pending/i);
-    // ...but the title carries the "what to do" the compact line drops, so the
-    // tooltip adds value instead of just duplicating the visible text.
-    expect(message.getAttribute('title')).toMatch(/re-import|run indexing/i);
-    expect(message.getAttribute('title')).not.toBe(message.textContent);
+    // The "what to do" must be visible (keyboard/touch users can't trigger a
+    // native title tooltip), so it lives in the rendered text, not just `title`.
+    expect(message).toHaveTextContent(/re-import|run indexing/i);
+    // ...and the actionable line is not truncate-clipped (it wraps so the
+    // guidance stays fully readable).
+    expect(message.className).not.toMatch(/\btruncate\b/);
   });
 
-  it('explains the search impact of partial source ranges in the title', () => {
+  it('renders the search impact of partial source ranges as visible text', () => {
     render(
       <EmbeddingCoverageNotice
         coverage={{
@@ -95,7 +93,8 @@ describe('EmbeddingCoverageNotice', () => {
       />
     );
     const message = screen.getByText(/missing source ranges/i);
-    expect(message.getAttribute('title')).toMatch(/semantic search may skip|re-chunk/i);
+    expect(message).toHaveTextContent(/semantic search may skip|re-chunk/i);
+    expect(message.className).not.toMatch(/\btruncate\b/);
   });
 
   it('keeps the healthy state calm (muted text)', () => {

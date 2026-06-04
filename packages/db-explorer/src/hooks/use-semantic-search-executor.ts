@@ -29,7 +29,7 @@ import {
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
+import { clampResultLimit, type SearchConfig, type SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
@@ -742,14 +742,23 @@ export function useSemanticSearchExecutor({
       }
       logger.info('Query embedding generated', { embeddingLength: embedding.length });
 
+      // Defense-in-depth: the result-limit ceiling is enforced in the UI input,
+      // but a persisted or programmatic resultLimit must not size the hybrid
+      // source-pool fan-out unbounded here, where the cost is actually paid.
+      // Clamp at the source of truth so the bound lives where it matters.
+      const safeConfig: SearchConfig = {
+        ...config,
+        resultLimit: clampResultLimit(config.resultLimit),
+      };
+
       // Build retrieval filter options (BST-172, BST-175)
-      const filterOptions = buildRetrievalFilterOptions(config);
-      const retrievalMode = config.retrievalMode ?? 'hybrid';
+      const filterOptions = buildRetrievalFilterOptions(safeConfig);
+      const retrievalMode = safeConfig.retrievalMode ?? 'hybrid';
 
       logger.info('Searching for similar chunks...', {
         retrievalMode,
-        hasFilePaths: Boolean(config.filePaths?.length),
-        hasSnapshotId: Boolean(config.selectionSnapshotId),
+        hasFilePaths: Boolean(safeConfig.filePaths?.length),
+        hasSnapshotId: Boolean(safeConfig.selectionSnapshotId),
         filterMode: getFilterModeLabel(filterOptions),
       });
 
@@ -758,7 +767,7 @@ export function useSemanticSearchExecutor({
         return executeHybridSearch(
           query,
           embedding,
-          config,
+          safeConfig,
           embeddingSetId,
           filterOptions,
           chunkRepository,
@@ -769,7 +778,7 @@ export function useSemanticSearchExecutor({
       // Vector-only search (default)
       return executeVectorSearch(
         embedding,
-        config,
+        safeConfig,
         embeddingSetId,
         filterOptions,
         chunkRepository,

@@ -107,7 +107,7 @@ function buildNoticeCopy(
     case 'partial_source_ranges':
       return {
         message: `${missing} chunk${chunkPlural} missing source ranges`,
-        detail: `${missing} chunk${chunkPlural} missing source line metadata. Semantic search may skip those hits until they are re-chunked.`,
+        detail: `${missing} chunk${chunkPlural} missing source ranges. Semantic search may skip those hits until they are re-chunked.`,
       };
     case 'fully_indexed': {
       const message = `Fully indexed · ${chunks} chunk${coverage.totalChunks === 1 ? '' : 's'} / ${files} file${coverage.totalFiles === 1 ? '' : 's'}`;
@@ -172,17 +172,28 @@ export function EmbeddingCoverageNotice({
     tone === 'indexing' ? ' animate-spin' : ''
   }`;
 
+  // Actionable (warning) states carry remediation the user must act on. Native
+  // `title` tooltips are hover-only — unreachable by keyboard and touch — so the
+  // guidance is rendered VISIBLY (wraps, never truncated) for warnings. The
+  // non-actionable healthy/indexing states stay a compact, truncating strip with
+  // the full text recoverable via `title` for the rare overflow case.
+  const isActionable = tone === 'warning';
+
   return (
     <div
-      className="flex items-center gap-1.5 text-xs"
+      className={`flex gap-1.5 text-xs ${isActionable ? 'items-start' : 'items-center'}`}
       data-coverage-status={indexingActive ? 'indexing' : coverage.status}
       data-testid="embedding-coverage-notice"
       role="status"
     >
       <Icon aria-hidden className={iconClass} />
-      <span className={`min-w-0 truncate ${TONE_TEXT_CLASS[tone]}`} title={detail}>
-        {message}
-      </span>
+      {isActionable ? (
+        <span className={`min-w-0 ${TONE_TEXT_CLASS[tone]}`}>{detail}</span>
+      ) : (
+        <span className={`min-w-0 truncate ${TONE_TEXT_CLASS[tone]}`} title={detail}>
+          {message}
+        </span>
+      )}
     </div>
   );
 }
