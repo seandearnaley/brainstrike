@@ -319,6 +319,16 @@ export const MAX_OVERFETCH_LIMIT = 10_000;
  * limit (better rank quality), floored at 100 and capped at
  * {@link MAX_OVERFETCH_LIMIT}. Shared by all repositories so the bound is
  * symmetric across the Drizzle/PGlite/Electron platforms.
+ *
+ * INTENTIONAL BOUND, NOT A SILENT FALLBACK: because the candidate pool is capped
+ * here and `searchSimilar` finishes with `slice(0, limit)`, a `limit` ABOVE
+ * {@link MAX_OVERFETCH_LIMIT} (10k) receives at most that many rows. The UI
+ * search path is clamped to the 2,000 product ceiling (`RESULT_LIMIT_MAX` in
+ * `@brainstrike/ui`), far under the cap, so this only affects a non-UI caller
+ * deliberately requesting >10k results (e.g. an oversized RAG topK) — and 10k
+ * local candidates is already an extreme fan-out. For `limit <= 10k` the
+ * returned count is unaffected; `1k < limit <= 10k` only trades some
+ * oversampling headroom.
  */
 export function computeOverfetchLimit(limit: number): number {
   return Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
