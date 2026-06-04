@@ -40,6 +40,13 @@ const logger = createLogger('SemanticSearchExecutor');
 const DEFAULT_VECTOR_WEIGHT = 1.0;
 /** Default weight for FTS in hybrid mode */
 const DEFAULT_FTS_WEIGHT = 1.0;
+/**
+ * Floor for each RRF source pool, matching HybridSearchService's historical
+ * 50/50 default. RRF reranks best when the candidate pool is larger than the
+ * final cut, so we grow the pools to honor large limits but never shrink below
+ * this — a small resultLimit (e.g. the default 20) must still oversample.
+ */
+const HYBRID_MIN_SOURCE_POOL = 50;
 
 // `runtime` lets the visibility-change handler avoid disposing embedders
 // that can't suffer GPUDevice loss (hosted providers have no local model,
@@ -363,10 +370,11 @@ async function executeHybridSearch(
     limit: config.resultLimit,
     // RRF fusion can only emit as many unique hits as the union of its source
     // pools holds. The service defaults both pools to 50, which silently caps
-    // hybrid results at ~100 regardless of `limit`. Size each pool to the
-    // requested limit so a large resultLimit is actually reachable.
-    vectorLimit: config.resultLimit,
-    ftsLimit: config.resultLimit,
+    // hybrid results at ~100 regardless of `limit`. Grow each pool to the
+    // requested limit so a large resultLimit is reachable, but never shrink
+    // below the default — RRF needs a candidate pool larger than the final cut.
+    vectorLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
+    ftsLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
     vectorThreshold: config.threshold,
     embeddingSetId,
     vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,

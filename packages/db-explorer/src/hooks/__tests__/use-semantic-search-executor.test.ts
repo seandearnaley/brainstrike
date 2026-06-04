@@ -479,6 +479,34 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
+  it('never shrinks hybrid source pools below the service default for small limits', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    // The default resultLimit (20) is below the service's 50/50 default. RRF
+    // reranks best with a candidate pool larger than the final cut, so the pools
+    // must stay at >=50, not shrink to the small limit.
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 20, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 50 })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ limit: 50 })
+    );
+  });
+
   describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');
