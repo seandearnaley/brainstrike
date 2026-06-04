@@ -53,7 +53,7 @@ describe('EmbeddingCoverageNotice', () => {
       />
     );
 
-    expect(screen.getByText(/5 chunks missing source line metadata/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 chunks missing source ranges/i)).toBeInTheDocument();
   });
 
   it('shows fully indexed state', () => {
@@ -69,8 +69,26 @@ describe('EmbeddingCoverageNotice', () => {
       />
     );
 
-    expect(screen.getByText(/fully indexed with line-aware chunk metadata/i)).toBeInTheDocument();
-    expect(screen.getByText(/40 chunks across 4 files/i)).toBeInTheDocument();
+    // Compact single-line copy: "Fully indexed · 40 chunks / 4 files"
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveTextContent(/fully indexed/i);
+    expect(notice).toHaveTextContent(/40 chunks/i);
+    expect(notice).toHaveTextContent(/4 files/i);
+  });
+
+  it('renders the coverage notice as a single flat line (no nested card padding)', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Stable"
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 4, totalChunks: 40 }}
+      />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    // Flat row: no rounded "card" chrome (border/background/heavy padding).
+    expect(notice.className).not.toMatch(/\brounded-md\b/);
+    expect(notice.className).not.toMatch(/\bborder\b/);
+    expect(notice.className).toMatch(/\bitems-center\b/);
   });
 
   it('suppresses the re-index alarm and shows a stable indexing note while indexing is active', () => {

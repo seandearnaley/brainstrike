@@ -79,13 +79,20 @@ function buildNoticeMessage(
     return `${label} is indexing…`;
   }
 
+  const chunks = coverage.totalChunks.toLocaleString();
+  const files = coverage.totalFiles.toLocaleString();
+  const pending = coverage.pendingReindexFileCount.toLocaleString();
+  const missing = coverage.chunksMissingSourceRange.toLocaleString();
+
+  // Compact, single-line copy so the banner stays a thin status strip under the
+  // search bar instead of a multi-line card.
   switch (coverage.status) {
     case 'needs_reindex':
-      return `${label} needs re-indexing after the source line-range update. ${coverage.pendingReindexFileCount.toLocaleString()} file${coverage.pendingReindexFileCount === 1 ? '' : 's'} still have unprocessed chunks. Re-import or run indexing so retrieval can cite exact line ranges.`;
+      return `${label} needs re-indexing · ${pending} file${coverage.pendingReindexFileCount === 1 ? '' : 's'} pending`;
     case 'partial_source_ranges':
-      return `${label} has ${coverage.chunksMissingSourceRange.toLocaleString()} chunk${coverage.chunksMissingSourceRange === 1 ? '' : 's'} missing source line metadata. Semantic search may skip those hits until they are re-chunked.`;
+      return `${missing} chunk${coverage.chunksMissingSourceRange === 1 ? '' : 's'} missing source ranges`;
     case 'fully_indexed':
-      return `${label} is fully indexed with line-aware chunk metadata (${coverage.totalChunks.toLocaleString()} chunk${coverage.totalChunks === 1 ? '' : 's'} across ${coverage.totalFiles.toLocaleString()} file${coverage.totalFiles === 1 ? '' : 's'}).`;
+      return `Fully indexed · ${chunks} chunks / ${files} files`;
     default:
       return null;
   }
@@ -93,19 +100,16 @@ function buildNoticeMessage(
 
 type CoverageNoticeTone = 'indexing' | 'healthy' | 'warning';
 
-const TONE_CLASS: Record<CoverageNoticeTone, string> = {
-  indexing:
-    'rounded-md border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-sky-900 text-xs dark:text-sky-100',
-  healthy:
-    'rounded-md border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-emerald-900 text-xs dark:text-emerald-100',
-  warning:
-    'rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-amber-950 text-xs dark:text-amber-50',
-};
-
 const TONE_ICON: Record<CoverageNoticeTone, typeof CheckCircle2> = {
   indexing: Loader2,
   healthy: CheckCircle2,
   warning: AlertTriangle,
+};
+
+const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
+  indexing: 'text-sky-500',
+  healthy: 'text-emerald-500',
+  warning: 'text-amber-500',
 };
 
 function resolveTone(
@@ -119,8 +123,8 @@ function resolveTone(
 }
 
 /**
- * Surfaces collection-level embedding coverage: indexing-in-progress, re-index
- * required, partial skips, or healthy state.
+ * Surfaces collection-level embedding coverage as a thin single-line status:
+ * indexing-in-progress, re-index required, partial skips, or healthy state.
  */
 export function EmbeddingCoverageNotice({
   collectionName,
@@ -134,23 +138,19 @@ export function EmbeddingCoverageNotice({
 
   const tone = resolveTone(coverage.status, indexingActive);
   const Icon = TONE_ICON[tone];
+  const iconClass = `h-3.5 w-3.5 shrink-0 ${TONE_ICON_CLASS[tone]}${
+    tone === 'indexing' ? ' animate-spin' : ''
+  }`;
 
   return (
     <div
-      className={TONE_CLASS[tone]}
+      className="flex items-center gap-1.5 text-xs"
       data-coverage-status={indexingActive ? 'indexing' : coverage.status}
       data-testid="embedding-coverage-notice"
       role="status"
     >
-      <div className="flex items-start gap-2">
-        <Icon
-          aria-hidden
-          className={
-            tone === 'indexing' ? 'mt-0.5 h-4 w-4 shrink-0 animate-spin' : 'mt-0.5 h-4 w-4 shrink-0'
-          }
-        />
-        <p>{message}</p>
-      </div>
+      <Icon aria-hidden className={iconClass} />
+      <span className="truncate text-muted-foreground">{message}</span>
     </div>
   );
 }
@@ -182,7 +182,7 @@ export function CollectionEmbeddingCoverageBanner({
   }
 
   return (
-    <div className="border-border border-b px-3 py-2">
+    <div className="border-border border-b px-3 py-1.5">
       <EmbeddingCoverageNotice
         coverage={coverage}
         indexingActive={indexingActive}
