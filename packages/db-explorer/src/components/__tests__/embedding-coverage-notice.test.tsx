@@ -40,6 +40,37 @@ describe('EmbeddingCoverageNotice', () => {
     expect(screen.getByText(/2 files/i)).toBeInTheDocument();
   });
 
+  it('keeps actionable warning states salient (toned text, not muted) with a title fallback', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Code"
+        coverage={{
+          ...baseCoverage,
+          status: 'needs_reindex',
+          pendingReindexFileCount: 2,
+          totalFiles: 2,
+        }}
+      />
+    );
+    const message = screen.getByText(/needs re-indexing/i);
+    // Warning text must NOT read as the muted/healthy tone (WCAG: don't rely on
+    // a tiny icon's color alone to signal an actionable state).
+    expect(message.className).toMatch(/text-amber/);
+    expect(message.className).not.toMatch(/text-muted-foreground/);
+    // A truncated warning must stay recoverable on hover.
+    expect(message).toHaveAttribute('title', expect.stringMatching(/needs re-indexing/i));
+  });
+
+  it('keeps the healthy state calm (muted text)', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Stable"
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 4, totalChunks: 40 }}
+      />
+    );
+    expect(screen.getByText(/fully indexed/i).className).toMatch(/text-muted-foreground/);
+  });
+
   it('shows partial source-range skip counts', () => {
     render(
       <EmbeddingCoverageNotice

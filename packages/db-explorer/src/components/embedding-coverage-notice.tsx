@@ -112,6 +112,15 @@ const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
   warning: 'text-amber-500',
 };
 
+// Actionable warnings keep toned TEXT (not just a tiny colored icon) so they
+// stand out from the muted healthy/indexing states and don't rely on color
+// alone (WCAG). Healthy/indexing are non-actionable, so they stay calm.
+const TONE_TEXT_CLASS: Record<CoverageNoticeTone, string> = {
+  indexing: 'text-muted-foreground',
+  healthy: 'text-muted-foreground',
+  warning: 'text-amber-700 dark:text-amber-300',
+};
+
 function resolveTone(
   status: CollectionEmbeddingCoverageSnapshot['status'],
   indexingActive: boolean
@@ -150,7 +159,9 @@ export function EmbeddingCoverageNotice({
       role="status"
     >
       <Icon aria-hidden className={iconClass} />
-      <span className="min-w-0 truncate text-muted-foreground">{message}</span>
+      <span className={`min-w-0 truncate ${TONE_TEXT_CLASS[tone]}`} title={message}>
+        {message}
+      </span>
     </div>
   );
 }
