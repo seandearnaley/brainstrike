@@ -129,6 +129,14 @@ export interface HybridSearchResponse {
 }
 
 /**
+ * Default size of each RRF source pool (vector + FTS). Exported so callers that
+ * scale the pools to a requested limit can floor at this value without
+ * hand-duplicating the constant (RRF reranks best from a pool larger than the
+ * final cut).
+ */
+export const DEFAULT_HYBRID_SOURCE_LIMIT = 50;
+
+/**
  * Service for performing hybrid search combining vector and full-text search
  */
 export class HybridSearchService {
@@ -167,12 +175,12 @@ export class HybridSearchService {
       limit = 10,
       // Vector options
       vectorThreshold = 0.5,
-      vectorLimit = 50,
+      vectorLimit = DEFAULT_HYBRID_SOURCE_LIMIT,
       vectorWeight = 1.0,
       embeddingSetId,
       // FTS options
       ftsThreshold = 0,
-      ftsLimit = 50,
+      ftsLimit = DEFAULT_HYBRID_SOURCE_LIMIT,
       ftsWeight = 1.0,
       ftsQueryMode = 'websearch',
       ftsLanguage = 'english',

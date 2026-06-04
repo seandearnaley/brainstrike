@@ -14,7 +14,12 @@ import type {
   ElectronFileRecordRepository,
   HybridSearchResult,
 } from '@brainstrike/db';
-import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
+import {
+  createHybridSearchService,
+  DEFAULT_HYBRID_SOURCE_LIMIT,
+  normalizeRRFScores,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
@@ -41,12 +46,13 @@ const DEFAULT_VECTOR_WEIGHT = 1.0;
 /** Default weight for FTS in hybrid mode */
 const DEFAULT_FTS_WEIGHT = 1.0;
 /**
- * Floor for each RRF source pool, matching HybridSearchService's historical
- * 50/50 default. RRF reranks best when the candidate pool is larger than the
- * final cut, so we grow the pools to honor large limits but never shrink below
- * this — a small resultLimit (e.g. the default 20) must still oversample.
+ * Floor for each RRF source pool. Imported from the service (single source of
+ * truth) so it can't drift from the service's own default. RRF reranks best
+ * when the candidate pool is larger than the final cut, so we grow the pools to
+ * honor large limits but never shrink below this — a small resultLimit (e.g.
+ * the default 20) must still oversample.
  */
-const HYBRID_MIN_SOURCE_POOL = 50;
+const HYBRID_MIN_SOURCE_POOL = DEFAULT_HYBRID_SOURCE_LIMIT;
 
 // `runtime` lets the visibility-change handler avoid disposing embedders
 // that can't suffer GPUDevice loss (hosted providers have no local model,
