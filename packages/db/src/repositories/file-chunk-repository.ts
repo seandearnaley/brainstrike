@@ -13,6 +13,7 @@ import {
   appendColumn,
   appendColumnIfDefined,
   batchArray,
+  computeOverfetchLimit,
   createUpdateBuilder,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
@@ -434,8 +435,9 @@ export class FileChunkRepository {
       // ignored: tuning is best-effort
     }
 
-    // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks
-    const overfetchLimit = Math.max(limit * 10, 100);
+    // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks.
+    // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
+    const overfetchLimit = computeOverfetchLimit(limit);
     // Large fan-out reads can project the heavy embedding vector away (keeping
     // only its dimension count) — the distance math still runs in SQL.
     const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;

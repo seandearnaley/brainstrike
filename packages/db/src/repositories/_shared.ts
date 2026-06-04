@@ -287,6 +287,24 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
 }
 
 /**
+ * Maximum number of candidate rows a similarity search may overfetch before
+ * ranking + cutting to the requested limit. Bounds worst-case materialization
+ * so a large user limit (up to the 2,000 product ceiling) can't pull tens of
+ * thousands of rows into the renderer.
+ */
+export const MAX_OVERFETCH_LIMIT = 10_000;
+
+/**
+ * Compute the overfetch row count for a similarity search: 10× the requested
+ * limit (better rank quality), floored at 100 and capped at
+ * {@link MAX_OVERFETCH_LIMIT}. Shared by all repositories so the bound is
+ * symmetric across the Drizzle/PGlite/Electron platforms.
+ */
+export function computeOverfetchLimit(limit: number): number {
+  return Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
+}
+
+/**
  * Resolve a chunk's embedding dimension count from whichever the row carried.
  *
  * Prefers the loaded vector's length; falls back to the projected

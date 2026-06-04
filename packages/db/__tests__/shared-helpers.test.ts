@@ -2,9 +2,31 @@ import { describe, expect, it } from 'vitest';
 import {
   batchArray,
   computeCosineSimilarity,
+  computeOverfetchLimit,
   cosineToSearchSimilarity,
+  MAX_OVERFETCH_LIMIT,
   parseEmbeddingLoose,
 } from '../src/repositories/_shared';
+
+describe('computeOverfetchLimit', () => {
+  it('overfetches 10x the requested limit to improve rank quality', () => {
+    expect(computeOverfetchLimit(20)).toBe(200);
+    expect(computeOverfetchLimit(50)).toBe(500);
+  });
+
+  it('floors at 100 for tiny limits', () => {
+    expect(computeOverfetchLimit(1)).toBe(100);
+    expect(computeOverfetchLimit(5)).toBe(100);
+  });
+
+  it('caps at MAX_OVERFETCH_LIMIT so the 2,000 ceiling stays bounded on every platform', () => {
+    // At the 2,000 result-limit ceiling, 10x would be 20,000 rows. The cap keeps
+    // the worst-case materialization symmetric across Drizzle/PGlite/Electron.
+    expect(MAX_OVERFETCH_LIMIT).toBe(10_000);
+    expect(computeOverfetchLimit(2000)).toBe(10_000);
+    expect(computeOverfetchLimit(100_000)).toBe(10_000);
+  });
+});
 
 describe('parseEmbeddingLoose', () => {
   it('should parse JSON array format "[0.1, 0.2, 0.3]"', () => {

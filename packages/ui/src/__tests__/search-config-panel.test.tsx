@@ -265,6 +265,15 @@ describe('SearchConfigPanel', () => {
     expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
   });
 
+  it('drives the live hint with parseFloat so exponent drafts match commit semantics', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
+    const input = screen.getByLabelText('Result limit');
+    // "2e3" commits to 2000 (> RESULT_LIMIT_LARGE), so the live hint must show
+    // while editing — parseInt("2e3") === 2 would hide it inconsistently.
+    fireEvent.change(input, { target: { value: '2e3' } });
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+  });
+
   // === Distance metric ===
 
   it('displays the distance metric and a mismatch warning', () => {

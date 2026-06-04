@@ -23,7 +23,11 @@ import {
   fileRecords,
   selectionSnapshotFiles,
 } from '../../schema/index.js';
-import { MAX_INLINE_FILE_PATHS, resolveEmbeddingDimensions } from '../_shared.js';
+import {
+  computeOverfetchLimit,
+  MAX_INLINE_FILE_PATHS,
+  resolveEmbeddingDimensions,
+} from '../_shared.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -66,12 +70,6 @@ function validateDimension(dimension: number, context: string): void {
     );
   }
 }
-
-/**
- * Maximum number of rows to overfetch when searching for similar embeddings.
- * This prevents memory exhaustion when limit is very large.
- */
-const MAX_OVERFETCH_LIMIT = 10_000;
 
 /**
  * Maximum result limit a similarity search may request. Bounds renderer memory
@@ -409,9 +407,9 @@ export class DrizzleFileChunkRepository {
     // Safe because validateEmbeddingVector guarantees all values are finite numbers
     const vectorLiteral = toPgvectorLiteral(queryEmbedding);
 
-    // Overfetch to improve result quality, but cap at MAX_OVERFETCH_LIMIT
-    // to prevent memory exhaustion with very large limit values
-    const overfetchLimit = Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
+    // Overfetch to improve result quality, capped (shared with the other repos)
+    // to prevent memory exhaustion with very large limit values.
+    const overfetchLimit = computeOverfetchLimit(limit);
 
     // Build dynamic query with proper parameterization
     // Note: We use sql template tag for parameters, but still need raw for pgvector operators

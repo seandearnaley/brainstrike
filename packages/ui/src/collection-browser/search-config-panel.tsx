@@ -148,7 +148,9 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
   // Track the live draft (not just the committed value) so the "ranks slower"
   // hint appears the moment the user types a large number — when they most
   // benefit from it — rather than lagging until blur/commit.
-  const draftLimit = Number.parseInt(limitDraft ?? '', 10);
+  // parseFloat (matching commitLimit) so an exponent/decimal draft like "2e3"
+  // drives the hint by its real value, not parseInt's truncated "2".
+  const draftLimit = Number.parseFloat(limitDraft ?? '');
   const effectiveLimit = Number.isNaN(draftLimit) ? config.resultLimit : draftLimit;
   const isLargeLimit = effectiveLimit > RESULT_LIMIT_LARGE;
 
