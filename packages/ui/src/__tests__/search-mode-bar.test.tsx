@@ -21,14 +21,17 @@ describe('SearchModeBar', () => {
 
   const SEARCH_PLACEHOLDER = /Describe what you want to find... \(Cmd\+Enter\)/i;
 
-  it('renders a collapsed hybrid search trigger with explanatory copy', () => {
+  it('renders a compact single-line collapsed hybrid search trigger', () => {
     render(<SearchModeBar {...createProps()} />);
 
     expect(screen.getByRole('button', { name: /expand hybrid search/i })).toHaveAttribute(
       'aria-expanded',
       'false'
     );
-    expect(screen.getByText(/semantic similarity with keyword matches/i)).toBeInTheDocument();
+    expect(screen.getByText('Hybrid search')).toBeInTheDocument();
+    // Compact: the multi-line descriptive subtitle is gone (intent lives in the
+    // input placeholder), so the trigger stays a single row.
+    expect(screen.queryByText(/semantic similarity with keyword matches/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Hybrid search query' })).not.toBeInTheDocument();
   });
 
@@ -271,7 +274,7 @@ describe('SearchModeBar', () => {
     expect(wrapper).toHaveClass('custom-class');
   });
 
-  it('renders advanced options inside the expanded hybrid search panel', () => {
+  it('renders a search-options cog in the input row when advancedOptions are provided', () => {
     render(
       <SearchModeBar
         {...createProps({
@@ -281,8 +284,60 @@ describe('SearchModeBar', () => {
       />
     );
 
-    const panel = screen.getByTestId('hybrid-search-panel');
-    expect(panel).toContainElement(screen.getByTestId('advanced-options-slot'));
+    const group = screen.getByTestId('hybrid-search-input-group');
+    expect(group).toContainElement(screen.getByRole('button', { name: /search options/i }));
+  });
+
+  it('keeps advanced options behind the cog (not inline) when the popover is closed', () => {
+    render(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          isSearchExpanded: true,
+          advancedOptionsOpen: false,
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId('advanced-options-slot')).not.toBeInTheDocument();
+  });
+
+  it('reveals advanced options when the cog popover is open', () => {
+    render(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          isSearchExpanded: true,
+          advancedOptionsOpen: true,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('advanced-options-slot')).toBeInTheDocument();
+  });
+
+  it('requests the popover to open when the cog is clicked', () => {
+    const onAdvancedOptionsOpenChange = vi.fn();
+    render(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          isSearchExpanded: true,
+          advancedOptionsOpen: false,
+          onAdvancedOptionsOpenChange,
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /search options/i }));
+
+    expect(onAdvancedOptionsOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  it('omits the cog entirely when no advancedOptions are provided', () => {
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true })} />);
+
+    expect(screen.queryByRole('button', { name: /search options/i })).not.toBeInTheDocument();
   });
 
   describe('single-line constraint for semantic query input', () => {

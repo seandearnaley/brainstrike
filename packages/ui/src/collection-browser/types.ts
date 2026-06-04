@@ -312,8 +312,10 @@ export interface SemanticSearchResult {
  * Props for the SearchModeBar component
  */
 export interface SearchModeBarProps {
-  /** Advanced search controls rendered inside the expanded hybrid search panel */
+  /** Advanced search controls rendered inside the cog Popover next to the query. */
   advancedOptions?: React.ReactNode;
+  /** Controlled open state for the advanced-options (cog) Popover. */
+  advancedOptionsOpen?: boolean;
   /** Custom class name */
   className?: string;
   /** Whether semantic search has been executed */
@@ -324,6 +326,8 @@ export interface SearchModeBarProps {
   isSearching: boolean;
   /** Current search mode */
   mode: SearchMode;
+  /** Callback when the advanced-options (cog) Popover open state changes. */
+  onAdvancedOptionsOpenChange?: (open: boolean) => void;
   /** Callback when mode changes */
   onModeChange: (mode: SearchMode) => void;
   /** Callback when hybrid search panel expansion changes */
@@ -368,7 +372,11 @@ export interface CollectionBrowserToolbarProps {
 }
 
 /**
- * Props for the SearchConfigPanel component
+ * Props for the SearchConfigPanel component.
+ *
+ * The panel is pure presentational content (search tuning controls). Open/close
+ * is owned by whatever surface hosts it — currently the cog Popover in
+ * {@link SearchModeBarProps.advancedOptions}.
  */
 export interface SearchConfigPanelProps {
   /** Custom class name */
@@ -377,12 +385,8 @@ export interface SearchConfigPanelProps {
   collectionDistanceMetric?: DistanceMetric;
   /** Current search configuration */
   config: SearchConfig;
-  /** Whether the panel is expanded */
-  isExpanded: boolean;
   /** Callback when configuration changes */
   onConfigChange: (config: SearchConfig) => void;
-  /** Callback when expansion state changes */
-  onExpandedChange: (expanded: boolean) => void;
 }
 
 // ============================================================================

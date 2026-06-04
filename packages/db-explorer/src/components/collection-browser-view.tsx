@@ -1105,19 +1105,15 @@ export function CollectionBrowserView({
       {/* Search mode bar - Top level controls */}
       <SearchModeBar
         advancedOptions={
-          <SearchConfigPanel
-            className="rounded-md border border-border"
-            config={searchConfig}
-            isExpanded={searchConfigExpanded}
-            onConfigChange={handleSearchConfigChange}
-            onExpandedChange={setSearchConfigExpanded}
-          />
+          <SearchConfigPanel config={searchConfig} onConfigChange={handleSearchConfigChange} />
         }
+        advancedOptionsOpen={searchConfigExpanded}
         className="border-border border-b"
         hasSearched={hasScopedSemanticSearch}
         isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}
         mode={searchMode}
+        onAdvancedOptionsOpenChange={setSearchConfigExpanded}
         onModeChange={handleSearchModeChange}
         onSearchExpandedChange={setSearchPanelExpanded}
         onSemanticQueryChange={setSemanticQuery}
