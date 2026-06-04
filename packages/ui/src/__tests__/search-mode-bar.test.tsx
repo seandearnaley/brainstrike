@@ -359,6 +359,26 @@ describe('SearchModeBar', () => {
     expect(onAdvancedOptionsOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it('closes the cog popover on collapse even in uncontrolled mode (no open props)', () => {
+    // Shared @brainstrike/ui consumers may mount the cog without wiring the
+    // open-control props. The portaled content must still not linger over the
+    // now-hidden trigger when the panel collapses.
+    const props = {
+      advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+    };
+    const { rerender } = render(
+      <SearchModeBar {...createProps({ ...props, isSearchExpanded: true })} />
+    );
+
+    // Open via the cog — Radix manages the open state internally here.
+    fireEvent.click(screen.getByRole('button', { name: /search options/i }));
+    expect(screen.getByTestId('advanced-options-slot')).toBeInTheDocument();
+
+    // Collapsing the panel must close the floating popover content.
+    rerender(<SearchModeBar {...createProps({ ...props, isSearchExpanded: false })} />);
+    expect(screen.queryByTestId('advanced-options-slot')).not.toBeInTheDocument();
+  });
+
   describe('single-line constraint for semantic query input', () => {
     it('uses a fixed-height input for long natural-language queries', () => {
       render(

@@ -117,32 +117,38 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     };
   }, [isSearchExpanded, onSearchExpandedChange]);
 
+  // Controllable open-state: when the consumer supplies `advancedOptionsOpen`
+  // we mirror it; otherwise we own the state internally. Either way the Popover
+  // below is ALWAYS controlled, so the collapse guard works even when a
+  // consumer mounts the cog without wiring the open-control props (Radix's own
+  // uncontrolled fallback would otherwise leave portaled content floating over
+  // the hidden trigger).
+  const isPopoverControlled = advancedOptionsOpen !== undefined;
+  const [internalOptionsOpen, setInternalOptionsOpen] = React.useState(false);
+  const optionsOpen = isPopoverControlled ? advancedOptionsOpen : internalOptionsOpen;
+  const setOptionsOpen = React.useCallback(
+    (open: boolean) => {
+      if (!isPopoverControlled) {
+        setInternalOptionsOpen(open);
+      }
+      onAdvancedOptionsOpenChange?.(open);
+    },
+    [isPopoverControlled, onAdvancedOptionsOpenChange]
+  );
+
   // The cog Popover portals its content to document.body, so collapsing the
   // panel while it is open would leave the floating options lingering over a
   // hidden trigger. Close it whenever the panel collapses.
   React.useEffect(() => {
-    if (!isSearchExpanded && advancedOptionsOpen) {
-      onAdvancedOptionsOpenChange?.(false);
+    if (!isSearchExpanded && optionsOpen) {
+      setOptionsOpen(false);
     }
-  }, [isSearchExpanded, advancedOptionsOpen, onAdvancedOptionsOpenChange]);
+  }, [isSearchExpanded, optionsOpen, setOptionsOpen]);
 
   const resultLabel =
     hasSearched && resultCount !== undefined
       ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
       : null;
-
-  // Spread control props conditionally so we never pass `open={undefined}`
-  // (disallowed under exactOptionalPropertyTypes) — absent = uncontrolled.
-  const advancedPopoverProps: {
-    onOpenChange?: (open: boolean) => void;
-    open?: boolean;
-  } = {};
-  if (advancedOptionsOpen !== undefined) {
-    advancedPopoverProps.open = advancedOptionsOpen;
-  }
-  if (onAdvancedOptionsOpenChange) {
-    advancedPopoverProps.onOpenChange = onAdvancedOptionsOpenChange;
-  }
 
   return (
     <div className={cn('bg-background', className)}>
@@ -216,7 +222,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
               )}
             </div>
             {advancedOptions != null && (
-              <Popover {...advancedPopoverProps}>
+              <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     aria-label="Search options"
