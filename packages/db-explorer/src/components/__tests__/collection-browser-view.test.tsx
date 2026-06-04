@@ -633,6 +633,85 @@ describe('CollectionBrowserView', () => {
     expect(paginationElement.parentElement).not.toHaveClass('border-t');
   });
 
+  it('hides the file-list pagination while scoped semantic search results are displayed', () => {
+    // Regression: in semantic/hybrid search the tree is built from the bounded
+    // search-result set, NOT the paginated file list. Showing the file-list pager
+    // (which implies many pages for a large collection) is misleading — paging it
+    // only refetches records (a loading flash) without changing the visible results.
+    act(() => {
+      useCollectionBrowserStore.getState().setSearchMode('semantic');
+    });
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'hit-1',
+          content: 'semantic hit one',
+          chunkIndex: 0,
+          embeddingSetId: 'set-1',
+          fileName: 'alpha.ts',
+          filePath: '/alpha.ts',
+          fileRecordId: 'file-a',
+          tokenCount: 5,
+        },
+        {
+          chunkId: 'hit-2',
+          content: 'semantic hit two',
+          chunkIndex: 0,
+          embeddingSetId: 'set-1',
+          fileName: 'beta.ts',
+          filePath: '/beta.ts',
+          fileRecordId: 'file-b',
+          tokenCount: 5,
+        },
+      ],
+    };
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="set-1"
+        chunks={TEST_CHUNKS}
+        height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 5000,
+        }}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.queryByTestId('table-pagination')).not.toBeInTheDocument();
+  });
+
+  it('still renders the file-list pagination in quick mode for an active collection', () => {
+    act(() => {
+      useCollectionBrowserStore.getState().setSearchMode('quick');
+    });
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="set-1"
+        chunks={TEST_CHUNKS}
+        height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 120,
+        }}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
+  });
+
   it('handles double-click by toggling expansion for file nodes', async () => {
     const user = userEvent.setup();
 
