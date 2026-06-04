@@ -87,7 +87,10 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
     if (raw === '') {
       return; // empty stays at the previous value — never write NaN
     }
-    const parsed = Number.parseInt(raw, 10);
+    // parseFloat (not parseInt) so values a type="number" input accepts — e.g.
+    // "2e3" or "1.9" — aren't silently mis-parsed to 2/1; clampResultLimit
+    // truncates the fractional part on commit.
+    const parsed = Number.parseFloat(raw);
     if (Number.isNaN(parsed)) {
       return;
     }

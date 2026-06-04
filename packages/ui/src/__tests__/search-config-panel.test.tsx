@@ -183,6 +183,16 @@ describe('SearchConfigPanel', () => {
     expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 2000 }));
   });
 
+  it('parses exponent entries a number input allows instead of truncating the mantissa', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+    // A type="number" input accepts "2e3"; parseInt would commit 2, parseFloat → 2000.
+    fireEvent.change(input, { target: { value: '2e3' } });
+    fireEvent.blur(input);
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 2000 }));
+  });
+
   it('exposes the 2000 ceiling on the number input', () => {
     renderWithProviders(<SearchConfigPanel {...createProps()} />);
     expect(screen.getByLabelText('Result limit')).toHaveAttribute('max', '2000');
