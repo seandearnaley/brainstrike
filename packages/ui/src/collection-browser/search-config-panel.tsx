@@ -142,7 +142,12 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
   const isHybridMode = retrievalMode === 'hybrid';
   const metricMismatch =
     collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric;
-  const isLargeLimit = config.resultLimit > RESULT_LIMIT_LARGE;
+  // Track the live draft (not just the committed value) so the "ranks slower"
+  // hint appears the moment the user types a large number — when they most
+  // benefit from it — rather than lagging until blur/commit.
+  const draftLimit = Number.parseInt(limitDraft ?? '', 10);
+  const effectiveLimit = Number.isNaN(draftLimit) ? config.resultLimit : draftLimit;
+  const isLargeLimit = effectiveLimit > RESULT_LIMIT_LARGE;
 
   return (
     <div className={cn('space-y-2.5', className)}>

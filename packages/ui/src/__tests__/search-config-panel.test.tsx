@@ -231,6 +231,30 @@ describe('SearchConfigPanel', () => {
     expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
   });
 
+  it('shows the performance hint live from the draft, before blur/commit', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), resultLimit: 20 }, onConfigChange })}
+      />
+    );
+    const input = screen.getByLabelText('Result limit');
+
+    // Committed value is small, so no hint yet.
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+
+    // Typing a large value must surface the hint immediately — that's the
+    // moment the user most benefits from it — not only after blur.
+    fireEvent.change(input, { target: { value: '1500' } });
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+    // ...and it's still just a draft (not committed).
+    expect(onConfigChange).not.toHaveBeenCalled();
+
+    // Editing back down to a small value hides it again, live.
+    fireEvent.change(input, { target: { value: '50' } });
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+  });
+
   // === Distance metric ===
 
   it('displays the distance metric and a mismatch warning', () => {
