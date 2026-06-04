@@ -6,7 +6,7 @@
  * - Retrieval mode (vector-only or hybrid with RRF fusion)
  * - Weight sliders for vector/FTS balance (hybrid mode only)
  * - Similarity threshold (0.0-1.0)
- * - Result limit (free number input, 1–10,000)
+ * - Result limit (free number input, 1–2,000)
  * - Distance metric (cosine, L2, inner product)
  */
 
