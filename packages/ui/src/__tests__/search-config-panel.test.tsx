@@ -265,6 +265,22 @@ describe('SearchConfigPanel', () => {
     expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
   });
 
+  it('hides the live hint when the field is cleared, even over a large committed value', () => {
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), resultLimit: 2000 } })}
+      />
+    );
+    // Committed 2000 is large, so the hint shows initially (not editing).
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+
+    // Clearing the field mid-edit must hide the hint — the visible field is
+    // blank, so it shouldn't read against the stale committed value.
+    const input = screen.getByLabelText('Result limit');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+  });
+
   it('drives the live hint with parseFloat so exponent drafts match commit semantics', () => {
     renderWithProviders(<SearchConfigPanel {...createProps()} />);
     const input = screen.getByLabelText('Result limit');

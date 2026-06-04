@@ -58,6 +58,14 @@ export interface HybridSearchOptions {
   ftsThreshold?: number;
   /** Weight for FTS results in RRF (default: 1.0) */
   ftsWeight?: number;
+  /**
+   * Whether the source-pool reads return the full embedding vector. Defaults to
+   * `false`: RRF fusion needs only ids + scores and result rows only need the
+   * dimension count (preserved via `vector_dims`), so the heavy vector is
+   * projected away to keep large fan-out affordable. A caller that genuinely
+   * needs the vector back on hybrid results can opt in with `true`.
+   */
+  includeEmbedding?: boolean;
   /** Maximum number of final results to return (default: 10) */
   limit?: number;
   /** Minimum sources required for result inclusion (default: 1) */
@@ -184,6 +192,8 @@ export class HybridSearchService {
       ftsWeight = 1.0,
       ftsQueryMode = 'websearch',
       ftsLanguage = 'english',
+      // Default to projecting the embedding vector away (see HybridSearchOptions).
+      includeEmbedding = false,
       // Common filters
       fileRecordId,
       chunkType,
@@ -197,13 +207,14 @@ export class HybridSearchService {
     // Build search options, only including defined properties (exactOptionalPropertyTypes).
     // RRF fusion needs only ids + scores, and result rows only need the embedding
     // DIMENSION (preserved via vector_dims), never the multi-KB vector — so the
-    // source-pool reads project the heavy embedding payload away. At large limits
-    // this avoids materializing thousands of full embeddings in the renderer.
+    // source-pool reads project the heavy embedding payload away by default. At
+    // large limits this avoids materializing thousands of full embeddings in the
+    // renderer. A caller can opt back in via `includeEmbedding`.
     const vectorSearchOptions: ChunkSearchOptions = {
       limit: vectorLimit,
       threshold: vectorThreshold,
       embeddingSetId,
-      includeEmbedding: false,
+      includeEmbedding,
     };
     if (fileRecordId !== undefined) {
       vectorSearchOptions.fileRecordId = fileRecordId;
@@ -223,7 +234,7 @@ export class HybridSearchService {
       threshold: ftsThreshold,
       queryMode: ftsQueryMode,
       language: ftsLanguage,
-      includeEmbedding: false,
+      includeEmbedding,
     };
     if (fileRecordId !== undefined) {
       ftsSearchOptions.fileRecordId = fileRecordId;

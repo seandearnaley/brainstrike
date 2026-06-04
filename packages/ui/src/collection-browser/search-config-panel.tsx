@@ -145,14 +145,13 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
   const isHybridMode = retrievalMode === 'hybrid';
   const metricMismatch =
     collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric;
-  // Track the live draft (not just the committed value) so the "ranks slower"
-  // hint appears the moment the user types a large number — when they most
-  // benefit from it — rather than lagging until blur/commit.
-  // parseFloat (matching commitLimit) so an exponent/decimal draft like "2e3"
-  // drives the hint by its real value, not parseInt's truncated "2".
-  const draftLimit = Number.parseFloat(limitDraft ?? '');
-  const effectiveLimit = Number.isNaN(draftLimit) ? config.resultLimit : draftLimit;
-  const isLargeLimit = effectiveLimit > RESULT_LIMIT_LARGE;
+  // Drive the "ranks slower" hint from the live draft so it appears the moment a
+  // large number is typed (not lagging until commit). While editing, parse the
+  // draft (parseFloat to match commitLimit, so "2e3" reads as 2000); when not
+  // editing, use the committed value. A blank draft (field cleared) parses to
+  // NaN → no hint, so the hint tracks the visible field, not a stale value.
+  const effectiveLimit = limitDraft === null ? config.resultLimit : Number.parseFloat(limitDraft);
+  const isLargeLimit = !Number.isNaN(effectiveLimit) && effectiveLimit > RESULT_LIMIT_LARGE;
 
   return (
     <div className={cn('space-y-2.5', className)}>

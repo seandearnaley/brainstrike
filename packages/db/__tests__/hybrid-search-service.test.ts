@@ -122,6 +122,27 @@ describe('HybridSearchService', () => {
       );
     });
 
+    it('threads an explicit includeEmbedding through to both source-pool reads', async () => {
+      mockRepository.searchSimilar.mockResolvedValue([]);
+      mockRepository.fullTextSearch.mockResolvedValue([]);
+
+      // Default is false (projection on), but a caller can opt back in to the
+      // full vector — the capability must not be permanently hardcoded away.
+      await service.search('test query', [0.1, 0.2, 0.3], {
+        embeddingSetId: 'test-set',
+        includeEmbedding: true,
+      });
+
+      expect(mockRepository.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ includeEmbedding: true })
+      );
+      expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
+        'test query',
+        expect.objectContaining({ includeEmbedding: true })
+      );
+    });
+
     it('should preserve vector similarity scores in results', async () => {
       mockRepository.searchSimilar.mockResolvedValue([
         createVectorResult('doc1', 'vector content', 0.92),
