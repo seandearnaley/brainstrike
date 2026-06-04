@@ -67,32 +67,52 @@ export function isCollectionIndexingActive({
   return managedCollectionId === collectionId && ACTIVE_SYNC_STATES.has(syncState);
 }
 
-function buildNoticeMessage(
+interface NoticeCopy {
+  /** Tooltip text. For actionable states this carries remediation guidance the
+   * compact line omits, so the title adds value instead of duplicating it. */
+  detail: string;
+  /** Compact, single-line visible text. */
+  message: string;
+}
+
+function buildNoticeCopy(
   coverage: CollectionEmbeddingCoverageSnapshot,
   indexingActive: boolean,
   collectionName?: string
-): string | null {
+): NoticeCopy | null {
   const label = collectionName ? `"${collectionName}"` : 'This collection';
 
   if (indexingActive) {
     // Intentionally count-free so the text never changes during indexing.
-    return `${label} is indexing…`;
+    const message = `${label} is indexing…`;
+    return { message, detail: message };
   }
 
   const chunks = coverage.totalChunks.toLocaleString();
   const files = coverage.totalFiles.toLocaleString();
   const pending = coverage.pendingReindexFileCount.toLocaleString();
   const missing = coverage.chunksMissingSourceRange.toLocaleString();
+  const filePlural = coverage.pendingReindexFileCount === 1 ? '' : 's';
+  const chunkPlural = coverage.chunksMissingSourceRange === 1 ? '' : 's';
 
-  // Compact, single-line copy so the banner stays a thin status strip under the
-  // search bar instead of a multi-line card.
+  // Compact, single-line copy keeps the banner a thin status strip under the
+  // search bar; the richer `detail` is surfaced on hover via the title so the
+  // remediation guidance is recoverable without bloating the strip.
   switch (coverage.status) {
     case 'needs_reindex':
-      return `${label} needs re-indexing · ${pending} file${coverage.pendingReindexFileCount === 1 ? '' : 's'} pending`;
+      return {
+        message: `${label} needs re-indexing · ${pending} file${filePlural} pending`,
+        detail: `${label} needs re-indexing after the source line-range update — re-import or run indexing so retrieval can cite exact line ranges. ${pending} file${filePlural} still have unprocessed chunks.`,
+      };
     case 'partial_source_ranges':
-      return `${missing} chunk${coverage.chunksMissingSourceRange === 1 ? '' : 's'} missing source ranges`;
-    case 'fully_indexed':
-      return `Fully indexed · ${chunks} chunk${coverage.totalChunks === 1 ? '' : 's'} / ${files} file${coverage.totalFiles === 1 ? '' : 's'}`;
+      return {
+        message: `${missing} chunk${chunkPlural} missing source ranges`,
+        detail: `${missing} chunk${chunkPlural} missing source line metadata. Semantic search may skip those hits until they are re-chunked.`,
+      };
+    case 'fully_indexed': {
+      const message = `Fully indexed · ${chunks} chunk${coverage.totalChunks === 1 ? '' : 's'} / ${files} file${coverage.totalFiles === 1 ? '' : 's'}`;
+      return { message, detail: message };
+    }
     default:
       return null;
   }
@@ -140,10 +160,11 @@ export function EmbeddingCoverageNotice({
   coverage,
   indexingActive = false,
 }: EmbeddingCoverageNoticeProps) {
-  const message = buildNoticeMessage(coverage, indexingActive, collectionName);
-  if (!message) {
+  const copy = buildNoticeCopy(coverage, indexingActive, collectionName);
+  if (!copy) {
     return null;
   }
+  const { message, detail } = copy;
 
   const tone = resolveTone(coverage.status, indexingActive);
   const Icon = TONE_ICON[tone];
@@ -159,7 +180,7 @@ export function EmbeddingCoverageNotice({
       role="status"
     >
       <Icon aria-hidden className={iconClass} />
-      <span className={`min-w-0 truncate ${TONE_TEXT_CLASS[tone]}`} title={message}>
+      <span className={`min-w-0 truncate ${TONE_TEXT_CLASS[tone]}`} title={detail}>
         {message}
       </span>
     </div>

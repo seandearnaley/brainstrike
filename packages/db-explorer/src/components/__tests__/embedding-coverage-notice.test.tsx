@@ -61,6 +61,43 @@ describe('EmbeddingCoverageNotice', () => {
     expect(message).toHaveAttribute('title', expect.stringMatching(/needs re-indexing/i));
   });
 
+  it('keeps the dropped remediation guidance recoverable in the title for needs_reindex', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Code"
+        coverage={{
+          ...baseCoverage,
+          status: 'needs_reindex',
+          pendingReindexFileCount: 2,
+          totalFiles: 2,
+        }}
+      />
+    );
+    const message = screen.getByText(/needs re-indexing/i);
+    // Visible line stays compact...
+    expect(message).toHaveTextContent(/needs re-indexing · 2 files pending/i);
+    // ...but the title carries the "what to do" the compact line drops, so the
+    // tooltip adds value instead of just duplicating the visible text.
+    expect(message.getAttribute('title')).toMatch(/re-import|run indexing/i);
+    expect(message.getAttribute('title')).not.toBe(message.textContent);
+  });
+
+  it('explains the search impact of partial source ranges in the title', () => {
+    render(
+      <EmbeddingCoverageNotice
+        coverage={{
+          ...baseCoverage,
+          status: 'partial_source_ranges',
+          chunksMissingSourceRange: 5,
+          totalFiles: 3,
+          totalChunks: 10,
+        }}
+      />
+    );
+    const message = screen.getByText(/missing source ranges/i);
+    expect(message.getAttribute('title')).toMatch(/semantic search may skip|re-chunk/i);
+  });
+
   it('keeps the healthy state calm (muted text)', () => {
     render(
       <EmbeddingCoverageNotice
