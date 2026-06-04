@@ -76,7 +76,21 @@ describe('EmbeddingCoverageNotice', () => {
     expect(notice).toHaveTextContent(/4 files/i);
   });
 
-  it('renders the coverage notice as a single flat line (no nested card padding)', () => {
+  it('singularizes the fully-indexed copy for a single chunk/file', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Solo"
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 1, totalChunks: 1 }}
+      />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveTextContent('1 chunk / 1 file');
+    expect(notice).not.toHaveTextContent(/1 chunks/);
+    expect(notice).not.toHaveTextContent(/1 files/);
+  });
+
+  it('renders the coverage notice as a single flat line that can truncate (min-w-0)', () => {
     render(
       <EmbeddingCoverageNotice
         collectionName="Stable"
@@ -89,6 +103,10 @@ describe('EmbeddingCoverageNotice', () => {
     expect(notice.className).not.toMatch(/\brounded-md\b/);
     expect(notice.className).not.toMatch(/\bborder\b/);
     expect(notice.className).toMatch(/\bitems-center\b/);
+    // The message span must carry min-w-0 or `truncate` is a no-op in a flex row.
+    const messageSpan = screen.getByText(/fully indexed/i);
+    expect(messageSpan).toHaveClass('truncate');
+    expect(messageSpan).toHaveClass('min-w-0');
   });
 
   it('suppresses the re-index alarm and shows a stable indexing note while indexing is active', () => {

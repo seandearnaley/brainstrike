@@ -451,6 +451,34 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
+  it('scales hybrid source-pool limits to the requested result limit so large limits are honored', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 500, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    // RRF fusion can only return as many unique hits as the union of its source
+    // pools. With the 50/50 defaults a 500 limit is unreachable, so both pools
+    // must scale to the requested limit.
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 500 })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ limit: 500 })
+    );
+  });
+
   describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');

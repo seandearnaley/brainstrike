@@ -92,7 +92,7 @@ function buildNoticeMessage(
     case 'partial_source_ranges':
       return `${missing} chunk${coverage.chunksMissingSourceRange === 1 ? '' : 's'} missing source ranges`;
     case 'fully_indexed':
-      return `Fully indexed · ${chunks} chunks / ${files} files`;
+      return `Fully indexed · ${chunks} chunk${coverage.totalChunks === 1 ? '' : 's'} / ${files} file${coverage.totalFiles === 1 ? '' : 's'}`;
     default:
       return null;
   }
@@ -150,7 +150,7 @@ export function EmbeddingCoverageNotice({
       role="status"
     >
       <Icon aria-hidden className={iconClass} />
-      <span className="truncate text-muted-foreground">{message}</span>
+      <span className="min-w-0 truncate text-muted-foreground">{message}</span>
     </div>
   );
 }

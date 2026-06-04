@@ -361,6 +361,12 @@ async function executeHybridSearch(
   const hybridService = createHybridSearchService(chunkRepository);
   const hybridResponse = await hybridService.search(query, embedding, {
     limit: config.resultLimit,
+    // RRF fusion can only emit as many unique hits as the union of its source
+    // pools holds. The service defaults both pools to 50, which silently caps
+    // hybrid results at ~100 regardless of `limit`. Size each pool to the
+    // requested limit so a large resultLimit is actually reachable.
+    vectorLimit: config.resultLimit,
+    ftsLimit: config.resultLimit,
     vectorThreshold: config.threshold,
     embeddingSetId,
     vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
