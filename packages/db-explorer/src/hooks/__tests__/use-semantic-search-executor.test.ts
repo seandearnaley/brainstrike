@@ -557,6 +557,37 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
+  it('omits embeddings from hybrid source reads but preserves the projected dimension count', async () => {
+    // Simulate a projected source-pool row: no heavy embedding vector, but the
+    // dimension count was kept via vector_dims(embedding).
+    const { embedding: _omitted, ...rest } = createMockChunk('chunk-1', 'file-1');
+    const projectedChunk: FileChunk = { ...rest, embeddingDimensions: 1024 };
+    const chunkRepo = createMockChunkRepository([projectedChunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    const results = await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 20, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    // Both source-pool reads must project the heavy vector away...
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ includeEmbedding: false })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ includeEmbedding: false })
+    );
+    // ...while the result still reports the dimension count (from vector_dims).
+    expect(results[0]?.embeddingDimensions).toBe(1024);
+  });
+
   describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');

@@ -247,8 +247,11 @@ function transformToSearchResults(
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
     }
-    if (result.chunk.embedding && result.chunk.embedding.length > 0) {
-      searchResult.embeddingDimensions = result.chunk.embedding.length;
+    // Prefer the loaded vector's length, but fall back to the projected dimension
+    // count (vector_dims) when the search omitted the heavy embedding payload.
+    const dims = result.chunk.embedding?.length ?? result.chunk.embeddingDimensions;
+    if (dims !== undefined && dims > 0) {
+      searchResult.embeddingDimensions = dims;
     }
     return searchResult;
   });
@@ -337,8 +340,11 @@ function transformHybridResults(
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
     }
-    if (result.chunk.embedding && result.chunk.embedding.length > 0) {
-      searchResult.embeddingDimensions = result.chunk.embedding.length;
+    // Hybrid source pools omit the heavy embedding vector but project its
+    // dimension count, so prefer the loaded length and fall back to that.
+    const dims = result.chunk.embedding?.length ?? result.chunk.embeddingDimensions;
+    if (dims !== undefined && dims > 0) {
+      searchResult.embeddingDimensions = dims;
     }
     if (result.vectorSimilarity !== undefined) {
       searchResult.vectorSimilarity = result.vectorSimilarity;
@@ -435,6 +441,9 @@ async function executeVectorSearch(
     limit: config.resultLimit,
     threshold: config.threshold,
     embeddingSetId,
+    // Result rows only need the embedding DIMENSION (preserved via vector_dims),
+    // never the vector values — so project the heavy payload away.
+    includeEmbedding: false,
     ...filterOptions,
   });
   logger.info('Vector search completed', { resultCount: searchResults.length });

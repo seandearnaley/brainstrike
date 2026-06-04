@@ -194,11 +194,16 @@ export class HybridSearchService {
       minSourceCount = 1,
     } = options;
 
-    // Build search options, only including defined properties (exactOptionalPropertyTypes)
+    // Build search options, only including defined properties (exactOptionalPropertyTypes).
+    // RRF fusion needs only ids + scores, and result rows only need the embedding
+    // DIMENSION (preserved via vector_dims), never the multi-KB vector — so the
+    // source-pool reads project the heavy embedding payload away. At large limits
+    // this avoids materializing thousands of full embeddings in the renderer.
     const vectorSearchOptions: ChunkSearchOptions = {
       limit: vectorLimit,
       threshold: vectorThreshold,
       embeddingSetId,
+      includeEmbedding: false,
     };
     if (fileRecordId !== undefined) {
       vectorSearchOptions.fileRecordId = fileRecordId;
@@ -218,6 +223,7 @@ export class HybridSearchService {
       threshold: ftsThreshold,
       queryMode: ftsQueryMode,
       language: ftsLanguage,
+      includeEmbedding: false,
     };
     if (fileRecordId !== undefined) {
       ftsSearchOptions.fileRecordId = fileRecordId;

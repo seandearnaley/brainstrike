@@ -23,7 +23,7 @@ import {
   fileRecords,
   selectionSnapshotFiles,
 } from '../../schema/index.js';
-import { MAX_INLINE_FILE_PATHS } from '../_shared.js';
+import { MAX_INLINE_FILE_PATHS, resolveEmbeddingDimensions } from '../_shared.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -78,6 +78,12 @@ const MAX_OVERFETCH_LIMIT = 10_000;
  * Prevents excessive memory usage from user requests.
  */
 const MAX_USER_LIMIT = 1000;
+
+// Explicit column list that projects only the cheap dimension count
+// (vector_dims) instead of the full embedding vector — used by large fan-out
+// reads (e.g. hybrid RRF source pools) where the vector values are never used.
+const FILE_CHUNK_COLUMNS_DIMS_ONLY =
+  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, vector_dims(embedding) AS embedding_dims, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
 
 /**
  * Safely constructs a pgvector literal string from an embedding array.
@@ -340,6 +346,7 @@ export class DrizzleFileChunkRepository {
       embeddingSetId,
       filePaths,
       selectionSnapshotId,
+      includeEmbedding = true,
     } = options;
 
     // Validate limit to prevent memory exhaustion from excessive requests
@@ -402,8 +409,11 @@ export class DrizzleFileChunkRepository {
     // Note: We use sql template tag for parameters, but still need raw for pgvector operators
     // The embeddingSetId, fileRecordId, and chunkType are parameterized via sql template
     // The vectorLiteral is safe because it was validated via validateEmbeddingVector()
+    // Large fan-out reads can project the heavy embedding vector away (keeping
+    // only its dimension count) — the distance math still runs in SQL.
+    const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_COLUMNS_DIMS_ONLY;
     let baseQuery = sql`
-      SELECT *,
+      SELECT ${sql.raw(selectColumns)},
         ${sql.raw(similarityExpr.replace(/\$1/g, `'${vectorLiteral}'`))} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorLiteral}'`))}) as rank
       FROM file_chunks
@@ -486,6 +496,7 @@ export class DrizzleFileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
+      includeEmbedding = true,
     } = options;
 
     // Validate query
@@ -507,10 +518,13 @@ export class DrizzleFileChunkRepository {
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
 
     // Build WHERE clause dynamically
+    const ftsEmbeddingColumn = includeEmbedding
+      ? 'embedding::text AS embedding'
+      : 'vector_dims(embedding) AS embedding_dims';
     let baseQuery = sql`
       SELECT
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding,
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, ${sql.raw(ftsEmbeddingColumn)},
         embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
         ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
         ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
@@ -817,6 +831,13 @@ export class DrizzleFileChunkRepository {
       // Parse vector string format "[0.1,0.2,0.3]"
       const cleaned = embStr.replace(/[[\]()]/g, '');
       chunk.embedding = cleaned.split(',').map(Number);
+    }
+    const embeddingDimensions = resolveEmbeddingDimensions(
+      chunk.embedding,
+      row['embedding_dims'] as string | number | null | undefined
+    );
+    if (embeddingDimensions !== undefined) {
+      chunk.embeddingDimensions = embeddingDimensions;
     }
     if (row['embedding_set_id']) {
       chunk.embeddingSetId = String(row['embedding_set_id']);

@@ -100,6 +100,28 @@ describe('HybridSearchService', () => {
       }
     });
 
+    it('omits the heavy embedding vector from both source-pool reads', async () => {
+      mockRepository.searchSimilar.mockResolvedValue([]);
+      mockRepository.fullTextSearch.mockResolvedValue([]);
+
+      await service.search('test query', [0.1, 0.2, 0.3], {
+        embeddingSetId: 'test-set',
+        limit: 10,
+      });
+
+      // RRF fusion needs only ids + scores, and result rows only need the
+      // embedding DIMENSION (preserved via vector_dims), never the multi-KB
+      // vector. So both fan-out reads must request the projected-away embedding.
+      expect(mockRepository.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ includeEmbedding: false })
+      );
+      expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
+        'test query',
+        expect.objectContaining({ includeEmbedding: false })
+      );
+    });
+
     it('should preserve vector similarity scores in results', async () => {
       mockRepository.searchSimilar.mockResolvedValue([
         createVectorResult('doc1', 'vector content', 0.92),

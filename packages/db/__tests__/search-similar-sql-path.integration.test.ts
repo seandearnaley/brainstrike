@@ -118,5 +118,21 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
       embeddingSetId: setId,
     });
     expect(strict.map((r) => r.chunk.id)).toEqual(['c1']);
+
+    // includeEmbedding: false must still rank correctly (distance is computed in
+    // SQL), but omit the heavy vector payload while preserving the dimension
+    // count via vector_dims() so consumers can still show "N dims".
+    const projected = await repo.searchSimilar(q, {
+      limit: 10,
+      threshold: 0,
+      chunkType: 'text',
+      embeddingSetId: setId,
+      includeEmbedding: false,
+    });
+    expect(projected.map((r) => r.chunk.id)).toEqual(['c1', 'c2', 'c3']);
+    for (const r of projected) {
+      expect(r.chunk.embedding).toBeUndefined();
+      expect(r.chunk.embeddingDimensions).toBe(dim);
+    }
   });
 });

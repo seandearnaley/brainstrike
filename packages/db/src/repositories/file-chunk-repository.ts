@@ -17,6 +17,7 @@ import {
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
+  resolveEmbeddingDimensions,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
@@ -30,6 +31,8 @@ interface FileChunkRow {
   content_hash: string;
   created_at: string;
   embedding?: string;
+  /** Projected dimension count (vector_dims) when the full embedding is omitted. */
+  embedding_dims?: string | number | null;
   embedding_hash?: string | null;
   // Phase 2 columns
   embedding_set_id?: string | null;
@@ -61,6 +64,13 @@ interface FileChunkStatsRow {
 
 const FILE_CHUNK_SELECT_COLUMNS =
   'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
+
+// Same columns as FILE_CHUNK_SELECT_COLUMNS, but projecting only the cheap
+// dimension count (vector_dims) instead of serializing the full embedding
+// vector. Used by large fan-out search reads (e.g. hybrid RRF source pools)
+// where the vector values are never used — only ids, scores, and the dim count.
+const FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY =
+  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, vector_dims(embedding) AS embedding_dims, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
 
 export class FileChunkRepository {
   constructor(private readonly db: PGlite) {}
@@ -334,6 +344,7 @@ export class FileChunkRepository {
       embeddingSetId,
       filePaths,
       selectionSnapshotId,
+      includeEmbedding = true,
     } = options;
 
     // Enforce set scoping to avoid dimension mismatch hazards with pgvector
@@ -425,11 +436,14 @@ export class FileChunkRepository {
 
     // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks
     const overfetchLimit = Math.max(limit * 10, 100);
+    // Large fan-out reads can project the heavy embedding vector away (keeping
+    // only its dimension count) — the distance math still runs in SQL.
+    const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
     const result = await this.db.query(
-      `SELECT *, 
+      `SELECT ${selectColumns},
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
-      FROM file_chunks 
+      FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
       LIMIT $${paramIndex}`,
@@ -494,6 +508,7 @@ export class FileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
+      includeEmbedding = true,
     } = options;
 
     // Validate query
@@ -542,7 +557,7 @@ export class FileChunkRepository {
     const result = await this.db.query(
       `SELECT
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding,
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, ${includeEmbedding ? 'embedding::text AS embedding' : 'vector_dims(embedding) AS embedding_dims'},
         embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
         ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
         ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
@@ -947,6 +962,7 @@ export class FileChunkRepository {
 
   private mapRowToChunk(row: FileChunkRow): FileChunk {
     const embedding = row.embedding ? parseEmbeddingLoose(row.embedding) : undefined;
+    const embeddingDimensions = resolveEmbeddingDimensions(embedding, row.embedding_dims);
     return {
       id: row.id,
       fileRecordId: row.file_record_id,
@@ -962,6 +978,7 @@ export class FileChunkRepository {
         row.start_offset !== undefined && { startOffset: row.start_offset }),
       ...(row.end_offset !== null && row.end_offset !== undefined && { endOffset: row.end_offset }),
       ...(embedding && { embedding }),
+      ...(embeddingDimensions !== undefined && { embeddingDimensions }),
       ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
       ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),
       ...(row.embedding_hash !== null && { embeddingHash: row.embedding_hash }),

@@ -74,6 +74,8 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(result).toEqual({
       ...baseChunk,
       embedding: [0.1, 0.2],
+      // Mapped chunks now also carry the embedding's dimension count.
+      embeddingDimensions: 2,
       embeddingSetId: 'set-1',
       embeddingUpdatedAt: '2025-01-02T00:00:00.000Z',
       embeddingHash: 'embed-hash',

@@ -287,6 +287,27 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
 }
 
 /**
+ * Resolve a chunk's embedding dimension count from whichever the row carried.
+ *
+ * Prefers the loaded vector's length; falls back to the projected
+ * `vector_dims(embedding)` value used when a search omits the heavy vector
+ * payload. Returns `undefined` when neither is present (chunk has no embedding).
+ */
+export function resolveEmbeddingDimensions(
+  embedding: number[] | undefined,
+  projectedDims: string | number | null | undefined
+): number | undefined {
+  if (embedding) {
+    return embedding.length;
+  }
+  if (projectedDims === null || projectedDims === undefined) {
+    return;
+  }
+  const dims = typeof projectedDims === 'number' ? projectedDims : Number(projectedDims);
+  return Number.isFinite(dims) && dims > 0 ? dims : undefined;
+}
+
+/**
  * Batch an array into chunks of specified size
  * @param items - Array to batch
  * @param batchSize - Size of each batch
