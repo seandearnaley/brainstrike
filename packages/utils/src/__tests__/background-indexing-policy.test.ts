@@ -119,7 +119,6 @@ describe('background-indexing-policy', () => {
       directoryName: 'node_modules',
       relativePath: 'src/vendor/node_modules',
     });
-    splitSpy.mockRestore();
 
     expect(shouldTraverseExcludedDirectory).toBe(false);
     expect(splitSpy).not.toHaveBeenCalled();
