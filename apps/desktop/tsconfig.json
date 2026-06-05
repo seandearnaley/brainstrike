@@ -104,6 +104,9 @@
       "@brainstrike/embeddings/provider-core": [
         "../../packages/embeddings/src/provider-core.ts"
       ],
+      "@brainstrike/embeddings/worker": [
+        "../../packages/embeddings/src/worker-entry.ts"
+      ],
       "@brainstrike/vector-management": [
         "../../packages/vector-management/src"
       ]
