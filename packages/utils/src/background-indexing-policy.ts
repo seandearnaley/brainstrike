@@ -120,6 +120,8 @@ const SPECIAL_TEXT_PREFIXES = [
   '.editorconfig',
 ];
 
+const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
+
 const balancedPathMatcher = createPathFilterMatcher(
   [],
   Array.from(BALANCED_EXCLUDED_DIRECTORY_SEGMENTS).map((segment) => `${segment}/**`)
@@ -135,13 +137,6 @@ export function getBackgroundIndexingPolicyOption(
     return matchedOption;
   }
   return BACKGROUND_INDEXING_POLICY_OPTIONS[0] as BackgroundIndexingPolicyOption;
-}
-
-function normalizePathSegments(relativePath: string): string[] {
-  return relativePath
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
 }
 
 function isSpecialTextFilename(fileName: string): boolean {
@@ -169,10 +164,23 @@ function isWithinSizeLimit(fileSize: number | undefined): boolean {
 }
 
 function shouldSkipBalancedDirectory(relativePath: string): boolean {
-  const segments = normalizePathSegments(relativePath);
-  return segments.some((segment) =>
-    BALANCED_EXCLUDED_DIRECTORY_SEGMENTS.has(segment.toLowerCase())
-  );
+  let segmentStart = 0;
+
+  for (let index = 0; index <= relativePath.length; index += 1) {
+    if (index !== relativePath.length && relativePath.charCodeAt(index) !== PATH_SEPARATOR_CODE) {
+      continue;
+    }
+
+    const segment = relativePath.slice(segmentStart, index).trim();
+    // Directory traversal calls this for every visited folder; scanning avoids
+    // allocating a split/map/filter array per path.
+    if (segment.length > 0 && BALANCED_EXCLUDED_DIRECTORY_SEGMENTS.has(segment.toLowerCase())) {
+      return true;
+    }
+    segmentStart = index + 1;
+  }
+
+  return false;
 }
 
 function shouldSkipBalancedFile(input: BackgroundIndexingFileInput): boolean {

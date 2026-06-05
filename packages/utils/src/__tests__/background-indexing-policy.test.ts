@@ -1,3 +1,4 @@
+import { afterEach, vi } from 'vitest';
 import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   createBackgroundIndexingEntryPolicy,
@@ -5,6 +6,10 @@ import {
 } from '../background-indexing-policy';
 
 describe('background-indexing-policy', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('defaults to the balanced preset metadata', () => {
     expect(BACKGROUND_INDEXING_POLICY_OPTIONS).toEqual(
       expect.arrayContaining([
@@ -97,6 +102,25 @@ describe('background-indexing-policy', () => {
         relativePath: '.next',
       })
     ).toBe(false);
+  });
+
+  it('checks balanced directory segments without splitting each traversed path', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+    const splitSpy = vi.spyOn(String.prototype, 'split');
+
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'icons',
+        relativePath: 'src/features/icons',
+      })
+    ).toBe(true);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'node_modules',
+        relativePath: 'src/vendor/node_modules',
+      })
+    ).toBe(false);
+    expect(splitSpy).not.toHaveBeenCalled();
   });
 
   it('full-root policy keeps non-binary text artifacts that balanced skips', () => {
