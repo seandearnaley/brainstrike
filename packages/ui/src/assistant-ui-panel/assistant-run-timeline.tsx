@@ -114,12 +114,17 @@ function hasSameRunScope(event: AssistantRunEvent, candidate: AssistantRunEvent)
   return !(event.runId && candidate.runId) || event.runId === candidate.runId;
 }
 
-function getMatchingCompletedKind(kind: AssistantRunEventKind): AssistantRunEventKind | null {
+export function getMatchingCompletedKind(
+  kind: AssistantRunEventKind
+): AssistantRunEventKind | null {
   if (kind === 'run.started') {
     return 'run.finished';
   }
   if (kind === 'tool.started') {
     return 'tool.completed';
+  }
+  if (kind.startsWith('run.') && kind.endsWith('.started')) {
+    return kind.replace(/\.started$/, '.finished') as AssistantRunEventKind;
   }
   if (kind.endsWith('.started')) {
     return kind.replace(/\.started$/, '.completed') as AssistantRunEventKind;
