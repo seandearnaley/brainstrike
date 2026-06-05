@@ -286,6 +286,75 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
   }
 }
 
+// Shared file_chunks column projections for read queries. Single source of truth
+// so a schema change can't desync one platform — these go through sql.raw /
+// string interpolation, so a stale per-repo copy would fail only at query time
+// on that one platform, not at type-check.
+const FILE_CHUNK_COLUMNS_BEFORE_EMBEDDING =
+  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset';
+const FILE_CHUNK_COLUMNS_AFTER_EMBEDDING =
+  'embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
+
+/** Full file_chunks column list, serializing the embedding vector to text. */
+export const FILE_CHUNK_SELECT_COLUMNS = `${FILE_CHUNK_COLUMNS_BEFORE_EMBEDDING}, embedding::text AS embedding, ${FILE_CHUNK_COLUMNS_AFTER_EMBEDDING}`;
+
+/**
+ * Same columns, but projecting only the cheap dimension count
+ * (`vector_dims(embedding)`) instead of the heavy embedding vector — for large
+ * fan-out search reads (e.g. hybrid RRF source pools) that never use the vector
+ * values, only ids, scores, and the dimension count.
+ */
+export const FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY = `${FILE_CHUNK_COLUMNS_BEFORE_EMBEDDING}, vector_dims(embedding) AS embedding_dims, ${FILE_CHUNK_COLUMNS_AFTER_EMBEDDING}`;
+
+/**
+ * Maximum number of candidate rows a similarity search may overfetch before
+ * ranking + cutting to the requested limit. Bounds worst-case materialization
+ * so a large user limit (up to the 2,000 product ceiling) can't pull tens of
+ * thousands of rows into the renderer.
+ */
+export const MAX_OVERFETCH_LIMIT = 10_000;
+
+/**
+ * Compute the overfetch row count for a similarity search: 10× the requested
+ * limit (better rank quality), floored at 100 and capped at
+ * {@link MAX_OVERFETCH_LIMIT}. Shared by all repositories so the bound is
+ * symmetric across the Drizzle/PGlite/Electron platforms.
+ *
+ * INTENTIONAL BOUND, NOT A SILENT FALLBACK: because the candidate pool is capped
+ * here and `searchSimilar` finishes with `slice(0, limit)`, a `limit` ABOVE
+ * {@link MAX_OVERFETCH_LIMIT} (10k) receives at most that many rows. The UI
+ * search path is clamped to the 2,000 product ceiling (`RESULT_LIMIT_MAX` in
+ * `@brainstrike/ui`), far under the cap, so this only affects a non-UI caller
+ * deliberately requesting >10k results (e.g. an oversized RAG topK) — and 10k
+ * local candidates is already an extreme fan-out. For `limit <= 10k` the
+ * returned count is unaffected; `1k < limit <= 10k` only trades some
+ * oversampling headroom.
+ */
+export function computeOverfetchLimit(limit: number): number {
+  return Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
+}
+
+/**
+ * Resolve a chunk's embedding dimension count from whichever the row carried.
+ *
+ * Prefers the loaded vector's length; falls back to the projected
+ * `vector_dims(embedding)` value used when a search omits the heavy vector
+ * payload. Returns `undefined` when neither is present (chunk has no embedding).
+ */
+export function resolveEmbeddingDimensions(
+  embedding: number[] | undefined,
+  projectedDims: string | number | null | undefined
+): number | undefined {
+  if (embedding) {
+    return embedding.length;
+  }
+  if (projectedDims === null || projectedDims === undefined) {
+    return;
+  }
+  const dims = typeof projectedDims === 'number' ? projectedDims : Number(projectedDims);
+  return Number.isFinite(dims) && dims > 0 ? dims : undefined;
+}
+
 /**
  * Batch an array into chunks of specified size
  * @param items - Array to batch

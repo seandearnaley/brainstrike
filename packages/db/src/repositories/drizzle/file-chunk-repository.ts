@@ -23,7 +23,13 @@ import {
   fileRecords,
   selectionSnapshotFiles,
 } from '../../schema/index.js';
-import { MAX_INLINE_FILE_PATHS } from '../_shared.js';
+import {
+  computeOverfetchLimit,
+  FILE_CHUNK_SELECT_COLUMNS,
+  FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  MAX_INLINE_FILE_PATHS,
+  resolveEmbeddingDimensions,
+} from '../_shared.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -68,16 +74,24 @@ function validateDimension(dimension: number, context: string): void {
 }
 
 /**
- * Maximum number of rows to overfetch when searching for similar embeddings.
- * This prevents memory exhaustion when limit is very large.
+ * Maximum result limit a similarity search may request. Bounds renderer memory
+ * for large fan-out reads.
+ *
+ * MUST stay >= the UI free-input ceiling (`RESULT_LIMIT_MAX` in `@brainstrike/ui`)
+ * — the executor clamps requested limits to that ceiling and hybrid sizes its
+ * source pools up to it, so a smaller cap here would make web search throw for
+ * limits between the two. The cross-layer invariant is pinned by a test in
+ * `@brainstrike/db-explorer` (result-limit-ceiling.test.ts).
+ *
+ * NOTE: this hard reject lives ONLY on this (Drizzle/web) path. The PGlite and
+ * Electron repos deliberately do NOT replicate it — they bound work via the
+ * shared `computeOverfetchLimit` cap (<=10k rows) instead, because they also
+ * serve callers that legitimately set their own limit (e.g. the assistant RAG
+ * retrieval tool passes its own topK straight to `FileChunkRepository`). The UI
+ * search path is bounded on every platform by the executor's `clampResultLimit`;
+ * this throw is an extra backstop for the web repo, not a cross-platform rule.
  */
-const MAX_OVERFETCH_LIMIT = 10_000;
-
-/**
- * Maximum user-specified limit for similarity search results.
- * Prevents excessive memory usage from user requests.
- */
-const MAX_USER_LIMIT = 1000;
+export const MAX_SEARCH_RESULT_LIMIT = 2000;
 
 /**
  * Safely constructs a pgvector literal string from an embedding array.
@@ -340,12 +354,13 @@ export class DrizzleFileChunkRepository {
       embeddingSetId,
       filePaths,
       selectionSnapshotId,
+      includeEmbedding = true,
     } = options;
 
     // Validate limit to prevent memory exhaustion from excessive requests
-    if (limit > MAX_USER_LIMIT) {
+    if (limit > MAX_SEARCH_RESULT_LIMIT) {
       throw new Error(
-        `searchSimilar limit ${limit} exceeds maximum allowed (${MAX_USER_LIMIT}). ` +
+        `searchSimilar limit ${limit} exceeds maximum allowed (${MAX_SEARCH_RESULT_LIMIT}). ` +
           'Use pagination for larger result sets.'
       );
     }
@@ -394,16 +409,19 @@ export class DrizzleFileChunkRepository {
     // Safe because validateEmbeddingVector guarantees all values are finite numbers
     const vectorLiteral = toPgvectorLiteral(queryEmbedding);
 
-    // Overfetch to improve result quality, but cap at MAX_OVERFETCH_LIMIT
-    // to prevent memory exhaustion with very large limit values
-    const overfetchLimit = Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
+    // Overfetch to improve result quality, capped (shared with the other repos)
+    // to prevent memory exhaustion with very large limit values.
+    const overfetchLimit = computeOverfetchLimit(limit);
 
     // Build dynamic query with proper parameterization
     // Note: We use sql template tag for parameters, but still need raw for pgvector operators
     // The embeddingSetId, fileRecordId, and chunkType are parameterized via sql template
     // The vectorLiteral is safe because it was validated via validateEmbeddingVector()
+    // Large fan-out reads can project the heavy embedding vector away (keeping
+    // only its dimension count) — the distance math still runs in SQL.
+    const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
     let baseQuery = sql`
-      SELECT *,
+      SELECT ${sql.raw(selectColumns)},
         ${sql.raw(similarityExpr.replace(/\$1/g, `'${vectorLiteral}'`))} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorLiteral}'`))}) as rank
       FROM file_chunks
@@ -486,6 +504,8 @@ export class DrizzleFileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
+      includeEmbedding = true,
+      includeHeadline = true,
     } = options;
 
     // Validate query
@@ -507,14 +527,19 @@ export class DrizzleFileChunkRepository {
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
 
     // Build WHERE clause dynamically
+    const ftsColumns = includeEmbedding
+      ? FILE_CHUNK_SELECT_COLUMNS
+      : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
+    // ts_headline is costly per row; skip it when the caller won't render it.
+    const headlineColumn = includeHeadline
+      ? sql`ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
+      : sql``;
     let baseQuery = sql`
       SELECT
-        id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding,
-        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ${sql.raw(ftsColumns)},
         ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
-        ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
-          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ${headlineColumn}
         ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) DESC) as position
       FROM file_chunks
       WHERE content_tsvector IS NOT NULL
@@ -817,6 +842,13 @@ export class DrizzleFileChunkRepository {
       // Parse vector string format "[0.1,0.2,0.3]"
       const cleaned = embStr.replace(/[[\]()]/g, '');
       chunk.embedding = cleaned.split(',').map(Number);
+    }
+    const embeddingDimensions = resolveEmbeddingDimensions(
+      chunk.embedding,
+      row['embedding_dims'] as string | number | null | undefined
+    );
+    if (embeddingDimensions !== undefined) {
+      chunk.embeddingDimensions = embeddingDimensions;
     }
     if (row['embedding_set_id']) {
       chunk.embeddingSetId = String(row['embedding_set_id']);

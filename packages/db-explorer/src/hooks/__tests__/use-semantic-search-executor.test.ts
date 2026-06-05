@@ -451,6 +451,166 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
+  it('scales hybrid source-pool limits to the requested result limit so large limits are honored', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 500, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    // RRF fusion can only return as many unique hits as the union of its source
+    // pools. With the 50/50 defaults a 500 limit is unreachable, so both pools
+    // must scale to the requested limit.
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 500 })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ limit: 500 })
+    );
+  });
+
+  it('never shrinks hybrid source pools below the service default for small limits', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    // The default resultLimit (20) is below the service's 50/50 default. RRF
+    // reranks best with a candidate pool larger than the final cut, so the pools
+    // must stay at >=50, not shrink to the small limit.
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 20, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 50 })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ limit: 50 })
+    );
+  });
+
+  it('clamps an over-ceiling resultLimit so hybrid fan-out stays bounded (defense-in-depth)', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    // The 2,000 ceiling is enforced in the UI input, but a persisted or
+    // programmatic resultLimit above it must not size both source pools
+    // unbounded where the fan-out actually happens. The executor clamps to
+    // RESULT_LIMIT_MAX (2000) at the source of truth.
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 5000, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 2000 })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ limit: 2000 })
+    );
+  });
+
+  it('clamps an over-ceiling resultLimit for vector-only search too', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 5000, retrievalMode: 'vector' }),
+      'set-1'
+    );
+
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ limit: 2000 })
+    );
+  });
+
+  it('omits embeddings from hybrid source reads but preserves the projected dimension count', async () => {
+    // Simulate a projected source-pool row: no heavy embedding vector, but the
+    // dimension count was kept via vector_dims(embedding).
+    const { embedding: _omitted, ...rest } = createMockChunk('chunk-1', 'file-1');
+    const projectedChunk: FileChunk = { ...rest, embeddingDimensions: 1024 };
+    const chunkRepo = createMockChunkRepository([projectedChunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    const results = await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 20, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    // Both source-pool reads must project the heavy vector away...
+    expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ includeEmbedding: false })
+    );
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ includeEmbedding: false })
+    );
+    // ...while the result still reports the dimension count (from vector_dims).
+    expect(results[0]?.embeddingDimensions).toBe(1024);
+  });
+
+  it('skips FTS headline generation on the hybrid UI path (headlines are not rendered)', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await result.current!(
+      'test query',
+      createSearchConfig({ resultLimit: 20, retrievalMode: 'hybrid' }),
+      'set-1'
+    );
+
+    // ts_headline is one of Postgres's costliest functions and the UI never
+    // renders the headline, so the hybrid source-pool FTS read must skip it.
+    expect(chunkRepo.fullTextSearch).toHaveBeenCalledWith(
+      'test query',
+      expect.objectContaining({ includeHeadline: false })
+    );
+  });
+
   describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');

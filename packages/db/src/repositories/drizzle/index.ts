@@ -18,7 +18,7 @@ export {
   RECOMMENDED_MAX_CACHE_ENTRIES,
 } from './embedding-cache-repository.js';
 export { DrizzleEmbeddingSetsRepository } from './embedding-sets-repository.js';
-export { DrizzleFileChunkRepository } from './file-chunk-repository.js';
+export { DrizzleFileChunkRepository, MAX_SEARCH_RESULT_LIMIT } from './file-chunk-repository.js';
 export { DrizzleFileRecordRepository } from './file-record-repository.js';
 export type {
   TokenCacheEntry,

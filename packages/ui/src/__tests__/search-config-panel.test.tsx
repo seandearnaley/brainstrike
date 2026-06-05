@@ -1,20 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SearchConfigPanel } from '../collection-browser/search-config-panel';
 import type { SearchConfig, SearchConfigPanelProps } from '../collection-browser/types';
 import { TooltipProvider } from '../tooltip';
 
-/**
- * Wrapper component that provides TooltipProvider context
- */
 function TestWrapper({ children }: { children: React.ReactNode }) {
   return <TooltipProvider>{children}</TooltipProvider>;
 }
 
-/**
- * Custom render function that wraps component with necessary providers
- */
 function renderWithProviders(ui: React.ReactElement) {
   return render(ui, { wrapper: TestWrapper });
 }
@@ -31,232 +24,22 @@ describe('SearchConfigPanel', () => {
   ): SearchConfigPanelProps => ({
     config: createDefaultConfig(),
     onConfigChange: vi.fn(),
-    isExpanded: false,
-    onExpandedChange: vi.fn(),
     ...overrides,
   });
 
-  it('renders toggle button', () => {
+  // The panel is now pure popover content: it renders its controls directly,
+  // with no self-managed accordion toggle (the cog Popover owns open/close).
+  it('renders controls directly without an "Advanced Options" accordion toggle', () => {
     renderWithProviders(<SearchConfigPanel {...createProps()} />);
 
-    expect(screen.getByText('Advanced Options')).toBeInTheDocument();
-  });
-
-  it('shows chevron down when collapsed', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: false })} />);
-
-    const button = screen.getByRole('button', { name: /advanced options/i });
-    expect(button).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('shows chevron up when expanded', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    const button = screen.getByRole('button', { name: /advanced options/i });
-    expect(button).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  it('calls onExpandedChange when toggle button is clicked', () => {
-    const onExpandedChange = vi.fn();
-    renderWithProviders(
-      <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: false })} />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /advanced options/i }));
-
-    expect(onExpandedChange).toHaveBeenCalledWith(true);
-  });
-
-  it('toggles from expanded to collapsed', () => {
-    const onExpandedChange = vi.fn();
-    renderWithProviders(
-      <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: true })} />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /advanced options/i }));
-
-    expect(onExpandedChange).toHaveBeenCalledWith(false);
-  });
-
-  it('shows content when expanded', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    // Compact layout uses inline labels
+    expect(screen.queryByRole('button', { name: /advanced options/i })).not.toBeInTheDocument();
     expect(screen.getByText('Threshold')).toBeInTheDocument();
     expect(screen.getByText('Results')).toBeInTheDocument();
     expect(screen.getByText('Metric')).toBeInTheDocument();
   });
 
-  it('displays current threshold value', () => {
-    renderWithProviders(
-      <SearchConfigPanel
-        {...createProps({
-          config: { ...createDefaultConfig(), threshold: 0.75 },
-          isExpanded: true,
-        })}
-      />
-    );
-
-    expect(screen.getByText('0.75')).toBeInTheDocument();
-  });
-
-  it('calls onConfigChange when threshold slider changes', () => {
-    const onConfigChange = vi.fn();
-    renderWithProviders(
-      <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
-    );
-
-    const slider = screen.getByLabelText('Threshold');
-    fireEvent.change(slider, { target: { value: '0.8' } });
-
-    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ threshold: 0.8 }));
-  });
-
-  it('uses the visible threshold label for the slider', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    expect(screen.getByLabelText('Threshold')).toBeInTheDocument();
-  });
-
-  it('ignores invalid threshold values', () => {
-    const onConfigChange = vi.fn();
-    renderWithProviders(
-      <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
-    );
-
-    const slider = screen.getByLabelText('Threshold');
-    fireEvent.change(slider, { target: { value: 'not-a-number' } });
-
-    expect(onConfigChange).not.toHaveBeenCalled();
-  });
-
-  it('displays result limit dropdown', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    // The trigger should show the current value (just the number in compact layout)
-    expect(screen.getByText('20')).toBeInTheDocument();
-  });
-
-  it('displays distance metric dropdown', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    // Should show current metric
-    expect(screen.getByText('Cosine')).toBeInTheDocument();
-  });
-
-  it('shows warning when collection metric differs from selected', () => {
-    renderWithProviders(
-      <SearchConfigPanel
-        {...createProps({
-          isExpanded: true,
-          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
-          collectionDistanceMetric: 'l2',
-        })}
-      />
-    );
-
-    // Compact layout shows ⚠ icon with title attribute
-    expect(screen.getByText('⚠')).toBeInTheDocument();
-  });
-
-  it('does not show warning when collection metric matches selected', () => {
-    renderWithProviders(
-      <SearchConfigPanel
-        {...createProps({
-          isExpanded: true,
-          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
-          collectionDistanceMetric: 'cosine',
-        })}
-      />
-    );
-
-    expect(screen.queryByText('⚠')).not.toBeInTheDocument();
-  });
-
-  it('does not show warning when no collection metric provided', () => {
-    renderWithProviders(
-      <SearchConfigPanel
-        {...createProps({
-          isExpanded: true,
-        })}
-      />
-    );
-
-    expect(screen.queryByText('⚠')).not.toBeInTheDocument();
-  });
-
-  it('applies custom className', () => {
-    const { container } = renderWithProviders(
-      <SearchConfigPanel {...createProps({ className: 'custom-class' })} />
-    );
-
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper).toHaveClass('custom-class');
-  });
-
-  it('renders all distance metric options', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    // Cosine is selected by default
-    expect(screen.getByText('Cosine')).toBeInTheDocument();
-  });
-
-  it('has correct aria controls on toggle button', () => {
+  it('shows the retrieval mode toggle', () => {
     renderWithProviders(<SearchConfigPanel {...createProps()} />);
-
-    const button = screen.getByRole('button', { name: /advanced options/i });
-    expect(button).toHaveAttribute('aria-controls', 'search-config-content');
-  });
-
-  it('keeps search-config-content in the DOM when collapsed for aria-controls', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: false })} />);
-
-    const content = document.getElementById('search-config-content');
-    expect(content).toBeInTheDocument();
-    expect(content).toHaveAttribute('hidden');
-  });
-
-  it('toggles advanced options with Enter and Space on the trigger', async () => {
-    const user = userEvent.setup();
-    const onExpandedChange = vi.fn();
-    const { rerender } = renderWithProviders(
-      <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: false })} />
-    );
-
-    const expandTrigger = screen.getByRole('button', { name: /expand advanced options/i });
-    expandTrigger.focus();
-    await user.keyboard('{Enter}');
-    expect(onExpandedChange).toHaveBeenCalledWith(true);
-
-    onExpandedChange.mockClear();
-    rerender(
-      <TestWrapper>
-        <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: true })} />
-      </TestWrapper>
-    );
-    const collapseTrigger = screen.getByRole('button', { name: /collapse advanced options/i });
-    collapseTrigger.focus();
-    await user.keyboard(' ');
-    expect(onExpandedChange).toHaveBeenCalledWith(false);
-  });
-
-  it('does not animate the advanced options visibility toggle', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    // Regression guard: jsdom can't observe visual behavior, so we assert the
-    // absence of the previously-applied transition classes that the `hidden`
-    // attribute would conflict with. If transitions are reintroduced, pair
-    // them with coordinated JS that defers `hidden` until transition end.
-    const content = document.getElementById('search-config-content');
-    expect(content).not.toHaveClass('transition-all');
-    expect(content).not.toHaveClass('duration-200');
-    expect(content).not.toHaveClass('ease-out');
-  });
-
-  // === Hybrid Search Tests (BST-294) ===
-
-  it('shows retrieval mode toggle when expanded', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     expect(screen.getByText('Mode')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /retrieval mode/i })).toBeInTheDocument();
@@ -265,17 +48,13 @@ describe('SearchConfigPanel', () => {
   });
 
   it('defaults to hybrid mode', () => {
-    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    const hybridButton = screen.getByRole('button', { name: /hybrid/i });
-    expect(hybridButton).toHaveClass('bg-primary');
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
+    expect(screen.getByRole('button', { name: /hybrid/i })).toHaveClass('bg-primary');
   });
 
   it('calls onConfigChange when switching to vector mode', () => {
     const onConfigChange = vi.fn();
-    renderWithProviders(
-      <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
-    );
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
 
     fireEvent.click(screen.getByRole('button', { name: /vector/i }));
 
@@ -287,45 +66,52 @@ describe('SearchConfigPanel', () => {
   it('shows weight sliders only in hybrid mode', () => {
     const { rerender } = renderWithProviders(
       <SearchConfigPanel
-        {...createProps({
-          isExpanded: true,
-          config: { ...createDefaultConfig(), retrievalMode: 'vector' },
-        })}
+        {...createProps({ config: { ...createDefaultConfig(), retrievalMode: 'vector' } })}
       />
     );
-
-    // Vector mode: no weight sliders
     expect(screen.queryByLabelText('Semantic search weight')).not.toBeInTheDocument();
 
-    // Hybrid mode: show weight sliders
     rerender(
       <TestWrapper>
         <SearchConfigPanel
-          {...createProps({
-            isExpanded: true,
-            config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
-          })}
+          {...createProps({ config: { ...createDefaultConfig(), retrievalMode: 'hybrid' } })}
         />
       </TestWrapper>
     );
-
     expect(screen.getByLabelText('Semantic search weight')).toBeInTheDocument();
     expect(screen.getByLabelText('Keyword search weight')).toBeInTheDocument();
   });
 
-  it('displays default weight values in hybrid mode', () => {
+  it('lets every range slider shrink to fit so it cannot overflow the popover (min-w-0)', () => {
+    // Regression guard for the flexbox min-width:auto trap: native range inputs
+    // report an intrinsic width, so without min-w-0 a flex-1 slider refuses to
+    // shrink and spills out of the narrow cog popover.
     renderWithProviders(
       <SearchConfigPanel
-        {...createProps({
-          isExpanded: true,
-          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
-        })}
+        {...createProps({ config: { ...createDefaultConfig(), retrievalMode: 'hybrid' } })}
       />
     );
+    const sliders = [
+      screen.getByLabelText('Threshold'),
+      screen.getByLabelText('Semantic search weight'),
+      screen.getByLabelText('Keyword search weight'),
+    ];
+    for (const slider of sliders) {
+      expect(slider).toHaveClass('min-w-0');
+      expect(slider).toHaveClass('flex-1');
+    }
+  });
 
-    // Default weights are 1.0
-    const weightValues = screen.getAllByText('1.0');
-    expect(weightValues.length).toBe(2); // vector and FTS weights
+  it('stacks the hybrid weight sliders as full-width labeled rows', () => {
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), retrievalMode: 'hybrid' } })}
+      />
+    );
+    // Each weight is its own row with a visible label so it gets the full track
+    // width instead of two half-width sliders fighting for space.
+    expect(screen.getByText('Semantic')).toBeInTheDocument();
+    expect(screen.getByText('Keyword')).toBeInTheDocument();
   });
 
   it('calls onConfigChange when vector weight changes', () => {
@@ -334,33 +120,207 @@ describe('SearchConfigPanel', () => {
       <SearchConfigPanel
         {...createProps({
           onConfigChange,
-          isExpanded: true,
           config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
         })}
       />
     );
-
-    const vectorWeightSlider = screen.getByLabelText('Semantic search weight');
-    fireEvent.change(vectorWeightSlider, { target: { value: '1.5' } });
-
+    fireEvent.change(screen.getByLabelText('Semantic search weight'), { target: { value: '1.5' } });
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ vectorWeight: 1.5 }));
   });
 
-  it('calls onConfigChange when FTS weight changes', () => {
+  it('displays and updates the threshold slider', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(
       <SearchConfigPanel
+        {...createProps({ onConfigChange, config: { ...createDefaultConfig(), threshold: 0.75 } })}
+      />
+    );
+    expect(screen.getByText('0.75')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Threshold'), { target: { value: '0.8' } });
+    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ threshold: 0.8 }));
+  });
+
+  it('ignores invalid threshold values', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    fireEvent.change(screen.getByLabelText('Threshold'), { target: { value: 'not-a-number' } });
+    expect(onConfigChange).not.toHaveBeenCalled();
+  });
+
+  // === Result limit: free number input (replaces the 5–100 dropdown) ===
+
+  it('renders the result limit as an editable number input showing the current value', () => {
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), resultLimit: 20 } })}
+      />
+    );
+    const input = screen.getByLabelText('Result limit');
+    expect(input).toHaveAttribute('type', 'number');
+    expect(input).toHaveValue(20);
+  });
+
+  it('commits a large custom result limit on blur', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+    fireEvent.change(input, { target: { value: '1500' } });
+    fireEvent.blur(input);
+    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ resultLimit: 1500 }));
+  });
+
+  it('clamps the result limit to the 1–2000 range on commit', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 1 }));
+
+    fireEvent.change(input, { target: { value: '99999' } });
+    fireEvent.blur(input);
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 2000 }));
+  });
+
+  it('parses exponent entries a number input allows instead of truncating the mantissa', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+    // A type="number" input accepts "2e3"; parseInt would commit 2, parseFloat → 2000.
+    fireEvent.change(input, { target: { value: '2e3' } });
+    fireEvent.blur(input);
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ resultLimit: 2000 }));
+  });
+
+  it('exposes the 2000 ceiling on the number input', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
+    expect(screen.getByLabelText('Result limit')).toHaveAttribute('max', '2000');
+  });
+
+  it('lets the field be cleared mid-edit without snapping back, and does not commit empty', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+
+    // Backspacing to empty must stick (draft state), not revert to the number.
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(null);
+    expect(onConfigChange).not.toHaveBeenCalled();
+
+    // Committing an empty field keeps the previous value (no NaN write).
+    fireEvent.blur(input);
+    expect(onConfigChange).not.toHaveBeenCalled();
+  });
+
+  it('does not clamp a leading zero while typing (only on commit)', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(<SearchConfigPanel {...createProps({ onConfigChange })} />);
+    const input = screen.getByLabelText('Result limit');
+    fireEvent.change(input, { target: { value: '0' } });
+    // While editing, the keystroke is preserved (not snapped to 1) and nothing committed yet.
+    expect(input).toHaveValue(0);
+    expect(onConfigChange).not.toHaveBeenCalled();
+  });
+
+  it('shows a soft performance hint only for large result limits', () => {
+    const { rerender } = renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), resultLimit: 100 } })}
+      />
+    );
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+
+    rerender(
+      <TestWrapper>
+        <SearchConfigPanel
+          {...createProps({ config: { ...createDefaultConfig(), resultLimit: 5000 } })}
+        />
+      </TestWrapper>
+    );
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+  });
+
+  it('shows the performance hint live from the draft, before blur/commit', () => {
+    const onConfigChange = vi.fn();
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), resultLimit: 20 }, onConfigChange })}
+      />
+    );
+    const input = screen.getByLabelText('Result limit');
+
+    // Committed value is small, so no hint yet.
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+
+    // Typing a large value must surface the hint immediately — that's the
+    // moment the user most benefits from it — not only after blur.
+    fireEvent.change(input, { target: { value: '1500' } });
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+    // ...and it's still just a draft (not committed).
+    expect(onConfigChange).not.toHaveBeenCalled();
+
+    // Editing back down to a small value hides it again, live.
+    fireEvent.change(input, { target: { value: '50' } });
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+  });
+
+  it('hides the live hint when the field is cleared, even over a large committed value', () => {
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({ config: { ...createDefaultConfig(), resultLimit: 2000 } })}
+      />
+    );
+    // Committed 2000 is large, so the hint shows initially (not editing).
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+
+    // Clearing the field mid-edit must hide the hint — the visible field is
+    // blank, so it shouldn't read against the stale committed value.
+    const input = screen.getByLabelText('Result limit');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.queryByText(/rank slower/i)).not.toBeInTheDocument();
+  });
+
+  it('drives the live hint with parseFloat so exponent drafts match commit semantics', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
+    const input = screen.getByLabelText('Result limit');
+    // "2e3" commits to 2000 (> RESULT_LIMIT_LARGE), so the live hint must show
+    // while editing — parseInt("2e3") === 2 would hide it inconsistently.
+    fireEvent.change(input, { target: { value: '2e3' } });
+    expect(screen.getByText(/rank slower/i)).toBeInTheDocument();
+  });
+
+  // === Distance metric ===
+
+  it('displays the distance metric and a mismatch warning', () => {
+    renderWithProviders(
+      <SearchConfigPanel
         {...createProps({
-          onConfigChange,
-          isExpanded: true,
-          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
+          collectionDistanceMetric: 'l2',
         })}
       />
     );
+    expect(screen.getByText('Cosine')).toBeInTheDocument();
+    expect(screen.getByText('⚠')).toBeInTheDocument();
+  });
 
-    const ftsWeightSlider = screen.getByLabelText('Keyword search weight');
-    fireEvent.change(ftsWeightSlider, { target: { value: '0.8' } });
+  it('does not show the mismatch warning when metrics match', () => {
+    renderWithProviders(
+      <SearchConfigPanel
+        {...createProps({
+          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
+          collectionDistanceMetric: 'cosine',
+        })}
+      />
+    );
+    expect(screen.queryByText('⚠')).not.toBeInTheDocument();
+  });
 
-    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ ftsWeight: 0.8 }));
+  it('applies a custom className', () => {
+    const { container } = renderWithProviders(
+      <SearchConfigPanel {...createProps({ className: 'custom-class' })} />
+    );
+    expect(container.firstChild as HTMLElement).toHaveClass('custom-class');
   });
 });

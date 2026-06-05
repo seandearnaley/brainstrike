@@ -9,10 +9,14 @@ import {
   appendColumn,
   appendColumnIfDefined,
   batchArray,
+  computeOverfetchLimit,
   createUpdateBuilder,
+  FILE_CHUNK_SELECT_COLUMNS,
+  FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
+  resolveEmbeddingDimensions,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
@@ -27,6 +31,8 @@ interface FileChunkRow {
   content_hash: string;
   created_at: string;
   embedding?: string;
+  /** Projected dimension count (vector_dims) when the full embedding is omitted. */
+  embedding_dims?: string | number | null;
   embedding_hash?: string | null;
   // Phase 2 columns
   embedding_set_id?: string | null;
@@ -55,9 +61,6 @@ interface FileChunkStatsRow {
   total_chunks: string;
   type_count: string;
 }
-
-const FILE_CHUNK_SELECT_COLUMNS =
-  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
 
 export class ElectronFileChunkRepository {
   constructor(private readonly db: ElectronDbAPI) {}
@@ -329,6 +332,7 @@ export class ElectronFileChunkRepository {
       embeddingSetId,
       filePaths,
       selectionSnapshotId,
+      includeEmbedding = true,
     } = options;
 
     if (!embeddingSetId) {
@@ -403,12 +407,16 @@ export class ElectronFileChunkRepository {
       // best-effort tuning only
     }
 
-    const overfetchLimit = Math.max(limit * 10, 100);
+    // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
+    const overfetchLimit = computeOverfetchLimit(limit);
+    // Large fan-out reads can project the heavy embedding vector away (keeping
+    // only its dimension count) — the distance math still runs in SQL.
+    const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
     const result = await this.db.query(
-      `SELECT *, 
+      `SELECT ${selectColumns},
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
-      FROM file_chunks 
+      FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
       LIMIT $${paramIndex}`,
@@ -454,6 +462,8 @@ export class ElectronFileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
+      includeEmbedding = true,
+      includeHeadline = true,
     } = options;
 
     // Validate query
@@ -501,12 +511,14 @@ export class ElectronFileChunkRepository {
     // Execute search query with ts_rank for relevance scoring
     const result = await this.db.query(
       `SELECT
-        id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding,
-        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
         ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
-        ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
-          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ${
+          includeHeadline
+            ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
+            : ''
+        }
         ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC) as position
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
@@ -902,6 +914,7 @@ export class ElectronFileChunkRepository {
 
   private mapRowToChunk(row: FileChunkRow): FileChunk {
     const embedding = row.embedding ? parseEmbeddingLoose(row.embedding) : undefined;
+    const embeddingDimensions = resolveEmbeddingDimensions(embedding, row.embedding_dims);
     return {
       id: row.id,
       fileRecordId: row.file_record_id,
@@ -917,6 +930,7 @@ export class ElectronFileChunkRepository {
         row.start_offset !== undefined && { startOffset: row.start_offset }),
       ...(row.end_offset !== null && row.end_offset !== undefined && { endOffset: row.end_offset }),
       ...(embedding && { embedding }),
+      ...(embeddingDimensions !== undefined && { embeddingDimensions }),
       ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
       ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),
       ...(row.embedding_hash !== null && { embeddingHash: row.embedding_hash }),

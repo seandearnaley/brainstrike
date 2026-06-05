@@ -58,6 +58,23 @@ export interface HybridSearchOptions {
   ftsThreshold?: number;
   /** Weight for FTS results in RRF (default: 1.0) */
   ftsWeight?: number;
+  /**
+   * Whether the source-pool reads return the full embedding vector. Defaults to
+   * `false`: RRF fusion needs only ids + scores and result rows only need the
+   * dimension count (preserved via `vector_dims`), so the heavy vector is
+   * projected away to keep large fan-out affordable. A caller that genuinely
+   * needs the vector back on hybrid results can opt in with `true`.
+   */
+  includeEmbedding?: boolean;
+  /**
+   * Whether the FTS source read generates per-row `ts_headline` snippets.
+   * Defaults to `true` (snippets available on results). A caller that won't
+   * render the snippet — e.g. the hybrid UI search path — can pass `false` to
+   * skip generating headlines for the whole candidate pool (only the final
+   * survivors would ever show one), avoiding a costly ~per-row operation at
+   * large `ftsLimit`.
+   */
+  includeHeadline?: boolean;
   /** Maximum number of final results to return (default: 10) */
   limit?: number;
   /** Minimum sources required for result inclusion (default: 1) */
@@ -129,6 +146,14 @@ export interface HybridSearchResponse {
 }
 
 /**
+ * Default size of each RRF source pool (vector + FTS). Exported so callers that
+ * scale the pools to a requested limit can floor at this value without
+ * hand-duplicating the constant (RRF reranks best from a pool larger than the
+ * final cut).
+ */
+export const DEFAULT_HYBRID_SOURCE_LIMIT = 50;
+
+/**
  * Service for performing hybrid search combining vector and full-text search
  */
 export class HybridSearchService {
@@ -167,15 +192,19 @@ export class HybridSearchService {
       limit = 10,
       // Vector options
       vectorThreshold = 0.5,
-      vectorLimit = 50,
+      vectorLimit = DEFAULT_HYBRID_SOURCE_LIMIT,
       vectorWeight = 1.0,
       embeddingSetId,
       // FTS options
       ftsThreshold = 0,
-      ftsLimit = 50,
+      ftsLimit = DEFAULT_HYBRID_SOURCE_LIMIT,
       ftsWeight = 1.0,
       ftsQueryMode = 'websearch',
       ftsLanguage = 'english',
+      // Default to projecting the embedding vector away (see HybridSearchOptions).
+      includeEmbedding = false,
+      // Default to generating FTS headlines (callers that won't render them opt out).
+      includeHeadline = true,
       // Common filters
       fileRecordId,
       chunkType,
@@ -186,11 +215,17 @@ export class HybridSearchService {
       minSourceCount = 1,
     } = options;
 
-    // Build search options, only including defined properties (exactOptionalPropertyTypes)
+    // Build search options, only including defined properties (exactOptionalPropertyTypes).
+    // RRF fusion needs only ids + scores, and result rows only need the embedding
+    // DIMENSION (preserved via vector_dims), never the multi-KB vector — so the
+    // source-pool reads project the heavy embedding payload away by default. At
+    // large limits this avoids materializing thousands of full embeddings in the
+    // renderer. A caller can opt back in via `includeEmbedding`.
     const vectorSearchOptions: ChunkSearchOptions = {
       limit: vectorLimit,
       threshold: vectorThreshold,
       embeddingSetId,
+      includeEmbedding,
     };
     if (fileRecordId !== undefined) {
       vectorSearchOptions.fileRecordId = fileRecordId;
@@ -210,6 +245,8 @@ export class HybridSearchService {
       threshold: ftsThreshold,
       queryMode: ftsQueryMode,
       language: ftsLanguage,
+      includeEmbedding,
+      includeHeadline,
     };
     if (fileRecordId !== undefined) {
       ftsSearchOptions.fileRecordId = fileRecordId;

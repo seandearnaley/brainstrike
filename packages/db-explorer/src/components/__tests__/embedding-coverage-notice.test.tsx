@@ -40,6 +40,73 @@ describe('EmbeddingCoverageNotice', () => {
     expect(screen.getByText(/2 files/i)).toBeInTheDocument();
   });
 
+  it('keeps actionable warning states salient (toned text, not muted)', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Code"
+        coverage={{
+          ...baseCoverage,
+          status: 'needs_reindex',
+          pendingReindexFileCount: 2,
+          totalFiles: 2,
+        }}
+      />
+    );
+    const message = screen.getByText(/needs re-indexing/i);
+    // Warning text must NOT read as the muted/healthy tone (WCAG: don't rely on
+    // a tiny icon's color alone to signal an actionable state).
+    expect(message.className).toMatch(/text-amber/);
+    expect(message.className).not.toMatch(/text-muted-foreground/);
+  });
+
+  it('renders needs_reindex remediation as VISIBLE text (reachable without hover), not title-only', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Code"
+        coverage={{
+          ...baseCoverage,
+          status: 'needs_reindex',
+          pendingReindexFileCount: 2,
+          totalFiles: 2,
+        }}
+      />
+    );
+    const message = screen.getByText(/needs re-indexing/i);
+    // The "what to do" must be visible (keyboard/touch users can't trigger a
+    // native title tooltip), so it lives in the rendered text, not just `title`.
+    expect(message).toHaveTextContent(/re-import|run indexing/i);
+    // ...and the actionable line is not truncate-clipped (it wraps so the
+    // guidance stays fully readable).
+    expect(message.className).not.toMatch(/\btruncate\b/);
+  });
+
+  it('renders the search impact of partial source ranges as visible text', () => {
+    render(
+      <EmbeddingCoverageNotice
+        coverage={{
+          ...baseCoverage,
+          status: 'partial_source_ranges',
+          chunksMissingSourceRange: 5,
+          totalFiles: 3,
+          totalChunks: 10,
+        }}
+      />
+    );
+    const message = screen.getByText(/missing source ranges/i);
+    expect(message).toHaveTextContent(/semantic search may skip|re-chunk/i);
+    expect(message.className).not.toMatch(/\btruncate\b/);
+  });
+
+  it('keeps the healthy state calm (muted text)', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Stable"
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 4, totalChunks: 40 }}
+      />
+    );
+    expect(screen.getByText(/fully indexed/i).className).toMatch(/text-muted-foreground/);
+  });
+
   it('shows partial source-range skip counts', () => {
     render(
       <EmbeddingCoverageNotice
@@ -53,7 +120,7 @@ describe('EmbeddingCoverageNotice', () => {
       />
     );
 
-    expect(screen.getByText(/5 chunks missing source line metadata/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 chunks missing source ranges/i)).toBeInTheDocument();
   });
 
   it('shows fully indexed state', () => {
@@ -69,8 +136,44 @@ describe('EmbeddingCoverageNotice', () => {
       />
     );
 
-    expect(screen.getByText(/fully indexed with line-aware chunk metadata/i)).toBeInTheDocument();
-    expect(screen.getByText(/40 chunks across 4 files/i)).toBeInTheDocument();
+    // Compact single-line copy: "Fully indexed · 40 chunks / 4 files"
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveTextContent(/fully indexed/i);
+    expect(notice).toHaveTextContent(/40 chunks/i);
+    expect(notice).toHaveTextContent(/4 files/i);
+  });
+
+  it('singularizes the fully-indexed copy for a single chunk/file', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Solo"
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 1, totalChunks: 1 }}
+      />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    expect(notice).toHaveTextContent('1 chunk / 1 file');
+    expect(notice).not.toHaveTextContent(/1 chunks/);
+    expect(notice).not.toHaveTextContent(/1 files/);
+  });
+
+  it('renders the coverage notice as a single flat line that can truncate (min-w-0)', () => {
+    render(
+      <EmbeddingCoverageNotice
+        collectionName="Stable"
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 4, totalChunks: 40 }}
+      />
+    );
+
+    const notice = screen.getByTestId('embedding-coverage-notice');
+    // Flat row: no rounded "card" chrome (border/background/heavy padding).
+    expect(notice.className).not.toMatch(/\brounded-md\b/);
+    expect(notice.className).not.toMatch(/\bborder\b/);
+    expect(notice.className).toMatch(/\bitems-center\b/);
+    // The message span must carry min-w-0 or `truncate` is a no-op in a flex row.
+    const messageSpan = screen.getByText(/fully indexed/i);
+    expect(messageSpan).toHaveClass('truncate');
+    expect(messageSpan).toHaveClass('min-w-0');
   });
 
   it('suppresses the re-index alarm and shows a stable indexing note while indexing is active', () => {

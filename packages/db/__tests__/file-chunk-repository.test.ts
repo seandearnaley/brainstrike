@@ -1124,6 +1124,19 @@ describe('FileChunkRepository', () => {
       expect(results[0]?.headline).toContain('<mark>');
     });
 
+    it('skips the expensive ts_headline generation when includeHeadline is false', async () => {
+      // Headlines are costly per-row; a caller that won't render them (e.g. the
+      // hybrid UI source pool) can omit them while still getting ranked rows.
+      const results = await repository.fullTextSearch('authentication', {
+        includeHeadline: false,
+      });
+
+      expect(results.length).toBeGreaterThan(0);
+      for (const result of results) {
+        expect(result.headline).toBeUndefined();
+      }
+    });
+
     it('should include position in results', async () => {
       const results = await repository.fullTextSearch('authentication');
 

@@ -5,6 +5,7 @@
 // Hybrid Search Service
 export {
   createHybridSearchService,
+  DEFAULT_HYBRID_SOURCE_LIMIT,
   type HybridSearchMetadata,
   type HybridSearchOptions,
   type HybridSearchRepository,

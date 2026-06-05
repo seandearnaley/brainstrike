@@ -2,9 +2,54 @@ import { describe, expect, it } from 'vitest';
 import {
   batchArray,
   computeCosineSimilarity,
+  computeOverfetchLimit,
   cosineToSearchSimilarity,
+  FILE_CHUNK_SELECT_COLUMNS,
+  FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  MAX_OVERFETCH_LIMIT,
   parseEmbeddingLoose,
 } from '../src/repositories/_shared';
+
+describe('file_chunks column projections', () => {
+  it('keeps full and dims-only lists identical except the embedding column', () => {
+    expect(FILE_CHUNK_SELECT_COLUMNS).toContain('embedding::text AS embedding');
+    expect(FILE_CHUNK_SELECT_COLUMNS).not.toContain('vector_dims');
+
+    expect(FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY).toContain(
+      'vector_dims(embedding) AS embedding_dims'
+    );
+    expect(FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY).not.toContain('embedding::text');
+
+    // The two lists must differ ONLY in the embedding projection term — swapping
+    // it back yields the full list. Guards against the column sets drifting.
+    expect(
+      FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY.replace(
+        'vector_dims(embedding) AS embedding_dims',
+        'embedding::text AS embedding'
+      )
+    ).toBe(FILE_CHUNK_SELECT_COLUMNS);
+  });
+});
+
+describe('computeOverfetchLimit', () => {
+  it('overfetches 10x the requested limit to improve rank quality', () => {
+    expect(computeOverfetchLimit(20)).toBe(200);
+    expect(computeOverfetchLimit(50)).toBe(500);
+  });
+
+  it('floors at 100 for tiny limits', () => {
+    expect(computeOverfetchLimit(1)).toBe(100);
+    expect(computeOverfetchLimit(5)).toBe(100);
+  });
+
+  it('caps at MAX_OVERFETCH_LIMIT so the 2,000 ceiling stays bounded on every platform', () => {
+    // At the 2,000 result-limit ceiling, 10x would be 20,000 rows. The cap keeps
+    // the worst-case materialization symmetric across Drizzle/PGlite/Electron.
+    expect(MAX_OVERFETCH_LIMIT).toBe(10_000);
+    expect(computeOverfetchLimit(2000)).toBe(10_000);
+    expect(computeOverfetchLimit(100_000)).toBe(10_000);
+  });
+});
 
 describe('parseEmbeddingLoose', () => {
   it('should parse JSON array format "[0.1, 0.2, 0.3]"', () => {

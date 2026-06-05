@@ -367,7 +367,6 @@ export function CollectionBrowserView({
     searchConfigVectorWeight,
     searchConfigFtsWeight,
     searchPanelExpanded,
-    searchConfigExpanded,
     setSearchMode,
     setSemanticQuery,
     setSearchConfigThreshold,
@@ -378,7 +377,6 @@ export function CollectionBrowserView({
     setSearchConfigVectorWeight,
     setSearchConfigFtsWeight,
     setSearchPanelExpanded,
-    setSearchConfigExpanded,
     // Grouping and checkbox state
     groupBy,
     showCheckbox,
@@ -452,6 +450,10 @@ export function CollectionBrowserView({
       selectedNodeId: originalId,
     };
   }, [selectedId]);
+
+  // The cog (advanced options) popover is ephemeral UI — it should default to
+  // closed each session rather than persist, so it never auto-pops on load.
+  const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
 
   const [selectedChunkDetail, setSelectedChunkDetail] = useState<FileChunk | null>(null);
   const treeDiagnosticSignatureRef = useRef<string | null>(null);
@@ -1105,19 +1107,15 @@ export function CollectionBrowserView({
       {/* Search mode bar - Top level controls */}
       <SearchModeBar
         advancedOptions={
-          <SearchConfigPanel
-            className="rounded-md border border-border"
-            config={searchConfig}
-            isExpanded={searchConfigExpanded}
-            onConfigChange={handleSearchConfigChange}
-            onExpandedChange={setSearchConfigExpanded}
-          />
+          <SearchConfigPanel config={searchConfig} onConfigChange={handleSearchConfigChange} />
         }
+        advancedOptionsOpen={advancedOptionsOpen}
         className="border-border border-b"
         hasSearched={hasScopedSemanticSearch}
         isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}
         mode={searchMode}
+        onAdvancedOptionsOpenChange={setAdvancedOptionsOpen}
         onModeChange={handleSearchModeChange}
         onSearchExpandedChange={setSearchPanelExpanded}
         onSemanticQueryChange={setSemanticQuery}

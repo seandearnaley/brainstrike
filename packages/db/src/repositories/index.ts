@@ -20,6 +20,7 @@ export {
   DrizzleViewFilterPresetsRepository,
   type EmbeddingCacheLookupResult,
   type EmbeddingCacheStats,
+  MAX_SEARCH_RESULT_LIMIT,
   type TokenCacheEntry,
   type TokenCacheStats,
   type TokenCountingMode,

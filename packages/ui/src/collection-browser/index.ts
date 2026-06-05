@@ -20,6 +20,12 @@ export { FilterControls } from './filter-controls';
 export type { NodeInspectorProps } from './node-inspector';
 export { NodeInspector } from './node-inspector';
 // Semantic search components
+export {
+  clampResultLimit,
+  RESULT_LIMIT_LARGE,
+  RESULT_LIMIT_MAX,
+  RESULT_LIMIT_MIN,
+} from './search-config-bounds';
 export { SearchConfigPanel } from './search-config-panel';
 export { SearchModeBar } from './search-mode-bar';
 // Types

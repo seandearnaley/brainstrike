@@ -67,25 +67,52 @@ export function isCollectionIndexingActive({
   return managedCollectionId === collectionId && ACTIVE_SYNC_STATES.has(syncState);
 }
 
-function buildNoticeMessage(
+interface NoticeCopy {
+  /** Tooltip text. For actionable states this carries remediation guidance the
+   * compact line omits, so the title adds value instead of duplicating it. */
+  detail: string;
+  /** Compact, single-line visible text. */
+  message: string;
+}
+
+function buildNoticeCopy(
   coverage: CollectionEmbeddingCoverageSnapshot,
   indexingActive: boolean,
   collectionName?: string
-): string | null {
+): NoticeCopy | null {
   const label = collectionName ? `"${collectionName}"` : 'This collection';
 
   if (indexingActive) {
     // Intentionally count-free so the text never changes during indexing.
-    return `${label} is indexing…`;
+    const message = `${label} is indexing…`;
+    return { message, detail: message };
   }
 
+  const chunks = coverage.totalChunks.toLocaleString();
+  const files = coverage.totalFiles.toLocaleString();
+  const pending = coverage.pendingReindexFileCount.toLocaleString();
+  const missing = coverage.chunksMissingSourceRange.toLocaleString();
+  const filePlural = coverage.pendingReindexFileCount === 1 ? '' : 's';
+  const chunkPlural = coverage.chunksMissingSourceRange === 1 ? '' : 's';
+
+  // Compact, single-line copy keeps the banner a thin status strip under the
+  // search bar; the richer `detail` is surfaced on hover via the title so the
+  // remediation guidance is recoverable without bloating the strip.
   switch (coverage.status) {
     case 'needs_reindex':
-      return `${label} needs re-indexing after the source line-range update. ${coverage.pendingReindexFileCount.toLocaleString()} file${coverage.pendingReindexFileCount === 1 ? '' : 's'} still have unprocessed chunks. Re-import or run indexing so retrieval can cite exact line ranges.`;
+      return {
+        message: `${label} needs re-indexing · ${pending} file${filePlural} pending`,
+        detail: `${label} needs re-indexing after the source line-range update — re-import or run indexing so retrieval can cite exact line ranges. ${pending} file${filePlural} still have unprocessed chunks.`,
+      };
     case 'partial_source_ranges':
-      return `${label} has ${coverage.chunksMissingSourceRange.toLocaleString()} chunk${coverage.chunksMissingSourceRange === 1 ? '' : 's'} missing source line metadata. Semantic search may skip those hits until they are re-chunked.`;
-    case 'fully_indexed':
-      return `${label} is fully indexed with line-aware chunk metadata (${coverage.totalChunks.toLocaleString()} chunk${coverage.totalChunks === 1 ? '' : 's'} across ${coverage.totalFiles.toLocaleString()} file${coverage.totalFiles === 1 ? '' : 's'}).`;
+      return {
+        message: `${missing} chunk${chunkPlural} missing source ranges`,
+        detail: `${missing} chunk${chunkPlural} missing source ranges. Semantic search may skip those hits until they are re-chunked.`,
+      };
+    case 'fully_indexed': {
+      const message = `Fully indexed · ${chunks} chunk${coverage.totalChunks === 1 ? '' : 's'} / ${files} file${coverage.totalFiles === 1 ? '' : 's'}`;
+      return { message, detail: message };
+    }
     default:
       return null;
   }
@@ -93,19 +120,25 @@ function buildNoticeMessage(
 
 type CoverageNoticeTone = 'indexing' | 'healthy' | 'warning';
 
-const TONE_CLASS: Record<CoverageNoticeTone, string> = {
-  indexing:
-    'rounded-md border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-sky-900 text-xs dark:text-sky-100',
-  healthy:
-    'rounded-md border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-emerald-900 text-xs dark:text-emerald-100',
-  warning:
-    'rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-amber-950 text-xs dark:text-amber-50',
-};
-
 const TONE_ICON: Record<CoverageNoticeTone, typeof CheckCircle2> = {
   indexing: Loader2,
   healthy: CheckCircle2,
   warning: AlertTriangle,
+};
+
+const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
+  indexing: 'text-sky-500',
+  healthy: 'text-emerald-500',
+  warning: 'text-amber-500',
+};
+
+// Actionable warnings keep toned TEXT (not just a tiny colored icon) so they
+// stand out from the muted healthy/indexing states and don't rely on color
+// alone (WCAG). Healthy/indexing are non-actionable, so they stay calm.
+const TONE_TEXT_CLASS: Record<CoverageNoticeTone, string> = {
+  indexing: 'text-muted-foreground',
+  healthy: 'text-muted-foreground',
+  warning: 'text-amber-700 dark:text-amber-300',
 };
 
 function resolveTone(
@@ -119,38 +152,48 @@ function resolveTone(
 }
 
 /**
- * Surfaces collection-level embedding coverage: indexing-in-progress, re-index
- * required, partial skips, or healthy state.
+ * Surfaces collection-level embedding coverage as a thin single-line status:
+ * indexing-in-progress, re-index required, partial skips, or healthy state.
  */
 export function EmbeddingCoverageNotice({
   collectionName,
   coverage,
   indexingActive = false,
 }: EmbeddingCoverageNoticeProps) {
-  const message = buildNoticeMessage(coverage, indexingActive, collectionName);
-  if (!message) {
+  const copy = buildNoticeCopy(coverage, indexingActive, collectionName);
+  if (!copy) {
     return null;
   }
+  const { message, detail } = copy;
 
   const tone = resolveTone(coverage.status, indexingActive);
   const Icon = TONE_ICON[tone];
+  const iconClass = `h-3.5 w-3.5 shrink-0 ${TONE_ICON_CLASS[tone]}${
+    tone === 'indexing' ? ' animate-spin' : ''
+  }`;
+
+  // Actionable (warning) states carry remediation the user must act on. Native
+  // `title` tooltips are hover-only — unreachable by keyboard and touch — so the
+  // guidance is rendered VISIBLY (wraps, never truncated) for warnings. The
+  // non-actionable healthy/indexing states stay a compact, truncating strip with
+  // the full text recoverable via `title` for the rare overflow case.
+  const isActionable = tone === 'warning';
 
   return (
     <div
-      className={TONE_CLASS[tone]}
+      className={`flex gap-1.5 text-xs ${isActionable ? 'items-start' : 'items-center'}`}
       data-coverage-status={indexingActive ? 'indexing' : coverage.status}
       data-testid="embedding-coverage-notice"
       role="status"
     >
-      <div className="flex items-start gap-2">
-        <Icon
-          aria-hidden
-          className={
-            tone === 'indexing' ? 'mt-0.5 h-4 w-4 shrink-0 animate-spin' : 'mt-0.5 h-4 w-4 shrink-0'
-          }
-        />
-        <p>{message}</p>
-      </div>
+      <Icon aria-hidden className={iconClass} />
+      {isActionable ? (
+        <span className={`min-w-0 ${TONE_TEXT_CLASS[tone]}`}>{detail}</span>
+      ) : (
+        <span className={`min-w-0 truncate ${TONE_TEXT_CLASS[tone]}`} title={detail}>
+          {message}
+        </span>
+      )}
     </div>
   );
 }
@@ -182,7 +225,7 @@ export function CollectionEmbeddingCoverageBanner({
   }
 
   return (
-    <div className="border-border border-b px-3 py-2">
+    <div className="border-border border-b px-3 py-1.5">
       <EmbeddingCoverageNotice
         coverage={coverage}
         indexingActive={indexingActive}

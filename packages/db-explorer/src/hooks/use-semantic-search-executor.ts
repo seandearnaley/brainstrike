@@ -14,7 +14,12 @@ import type {
   ElectronFileRecordRepository,
   HybridSearchResult,
 } from '@brainstrike/db';
-import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
+import {
+  createHybridSearchService,
+  DEFAULT_HYBRID_SOURCE_LIMIT,
+  normalizeRRFScores,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
@@ -24,7 +29,7 @@ import {
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
+import { clampResultLimit, type SearchConfig, type SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
@@ -40,6 +45,14 @@ const logger = createLogger('SemanticSearchExecutor');
 const DEFAULT_VECTOR_WEIGHT = 1.0;
 /** Default weight for FTS in hybrid mode */
 const DEFAULT_FTS_WEIGHT = 1.0;
+/**
+ * Floor for each RRF source pool. Imported from the service (single source of
+ * truth) so it can't drift from the service's own default. RRF reranks best
+ * when the candidate pool is larger than the final cut, so we grow the pools to
+ * honor large limits but never shrink below this — a small resultLimit (e.g.
+ * the default 20) must still oversample.
+ */
+const HYBRID_MIN_SOURCE_POOL = DEFAULT_HYBRID_SOURCE_LIMIT;
 
 // `runtime` lets the visibility-change handler avoid disposing embedders
 // that can't suffer GPUDevice loss (hosted providers have no local model,
@@ -234,8 +247,11 @@ function transformToSearchResults(
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
     }
-    if (result.chunk.embedding && result.chunk.embedding.length > 0) {
-      searchResult.embeddingDimensions = result.chunk.embedding.length;
+    // Prefer the loaded vector's length, but fall back to the projected dimension
+    // count (vector_dims) when the search omitted the heavy embedding payload.
+    const dims = result.chunk.embedding?.length ?? result.chunk.embeddingDimensions;
+    if (dims !== undefined && dims > 0) {
+      searchResult.embeddingDimensions = dims;
     }
     return searchResult;
   });
@@ -324,8 +340,11 @@ function transformHybridResults(
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
     }
-    if (result.chunk.embedding && result.chunk.embedding.length > 0) {
-      searchResult.embeddingDimensions = result.chunk.embedding.length;
+    // Hybrid source pools omit the heavy embedding vector but project its
+    // dimension count, so prefer the loaded length and fall back to that.
+    const dims = result.chunk.embedding?.length ?? result.chunk.embeddingDimensions;
+    if (dims !== undefined && dims > 0) {
+      searchResult.embeddingDimensions = dims;
     }
     if (result.vectorSimilarity !== undefined) {
       searchResult.vectorSimilarity = result.vectorSimilarity;
@@ -361,6 +380,16 @@ async function executeHybridSearch(
   const hybridService = createHybridSearchService(chunkRepository);
   const hybridResponse = await hybridService.search(query, embedding, {
     limit: config.resultLimit,
+    // RRF fusion can only emit as many unique hits as the union of its source
+    // pools holds. The service defaults both pools to 50, which silently caps
+    // hybrid results at ~100 regardless of `limit`. Grow each pool to the
+    // requested limit so a large resultLimit is reachable, but never shrink
+    // below the default — RRF needs a candidate pool larger than the final cut.
+    vectorLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
+    ftsLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
+    // The search UI doesn't render FTS headlines, so skip the costly per-row
+    // ts_headline generation across the (up to 2,000-row) FTS source pool.
+    includeHeadline: false,
     vectorThreshold: config.threshold,
     embeddingSetId,
     vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
@@ -415,6 +444,9 @@ async function executeVectorSearch(
     limit: config.resultLimit,
     threshold: config.threshold,
     embeddingSetId,
+    // Result rows only need the embedding DIMENSION (preserved via vector_dims),
+    // never the vector values — so project the heavy payload away.
+    includeEmbedding: false,
     ...filterOptions,
   });
   logger.info('Vector search completed', { resultCount: searchResults.length });
@@ -722,14 +754,23 @@ export function useSemanticSearchExecutor({
       }
       logger.info('Query embedding generated', { embeddingLength: embedding.length });
 
+      // Defense-in-depth: the result-limit ceiling is enforced in the UI input,
+      // but a persisted or programmatic resultLimit must not size the hybrid
+      // source-pool fan-out unbounded here, where the cost is actually paid.
+      // Clamp at the source of truth so the bound lives where it matters.
+      const safeConfig: SearchConfig = {
+        ...config,
+        resultLimit: clampResultLimit(config.resultLimit),
+      };
+
       // Build retrieval filter options (BST-172, BST-175)
-      const filterOptions = buildRetrievalFilterOptions(config);
-      const retrievalMode = config.retrievalMode ?? 'hybrid';
+      const filterOptions = buildRetrievalFilterOptions(safeConfig);
+      const retrievalMode = safeConfig.retrievalMode ?? 'hybrid';
 
       logger.info('Searching for similar chunks...', {
         retrievalMode,
-        hasFilePaths: Boolean(config.filePaths?.length),
-        hasSnapshotId: Boolean(config.selectionSnapshotId),
+        hasFilePaths: Boolean(safeConfig.filePaths?.length),
+        hasSnapshotId: Boolean(safeConfig.selectionSnapshotId),
         filterMode: getFilterModeLabel(filterOptions),
       });
 
@@ -738,7 +779,7 @@ export function useSemanticSearchExecutor({
         return executeHybridSearch(
           query,
           embedding,
-          config,
+          safeConfig,
           embeddingSetId,
           filterOptions,
           chunkRepository,
@@ -749,7 +790,7 @@ export function useSemanticSearchExecutor({
       // Vector-only search (default)
       return executeVectorSearch(
         embedding,
-        config,
+        safeConfig,
         embeddingSetId,
         filterOptions,
         chunkRepository,

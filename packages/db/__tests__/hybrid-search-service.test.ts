@@ -100,6 +100,68 @@ describe('HybridSearchService', () => {
       }
     });
 
+    it('omits the heavy embedding vector from both source-pool reads', async () => {
+      mockRepository.searchSimilar.mockResolvedValue([]);
+      mockRepository.fullTextSearch.mockResolvedValue([]);
+
+      await service.search('test query', [0.1, 0.2, 0.3], {
+        embeddingSetId: 'test-set',
+        limit: 10,
+      });
+
+      // RRF fusion needs only ids + scores, and result rows only need the
+      // embedding DIMENSION (preserved via vector_dims), never the multi-KB
+      // vector. So both fan-out reads must request the projected-away embedding.
+      expect(mockRepository.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ includeEmbedding: false })
+      );
+      expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
+        'test query',
+        expect.objectContaining({ includeEmbedding: false })
+      );
+    });
+
+    it('threads an explicit includeEmbedding through to both source-pool reads', async () => {
+      mockRepository.searchSimilar.mockResolvedValue([]);
+      mockRepository.fullTextSearch.mockResolvedValue([]);
+
+      // Default is false (projection on), but a caller can opt back in to the
+      // full vector — the capability must not be permanently hardcoded away.
+      await service.search('test query', [0.1, 0.2, 0.3], {
+        embeddingSetId: 'test-set',
+        includeEmbedding: true,
+      });
+
+      expect(mockRepository.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ includeEmbedding: true })
+      );
+      expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
+        'test query',
+        expect.objectContaining({ includeEmbedding: true })
+      );
+    });
+
+    it('keeps FTS headlines on by default but lets a caller skip them for the source pool', async () => {
+      mockRepository.searchSimilar.mockResolvedValue([]);
+      mockRepository.fullTextSearch.mockResolvedValue([]);
+
+      // Default: headlines stay on (the agent RAG tool surfaces them as snippets).
+      await service.search('q', [0.1], { embeddingSetId: 'test-set' });
+      expect(mockRepository.fullTextSearch).toHaveBeenLastCalledWith(
+        'q',
+        expect.objectContaining({ includeHeadline: true })
+      );
+
+      // Opt-out: the costly per-row ts_headline is skipped for the source pool.
+      await service.search('q', [0.1], { embeddingSetId: 'test-set', includeHeadline: false });
+      expect(mockRepository.fullTextSearch).toHaveBeenLastCalledWith(
+        'q',
+        expect.objectContaining({ includeHeadline: false })
+      );
+    });
+
     it('should preserve vector similarity scores in results', async () => {
       mockRepository.searchSimilar.mockResolvedValue([
         createVectorResult('doc1', 'vector content', 0.92),
