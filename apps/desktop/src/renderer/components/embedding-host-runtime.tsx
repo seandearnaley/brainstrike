@@ -2,8 +2,11 @@ import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/
 import type { EmbeddingResult, ModelConfig } from '@brainstrike/embeddings';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import {
+  createForegroundEmbeddingGate,
   type EmbeddingWorkerController,
+  type ForegroundEmbeddingGate,
   POWER_BROADCAST_CHANNEL,
+  runCoordinatedQueryEmbedding,
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
@@ -23,6 +26,7 @@ import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
+const QUERY_DRAIN_TIMEOUT_MS = 5000;
 let embeddingQueueBootstrapPromise: Promise<void> | null = null;
 
 async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
@@ -339,6 +343,7 @@ async function handleQueryEmbeddingRequest(options: {
   readonly activeRef: MutableRefObject<boolean>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
+  readonly gate: ForegroundEmbeddingGate;
   readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
   readonly request: EmbeddingHostQueryEmbeddingRequest;
   readonly runtimeIdRef: MutableRefObject<string>;
@@ -348,6 +353,7 @@ async function handleQueryEmbeddingRequest(options: {
     activeRef,
     db,
     fatalErrorRef,
+    gate,
     queryEmbeddingActiveCountRef,
     request,
     runtimeIdRef,
@@ -363,9 +369,23 @@ async function handleQueryEmbeddingRequest(options: {
     if (request.runtimeId !== runtimeIdRef.current) {
       throw new Error('Embedding host query request targeted a stale runtime.');
     }
-    const service = await getQueryEmbeddingService(db, request, runtimeIdRef, serviceStateRef);
-    const result = await service.generateQueryEmbedding(request.payload.query);
-    assertEmbeddingResultDimensions(request, result);
+    const result = await runCoordinatedQueryEmbedding({
+      gate,
+      isWorkerActive: () => activeRef.current,
+      drainTimeoutMs: QUERY_DRAIN_TIMEOUT_MS,
+      onDrainTimeout: () => {
+        logger.warn('Embedding host query proceeded before background drain completed', {
+          requestId: request.requestId,
+          runtimeId: request.runtimeId,
+        });
+      },
+      generate: async () => {
+        const service = await getQueryEmbeddingService(db, request, runtimeIdRef, serviceStateRef);
+        const generated = await service.generateQueryEmbedding(request.payload.query);
+        assertEmbeddingResultDimensions(request, generated);
+        return generated;
+      },
+    });
     reportQueryEmbeddingResponse(
       createEmbeddingHostQueryEmbeddingResultReport(request, result.embedding)
     );
@@ -414,6 +434,7 @@ interface StartEmbeddingHostWorkerOptions {
   readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
+  readonly gate: ForegroundEmbeddingGate;
   readonly isDisposed: () => boolean;
   readonly onFatalError: (error: Error) => void;
   readonly onWorkerActivityChange: (active: boolean) => void;
@@ -427,6 +448,7 @@ async function startEmbeddingHostWorkerRuntime({
   controllerRef,
   db,
   fatalErrorRef,
+  gate,
   isDisposed,
   onFatalError,
   onWorkerActivityChange,
@@ -451,7 +473,7 @@ async function startEmbeddingHostWorkerRuntime({
     const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
       forceReload: true,
     });
-    const workerConfig = createEmbeddingWorkerConfig(db);
+    const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
       ...workerConfig,
       device: hydratedDevicePref,
@@ -503,6 +525,7 @@ export function EmbeddingHostRuntime(): null {
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const queryEmbeddingActiveCountRef = useRef(0);
   const queryEmbeddingServiceStateRef = useRef<QueryEmbeddingServiceState | null>(null);
+  const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
 
   useEffect(() => {
     if (!db) {
@@ -523,6 +546,7 @@ export function EmbeddingHostRuntime(): null {
         controllerRef,
         db,
         fatalErrorRef,
+        gate: gateRef.current,
         isDisposed: () => disposed,
         onFatalError,
         onWorkerActivityChange,
@@ -623,6 +647,7 @@ export function EmbeddingHostRuntime(): null {
           activeRef,
           db,
           fatalErrorRef,
+          gate: gateRef.current,
           queryEmbeddingActiveCountRef,
           request,
           runtimeIdRef,
