@@ -72,17 +72,6 @@ export type {
   StatsRefreshReason,
 } from './embedding-stats-refresh-controller';
 export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
-export type {
-  ForegroundEmbeddingGate,
-  ForegroundEmbeddingGateOptions,
-  RunCoordinatedQueryEmbeddingOptions,
-  WaitForWorkerIdleOptions,
-} from './foreground-embedding-gate';
-export {
-  createForegroundEmbeddingGate,
-  runCoordinatedQueryEmbedding,
-  waitForWorkerIdle,
-} from './foreground-embedding-gate';
 
 const workerLogger = createLogger('EmbeddingWorker');
 
