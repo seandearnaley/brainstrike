@@ -39,6 +39,12 @@ export interface QueueTelemetryCollector {
 
 type BatchListener = (batch: QueueTelemetryBatch) => void;
 
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super('Payload too large');
+  }
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -72,8 +78,7 @@ function readRequestBody(request: IncomingMessage, maxBodyBytes: number): Promis
       const bufferChunk = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk;
       receivedBytes += bufferChunk.length;
       if (receivedBytes > maxBodyBytes) {
-        reject(new Error('Payload too large'));
-        request.destroy();
+        reject(new PayloadTooLargeError());
         return;
       }
       chunks.push(bufferChunk);
@@ -257,7 +262,15 @@ export function createQueueTelemetryCollector(
   const parseTelemetryPayload = async (
     request: IncomingMessage
   ): Promise<QueueTelemetryBatch | ValidationError> => {
-    const bodyBuffer = await readRequestBody(request, maxBodyBytes);
+    let bodyBuffer: Buffer;
+    try {
+      bodyBuffer = await readRequestBody(request, maxBodyBytes);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        return { status: 413, message: error.message };
+      }
+      throw error;
+    }
     const decoded = decodePayloadBuffer(bodyBuffer);
     if (isValidationError(decoded)) {
       return decoded;
