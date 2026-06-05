@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  applyToolGuards,
   type GuardedToolError,
   guardToolExecution,
   isGuardedToolError,
@@ -53,5 +54,45 @@ describe('guardToolExecution', () => {
   it('leaves a tool without an execute function untouched', () => {
     const noExec = { id: 'x', description: 'd' } as { id: string; description: string };
     expect(guardToolExecution(noExec, { toolName: 'x', timeoutMs: 1000 })).toBe(noExec);
+  });
+
+  it('logs a late rejection after a timeout instead of dropping it', async () => {
+    vi.useFakeTimers();
+    const logger = { debug: vi.fn(), error: vi.fn() };
+    let rejectRun: ((reason: unknown) => void) | undefined;
+    const tool = guardToolExecution(
+      makeTool(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectRun = reject;
+          })
+      ),
+      { toolName: 'demo', timeoutMs: 50, logger }
+    );
+    const promise = tool.execute({ context: {} });
+    await vi.advanceTimersByTimeAsync(60);
+    const result = (await promise) as GuardedToolError;
+    expect(result.error.code).toBe('tool_timeout');
+    rejectRun?.(new Error('late boom'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(logger.error).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
+describe('applyToolGuards', () => {
+  it('guards every executable tool in the map', async () => {
+    vi.useFakeTimers();
+    const tools = {
+      a: { id: 'a', description: 'd', execute: () => new Promise(() => {}) },
+      b: { id: 'b', description: 'd', execute: async () => ({ ok: true }) },
+    };
+    const guarded = applyToolGuards(tools, { timeoutMs: 20 });
+    const aPromise = guarded.a.execute({ context: {} });
+    await vi.advanceTimersByTimeAsync(30);
+    const aResult = await aPromise;
+    expect(isGuardedToolError(aResult)).toBe(true);
+    vi.useRealTimers();
+    await expect(guarded.b.execute({ context: {} })).resolves.toEqual({ ok: true });
   });
 });

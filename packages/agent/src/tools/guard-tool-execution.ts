@@ -72,8 +72,13 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       (timer as { unref?: () => void }).unref?.();
     });
 
+    const run = (async () => Reflect.apply(original, cloned, args))();
+    // If the timeout already won the race, the original may still reject later.
+    // Log it instead of letting it become an unhandled rejection (no silent swallow).
+    run.catch((error) => {
+      logger?.error('Tool execution rejected (possibly after guard timeout)', { error, toolName });
+    });
     try {
-      const run = (async () => Reflect.apply(original, cloned, args))();
       return await Promise.race([run, timeout]);
     } catch (error) {
       logger?.error('Tool execution failed', { toolName, error });
@@ -89,4 +94,25 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
   };
 
   return cloned as T;
+}
+
+export interface ApplyToolGuardsOptions {
+  logger?: ToolLogger;
+  timeoutMs: number;
+}
+
+/** Guard every executable tool in a Mastra tools map (native + MCP). */
+export function applyToolGuards<TMap extends Record<string, unknown>>(
+  tools: TMap,
+  options: ApplyToolGuardsOptions
+): TMap {
+  const guarded: Record<string, unknown> = {};
+  for (const [toolId, tool] of Object.entries(tools)) {
+    guarded[toolId] = guardToolExecution(tool, {
+      toolName: toolId,
+      timeoutMs: options.timeoutMs,
+      ...(options.logger ? { logger: options.logger } : {}),
+    });
+  }
+  return guarded as TMap;
 }
