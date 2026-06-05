@@ -179,6 +179,41 @@ When changing this flow, update this doc.
 
 ---
 
+## ASSISTANT RESILIENCE (CRITICAL)
+
+The assistant tool→stream chain must never freeze the thread. Two layers plus a
+renderer safety net enforce this; do not remove them.
+
+1. **Per-tool guard** — `packages/agent/src/tools/guard-tool-execution.ts`.
+   `applyToolGuards` wraps EVERY tool (native + MCP) at the single choke point
+   `collectCombinedTools` in `packages/agent/src/mastra/mcp-tool-loader.ts`. On
+   timeout or throw, `execute` RESOLVES to a structured `GuardedToolError`
+   (`{ ok:false, error:{ code, message, toolName } }`) — it never rejects — so
+   the Mastra loop always continues and the model can react. Guarded-error
+   results are reclassified to a `tool.failed` run event in
+   `makeToolLifecycleRunEventChunk` (agent-runtime.ts).
+2. **Stream inactivity watchdog** — `packages/agent/src/stream/with-inactivity-timeout.ts`.
+   Wraps the raw Mastra iterator in `streamChunksFromMastra` (agent-runtime.ts).
+   On silence it THROWS `StreamStalledError`, which rides the existing
+   data-stream error-close path (`handleError` → `finalizeStream`, plus the
+   `finally` that runs `runtime.dispose()`). The stream therefore ALWAYS closes.
+   A user-cancel (abort signal) stays silent and distinct from a stall.
+3. **Renderer safety net** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
+   wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
+   the runtime). The data-stream adapter surfaces transport errors via `onError`
+   and rethrow (never swallows).
+
+Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule):
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000)
+- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- Invariant: tool timeout < stream inactivity, so a hung tool is caught (run
+  continues) before the watchdog fires (run ends).
+
+Defined in `packages/agent/src/config/resilience-config.ts`. When changing this
+flow, update this section and the related tests.
+
+---
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.
