@@ -141,6 +141,21 @@ Flow:
    - Backed by job_queue table.
    - Lease-based locking, retries, dedupe, failure tracking.
 
+Foreground query coordination (desktop):
+- The hidden host runs BOTH background indexing and assistant query embeddings; a
+  foreground query must never share the GPU with background indexing.
+- `createForegroundEmbeddingGate()` (packages/embeddings/src/worker/foreground-embedding-gate.ts),
+  exposed via `@brainstrike/embeddings/worker`:
+  - The worker's `waitForBackgroundPermit('embedding claim')` awaits the gate, so no NEW
+    indexing batch starts while a query is in flight. Only the *claim* permit is gated
+    (never completion) — this keeps draining deadlock-free.
+  - The query handler drains the in-flight batch via `waitForWorkerIdle` (waits for the
+    worker `active` flag, which is true only during inference) before generating, via
+    `runCoordinatedQueryEmbedding`.
+- Wiring: `embedding-worker-config.ts` (`composeClaimPermit`) +
+  `embedding-host-runtime.tsx` (gate per runtime, threaded to the worker config + query
+  handler). Constants: FOREGROUND_GATE_REOPEN_MS (250), QUERY_DRAIN_TIMEOUT_MS (5000).
+
 Environment variables:
 - VITE_EMBED_CONCURRENCY (default 1)
 - VITE_EMBED_LEASE_MS (default 60000)
