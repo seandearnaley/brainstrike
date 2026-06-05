@@ -70,3 +70,7 @@
 ## 2026-06-03 - Rule root path scans avoid per-candidate strings
 **Learning:** `packages/file-explorer-ui/src/hooks/use-rule-materialization.ts` scans every file path for root-include rules. Allocating `${root}/` inside that loop and fully counting relative depth measured 363.69ms for maxDepth=0 and 204.62ms unlimited over 100k candidate paths x 100 runs. A slash-boundary `charCodeAt` check plus early depth exit measured 278.40ms and 123.90ms for the same workloads.
 **Action:** Keep rule adapter root matching on explicit slash-boundary checks and short-circuit maxDepth scans once the limit is exceeded; do not reintroduce template-string descendant checks in rule materialization hot loops.
+
+## 2026-06-05 - Balanced indexing directory traversal avoids split arrays
+**Learning:** `packages/utils/src/background-indexing-policy.ts` checks every traversed directory under the balanced background indexing policy. The old `.split('/').map(...).filter(...)` path allocated intermediate arrays per directory and measured 2674.38ms over 100k paths x 100 runs on Node 24.16.0; a direct slash scan with the same trim/lowercase segment semantics measured 1960.23ms with identical match counts.
+**Action:** Keep balanced directory exclusion checks on direct slash scanning in `shouldSkipBalancedDirectory()`; do not reintroduce split/map/filter in this traversal hot path.
