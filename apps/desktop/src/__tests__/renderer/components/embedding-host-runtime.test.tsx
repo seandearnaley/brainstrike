@@ -63,6 +63,14 @@ vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
 vi.mock('@brainstrike/embeddings/worker', () => ({
   POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
   startEmbeddingWorker: startEmbeddingWorkerMock,
+  createForegroundEmbeddingGate: () => ({
+    begin: () => {},
+    end: () => {},
+    isActive: () => false,
+    waitUntilInactive: async () => {},
+  }),
+  runCoordinatedQueryEmbedding: async (options: { generate: () => Promise<unknown> }) =>
+    options.generate(),
 }));
 
 vi.mock('../../../renderer/create-embedding-queue', () => ({
