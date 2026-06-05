@@ -571,6 +571,43 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('reclassifies a guarded-error tool-result as tool.failed', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'demo',
+        toolCallId: 'g1',
+        args: {},
+      },
+      {
+        type: 'tool-result',
+        toolCallId: 'g1',
+        result: { ok: false, error: { code: 'tool_timeout', message: 'x', toolName: 'demo' } },
+      },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'run demo' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const terminalEvents = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('tool.')) {
+        terminalEvents.push(chunk.event);
+      }
+    }
+
+    const kinds = terminalEvents.map((event) => event.kind);
+    expect(kinds).toContain('tool.failed');
+    expect(kinds).not.toContain('tool.completed');
+    expect(terminalEvents).toMatchObject([
+      { kind: 'tool.started', status: 'running', metadata: { toolCallId: 'g1', toolName: 'demo' } },
+      { kind: 'tool.failed', status: 'failed', metadata: { toolCallId: 'g1', toolName: 'demo' } },
+    ]);
+  });
+
   it('lets a terminal tool-error override an earlier intermediate tool-output', async () => {
     setMockStreamParts([
       {
