@@ -1,7 +1,22 @@
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import type { ReactElement } from 'react';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
+import { TooltipProvider } from '../tooltip';
+
+beforeAll(() => {
+  global.ResizeObserver = class {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  } as never;
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+});
+
+function wrap(ui: ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 describe('ToolFallback', () => {
   const mockBaseProps = {
@@ -18,17 +33,17 @@ describe('ToolFallback', () => {
 
   describe('Running State', () => {
     it('displays running status with spinner', () => {
-      render(<ToolFallback {...mockBaseProps} result={undefined} status={{ type: 'running' }} />);
+      wrap(<ToolFallback {...mockBaseProps} result={undefined} status={{ type: 'running' }} />);
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
-      expect(screen.getByText(/Running/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Running/)).toBeInTheDocument();
       expect(screen.queryByRole('button')).not.toBeInTheDocument(); // No collapse button while running
     });
   });
 
   describe('Success State', () => {
     it('displays success status with checkmark', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           result={{ data: 'success' }}
@@ -37,12 +52,12 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
-      expect(screen.getByText(/Completed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
     });
 
     it('keeps details hidden by default until expanded', async () => {
       const user = userEvent.setup();
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText='{"input":"test value"}'
@@ -65,7 +80,7 @@ describe('ToolFallback', () => {
 
     it('can expand details after collapsing', async () => {
       const user = userEvent.setup();
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText='{"input":"test"}'
@@ -86,7 +101,7 @@ describe('ToolFallback', () => {
 
   describe('Error State', () => {
     it('displays error status with alert icon', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           status={{
@@ -98,11 +113,11 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
-      expect(screen.getByText(/Failed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Failed/)).toBeInTheDocument();
     });
 
     it('shows error message from status.error', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           status={{
@@ -117,7 +132,7 @@ describe('ToolFallback', () => {
     });
 
     it('shows tool-result errors as failed tool cards', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           result={{ error: 'Select an active embedding set to enable retrieval.' }}
@@ -125,14 +140,14 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText(/Failed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Failed/)).toBeInTheDocument();
       expect(
         screen.getByText('Select an active embedding set to enable retrieval.')
       ).toBeInTheDocument();
     });
 
     it('shows error message from result when status.error is not a string', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           result="Database connection failed"
@@ -150,7 +165,7 @@ describe('ToolFallback', () => {
     });
 
     it('shows default error message when no specific error is provided', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           status={{
@@ -164,7 +179,7 @@ describe('ToolFallback', () => {
     });
 
     it('applies error styling', () => {
-      const { container } = render(
+      const { container } = wrap(
         <ToolFallback
           {...mockBaseProps}
           status={{
@@ -182,7 +197,7 @@ describe('ToolFallback', () => {
 
     it('shows args for error state after expanding', async () => {
       const user = userEvent.setup();
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText='{"param":"value"}'
@@ -211,7 +226,7 @@ describe('ToolFallback', () => {
 
   describe('Edge Cases', () => {
     it('handles missing argsText', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText=""
@@ -221,11 +236,11 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
-      expect(screen.getByText(/Completed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
     });
 
     it('handles missing result and args', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText=""
@@ -240,7 +255,7 @@ describe('ToolFallback', () => {
 
     it('handles object result by stringifying after expanding', async () => {
       const user = userEvent.setup();
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           result={{ complex: { nested: 'value' } }}
@@ -256,7 +271,7 @@ describe('ToolFallback', () => {
 
     it('handles string result after expanding', async () => {
       const user = userEvent.setup();
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           result="Simple string result"
@@ -272,7 +287,7 @@ describe('ToolFallback', () => {
 
   describe('Accessibility', () => {
     it('has proper ARIA labels for the initial expand button', () => {
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText='{"test":"value"}'
@@ -287,7 +302,7 @@ describe('ToolFallback', () => {
 
     it('updates ARIA label after expanding', async () => {
       const user = userEvent.setup();
-      render(
+      wrap(
         <ToolFallback
           {...mockBaseProps}
           argsText='{"test":"value"}'
@@ -304,9 +319,7 @@ describe('ToolFallback', () => {
     });
 
     it('has identifiable test id', () => {
-      const { container } = render(
-        <ToolFallback {...mockBaseProps} status={{ type: 'complete' }} />
-      );
+      const { container } = wrap(<ToolFallback {...mockBaseProps} status={{ type: 'complete' }} />);
 
       expect(container.querySelector('[data-testid="tool-fallback"]')).toBeInTheDocument();
     });
