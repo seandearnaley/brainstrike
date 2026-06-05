@@ -171,14 +171,10 @@ describe('createQueueTelemetryCollector', () => {
     await collector.start();
     const endpoint = collector.getEndpoint() as string;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        runtime: 'browser',
-        sentAt: new Date().toISOString(),
-        events: [],
-      }),
+    const response = await postJson(endpoint, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [],
     });
 
     expect(response.status).toBe(413);

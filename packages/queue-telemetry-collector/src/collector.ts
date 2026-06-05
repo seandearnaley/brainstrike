@@ -337,7 +337,7 @@ export function createQueueTelemetryCollector(
         }
         if (result.status === 413) {
           response.setHeader('connection', 'close');
-          response.once('finish', () => request.destroy());
+          response.once('finish', () => request.socket.end());
         }
         sendError(response, result.status, result.message);
         return;
