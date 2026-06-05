@@ -1,12 +1,14 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
+import { resolveToolTimeoutMs } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import {
   isAnyToolIdEnabledByFilterConfig,
   toolRegistry as mcpToolRegistry,
 } from '../mcp/tool-registry';
 import { boundToolOutputForModel } from '../stream/tool-output-limits';
+import { applyToolGuards } from '../tools/guard-tool-execution';
 import { createMastraAgentError } from './mastra-agent-error';
 import { sanitizeTools } from './tool-sanitizer';
 
@@ -20,6 +22,7 @@ export interface CollectCombinedToolsOptions {
   sanitizedLocalTools: ToolsInput | undefined;
   timeoutOverrideMs: number | undefined;
   toolNameMap: Map<string, string>;
+  toolTimeoutOverrideMs?: number;
 }
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
@@ -32,23 +35,30 @@ export async function collectCombinedTools({
   mcpConfig,
   toolNameMap,
   timeoutOverrideMs,
+  toolTimeoutOverrideMs,
 }: CollectCombinedToolsOptions): Promise<ToolsInput> {
   const combined: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
 
+  const guard = (tools: ToolsInput): ToolsInput =>
+    applyToolGuards(tools, {
+      timeoutMs: resolveToolTimeoutMs(toolTimeoutOverrideMs),
+      logger,
+    });
+
   if (!(mcpClient && mcpConfig)) {
-    return combined;
+    return guard(combined);
   }
 
   const serverList = mcpConfig.servers ?? [];
   const namedServers = serverList.filter((server) => server?.name);
   if (namedServers.length === 0) {
-    return combined;
+    return guard(combined);
   }
 
   const timeoutMs = resolveMcpTimeoutMs(timeoutOverrideMs);
   const discovered = await fetchMcpToolsetsWithTimeout(mcpClient, timeoutMs);
   if (!discovered) {
-    return combined;
+    return guard(combined);
   }
   logMcpToolsetErrors(discovered.errors, timeoutMs);
 
@@ -75,7 +85,7 @@ export async function collectCombinedTools({
     }
   }
 
-  return combined;
+  return guard(combined);
 }
 
 type ExecutableTool = ToolsInput[string] & {
