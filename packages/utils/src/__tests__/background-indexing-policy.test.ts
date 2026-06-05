@@ -106,7 +106,6 @@ describe('background-indexing-policy', () => {
 
   it('checks balanced directory segments without splitting each traversed path', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
-    const splitSpy = vi.spyOn(String.prototype, 'split');
 
     expect(
       policy.shouldTraverseDirectory({
@@ -114,12 +113,15 @@ describe('background-indexing-policy', () => {
         relativePath: 'src/features/icons',
       })
     ).toBe(true);
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'node_modules',
-        relativePath: 'src/vendor/node_modules',
-      })
-    ).toBe(false);
+
+    const splitSpy = vi.spyOn(String.prototype, 'split');
+    const shouldTraverseExcludedDirectory = policy.shouldTraverseDirectory({
+      directoryName: 'node_modules',
+      relativePath: 'src/vendor/node_modules',
+    });
+    splitSpy.mockRestore();
+
+    expect(shouldTraverseExcludedDirectory).toBe(false);
     expect(splitSpy).not.toHaveBeenCalled();
   });
 
