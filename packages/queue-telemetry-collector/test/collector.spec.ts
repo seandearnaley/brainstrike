@@ -182,6 +182,7 @@ describe('createQueueTelemetryCollector', () => {
     });
 
     expect(response.status).toBe(413);
+    expect(response.headers.get('connection')).toBe('close');
     await expect(response.json()).resolves.toEqual({ error: 'Payload too large' });
     expect(collector.listBatches()).toHaveLength(0);
   });

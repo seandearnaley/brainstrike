@@ -42,6 +42,7 @@ type BatchListener = (batch: QueueTelemetryBatch) => void;
 class PayloadTooLargeError extends Error {
   constructor() {
     super('Payload too large');
+    this.name = 'PayloadTooLargeError';
   }
 }
 
@@ -78,6 +79,7 @@ function readRequestBody(request: IncomingMessage, maxBodyBytes: number): Promis
       const bufferChunk = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk;
       receivedBytes += bufferChunk.length;
       if (receivedBytes > maxBodyBytes) {
+        request.pause();
         reject(new PayloadTooLargeError());
         return;
       }
@@ -332,6 +334,10 @@ export function createQueueTelemetryCollector(
       if (isValidationError(result)) {
         if (result.status === 405) {
           response.setHeader('allow', 'POST');
+        }
+        if (result.status === 413) {
+          response.setHeader('connection', 'close');
+          response.once('finish', () => request.destroy());
         }
         sendError(response, result.status, result.message);
         return;
