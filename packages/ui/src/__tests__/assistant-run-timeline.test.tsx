@@ -2,11 +2,25 @@ import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import type { ReactNode } from 'react';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   AssistantRunTimeline,
   resolveAssistantRunEventStatus,
 } from '../assistant-ui-panel/assistant-run-timeline';
+import { TooltipProvider } from '../tooltip';
+
+beforeAll(() => {
+  global.ResizeObserver = class {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  } as never;
+});
+
+function wrap(ui: ReactNode) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 const baseEvent = {
   id: 'event-1',
@@ -35,11 +49,11 @@ function createMessageWithRunEvents(events: readonly AssistantRunEvent[]): unkno
 
 describe('AssistantRunTimeline', () => {
   it('renders a compact assistant activity row by default', () => {
-    render(<AssistantRunTimeline data={baseEvent} />);
+    wrap(<AssistantRunTimeline data={baseEvent} />);
 
     expect(screen.getByTestId('assistant-run-timeline')).toBeInTheDocument();
     expect(screen.getByText('Memory configured')).toBeInTheDocument();
-    expect(screen.getByText('Completed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Completed')).toBeInTheDocument();
     expect(screen.queryByText('threadId')).not.toBeInTheDocument();
   });
 
@@ -51,7 +65,7 @@ describe('AssistantRunTimeline', () => {
       ['info', 'Context budget'],
     ] as const;
 
-    render(
+    wrap(
       cases.map(([status, label], index) => (
         <AssistantRunTimeline
           data={{
@@ -68,17 +82,17 @@ describe('AssistantRunTimeline', () => {
     );
 
     expect(screen.getByText('Semantic recall')).toBeInTheDocument();
-    expect(screen.getByText('Running')).toBeInTheDocument();
+    expect(screen.getByLabelText('Running')).toBeInTheDocument();
     expect(screen.getByText('Tool failed')).toBeInTheDocument();
-    expect(screen.getByText('Failed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Failed')).toBeInTheDocument();
     expect(screen.getByText('Run cancelled')).toBeInTheDocument();
-    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cancelled')).toBeInTheDocument();
     expect(screen.getByText('Context budget')).toBeInTheDocument();
-    expect(screen.getByText('Observed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Observed')).toBeInTheDocument();
   });
 
   it('renders an overridden status for stale running events', () => {
-    render(
+    wrap(
       <AssistantRunTimeline
         data={{
           ...baseEvent,
@@ -92,13 +106,13 @@ describe('AssistantRunTimeline', () => {
     );
 
     expect(screen.getByText('Generation step started')).toBeInTheDocument();
-    expect(screen.getByText('Completed')).toBeInTheDocument();
-    expect(screen.queryByText('Running')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Completed')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Running')).not.toBeInTheDocument();
   });
 
   it('expands to show sanitized event metadata', async () => {
     const user = userEvent.setup();
-    render(<AssistantRunTimeline data={baseEvent} />);
+    wrap(<AssistantRunTimeline data={baseEvent} />);
 
     await user.click(screen.getByRole('button', { name: /expand run activity/i }));
 
@@ -110,7 +124,7 @@ describe('AssistantRunTimeline', () => {
 
   it('expands detail text and JSON-safe metadata values', async () => {
     const user = userEvent.setup();
-    render(
+    wrap(
       <AssistantRunTimeline
         data={{
           ...baseEvent,
@@ -126,10 +140,9 @@ describe('AssistantRunTimeline', () => {
       />
     );
 
-    expect(screen.getByText('1.4s')).toBeInTheDocument();
-
     await user.click(screen.getByRole('button', { name: /expand run activity/i }));
 
+    expect(screen.getByText('1.4s')).toBeInTheDocument();
     expect(screen.getByText('Loaded 4 semantic candidates.')).toBeInTheDocument();
     expect(screen.getByText('hitCount')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
@@ -141,8 +154,9 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByText('null')).toBeInTheDocument();
   });
 
-  it('renders millisecond durations and invalid timestamps without coercion', () => {
-    render(
+  it('renders millisecond durations and invalid timestamps without coercion', async () => {
+    const user = userEvent.setup();
+    wrap(
       <AssistantRunTimeline
         data={{
           ...baseEvent,
@@ -152,12 +166,16 @@ describe('AssistantRunTimeline', () => {
       />
     );
 
-    expect(screen.getByText('250ms')).toBeInTheDocument();
+    // Invalid timestamp stays inline in the header.
     expect(screen.getByText('not-a-date')).toBeInTheDocument();
+
+    // Duration moved into the expandable fold.
+    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
+    expect(screen.getByText('250ms')).toBeInTheDocument();
   });
 
   it('renders nothing for malformed data parts', () => {
-    const { container } = render(<AssistantRunTimeline data={{ label: 'Missing fields' }} />);
+    const { container } = wrap(<AssistantRunTimeline data={{ label: 'Missing fields' }} />);
 
     expect(container).toBeEmptyDOMElement();
   });
