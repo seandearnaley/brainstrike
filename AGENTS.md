@@ -196,36 +196,47 @@ When changing this flow, update this doc.
 
 ## ASSISTANT RESILIENCE (CRITICAL)
 
-The assistant tool→stream chain must never freeze the thread. Two layers plus a
-renderer safety net enforce this; do not remove them.
+The assistant tool→stream chain must never freeze the thread. The renderer safety
+net below is LIVE. Two server-side resilience layers (per-tool guard + stream
+watchdog) exist as utilities but are **deliberately UNWIRED from the live path** —
+see the warning below before re-wiring them.
 
-1. **Per-tool guard** — `packages/agent/src/tools/guard-tool-execution.ts`.
-   `applyToolGuards` wraps EVERY tool (native + MCP) at the single choke point
-   `collectCombinedTools` in `packages/agent/src/mastra/mcp-tool-loader.ts`. On
-   timeout or throw, `execute` RESOLVES to a structured `GuardedToolError`
-   (`{ ok:false, error:{ code, message, toolName } }`) — it never rejects — so
-   the Mastra loop always continues and the model can react. Guarded-error
-   results are reclassified to a `tool.failed` run event in
-   `makeToolLifecycleRunEventChunk` (agent-runtime.ts).
-2. **Stream inactivity watchdog** — `packages/agent/src/stream/with-inactivity-timeout.ts`.
-   Wraps the raw Mastra iterator in `streamChunksFromMastra` (agent-runtime.ts).
-   On silence it THROWS `StreamStalledError`, which rides the existing
-   data-stream error-close path (`handleError` → `finalizeStream`, plus the
-   `finally` that runs `runtime.dispose()`). The stream therefore ALWAYS closes.
-   A user-cancel (abort signal) stays silent and distinct from a stall.
-3. **Renderer safety net** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
+1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
-   and rethrow (never swallows).
+   and rethrow (never swallows). This is the only resilience layer currently
+   active on the assistant path.
 
-Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule):
+2. **Per-tool guard (UTILITY ONLY — NOT WIRED)** —
+   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` is meant
+   to wrap every tool at `collectCombinedTools` and resolve timeouts/throws to a
+   structured `GuardedToolError`. It is NOT currently called: `collectCombinedTools`
+   in `mcp-tool-loader.ts` matches `main` and does no guard wrapping.
+
+3. **Stream inactivity watchdog (UTILITY ONLY — NOT WIRED)** —
+   `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
+   `StreamStalledError`). Meant to wrap the Mastra iterator in
+   `streamChunksFromMastra`. It is NOT currently applied: `agent-runtime.ts`
+   iterates the raw stream directly, matching `main`.
+
+> **DO NOT re-wire layers 2/3 without LIVE validation.** A prior attempt wired the
+> guard + watchdog into the live path and BROKE real Mastra tool calling
+> (hosted-provider tools silently stopped executing) while every unit/e2e test
+> stayed green. Root cause: ALL agent tests mock `@mastra/core/agent` and inject
+> pre-baked stream parts, and desktop e2e mocks `fetch` — so NOTHING exercises
+> real Mastra tool execution. The wrapping was reverted. Before reintroducing
+> either layer you MUST add coverage that runs the actual Mastra agent loop end to
+> end (real tool `execute`), not mocked stream parts. The modules and
+> `resilience-config.ts` are kept so this can be done deliberately later.
+
+Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
+defined in `packages/agent/src/config/resilience-config.ts`, consumed only when the
+layers are wired:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000)
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
-- Invariant: tool timeout < stream inactivity, so a hung tool is caught (run
-  continues) before the watchdog fires (run ends).
+- Invariant: tool timeout < stream inactivity.
 
-Defined in `packages/agent/src/config/resilience-config.ts`. When changing this
-flow, update this section and the related tests.
+When changing this flow, update this section and the related tests.
 
 ---
 

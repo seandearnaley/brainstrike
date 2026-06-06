@@ -128,7 +128,13 @@ function normalizeWorkspacePath(value: string): string {
   const trimmed = value.trim().replace(/\\/g, '/');
   const withoutDotPrefix = trimmed.startsWith('./') ? trimmed.slice(2) : trimmed;
   const withoutTrailing = withoutDotPrefix.replace(/\/+$/, '');
-  return withoutTrailing.length > 0 ? withoutTrailing : '/';
+  // A bare "." (or empty / "./") refers to the workspace root. Without this, the
+  // "." segment is carried into child paths and isHiddenPath() flags every entry
+  // as hidden, so directory listings come back empty for path: ".".
+  if (withoutTrailing.length === 0 || withoutTrailing === '.') {
+    return '/';
+  }
+  return withoutTrailing;
 }
 
 function normalizeWorkspacePaths(paths: readonly string[]): string[] {
