@@ -1,8 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ComponentProps } from 'react';
-import { describe, expect, test } from 'vitest';
+import type { ComponentProps, ReactElement } from 'react';
+import { beforeAll, describe, expect, test } from 'vitest';
 import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
+import { TooltipProvider } from '../tooltip';
+
+beforeAll(() => {
+  global.ResizeObserver = class {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  } as never;
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+});
 
 // intentionally minimal mock — see BST-469
 const mockBaseProps = {
@@ -16,10 +26,14 @@ const mockBaseProps = {
   resume: () => {},
 } as unknown as ComponentProps<typeof ToolFallback>;
 
+function wrap(ui: ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
+
 describe('ToolFallback Accessibility', () => {
   test('expand/collapse button has correct aria-expanded state', async () => {
     const user = userEvent.setup();
-    render(<ToolFallback {...mockBaseProps} />);
+    wrap(<ToolFallback {...mockBaseProps} />);
 
     const button = screen.getByRole('button', { name: /Expand details/i });
     expect(button).toBeInTheDocument();
@@ -35,7 +49,7 @@ describe('ToolFallback Accessibility', () => {
 
   test('aria-controls points to a real DOM element when expanded', async () => {
     const user = userEvent.setup();
-    const { container } = render(<ToolFallback {...mockBaseProps} result="test-result" />);
+    const { container } = wrap(<ToolFallback {...mockBaseProps} result="test-result" />);
 
     const button = screen.getByRole('button', { name: /Expand details/i });
     expect(button).not.toHaveAttribute('aria-controls');
@@ -56,7 +70,7 @@ describe('ToolFallback Accessibility', () => {
   });
 
   test('multiple instances have unique aria-controls IDs', () => {
-    const { container } = render(
+    const { container } = wrap(
       <>
         <ToolFallback {...mockBaseProps} result="result-a" toolCallId="call-a" toolName="tool-a" />
         <ToolFallback {...mockBaseProps} result="result-b" toolCallId="call-b" toolName="tool-b" />
