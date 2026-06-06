@@ -8,6 +8,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
+import { resolveStreamInactivityMs } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import type {
@@ -16,6 +17,8 @@ import type {
   AssistantRunEventStatus,
 } from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
+import { withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import { isGuardedToolError } from '../tools/guard-tool-execution';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -508,6 +511,13 @@ function makeToolLifecycleRunEventChunk(
       }
       if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
         return;
+      }
+      const successPayload = getToolEventPayload(toolEvent);
+      const successResult = successPayload?.['result'] ?? successPayload?.['output'];
+      if (isGuardedToolError(successResult)) {
+        lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+        lifecycleState.outputOnlyToolEvents.delete(toolCallId);
+        return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
@@ -1057,7 +1067,10 @@ async function* streamChunksFromMastra({
   };
 
   try {
-    for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
+    for await (const part of withInactivityTimeout(
+      readableStreamIterator(stream, runtimeData?.signal),
+      resolveStreamInactivityMs()
+    )) {
       const { chunks, finished } = processMastraStreamPart(
         part,
         toolNames,
