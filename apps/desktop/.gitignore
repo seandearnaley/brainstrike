@@ -1,0 +1,2 @@
+# Playwright e2e visual/diagnostic artifacts (screenshots, traces). Never commit PNGs.
+e2e-artifacts/
