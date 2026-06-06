@@ -492,7 +492,11 @@ type AssistantHistoryMessagePart =
   AssistantHistoryLoadResult['messages'][number]['message']['content'][number];
 type AssistantHistoryTextPart = Extract<AssistantHistoryMessagePart, { type: 'text' }>;
 type AssistantHistoryToolCallPart = Extract<AssistantHistoryMessagePart, { type: 'tool-call' }>;
-type AssistantHydratedContentPart = AssistantHistoryTextPart | AssistantHistoryToolCallPart;
+type AssistantHistoryReasoningPart = Extract<AssistantHistoryMessagePart, { type: 'reasoning' }>;
+type AssistantHydratedContentPart =
+  | AssistantHistoryTextPart
+  | AssistantHistoryToolCallPart
+  | AssistantHistoryReasoningPart;
 type AssistantHistoryRepositoryMessages = AssistantHistoryLoadResult['messages'];
 interface AssistantToolResultSnapshot {
   readonly isError?: boolean;
@@ -595,6 +599,36 @@ function toTextHistoryContentParts(value: unknown): AssistantHistoryTextPart[] {
   return text ? [{ type: 'text', text }] : [];
 }
 
+function toHistoryReasoningPart(
+  record: Record<string, unknown>
+): AssistantHistoryReasoningPart | undefined {
+  const reasoningText =
+    typeof record['text'] === 'string'
+      ? record['text']
+      : typeof record['reasoning'] === 'string'
+        ? record['reasoning']
+        : '';
+  const trimmed = reasoningText.trim();
+  return trimmed ? { type: 'reasoning', text: trimmed } : undefined;
+}
+
+function resolveRawContentPart(
+  record: Record<string, unknown>,
+  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
+): AssistantHydratedContentPart | undefined {
+  if (record['type'] === 'text' && typeof record['text'] === 'string') {
+    const text = record['text'].trim();
+    return text ? { type: 'text', text } : undefined;
+  }
+  if (record['type'] === 'tool-call') {
+    return toHistoryToolCallPart(record, toolResultsByCallId);
+  }
+  if (record['type'] === 'reasoning') {
+    return toHistoryReasoningPart(record);
+  }
+  return;
+}
+
 function toAssistantHistoryContentParts(
   value: unknown,
   toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
@@ -609,19 +643,9 @@ function toAssistantHistoryContentParts(
     if (!rawPart || typeof rawPart !== 'object' || Array.isArray(rawPart)) {
       continue;
     }
-    const record = rawPart as Record<string, unknown>;
-    if (record['type'] === 'text' && typeof record['text'] === 'string') {
-      const text = record['text'].trim();
-      if (text) {
-        parts.push({ type: 'text', text });
-      }
-      continue;
-    }
-    if (record['type'] === 'tool-call') {
-      const toolPart = toHistoryToolCallPart(record, toolResultsByCallId);
-      if (toolPart) {
-        parts.push(toolPart);
-      }
+    const resolved = resolveRawContentPart(rawPart as Record<string, unknown>, toolResultsByCallId);
+    if (resolved) {
+      parts.push(resolved);
     }
   }
   return parts;
