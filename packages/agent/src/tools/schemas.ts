@@ -1,3 +1,4 @@
+import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
 // ============================================================================
@@ -232,6 +233,12 @@ const WorkspaceTapestryRangeInputSchema = z
     startLine: z.number().int().positive().describe('1-based inclusive starting line'),
     endLine: z.number().int().positive().describe('1-based inclusive ending line'),
     isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
+    color: z
+      .enum(TAPESTRY_COLOR_NAMES)
+      .optional()
+      .describe(
+        'Optional named color to group related ranges (red, orange, yellow, green, cyan, blue, purple, pink, gray). Reuse the same color for the same concept. Omit to auto-assign.'
+      ),
   })
   .strict()
   .refine((value) => value.endLine >= value.startLine, {
