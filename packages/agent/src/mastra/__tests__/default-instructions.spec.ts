@@ -66,12 +66,32 @@ describe('buildDefaultInstructions', () => {
   it('makes precise Tapestry selection the default when selection tools are registered', () => {
     const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
     expect(prompt).toMatch(/Context Explorer/);
-    expect(prompt).toMatch(/not whole files/i);
+    expect(prompt).toMatch(/never the whole file/i);
     expect(prompt).toContain('updateWorkspaceTapestrySelections');
     expect(prompt).toContain('updateWorkspaceContextSelection');
     expect(prompt).toMatch(/1-based/);
     expect(prompt).toContain('startLine');
     expect(prompt).toContain('endLine');
+  });
+
+  it('forbids whole-file fallback for a named symbol and requires the reported range to match the tool call', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    // When the user names a specific symbol/function/section, the model must
+    // select only that span and must not silently select the whole file.
+    expect(prompt).toMatch(/MUST NOT fall back to whole-file/i);
+    expect(prompt).toMatch(/symbol, function, type, section, or line range/i);
+    // The model previously claimed a precise range in prose while selecting the
+    // whole file; the reported range must equal what it passed to the tool.
+    expect(prompt).toMatch(/MUST exactly equal the ranges you passed/i);
+  });
+
+  it('explains how to derive line ranges from a direct file read (no embedding result)', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    // Without an embedding index, the model must read the file and use its
+    // 1-based line numbers to compute the symbol's exact range.
+    expect(prompt).toMatch(/when there is no embedding result/i);
+    expect(prompt).toContain('readWorkspaceFile');
+    expect(prompt).toMatch(/first and last line of the requested symbol/i);
   });
 
   it('degrades gracefully without selection tools and does not leak raw tool IDs into guidance', () => {

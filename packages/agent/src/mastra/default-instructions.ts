@@ -101,12 +101,21 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
 
   const selectionDefaultInstruction =
     names.updateWorkspaceTapestrySelections && names.updateWorkspaceContextSelection
-      ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, not whole files. Use ${names.updateWorkspaceContextSelection} for whole-file selection only when the entire file is genuinely needed.`
+      ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, never the whole file. If the user names a specific symbol, function, type, section, or line range, you MUST select only that symbol's exact line span via ${names.updateWorkspaceTapestrySelections} and MUST NOT fall back to whole-file selection. Only use ${names.updateWorkspaceContextSelection} for whole-file selection when the user explicitly asks for the entire file or the whole file is genuinely needed. The line range you report to the user MUST exactly equal the ranges you passed to ${names.updateWorkspaceTapestrySelections} — never state a range you did not actually select.`
       : 'Precise context selection is unavailable unless the workspace selection and Tapestry selection tools are registered.';
-  const tapestryMechanicsInstruction =
-    names.queryEmbeddingSpace && names.updateWorkspaceTapestrySelections
-      ? `${names.queryEmbeddingSpace} results include 1-based source line ranges per chunk; pass those directly as ranges: [{ startLine, endLine }] (1-based, inclusive) to ${names.updateWorkspaceTapestrySelections}.`
-      : '';
+  const tapestryMechanicsInstruction = names.updateWorkspaceTapestrySelections
+    ? [
+        `Tapestry ranges are 1-based and inclusive; pass them as ranges: [{ startLine, endLine }] to ${names.updateWorkspaceTapestrySelections}.`,
+        names.queryEmbeddingSpace
+          ? `${names.queryEmbeddingSpace} results include per-chunk 1-based source line ranges — pass those directly.`
+          : '',
+        names.readWorkspaceFile
+          ? `When there is no embedding result for the target, ${names.readWorkspaceFile} returns the file content with 1-based line numbers: read the file, find the exact first and last line of the requested symbol, and pass those as the range.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : '';
   const selectionLine = [selectionDefaultInstruction, tapestryMechanicsInstruction]
     .filter(Boolean)
     .join(' ');
