@@ -1,2 +1,2 @@
-# Playwright e2e screenshot artifacts (local/CI review only; never committed)
+# Playwright e2e visual/diagnostic artifacts (screenshots, traces). Never committed.
 e2e-artifacts/
