@@ -166,6 +166,23 @@ describe('createQueueTelemetryCollector', () => {
     expect(badEventBody.error).toBe('Invalid telemetry events');
   });
 
+  it('returns payload too large when telemetry bodies exceed the configured cap', async () => {
+    collector = createQueueTelemetryCollector({ maxBodyBytes: 24 });
+    await collector.start();
+    const endpoint = collector.getEndpoint() as string;
+
+    const response = await postJson(endpoint, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [],
+    });
+
+    expect(response.status).toBe(413);
+    expect(response.headers.get('connection')).toBe('close');
+    await expect(response.json()).resolves.toEqual({ error: 'Payload too large' });
+    expect(collector.listBatches()).toHaveLength(0);
+  });
+
   it('rejects when no batch arrives before timeout', async () => {
     collector = createQueueTelemetryCollector();
     await collector.start();
