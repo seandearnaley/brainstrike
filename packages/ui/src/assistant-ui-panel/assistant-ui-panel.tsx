@@ -1129,26 +1129,38 @@ const AssistantMessage: FC = () => {
   );
 };
 
+export const ASSISTANT_ACTION_BAR_CLASSNAME =
+  'col-start-3 row-start-2 -ml-1 flex gap-0.5 text-muted-foreground data-[floating]:absolute';
+export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
+
 const AssistantActionBar: FC = () => (
   <ActionBarPrimitive.Root
     autohide="not-last"
     autohideFloat="single-branch"
-    className="col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
+    className={ASSISTANT_ACTION_BAR_CLASSNAME}
     hideWhenRunning
   >
     <ActionBarPrimitive.Copy asChild>
-      <TooltipIconButton aria-label="Copy message" tooltip="Copy">
+      <TooltipIconButton
+        aria-label="Copy message"
+        className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
+        tooltip="Copy"
+      >
         <MessagePrimitive.If copied>
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-3.5" />
         </MessagePrimitive.If>
         <MessagePrimitive.If copied={false}>
-          <CopyIcon className="size-4" />
+          <CopyIcon className="size-3.5" />
         </MessagePrimitive.If>
       </TooltipIconButton>
     </ActionBarPrimitive.Copy>
     <ActionBarPrimitive.Reload asChild>
-      <TooltipIconButton aria-label="Regenerate response" tooltip="Retry">
-        <RefreshCwIcon className="size-4" />
+      <TooltipIconButton
+        aria-label="Regenerate response"
+        className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
+        tooltip="Retry"
+      >
+        <RefreshCwIcon className="size-3.5" />
       </TooltipIconButton>
     </ActionBarPrimitive.Reload>
   </ActionBarPrimitive.Root>
