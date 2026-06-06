@@ -152,5 +152,6 @@ icons/.generated/
 
 .pnpm-store/
 packages/db/__tests__/__screenshots__/
+apps/desktop/e2e-artifacts/
 
 .claude
