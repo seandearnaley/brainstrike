@@ -1188,6 +1188,7 @@ async function runUpdateWorkspaceTapestrySelections(
         startLine: range.startLine,
         endLine: range.endLine,
         ...(range.isActive === undefined ? {} : { isActive: range.isActive }),
+        ...(range.color === undefined ? {} : { color: range.color }),
       })),
     }))
     .filter((update) => selectedFileSet.has(update.path));

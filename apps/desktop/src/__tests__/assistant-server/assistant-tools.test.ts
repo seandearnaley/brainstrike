@@ -799,4 +799,45 @@ describe('assistant-tools', () => {
       'No workspace root is available. Open/select a folder in the left file tree first.'
     );
   });
+
+  it('forwards tapestry range color to the broadcast payload', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const send = vi.fn();
+    const hiddenSend = vi.fn();
+    getAllWindowsMock.mockReturnValue([
+      createMockWindow({ id: 1201, role: 'visible-ui', send }),
+      createMockWindow({ id: 1202, role: 'llm-host', send: hiddenSend }),
+    ]);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-1',
+    } as RuntimeData);
+
+    await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
+      context: {
+        mode: 'replace',
+        updates: [
+          {
+            path: '/src/main.ts',
+            ranges: [{ startLine: 1, endLine: 2, color: 'blue' }],
+          },
+        ],
+      },
+    });
+
+    const tapestryCall = send.mock.calls.find(
+      (call) => call[0] === 'assistant:workspace-context-tapestry-update'
+    );
+    expect(tapestryCall).toBeDefined();
+    const capturedTapestryPayload = tapestryCall?.[1] as {
+      updates: { ranges: { startLine: number; endLine: number; color?: string }[] }[];
+    };
+    expect(capturedTapestryPayload.updates[0].ranges[0]).toMatchObject({
+      startLine: 1,
+      endLine: 2,
+      color: 'blue',
+    });
+    expect(hiddenSend).not.toHaveBeenCalled();
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
 });
