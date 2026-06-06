@@ -17,16 +17,12 @@ import {
 import * as m from 'motion/react-m';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import { categoryTintClasses, classifyRunEvent } from './tool-visual-classification';
 
 interface AssistantRunTimelineProps {
   data: unknown;
   statusOverride?: AssistantRunEventStatus;
-}
-
-interface AssistantRunTimelineDetailsProps {
-  detail: string | undefined;
-  detailsId: string;
-  metadataEntries: [string, AssistantRunEventJson][];
 }
 
 const STATUS_LABELS: Record<AssistantRunEventStatus, string> = {
@@ -114,12 +110,17 @@ function hasSameRunScope(event: AssistantRunEvent, candidate: AssistantRunEvent)
   return !(event.runId && candidate.runId) || event.runId === candidate.runId;
 }
 
-function getMatchingCompletedKind(kind: AssistantRunEventKind): AssistantRunEventKind | null {
+export function getMatchingCompletedKind(
+  kind: AssistantRunEventKind
+): AssistantRunEventKind | null {
   if (kind === 'run.started') {
     return 'run.finished';
   }
   if (kind === 'tool.started') {
     return 'tool.completed';
+  }
+  if (kind.startsWith('run.') && kind.endsWith('.started')) {
+    return kind.replace(/\.started$/, '.finished') as AssistantRunEventKind;
   }
   if (kind.endsWith('.started')) {
     return kind.replace(/\.started$/, '.completed') as AssistantRunEventKind;
@@ -244,21 +245,37 @@ function formatDuration(durationMs: number | undefined): string | undefined {
 function AssistantRunTimelineDetails({
   detail,
   detailsId,
+  durationLabel,
+  kind,
   metadataEntries,
-}: AssistantRunTimelineDetailsProps) {
+}: {
+  detail: string | undefined;
+  detailsId: string;
+  durationLabel: string | undefined;
+  kind: string;
+  metadataEntries: [string, AssistantRunEventJson][];
+}) {
   return (
-    <div className="border-t border-dashed px-4 py-3" id={detailsId}>
-      {detail ? <p className="mb-2 text-muted-foreground text-xs">{detail}</p> : null}
-      {metadataEntries.length > 0 ? (
-        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-          {metadataEntries.map(([key, value]) => (
-            <div className="contents" key={key}>
-              <dt className="font-medium text-muted-foreground">{key}</dt>
-              <dd className="min-w-0 break-words text-foreground/90">{formatJsonValue(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
+    <div className="border-t border-dashed px-3 py-2" id={detailsId}>
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+        <div className="contents">
+          <dt className="font-medium text-muted-foreground">kind</dt>
+          <dd className="min-w-0 break-words text-foreground/90">{kind}</dd>
+        </div>
+        {durationLabel ? (
+          <div className="contents">
+            <dt className="font-medium text-muted-foreground">duration</dt>
+            <dd className="text-foreground/90">{durationLabel}</dd>
+          </div>
+        ) : null}
+        {metadataEntries.map(([key, value]) => (
+          <div className="contents" key={key}>
+            <dt className="font-medium text-muted-foreground">{key}</dt>
+            <dd className="min-w-0 break-words text-foreground/90">{formatJsonValue(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      {detail ? <p className="mt-2 text-muted-foreground text-xs">{detail}</p> : null}
     </div>
   );
 }
@@ -280,21 +297,36 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
   const eventStatus = statusOverride ?? event.status;
   const statusLabel = STATUS_LABELS[eventStatus];
   const durationLabel = formatDuration(event.durationMs);
-  const hasDetails = Boolean(event.detail) || metadataEntries.length > 0;
   const isFailed = eventStatus === 'failed';
+
+  const toolName =
+    typeof event.metadata?.['toolName'] === 'string' ? event.metadata['toolName'] : undefined;
+  const category = classifyRunEvent(event.kind, toolName);
+  const tint = categoryTintClasses(category);
+
+  // Expander is always available since kind always provides fold content
+  const hasDetails = true;
 
   return (
     <m.div
-      className={`bs-run-timeline my-2 rounded-lg border ${
-        isFailed ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
+      className={`bs-run-timeline my-1.5 rounded-lg border ${
+        isFailed ? 'border-destructive/50 bg-destructive/5' : tint.card
       }`}
       data-testid="assistant-run-timeline"
+      data-tool-category={category}
       layout
       transition={{ duration: 0.16, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
-        <div aria-hidden="true" className="bs-run-timeline-rail">
-          <AssistantRunStatusIcon status={eventStatus} />
+      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-3 py-2">
+        <div className={`bs-run-timeline-rail ${isFailed ? 'text-destructive' : tint.rail}`}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span aria-label={statusLabel} className="inline-flex" role="img">
+                <AssistantRunStatusIcon status={eventStatus} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{statusLabel}</TooltipContent>
+          </Tooltip>
         </div>
         <div className="min-w-0">
           <p className={`font-medium text-sm ${isFailed ? 'text-destructive' : ''}`}>
@@ -302,20 +334,9 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
               <Clock3 className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate">{event.label}</span>
             </span>
-            <span className="ml-2 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
-              {statusLabel}
-            </span>
           </p>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-            <span>{event.kind}</span>
-            <span aria-hidden="true">·</span>
+          <p className="mt-0.5 text-muted-foreground text-xs">
             <span>{formatTimestamp(event.timestamp)}</span>
-            {durationLabel ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{durationLabel}</span>
-              </>
-            ) : null}
           </p>
         </div>
         {hasDetails ? (
@@ -337,6 +358,8 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
         <AssistantRunTimelineDetails
           detail={event.detail}
           detailsId={detailsId}
+          durationLabel={durationLabel}
+          kind={event.kind}
           metadataEntries={metadataEntries}
         />
       ) : null}

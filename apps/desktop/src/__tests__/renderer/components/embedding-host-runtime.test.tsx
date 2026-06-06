@@ -63,6 +63,22 @@ vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
 vi.mock('@brainstrike/embeddings/worker', () => ({
   POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
   startEmbeddingWorker: startEmbeddingWorkerMock,
+  createForegroundEmbeddingGate: () => ({
+    begin: () => {},
+    end: () => {},
+    isActive: () => false,
+    waitUntilInactive: async () => {},
+  }),
+  runCoordinatedQueryEmbedding: async (options: { generate: () => Promise<unknown> }) =>
+    options.generate(),
+}));
+
+vi.mock('@brainstrike/embeddings/service', () => ({
+  SimpleEmbeddingService: class {
+    initializeWithModel = vi.fn(async () => {});
+    generateQueryEmbedding = vi.fn(async () => ({ embedding: [0.1, 0.2] }));
+    dispose = vi.fn(async () => {});
+  },
 }));
 
 vi.mock('../../../renderer/create-embedding-queue', () => ({
@@ -340,5 +356,58 @@ describe('EmbeddingHostRuntime', () => {
     });
 
     closeSpy.mockRestore();
+  });
+
+  it('coordinates a valid query embedding request and reports the result', async () => {
+    storeState.hasHydrated = true;
+    dbHandle.query.mockResolvedValue({
+      rows: [
+        {
+          id: 'Xenova/all-MiniLM-L6-v2',
+          providerId: 'local',
+          name: 'MiniLM',
+          description: '',
+          capabilities: { defaultDimension: 2 },
+          parameters: {},
+        },
+      ],
+    });
+
+    render(<EmbeddingHostRuntime />);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalled();
+    });
+    const queryEmbeddingListener = queryEmbeddingListenerRef.current;
+    if (!queryEmbeddingListener) {
+      throw new Error('Expected embedding host query embedding listener to be registered.');
+    }
+
+    queryEmbeddingListener({
+      type: 'request',
+      channel: 'query-embedding',
+      requestId: 'embedding-query:valid',
+      runtimeId: 'test-runtime',
+      payload: {
+        dimensions: 2,
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+        query: 'database config',
+      },
+    });
+
+    await waitFor(() => {
+      expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'embedding-query:valid',
+          runtimeId: 'test-runtime',
+        })
+      );
+    });
+
+    const lastCall = reportQueryEmbeddingResponseMock.mock.calls.at(-1)?.[0] as {
+      channel?: string;
+      type?: string;
+    };
+    expect(lastCall?.type).not.toBe('error');
   });
 });

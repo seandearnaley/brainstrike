@@ -44,3 +44,43 @@ describe('default assistant instructions', () => {
     expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
 });
+
+const FULL_TOOL_MAP = new Map<string, string>([
+  ['listWorkspaceContext', 'brainstrike.listWorkspaceContext'],
+  ['readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
+  ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
+  ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
+  ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+  ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
+  ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+]);
+
+describe('buildDefaultInstructions', () => {
+  it('includes harness/visual framing regardless of tools', () => {
+    const prompt = buildDefaultInstructions(new Map());
+    expect(prompt.length).toBeGreaterThan(0);
+    expect(prompt).toMatch(/Context Explorer/);
+    expect(prompt).toMatch(/none/);
+  });
+
+  it('makes precise Tapestry selection the default when selection tools are registered', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    expect(prompt).toMatch(/Context Explorer/);
+    expect(prompt).toMatch(/not whole files/i);
+    expect(prompt).toContain('updateWorkspaceTapestrySelections');
+    expect(prompt).toContain('updateWorkspaceContextSelection');
+    expect(prompt).toMatch(/1-based/);
+    expect(prompt).toContain('startLine');
+    expect(prompt).toContain('endLine');
+  });
+
+  it('degrades gracefully without selection tools and does not leak raw tool IDs into guidance', () => {
+    const noSelection = new Map<string, string>([
+      ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
+      ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+    ]);
+    const prompt = buildDefaultInstructions(noSelection);
+    expect(prompt).toMatch(/Precise context selection is unavailable/i);
+    expect(prompt).not.toContain('brainstrike.updateWorkspaceTapestrySelections');
+  });
+});

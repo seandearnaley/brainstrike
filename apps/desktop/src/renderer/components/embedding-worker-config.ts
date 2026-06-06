@@ -6,7 +6,10 @@ import {
   getDatabaseWorkScheduler,
   type IDatabase,
 } from '@brainstrike/db';
-import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
+import type {
+  EmbeddingWorkerOptions,
+  ForegroundEmbeddingGate,
+} from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -106,9 +109,32 @@ function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot):
   );
 }
 
+type BackgroundPermit = NonNullable<EmbeddingWorkerOptions['waitForBackgroundPermit']>;
+
+/**
+ * Wrap a DB-pressure permit so the worker also yields the GPU to an in-flight
+ * foreground query embedding — but ONLY at the claim boundary (never completion),
+ * which keeps draining deadlock-free.
+ */
+export function composeClaimPermit(
+  base: BackgroundPermit,
+  gate: ForegroundEmbeddingGate | undefined
+): BackgroundPermit {
+  if (!gate) {
+    return base;
+  }
+  return async (permitOptions) => {
+    await base(permitOptions);
+    if (permitOptions?.label === 'embedding claim') {
+      await gate.waitUntilInactive();
+    }
+  };
+}
+
 function createDesktopPressureControls(
   db: IDatabase,
-  idleClaimBatchSize: number
+  idleClaimBatchSize: number,
+  gate: ForegroundEmbeddingGate | undefined
 ): Pick<EmbeddingWorkerOptions, 'resolveClaimBatchSize' | 'waitForBackgroundPermit'> {
   const snapshotSource = createPressureSnapshotSource(db);
   const pressureController = createDatabasePressureController({
@@ -123,11 +149,14 @@ function createDesktopPressureControls(
       }
       return idleClaimBatchSize;
     },
-    waitForBackgroundPermit: pressureController.waitForBackgroundPermit,
+    waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),
   };
 }
 
-export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptions {
+export function createEmbeddingWorkerConfig(
+  db: IDatabase,
+  gate?: ForegroundEmbeddingGate
+): EmbeddingWorkerOptions {
   const claimBatchSize = parsePositiveIntegerEnv(
     'VITE_EMBED_CLAIM_BATCH_SIZE',
     DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE
@@ -146,7 +175,7 @@ export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptio
     concurrency,
     interBatchDelayMs,
     leaseMs,
-    ...createDesktopPressureControls(db, claimBatchSize),
+    ...createDesktopPressureControls(db, claimBatchSize, gate),
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
       if (meta) {

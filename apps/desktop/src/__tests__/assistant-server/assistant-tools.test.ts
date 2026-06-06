@@ -190,6 +190,33 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('lists the workspace root for path "." (regression: "." was treated as a hidden segment)', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceDirectory'];
+
+    const result = await tool.execute({
+      context: {
+        path: '.',
+        depth: 5,
+        maxEntries: 150,
+        includeFiles: true,
+        includeDirectories: true,
+      },
+    });
+
+    // "." normalizes to the root, so entries are listed (previously came back empty
+    // because the "." segment made isHiddenPath() reject everything).
+    expect(result.path).toBe('/');
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.totalMatchedFiles).toBeGreaterThan(0);
+    expect(result.entries.some((entry) => entry.path === '/README.md')).toBe(true);
+    expect(result.entries.some((entry) => entry.path === '/src')).toBe(true);
+    expect(result.entries.some((entry) => entry.path === '/src/main.ts')).toBe(true);
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('reads a workspace directory when execute receives direct args', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 

@@ -54,6 +54,7 @@ import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/type
 import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
+import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { AssistantRunTimeline, resolveAssistantRunEventStatus } from './assistant-run-timeline';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
@@ -603,22 +604,24 @@ const LocalRuntimeChat: FC<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ChatThreadUI
-        disabledReason={disabledReason}
-        hasGroupedProviders={hasGroupedProviders}
-        isComposerDisabled={isComposerDisabled}
-        localLoadingState={localLoadingState}
-        onModelChange={onModelChange}
-        onProviderSettingsChange={onProviderSettingsChange}
-        onThreadRunStart={onThreadRunStart}
-        pickerModels={pickerModels}
-        pickerProviders={pickerProviders}
-        providerGroups={providerGroups}
-        providerSettings={providerSettings}
-        selectedModel={selectedModel}
-        selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
-      />
+      <AssistantPanelErrorBoundary>
+        <ChatThreadUI
+          disabledReason={disabledReason}
+          hasGroupedProviders={hasGroupedProviders}
+          isComposerDisabled={isComposerDisabled}
+          localLoadingState={localLoadingState}
+          onModelChange={onModelChange}
+          onProviderSettingsChange={onProviderSettingsChange}
+          onThreadRunStart={onThreadRunStart}
+          pickerModels={pickerModels}
+          pickerProviders={pickerProviders}
+          providerGroups={providerGroups}
+          providerSettings={providerSettings}
+          selectedModel={selectedModel}
+          selectedProvider={selectedProvider}
+          toolMenu={toolMenu}
+        />
+      </AssistantPanelErrorBoundary>
     </AssistantRuntimeProvider>
   );
 };
@@ -713,21 +716,23 @@ const DataStreamRuntimeChat: FC<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ChatThreadUI
-        disabledReason={disabledReason}
-        hasGroupedProviders={hasGroupedProviders}
-        isComposerDisabled={isComposerDisabled}
-        onModelChange={onModelChange}
-        onProviderSettingsChange={onProviderSettingsChange}
-        onThreadRunStart={onThreadRunStart}
-        pickerModels={pickerModels}
-        pickerProviders={pickerProviders}
-        providerGroups={providerGroups}
-        providerSettings={providerSettings}
-        selectedModel={selectedModel}
-        selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
-      />
+      <AssistantPanelErrorBoundary>
+        <ChatThreadUI
+          disabledReason={disabledReason}
+          hasGroupedProviders={hasGroupedProviders}
+          isComposerDisabled={isComposerDisabled}
+          onModelChange={onModelChange}
+          onProviderSettingsChange={onProviderSettingsChange}
+          onThreadRunStart={onThreadRunStart}
+          pickerModels={pickerModels}
+          pickerProviders={pickerProviders}
+          providerGroups={providerGroups}
+          providerSettings={providerSettings}
+          selectedModel={selectedModel}
+          selectedProvider={selectedProvider}
+          toolMenu={toolMenu}
+        />
+      </AssistantPanelErrorBoundary>
     </AssistantRuntimeProvider>
   );
 };
@@ -1129,26 +1134,38 @@ const AssistantMessage: FC = () => {
   );
 };
 
+export const ASSISTANT_ACTION_BAR_CLASSNAME =
+  'col-start-3 row-start-2 -ml-1 flex gap-0.5 text-muted-foreground data-[floating]:absolute';
+export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
+
 const AssistantActionBar: FC = () => (
   <ActionBarPrimitive.Root
     autohide="not-last"
     autohideFloat="single-branch"
-    className="col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
+    className={ASSISTANT_ACTION_BAR_CLASSNAME}
     hideWhenRunning
   >
     <ActionBarPrimitive.Copy asChild>
-      <TooltipIconButton aria-label="Copy message" tooltip="Copy">
+      <TooltipIconButton
+        aria-label="Copy message"
+        className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
+        tooltip="Copy"
+      >
         <MessagePrimitive.If copied>
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-3.5" />
         </MessagePrimitive.If>
         <MessagePrimitive.If copied={false}>
-          <CopyIcon className="size-4" />
+          <CopyIcon className="size-3.5" />
         </MessagePrimitive.If>
       </TooltipIconButton>
     </ActionBarPrimitive.Copy>
     <ActionBarPrimitive.Reload asChild>
-      <TooltipIconButton aria-label="Regenerate response" tooltip="Retry">
-        <RefreshCwIcon className="size-4" />
+      <TooltipIconButton
+        aria-label="Regenerate response"
+        className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
+        tooltip="Retry"
+      >
+        <RefreshCwIcon className="size-3.5" />
       </TooltipIconButton>
     </ActionBarPrimitive.Reload>
   </ActionBarPrimitive.Root>

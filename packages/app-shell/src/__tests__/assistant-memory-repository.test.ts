@@ -359,6 +359,100 @@ describe('createAssistantThreadHistoryAdapter', () => {
       },
     ]);
   });
+
+  describe('reasoning hydration', () => {
+    function makeRepository(
+      content: unknown
+    ): Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'] {
+      return {
+        appendThreadRunEvent: vi.fn(),
+        createThread: vi.fn(),
+        createThreadRun: vi.fn(),
+        deleteThread: vi.fn(),
+        listThreads: vi.fn(),
+        listLatestThreadRuns: vi.fn(),
+        renameThread: vi.fn(),
+        completeThreadRun: vi.fn(),
+        updateThreadMetadata: vi.fn(),
+        listThreadRunEvents: vi.fn(async () => []),
+        listMessages: vi.fn(async () => [
+          {
+            id: 'message-1',
+            role: 'user',
+            content: { content: 'Think first.' },
+            createdAt: new Date('2026-04-22T10:00:00Z'),
+          },
+          {
+            id: 'message-2',
+            role: 'assistant',
+            content,
+            createdAt: new Date('2026-04-22T10:00:01Z'),
+          },
+        ]),
+      } as Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'];
+    }
+
+    function getReasoningTexts(
+      history: Awaited<ReturnType<ReturnType<typeof createAssistantThreadHistoryAdapter>['load']>>
+    ): string[] {
+      return history.messages.flatMap((item) =>
+        item.message.content
+          .filter((part): part is { type: 'reasoning'; text: string } => part.type === 'reasoning')
+          .map((part) => part.text)
+      );
+    }
+
+    it('reconstructs a reasoning part with text field alongside a text part', async () => {
+      const repository = makeRepository([
+        { type: 'reasoning', text: 'because X' },
+        { type: 'text', text: 'the answer is 42' },
+      ]);
+      const adapter = createAssistantThreadHistoryAdapter({
+        repository,
+        resourceId: 'workspace-a',
+        threadId: 'thread-1',
+      });
+
+      const history = await adapter.load();
+      const assistant = history.messages.find((item) => item.message.id === 'message-2');
+
+      expect(getReasoningTexts(history)).toEqual(['because X']);
+      expect(assistant?.message.content).toContainEqual({ type: 'reasoning', text: 'because X' });
+      expect(assistant?.message.content).toContainEqual({ type: 'text', text: 'the answer is 42' });
+    });
+
+    it('reconstructs a reasoning part using the reasoning field as fallback when text is absent', async () => {
+      const repository = makeRepository([
+        { type: 'reasoning', reasoning: 'alt thinking' },
+        { type: 'text', text: 'done' },
+      ]);
+      const adapter = createAssistantThreadHistoryAdapter({
+        repository,
+        resourceId: 'workspace-a',
+        threadId: 'thread-1',
+      });
+
+      const history = await adapter.load();
+
+      expect(getReasoningTexts(history)).toEqual(['alt thinking']);
+    });
+
+    it('drops a reasoning part whose text is only whitespace', async () => {
+      const repository = makeRepository([
+        { type: 'reasoning', text: '   ' },
+        { type: 'text', text: 'still here' },
+      ]);
+      const adapter = createAssistantThreadHistoryAdapter({
+        repository,
+        resourceId: 'workspace-a',
+        threadId: 'thread-1',
+      });
+
+      const history = await adapter.load();
+
+      expect(getReasoningTexts(history)).toEqual([]);
+    });
+  });
 });
 
 describe('createPgliteAssistantThreadRepository thread runs', () => {

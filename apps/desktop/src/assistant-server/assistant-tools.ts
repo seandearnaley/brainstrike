@@ -41,6 +41,14 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
+import {
+  isHiddenPath,
+  isWithinRoot,
+  joinSegments,
+  normalizeWorkspacePath,
+  normalizeWorkspacePaths,
+  toPathSegments,
+} from './workspace-path';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
@@ -124,24 +132,6 @@ function escapeSelectionBoundaryTags(content: string): string {
     .replace(/<selection(?=[\s/>])/g, '&lt;selection');
 }
 
-function normalizeWorkspacePath(value: string): string {
-  const trimmed = value.trim().replace(/\\/g, '/');
-  const withoutDotPrefix = trimmed.startsWith('./') ? trimmed.slice(2) : trimmed;
-  const withoutTrailing = withoutDotPrefix.replace(/\/+$/, '');
-  return withoutTrailing.length > 0 ? withoutTrailing : '/';
-}
-
-function normalizeWorkspacePaths(paths: readonly string[]): string[] {
-  const unique = new Set<string>();
-  for (const filePath of paths) {
-    const normalized = normalizeWorkspacePath(filePath);
-    if (normalized.length > 0) {
-      unique.add(normalized);
-    }
-  }
-  return Array.from(unique);
-}
-
 function normalizeWorkspaceRootPath(value: string | undefined): string | undefined {
   if (typeof value !== 'string') {
     return;
@@ -171,15 +161,12 @@ async function resolveWorkspaceAbsolutePath(
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
   const absolutePath = path.resolve(rootPath, relativePath);
+  // Resolve symlinks on both sides, then check containment on the canonical
+  // paths. ".." can't escape (clamped in normalizeWorkspacePath); this guards
+  // the remaining vector — a symlink whose target lives outside the root.
   const canonicalRootPath = await fsPromises.realpath(rootPath);
   const canonicalAbsolutePath = await fsPromises.realpath(absolutePath);
-  const relativeFromRoot = path.relative(canonicalRootPath, canonicalAbsolutePath);
-  if (
-    relativeFromRoot.startsWith('..') ||
-    relativeFromRoot.includes(`${path.sep}..${path.sep}`) ||
-    relativeFromRoot === '..' ||
-    path.isAbsolute(relativeFromRoot)
-  ) {
+  if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
@@ -289,22 +276,6 @@ interface DirectoryEntry {
   size?: number;
   tokenCount?: number;
   type: 'directory' | 'file';
-}
-
-function toPathSegments(workspacePath: string): string[] {
-  return workspacePath
-    .replace(/^\/+/, '')
-    .split('/')
-    .filter((segment) => segment.length > 0);
-}
-
-function joinSegments(baseSegments: readonly string[], childSegments: readonly string[]): string {
-  const merged = [...baseSegments, ...childSegments].filter((segment) => segment.length > 0);
-  return `/${merged.join('/')}`;
-}
-
-function isHiddenPath(entryPath: string): boolean {
-  return toPathSegments(entryPath).some((segment) => segment.startsWith('.'));
 }
 
 type FsDirent = import('node:fs').Dirent;

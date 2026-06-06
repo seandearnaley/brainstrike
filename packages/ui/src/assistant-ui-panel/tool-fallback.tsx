@@ -3,6 +3,8 @@ import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Wrench } fro
 import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import { Button } from '../button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
@@ -137,27 +139,38 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const showDetails = !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 
+  const category = classifyToolName(toolName);
+  const tint = categoryTintClasses(category);
+
   return (
     <m.div
-      className={`bs-tool-timeline my-2 rounded-lg border ${
-        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
+      className={`bs-tool-timeline my-1.5 rounded-lg border ${
+        isError ? 'border-destructive/50 bg-destructive/5' : tint.card
       }`}
       data-testid="tool-fallback"
+      data-tool-category={category}
       layout
       transition={{ duration: 0.16, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
-        <div aria-hidden="true" className="bs-tool-timeline-rail">
-          {isRunning ? <Loader2 className="size-4 animate-spin" /> : statusIcon}
+      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-3 py-2">
+        <div
+          aria-hidden="false"
+          className={`bs-tool-timeline-rail ${isError ? 'text-destructive' : tint.rail}`}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span aria-label={statusText} className="inline-flex" role="img">
+                {statusIcon}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{statusText}</TooltipContent>
+          </Tooltip>
         </div>
         <div className="min-w-0">
           <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
             <span className="inline-flex items-center gap-1.5">
               <Wrench className="size-3.5 text-muted-foreground" />
               <span>Used {toolName}</span>
-            </span>
-            <span className="ml-2 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
-              {statusText}
             </span>
           </p>
           {isRunning ? (

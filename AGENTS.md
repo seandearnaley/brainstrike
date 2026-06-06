@@ -141,6 +141,21 @@ Flow:
    - Backed by job_queue table.
    - Lease-based locking, retries, dedupe, failure tracking.
 
+Foreground query coordination (desktop):
+- The hidden host runs BOTH background indexing and assistant query embeddings; a
+  foreground query must never share the GPU with background indexing.
+- `createForegroundEmbeddingGate()` (packages/embeddings/src/worker/foreground-embedding-gate.ts),
+  exposed via `@brainstrike/embeddings/worker`:
+  - The worker's `waitForBackgroundPermit('embedding claim')` awaits the gate, so no NEW
+    indexing batch starts while a query is in flight. Only the *claim* permit is gated
+    (never completion) — this keeps draining deadlock-free.
+  - The query handler drains the in-flight batch via `waitForWorkerIdle` (waits for the
+    worker `active` flag, which is true only during inference) before generating, via
+    `runCoordinatedQueryEmbedding`.
+- Wiring: `embedding-worker-config.ts` (`composeClaimPermit`) +
+  `embedding-host-runtime.tsx` (gate per runtime, threaded to the worker config + query
+  handler). Constants: FOREGROUND_GATE_REOPEN_MS (250), QUERY_DRAIN_TIMEOUT_MS (5000).
+
 Environment variables:
 - VITE_EMBED_CONCURRENCY (default 1)
 - VITE_EMBED_LEASE_MS (default 60000)
@@ -176,6 +191,52 @@ Implementation:
 - packages/app-shell/src/hooks/use-assistant-availability.ts
 
 When changing this flow, update this doc.
+
+---
+
+## ASSISTANT RESILIENCE (CRITICAL)
+
+The assistant tool→stream chain must never freeze the thread. The renderer safety
+net below is LIVE. Two server-side resilience layers (per-tool guard + stream
+watchdog) exist as utilities but are **deliberately UNWIRED from the live path** —
+see the warning below before re-wiring them.
+
+1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
+   wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
+   the runtime). The data-stream adapter surfaces transport errors via `onError`
+   and rethrow (never swallows). This is the only resilience layer currently
+   active on the assistant path.
+
+2. **Per-tool guard (UTILITY ONLY — NOT WIRED)** —
+   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` is meant
+   to wrap every tool at `collectCombinedTools` and resolve timeouts/throws to a
+   structured `GuardedToolError`. It is NOT currently called: `collectCombinedTools`
+   in `mcp-tool-loader.ts` matches `main` and does no guard wrapping.
+
+3. **Stream inactivity watchdog (UTILITY ONLY — NOT WIRED)** —
+   `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
+   `StreamStalledError`). Meant to wrap the Mastra iterator in
+   `streamChunksFromMastra`. It is NOT currently applied: `agent-runtime.ts`
+   iterates the raw stream directly, matching `main`.
+
+> **DO NOT re-wire layers 2/3 without LIVE validation.** A prior attempt wired the
+> guard + watchdog into the live path and BROKE real Mastra tool calling
+> (hosted-provider tools silently stopped executing) while every unit/e2e test
+> stayed green. Root cause: ALL agent tests mock `@mastra/core/agent` and inject
+> pre-baked stream parts, and desktop e2e mocks `fetch` — so NOTHING exercises
+> real Mastra tool execution. The wrapping was reverted. Before reintroducing
+> either layer you MUST add coverage that runs the actual Mastra agent loop end to
+> end (real tool `execute`), not mocked stream parts. The modules and
+> `resilience-config.ts` are kept so this can be done deliberately later.
+
+Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
+defined in `packages/agent/src/config/resilience-config.ts`, consumed only when the
+layers are wired:
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000)
+- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- Invariant: tool timeout < stream inactivity.
+
+When changing this flow, update this section and the related tests.
 
 ---
 
