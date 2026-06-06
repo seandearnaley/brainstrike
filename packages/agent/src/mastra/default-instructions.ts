@@ -1,3 +1,6 @@
+const HARNESS_FRAMING =
+  'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
+
 const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
@@ -96,12 +99,26 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
       ? `When the user asks you to curate ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, then call ${names.updateWorkspaceContextSelection} to bulk select files and ${names.updateWorkspaceTapestrySelections} to keep only relevant line ranges. Read files when surrounding lines are needed to refine the ranges. Keep the curation token-aware and prefer Tapestry ranges over whole files when a whole file would waste context.`
       : 'Reusable context curation is unavailable unless semantic search, workspace selection, and Tapestry selection tools are all registered.';
 
+  const selectionDefaultInstruction =
+    names.updateWorkspaceTapestrySelections && names.updateWorkspaceContextSelection
+      ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, not whole files. Use ${names.updateWorkspaceContextSelection} for whole-file selection only when the entire file is genuinely needed.`
+      : 'Precise context selection is unavailable unless the workspace selection and Tapestry selection tools are registered.';
+  const tapestryMechanicsInstruction =
+    names.queryEmbeddingSpace && names.updateWorkspaceTapestrySelections
+      ? `${names.queryEmbeddingSpace} results include 1-based source line ranges per chunk; pass those directly as ranges: [{ startLine, endLine }] (1-based, inclusive) to ${names.updateWorkspaceTapestrySelections}.`
+      : '';
+  const selectionLine = [selectionDefaultInstruction, tapestryMechanicsInstruction]
+    .filter(Boolean)
+    .join(' ');
+
   return `You are a helpful assistant for the Brainstrike IDE.
+${HARNESS_FRAMING}
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
 When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${semanticSearchInstruction} ${readContextInstruction}
 ${curationInstruction}
+${selectionLine}
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
 If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
 If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
