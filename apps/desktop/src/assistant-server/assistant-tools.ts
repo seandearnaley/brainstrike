@@ -1,6 +1,8 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
+  type FindWorkspaceSymbolInput,
+  FindWorkspaceSymbolInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
@@ -40,6 +42,7 @@ import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
+import { findSymbolMatches } from './find-workspace-symbol';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
   isHiddenPath,
@@ -58,6 +61,7 @@ export interface DesktopAssistantToolDependencies {
 
 const logger = createLogger('DesktopAssistantTools');
 
+const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const;
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
@@ -232,6 +236,25 @@ async function readWorkspaceTextFile(args: { requestedPath: string; rootPath: st
     size: Number(stat.size),
     content: fileBuffer.toString('utf8'),
   };
+}
+
+async function runFindWorkspaceSymbol(
+  input: FindWorkspaceSymbolInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  path: string;
+  totalMatches: number;
+  truncated: boolean;
+  matches: ReturnType<typeof findSymbolMatches>['matches'];
+}> {
+  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const resolved = await resolveWorkspaceAbsolutePath(rootPath, input.path);
+  const content = await fsPromises.readFile(resolved.absolutePath, 'utf8');
+  const { matches, totalMatches, truncated } = findSymbolMatches(content, input.query, {
+    maxMatches: input.maxMatches ?? 5,
+    contextLines: input.contextLines ?? 2,
+  });
+  return { path: resolved.workspacePath, totalMatches, truncated, matches };
 }
 
 async function runReadWorkspaceFile(
@@ -1304,6 +1327,21 @@ export function buildDesktopAssistantTools(
   dependencies: DesktopAssistantToolDependencies = {}
 ): MastraTools {
   const tools: MastraTools = {
+    [FIND_WORKSPACE_SYMBOL_TOOL_ID]: {
+      id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
+      description:
+        "Find a symbol's exact 1-based line range in a workspace file without returning whole-file content. Use this to get a function/type/section range, then pass it to brainstrike.updateWorkspaceTapestrySelections.",
+      inputSchema: FindWorkspaceSymbolInputSchema,
+      execute: async (input: ToolExecuteInput<FindWorkspaceSymbolInput>) => {
+        const resolvedInput = parseToolExecuteInput(FindWorkspaceSymbolInputSchema, input);
+        try {
+          return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('findWorkspaceSymbol failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
     [READ_WORKSPACE_FILE_TOOL_ID]: {
       id: READ_WORKSPACE_FILE_TOOL_ID,
       description:

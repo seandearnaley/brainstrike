@@ -800,6 +800,38 @@ describe('assistant-tools', () => {
     );
   });
 
+  it('findWorkspaceSymbol returns a precise enclosing range without whole-file content', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
+      [
+        'export function add(a: number, b: number): number {',
+        '  return a + b;',
+        '}',
+        '',
+        'export const PI = 3.14;',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    const result = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'add' } });
+    expect(result.matches[0]).toMatchObject({ declarationLine: 1, startLine: 1, endLine: 3 });
+    expect(result.path).toBe('/src/lib/math.ts');
+    expect(result).not.toHaveProperty('content');
+
+    const none = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'nope' } });
+    expect(none).toMatchObject({ matches: [], totalMatches: 0, truncated: false });
+
+    await expect(
+      tool.execute({ context: { path: '../outside.ts', query: 'x' } })
+    ).rejects.toThrow();
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('forwards tapestry range color to the broadcast payload', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const send = vi.fn();
