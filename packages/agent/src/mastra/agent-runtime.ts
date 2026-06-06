@@ -802,30 +802,59 @@ function processMastraStreamPart(
         finished: true,
       };
     case 'error': {
-      // Top-level provider errors (e.g. Ollama returning HTTP 400 because the
-      // selected model does not support tool calling) arrive as `'error'`
-      // chunks. Throwing here propagates them to the data-stream session's
-      // `handleError` which emits a real `error` data-stream chunk + finish
-      // message to the client. Previously we tried to map this to a synthetic
-      // `tool-event` with `name: 'agent'` and no `toolCallId`, which the
-      // data-stream mapper silently drops -- producing the "stream finished
-      // with no output" failure mode reported for local Ollama models that
-      // can't satisfy the registered tool set.
-      throw createMastraAgentError('mastra_agent_stream_failure', {
-        detail: extractErrorMessage(p.error ?? p.payload?.error) ?? 'agent_stream_error',
-      });
+      // Top-level provider errors (e.g. Anthropic returning HTTP 404 for an
+      // unavailable model, or Ollama HTTP 400 because the model can't satisfy
+      // the registered tool set) arrive as `'error'` parts. We terminate the
+      // run gracefully: a visible assistant message with the reason, a terminal
+      // `run.failed` run-event (which clears any in-flight "started" spinners),
+      // and an error finish so the thread reaches a terminal state. Previously
+      // we threw here; the throw produced a data-stream error frame that the
+      // renderer did not surface, leaving the thread hung on a forever-spinning
+      // "Generation step started" (the "large white pause"). See AGENTS.md.
+      return makeProviderErrorTermination(
+        extractErrorMessage(p.error ?? p.payload?.error) ?? 'agent_stream_error',
+        lifecycleState,
+        part
+      );
     }
     case 'tripwire': {
-      // Same rationale as `'error'`: the previous tool-event mapping was
-      // silently dropped. Surface tripwires (content policy violations, etc.)
-      // as real errors so the user sees the reason.
-      throw createMastraAgentError('mastra_agent_stream_failure', {
-        detail: readTripwireReason(part) ?? 'tripwire',
-      });
+      // Same rationale as `'error'`: surface tripwires (content policy
+      // violations, etc.) as a visible message + terminal run-event so the user
+      // sees the reason and the thread does not hang.
+      return makeProviderErrorTermination(
+        readTripwireReason(part) ?? 'tripwire',
+        lifecycleState,
+        part
+      );
     }
     default:
       return { chunks: [], finished: false };
   }
+}
+
+/**
+ * Terminate a run gracefully after a provider/model error part.
+ *
+ * Emits a user-visible assistant message with the reason, flushes any pending
+ * tool-output run-events, marks the run `run.failed` (which clears in-flight
+ * "started" spinners in the renderer), and finishes with reason `error`. This
+ * replaces throwing on the error part: the throw surfaced a data-stream error
+ * frame the renderer never rendered, leaving the thread hung on a spinner.
+ */
+function makeProviderErrorTermination(
+  detail: string,
+  lifecycleState: ToolLifecycleState,
+  part: unknown
+): ProcessStreamPartResult {
+  return {
+    chunks: [
+      ...makePendingToolOutputRunEventChunks(lifecycleState),
+      { type: 'text-delta', value: `The model request failed: ${detail}` },
+      makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', makeStepMetadata(part)),
+      makeErrorFinishChunk(),
+    ],
+    finished: true,
+  };
 }
 
 function extractErrorMessage(value: unknown): string | undefined {

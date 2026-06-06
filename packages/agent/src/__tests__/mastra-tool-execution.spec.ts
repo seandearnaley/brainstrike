@@ -23,6 +23,7 @@ import type {
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { StreamChunk } from '../types';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -212,5 +213,61 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     expect(executeSpy).not.toHaveBeenCalled();
     expect(finalText).toContain('No tools needed.');
+  });
+
+  it('terminates gracefully when the model stream emits a provider error part', async () => {
+    // Reproduces the live Anthropic 404 path: the provider error arrives as a
+    // model `error` stream part. The run must NOT hang — it terminates with a
+    // visible message, a `run.failed` run-event (clears in-flight spinners), and
+    // an error finish, all through the real Mastra agent loop.
+    modelHolder.current = {
+      specificationVersion: 'v2',
+      provider: 'fake',
+      modelId: 'fake-model',
+      supportedUrls: {},
+      doGenerate: () => Promise.reject(new Error('unused')),
+      doStream: () =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({
+                type: 'error',
+                error: { message: 'Not Found', name: 'AI_APICallError' },
+              });
+              controller.close();
+            },
+          }),
+        }),
+    };
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u3', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+      { runtime: { provider: 'openai', apiKey: 'test-key' } }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const text = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+          chunk.type === 'text-delta'
+      )
+      .map((chunk) => chunk.value)
+      .join('');
+    expect(text).toContain('Not Found');
+
+    const runEventKinds = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(runEventKinds).toContain('run.failed');
+
+    const finish = chunks.find((chunk) => chunk.type === 'message-finish');
+    expect(finish).toMatchObject({ finishReason: 'error' });
   });
 });
