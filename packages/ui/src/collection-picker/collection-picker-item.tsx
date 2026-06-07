@@ -5,8 +5,81 @@ import { Button } from '../button';
 import { cn } from '../lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import { useResolvedTheme } from './hooks/use-resolved-theme';
-import type { CollectionPickerItemProps } from './types';
+import { getCollectionPickerProtection } from './protection';
+import type { CollectionPickerCollection, CollectionPickerItemProps } from './types';
 import { formatProviderLabel, getCollectionColor } from './utils/collection-colors';
+
+interface CollectionPickerItemActionsProps {
+  canDelete: boolean;
+  canEdit: boolean;
+  collection: CollectionPickerCollection;
+  onDelete: (collection: CollectionPickerCollection) => void;
+  onEdit: (collection: CollectionPickerCollection) => void;
+}
+
+function CollectionPickerItemActions({
+  canDelete,
+  canEdit,
+  collection,
+  onDelete,
+  onEdit,
+}: CollectionPickerItemActionsProps) {
+  const handleEdit = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onEdit(collection);
+    },
+    [collection, onEdit]
+  );
+
+  const handleDelete = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onDelete(collection);
+    },
+    [collection, onDelete]
+  );
+
+  if (!(canEdit || canDelete)) {
+    return null;
+  }
+
+  return (
+    <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      {canEdit && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Edit collection"
+              onClick={handleEdit}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <Pencil aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Edit collection</TooltipContent>
+        </Tooltip>
+      )}
+      {canDelete && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Delete collection"
+              className="text-destructive hover:text-destructive"
+              onClick={handleDelete}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <Trash2 aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Delete collection</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
 
 /**
  * CollectionPickerItem - A single collection item in the picker.
@@ -28,6 +101,7 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
 }: CollectionPickerItemProps) {
   const theme = useResolvedTheme();
   const { primary, background } = getCollectionColor(collection.id, theme);
+  const protection = getCollectionPickerProtection(collection);
 
   const displayName = collection.name ?? collection.modelId;
   const providerLabel = formatProviderLabel(collection.modelKey);
@@ -40,45 +114,42 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
     `${collection.fileCount.toLocaleString()} ${collection.fileCount === 1 ? 'file' : 'files'}`,
     `${collection.chunkCount.toLocaleString()} ${collection.chunkCount === 1 ? 'chunk' : 'chunks'}`,
     embeddingSummary,
-  ].join(', ');
+    protection.badgeLabel,
+    protection.disabledReason,
+  ]
+    .filter((label): label is string => Boolean(label))
+    .join(', ');
 
   const handleClick = useCallback(() => {
+    if (protection.isDisabled) {
+      return;
+    }
     onSelect(collection.id);
-  }, [collection.id, onSelect]);
-
-  const handleEdit = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onEdit(collection);
-    },
-    [collection, onEdit]
-  );
-
-  const handleDelete = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onDelete(collection);
-    },
-    [collection, onDelete]
-  );
+  }, [collection.id, onSelect, protection.isDisabled]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
+        if (protection.isDisabled) {
+          return;
+        }
         onSelect(collection.id);
       }
     },
-    [collection.id, onSelect]
+    [collection.id, onSelect, protection.isDisabled]
   );
 
   return (
     <div
+      aria-disabled={protection.isDisabled ? true : undefined}
       aria-label={optionLabel}
       aria-selected={isSelected}
       className={cn(
-        'group relative cursor-pointer rounded-md border p-3 outline-none transition-all',
-        'hover:border-accent-foreground/20 focus-visible:ring-2 focus-visible:ring-ring',
+        'group relative rounded-md border p-3 outline-none transition-all',
+        protection.isDisabled ? 'cursor-default opacity-75' : 'cursor-pointer',
+        !protection.isDisabled &&
+          'hover:border-accent-foreground/20 focus-visible:ring-2 focus-visible:ring-ring',
         isSelected && 'border-l-2',
         isFocused && 'border-accent-foreground/30 ring-2 ring-ring ring-offset-1'
       )}
@@ -105,6 +176,11 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             >
               {providerLabel}
             </Badge>
+            {protection.badgeLabel && (
+              <Badge className="shrink-0 font-normal text-[10px]" variant="secondary">
+                {protection.badgeLabel}
+              </Badge>
+            )}
           </div>
 
           {/* Description (optional) */}
@@ -112,6 +188,9 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             <p className="mt-1 line-clamp-1 text-muted-foreground text-xs">
               {collection.description}
             </p>
+          )}
+          {protection.disabledReason && (
+            <p className="mt-1 text-muted-foreground text-xs">{protection.disabledReason}</p>
           )}
 
           {/* Metadata row */}
@@ -161,35 +240,13 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
         </div>
 
         {/* Right: Action buttons - visible on hover */}
-        <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label="Edit collection"
-                onClick={handleEdit}
-                size="icon-xs"
-                variant="ghost"
-              >
-                <Pencil aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Edit collection</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label="Delete collection"
-                className="text-destructive hover:text-destructive"
-                onClick={handleDelete}
-                size="icon-xs"
-                variant="ghost"
-              >
-                <Trash2 aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Delete collection</TooltipContent>
-          </Tooltip>
-        </div>
+        <CollectionPickerItemActions
+          canDelete={protection.canDelete}
+          canEdit={protection.canEdit}
+          collection={collection}
+          onDelete={onDelete}
+          onEdit={onEdit}
+        />
       </div>
     </div>
   );

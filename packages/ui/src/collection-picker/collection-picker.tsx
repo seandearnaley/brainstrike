@@ -6,6 +6,7 @@ import { TooltipProvider } from '../tooltip';
 import { CollectionPickerEmpty } from './collection-picker-empty';
 import { CollectionPickerHeader } from './collection-picker-header';
 import { CollectionPickerItem } from './collection-picker-item';
+import { getCollectionPickerProtection } from './protection';
 import type { CollectionPickerCollection, CollectionPickerProps } from './types';
 
 /**
@@ -56,10 +57,14 @@ export function CollectionPicker({
 
   const handleSelect = useCallback(
     (id: string) => {
+      const collection = collections.find((candidate) => candidate.id === id);
+      if (!collection || getCollectionPickerProtection(collection).isDisabled) {
+        return;
+      }
       // Always select, do not toggle to null
       onSelect(id);
     },
-    [onSelect]
+    [collections, onSelect]
   );
 
   const handleEdit = useCallback(
