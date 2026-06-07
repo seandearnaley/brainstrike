@@ -26,7 +26,15 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  * format, so reusing an unversioned directory across majors fails to initialize.
  * Bumping this token forces a clean, greenfield directory per engine major.
  *
- * Bump this whenever the bundled PGlite ships a new Postgres major.
+ * WHEN BUMPING THIS (e.g. to 'pg19'):
+ * 1. Append the just-superseded versioned name(s) (e.g. `app-pg18`, `web-pg18`)
+ *    to `FALLBACK_INDEXED_DB_NAMES` in
+ *    packages/preferences/src/settings/system/factory-reset-helpers.ts. On
+ *    browsers without `indexedDB.databases()` / OPFS `keys()` enumeration
+ *    (older Safari/Firefox), `reclaimLegacyBrowserPGliteStorage` can only delete
+ *    the unversioned base name, so the prior major's orphan is reclaimed solely
+ *    via that maintained fallback list.
+ * 2. Bump `BUNDLED_PG_MAJOR` in apps/desktop/src/pg-data-version.ts to match.
  */
 export const PGLITE_DATA_DIR_VERSION = 'pg18';
 
@@ -100,7 +108,12 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentName: string): Pro
     names.push(baseName);
   }
   for (const name of names) {
-    await root.removeEntry(name, { recursive: true });
+    try {
+      await root.removeEntry(name, { recursive: true });
+    } catch {
+      // best-effort: a single stuck entry (e.g. a handle still held by another
+      // tab) must not abort reclaiming the remaining variants.
+    }
   }
 }
 

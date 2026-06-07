@@ -90,10 +90,36 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     navigator?: { storage?: { getDirectory?: () => Promise<unknown> } };
   };
   const originalIndexedDB = g.indexedDB;
+  const originalNavigator = g.navigator;
 
   afterEach(() => {
     g.indexedDB = originalIndexedDB;
+    g.navigator = originalNavigator;
     vi.restoreAllMocks();
+  });
+
+  it('keeps reclaiming OPFS entries when one removeEntry throws (per-entry guard)', async () => {
+    g.indexedDB = { deleteDatabase: vi.fn() };
+    const removeEntry = vi.fn((name: string) =>
+      name === 'app' ? Promise.reject(new Error('held by another tab')) : Promise.resolve()
+    );
+    async function* keys() {
+      yield 'app';
+      yield 'app-pg17';
+      yield 'app-pg18';
+      yield 'other';
+    }
+    g.navigator = {
+      storage: { getDirectory: () => Promise.resolve({ keys, removeEntry } as unknown) },
+    };
+
+    await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
+
+    // The throw on 'app' must not abort reclaiming the remaining 'app-pg17'.
+    expect(removeEntry).toHaveBeenCalledWith('app', { recursive: true });
+    expect(removeEntry).toHaveBeenCalledWith('app-pg17', { recursive: true });
+    expect(removeEntry).not.toHaveBeenCalledWith('app-pg18', { recursive: true });
+    expect(removeEntry).not.toHaveBeenCalledWith('other', { recursive: true });
   });
 
   it('reclaims EVERY same-base variant except the in-use one (all prior majors + unversioned)', async () => {

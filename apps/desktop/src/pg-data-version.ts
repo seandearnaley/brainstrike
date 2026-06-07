@@ -23,7 +23,10 @@ export const ENGINE_UPGRADE_BACKUP_RETENTION_MS = 14 * 24 * 60 * 60 * 1000; // 1
  * "failed to initialize properly" error that the corruption-recovery path does
  * not classify as recoverable.
  *
- * Bump this whenever the bundled PGlite ships a new Postgres major.
+ * Bump this whenever the bundled PGlite ships a new Postgres major — and keep it
+ * in lockstep with `PGLITE_DATA_DIR_VERSION` in
+ * packages/db/src/browser-pglite-storage.ts (which also documents appending the
+ * superseded versioned name to the factory-reset fallback list).
  */
 export const BUNDLED_PG_MAJOR = '18';
 
