@@ -48,12 +48,16 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  *
  * DEPENDENCY-PIN LOCKSTEP (separate axis from this token): `@electric-sql/pglite`
  * and `@electric-sql/pglite-pgvector` MUST be bumped together. pgvector declares
- * an EXACT peer on a single pglite version (0.0.2 → `@electric-sql/pglite: 0.5.1`),
- * and both are pinned to exact versions across every package.json that uses them
- * (db, agent, embeddings, vector-management, file-import, token-cache, desktop).
+ * an EXACT peer on a single pglite version (0.0.2 → `@electric-sql/pglite: 0.5.1`).
+ * The pins live in different sets of package.json files:
+ *   - `@electric-sql/pglite` (exact) — all 7 consumers: db, agent, embeddings,
+ *     vector-management, file-import, token-cache, desktop.
+ *   - `@electric-sql/pglite-pgvector` (exact) — ONLY db, agent, desktop (the four
+ *     others don't import the vector extension, so they correctly omit it).
  * Bumping pglite alone (e.g. to a 0.5.x patch) breaks peer resolution until
- * pgvector ships a matching release — so move both in the same change. There is no
- * Renovate/Dependabot in this repo to enforce it; this note is the reminder.
+ * pgvector ships a matching release — so move both in the same change (updating
+ * pgvector in db/agent/desktop, not all 7). There is no Renovate/Dependabot in
+ * this repo to enforce it; this note is the reminder.
  */
 export const PGLITE_DATA_DIR_VERSION = 'pg18';
 
@@ -197,13 +201,15 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  * thing this function exists to relieve), and OPFS/IDB give no cheap rename-aside.
  * Consequence: a web user with an existing index loses it with no retention and no
  * pre-deletion export. Any future export/migration affordance MUST run BEFORE this
- * reclaim (and before the versioned DB opens). The one-time "your index was reset"
- * user notice is tracked as a separate fast-follow, not implemented here.
+ * reclaim (and before the versioned DB opens).
  *
- * ROLLOUT GATE: because this deletion is irreversible the moment it runs, the web
- * GA rollout of a new engine-major build MUST be gated on that user notice (or an
- * export affordance) having actually landed — a fast-follow that slips to after GA
- * means silent data loss in the field, not just a delayed nicety.
+ * ROLLOUT GATE (tracked, GA-blocking — see issue #1139): because this deletion is
+ * irreversible the moment it runs, the web GA rollout of a new engine-major build
+ * MUST be gated on the one-time "your index was reset" notice (or an export
+ * affordance) having actually landed — a fast-follow that slips to after GA means
+ * silent data loss in the field, not just a delayed nicety. The notice is NOT
+ * implemented here (deliberate, maintainer-approved deferral); issue #1139 is the
+ * GA-blocking tracker so the ordering is enforced by process, not just this prose.
  */
 export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string): Promise<void> {
   if (!isBrowserPersistentPGliteDataDir(versionedDataDir)) {
