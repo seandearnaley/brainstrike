@@ -42,52 +42,112 @@ export function getOpfsAhpBrowserPGliteDataDir(dbName = DEFAULT_BROWSER_DB_NAME)
   return `opfs-ahp://${withEngineVersion(dbName)}`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * Best-effort reclamation of the legacy (pre-engine-version) browser storage for
- * the SAME database base name, run once after the versioned database opens.
+ * Names to reclaim for a base: the unversioned base and ANY engine-versioned
+ * variant of it (`app`, `app-pg17`, `app-pg18`, …), excluding the in-use name.
+ * Matching every prior major — not just the immediately-previous suffix — keeps
+ * reclamation correct across repeated major bumps (pg18 -> pg19 -> …).
+ */
+function isReclaimableLegacyName(name: string, baseName: string, currentName: string): boolean {
+  if (name === currentName) {
+    return false;
+  }
+  return new RegExp(`^${escapeRegExp(baseName)}(-pg\\d+)?$`).test(name);
+}
+
+async function legacyIndexedDbNamesToReclaim(
+  baseName: string,
+  currentName: string
+): Promise<string[]> {
+  if (typeof indexedDB === 'undefined') {
+    return [];
+  }
+  // Enumerate when supported so every prior-major orphan is reclaimed, not just
+  // the one whose suffix we can derive from the current name.
+  if (typeof indexedDB.databases === 'function') {
+    const infos = await indexedDB.databases();
+    return infos
+      .map((info) => info.name)
+      .filter((name): name is string => typeof name === 'string')
+      .filter((name) => isReclaimableLegacyName(name, baseName, currentName));
+  }
+  // Enumeration unavailable (older Safari/Firefox): best-effort delete the
+  // unversioned base name. Prior versioned majors can't be discovered here; the
+  // maintained factory-reset fallback list is the secondary cleanup path.
+  return baseName === currentName ? [] : [baseName];
+}
+
+async function reclaimLegacyOpfsDirs(baseName: string, currentName: string): Promise<void> {
+  if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
+    return;
+  }
+  const root = (await navigator.storage.getDirectory()) as FileSystemDirectoryHandle & {
+    keys?: () => AsyncIterable<string>;
+  };
+  // Enumerate root entries when supported; otherwise fall back to the base name.
+  const names: string[] = [];
+  if (typeof root.keys === 'function') {
+    for await (const name of root.keys()) {
+      if (isReclaimableLegacyName(name, baseName, currentName)) {
+        names.push(name);
+      }
+    }
+  } else if (baseName !== currentName) {
+    names.push(baseName);
+  }
+  for (const name of names) {
+    await root.removeEntry(name, { recursive: true });
+  }
+}
+
+/**
+ * Best-effort reclamation of legacy (pre-/other-engine-version) browser storage
+ * for the same database base name, run once after the versioned database opens.
  *
  * A PG major upgrade versions the data-dir name (idb://app -> idb://app-pg18),
- * which abandons the old unversioned database. Without reclamation it counts
- * against the origin's storage quota indefinitely — and on a near-full quota the
- * orphan can even make the fresh versioned DB hit QuotaExceededError.
+ * which abandons the old database. Without reclamation it counts against the
+ * origin's storage quota indefinitely — and on a near-full quota the orphan can
+ * even make the fresh versioned DB hit QuotaExceededError.
  *
- * Deletes both the legacy IndexedDB database and the legacy OPFS directory of the
- * same base name (covers whichever backend the user had before, including OPFS,
- * which the IndexedDB-only factory-reset fallback list does not reach). It never
- * touches the in-use versioned name. Fire-and-forget: deleting absent storage is a
- * harmless no-op and any failure is swallowed so reclamation can't break startup.
+ * Reclaims BOTH the IndexedDB databases and the OPFS directories of every
+ * same-base variant (unversioned + all prior majors) EXCEPT the in-use name, by
+ * enumerating storage when the browser supports it (falling back to the
+ * unversioned base name otherwise). Covers OPFS, which the IndexedDB-only
+ * factory-reset fallback list does not reach. Fire-and-forget: deleting absent
+ * storage is a no-op and any failure is swallowed so reclamation can't break
+ * startup.
  */
 export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string): Promise<void> {
-  const suffix = `-${PGLITE_DATA_DIR_VERSION}`;
   if (!isBrowserPersistentPGliteDataDir(versionedDataDir)) {
     return;
   }
-  const withoutScheme = versionedDataDir.replace(/^(idb|opfs-ahp):\/\//, '');
-  if (!withoutScheme.endsWith(suffix)) {
+  const suffix = `-${PGLITE_DATA_DIR_VERSION}`;
+  const currentName = versionedDataDir.replace(/^(idb|opfs-ahp):\/\//, '');
+  if (!currentName.endsWith(suffix)) {
     return;
   }
-  const legacyName = withoutScheme.slice(0, -suffix.length);
-  if (legacyName.length === 0) {
+  const baseName = currentName.slice(0, -suffix.length);
+  if (baseName.length === 0) {
     return;
   }
 
-  // Legacy IndexedDB database (the pre-version base name).
   try {
-    if (typeof indexedDB !== 'undefined') {
-      indexedDB.deleteDatabase(legacyName);
+    const names = await legacyIndexedDbNamesToReclaim(baseName, currentName);
+    for (const name of names) {
+      indexedDB.deleteDatabase(name);
     }
   } catch {
     // best-effort only
   }
 
-  // Legacy OPFS directory of the same base name (unversioned).
   try {
-    if (typeof navigator !== 'undefined' && typeof navigator.storage?.getDirectory === 'function') {
-      const root = await navigator.storage.getDirectory();
-      await root.removeEntry(legacyName, { recursive: true });
-    }
+    await reclaimLegacyOpfsDirs(baseName, currentName);
   } catch {
-    // best-effort only (entry may be absent, or the OPFS layout differs)
+    // best-effort only (entries may be absent, or the OPFS layout differs)
   }
 }
 

@@ -83,7 +83,10 @@ describe('browser PGlite storage selection', () => {
 
 describe('reclaimLegacyBrowserPGliteStorage', () => {
   const g = globalThis as unknown as {
-    indexedDB?: { deleteDatabase: (name: string) => unknown };
+    indexedDB?: {
+      deleteDatabase: (name: string) => unknown;
+      databases?: () => Promise<{ name?: string }[]>;
+    };
     navigator?: { storage?: { getDirectory?: () => Promise<unknown> } };
   };
   const originalIndexedDB = g.indexedDB;
@@ -93,18 +96,42 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     vi.restoreAllMocks();
   });
 
-  it('deletes the legacy (unversioned) IndexedDB database for the same base name', async () => {
+  it('reclaims EVERY same-base variant except the in-use one (all prior majors + unversioned)', async () => {
+    // The key forward-looking case: on a later major (e.g. pg19) the prior
+    // versioned dirs (app-pg18) must also be reclaimed, not just unversioned app.
     const deleteDatabase = vi.fn();
-    g.indexedDB = { deleteDatabase };
+    g.indexedDB = {
+      deleteDatabase,
+      databases: () =>
+        Promise.resolve([
+          { name: 'app' }, // legacy unversioned
+          { name: 'app-pg17' }, // hypothetical prior major
+          { name: 'app-pg18' }, // in-use → must be kept
+          { name: 'appendix' }, // different base → must be kept
+          { name: 'other' },
+        ]),
+    };
 
     await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
 
     expect(deleteDatabase).toHaveBeenCalledWith('app');
-    // Must NOT delete the in-use versioned database.
+    expect(deleteDatabase).toHaveBeenCalledWith('app-pg17');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg18');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('appendix');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('other');
+  });
+
+  it('falls back to deleting the unversioned base name when enumeration is unavailable', async () => {
+    const deleteDatabase = vi.fn();
+    g.indexedDB = { deleteDatabase }; // no databases()
+
+    await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
+
+    expect(deleteDatabase).toHaveBeenCalledWith('app');
     expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg18');
   });
 
-  it('derives the legacy name for non-default db names (e.g. web)', async () => {
+  it('derives the base name for non-default db names (e.g. web)', async () => {
     const deleteDatabase = vi.fn();
     g.indexedDB = { deleteDatabase };
 
