@@ -1097,6 +1097,13 @@ async function handleCorruptionError(
  *   while still preserving the old data for manual/forensic recovery. A rename
  *   failure falls back to a plain wipe rather than blocking startup.
  *
+ * USER-NOTICE PARITY (deferred — issue #1139): the older-major path boots greenfield,
+ * so the user sees an empty app with no in-app explanation (only this `logger.warn`
+ * and an undiscoverable `.bak`). Unlike the web reclaim this is NOT data loss — the
+ * `.bak` is recoverable for the ~14-day retention window — so desktop is not a GA
+ * blocker, but the one-time "your local database was rebuilt for the engine upgrade"
+ * notice is tracked alongside the web notice in #1139 for parity.
+ *
  * Caller MUST hold the exclusive process lock so no other process owns the dir.
  *
  * Returns the path of the backup created this boot (so the caller can exclude it
