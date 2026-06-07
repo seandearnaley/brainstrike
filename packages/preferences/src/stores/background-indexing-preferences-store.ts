@@ -69,7 +69,7 @@ function createBackgroundIndexingPreferencesStorage() {
 const storage = createJSONStorage(() => createBackgroundIndexingPreferencesStorage());
 
 const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
-  enabled: false,
+  enabled: true,
   hasHydrated: false,
   indexingPolicyPreset: 'balanced',
   managedCollectionId: null,

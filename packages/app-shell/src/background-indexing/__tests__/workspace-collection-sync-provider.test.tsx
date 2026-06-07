@@ -31,6 +31,7 @@ const {
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
+  getOrCreateWorkspaceIndexSetMock,
   createPriorityDbHandleMock,
   validateApiKeyForSetMock,
   ensureChunkingWorkerMock,
@@ -58,6 +59,7 @@ const {
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
+  getOrCreateWorkspaceIndexSetMock: vi.fn(),
   createPriorityDbHandleMock: vi.fn(
     (
       db: {
@@ -155,6 +157,7 @@ const {
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
   JobQueue: vi.fn(function MockJobQueue() {
     return {
       enqueueBatch: vi.fn(),
@@ -176,6 +179,7 @@ vi.mock('@brainstrike/db', () => ({
   ElectronEmbeddingSetsRepository: vi.fn(function MockElectronEmbeddingSetsRepository() {
     return {
       getById: getByIdMock,
+      getOrCreateWorkspaceIndexSet: getOrCreateWorkspaceIndexSetMock,
     };
   }),
   ElectronFileChunkRepository: vi.fn(function MockElectronFileChunkRepository() {
@@ -320,9 +324,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       dimensions: 1536,
       distance: 'cosine',
       createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
     };
 
     getByIdMock.mockResolvedValue(collection);
+    getOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
     ensureChunkingWorkerMock.mockResolvedValue({
       isReady: () => true,
@@ -387,6 +393,57 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
+    );
+  });
+
+  it('creates and syncs the default workspace index when fresh preferences have no managed collection', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000202',
+      name: 'Workspace Index',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    getOrCreateWorkspaceIndexSetMock.mockResolvedValueOnce(workspaceIndex);
+    getByIdMock.mockResolvedValue(workspaceIndex);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        workspaceIndex.id
+      )
+    );
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+
+    expect(validateApiKeyForSetMock).toHaveBeenCalledWith(workspaceIndex.id);
+    expect(enqueueBackfillMock).toHaveBeenCalledWith(
+      workspaceIndex.id,
+      expect.objectContaining({
+        source: 'background-indexing',
+      })
+    );
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+      expect.objectContaining({
+        managedCollectionId: workspaceIndex.id,
+        managedCollectionName: 'Workspace Index',
+      })
     );
   });
 
@@ -555,7 +612,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
-  it('clears a stale managed collection id when the collection no longer exists', async () => {
+  it('rebinds a stale managed collection id to the workspace index', async () => {
     getByIdMock.mockResolvedValueOnce(null);
 
     render(
@@ -565,16 +622,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
 
     await waitFor(() =>
-      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull()
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        '00000000-0000-0000-0000-000000000101'
+      )
     );
+    await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
       expect.objectContaining({
-        state: 'error',
-        managedCollectionId: null,
-        lastError: 'No managed collection selected.',
+        managedCollectionId: '00000000-0000-0000-0000-000000000101',
+        managedCollectionName: 'Managed Cache',
       })
     );
-    expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
   it('passes the balanced indexing policy into the background sync request', async () => {

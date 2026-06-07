@@ -26,6 +26,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import { type ReactNode, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
+import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 export const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
@@ -110,6 +111,7 @@ export function WorkspaceCollectionSyncProvider({
   }, [backgroundDb]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
+  const hasHydrated = useBackgroundIndexingPreferencesStore((state) => state.hasHydrated);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
@@ -242,7 +244,62 @@ export function WorkspaceCollectionSyncProvider({
     waitForBackgroundPermit,
   ]);
 
+  const triggerWorkspaceIndexBootstrap = useCallback((): boolean => {
+    if (!(enabled && managedCollectionId === null)) {
+      return false;
+    }
+
+    const embeddingSetsRepository = backgroundRepositories?.embeddingSetsRepository;
+    if (!embeddingSetsRepository) {
+      reportAsyncError(
+        'bootstrap',
+        new Error('Background indexing embedding set repository is unavailable.')
+      );
+      return true;
+    }
+
+    void bootstrapWorkspaceIndexCollection(
+      { enabled, managedCollectionId },
+      {
+        embeddingSetsRepository,
+        setManagedCollectionId,
+      }
+    )
+      .then((collection) => {
+        if (!collection) {
+          return;
+        }
+        setSyncStatus({
+          state: 'idle',
+          managedCollectionId: collection.id,
+          managedCollectionName: collection.name ?? null,
+          activeRootPath: rootDirectoryHandle?.path ?? null,
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 0,
+          lastError: null,
+          pauseReasons: [],
+        });
+      })
+      .catch((error) => {
+        reportAsyncError('bootstrap', error);
+      });
+    return true;
+  }, [
+    backgroundRepositories,
+    enabled,
+    managedCollectionId,
+    reportAsyncError,
+    rootDirectoryHandle?.path,
+    setManagedCollectionId,
+    setSyncStatus,
+  ]);
+
   const triggerSync = useCallback(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
     if (!service) {
       if (enabled) {
         setSyncStatus({
@@ -258,6 +315,10 @@ export function WorkspaceCollectionSyncProvider({
       } else {
         resetSyncStatus();
       }
+      return;
+    }
+
+    if (triggerWorkspaceIndexBootstrap()) {
       return;
     }
 
@@ -337,6 +398,7 @@ export function WorkspaceCollectionSyncProvider({
   }, [
     backgroundWorkSnapshot,
     enabled,
+    hasHydrated,
     indexingPolicyPreset,
     isAccessLoading,
     isTreeRestorationReady,
@@ -346,6 +408,7 @@ export function WorkspaceCollectionSyncProvider({
     rootDirectoryHandle,
     service,
     setSyncStatus,
+    triggerWorkspaceIndexBootstrap,
   ]);
 
   useEffect(() => {

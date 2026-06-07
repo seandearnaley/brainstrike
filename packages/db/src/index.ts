@@ -40,7 +40,15 @@ export * from './migrations/bootstrap.js';
 export type { Migration } from './migrations/index.js';
 // New migration system
 export { MigrationRunner, migrations } from './migrations/index.js';
-export type { EmbeddingDistance, EmbeddingSet } from './models/embedding-set.js';
+export type {
+  EmbeddingDistance,
+  EmbeddingSet,
+  EmbeddingSetSystemRole,
+} from './models/embedding-set.js';
+export {
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
+  WORKSPACE_INDEX_SYSTEM_ROLE,
+} from './models/embedding-set.js';
 export type {
   ChunkSearchOptions,
   ChunkSearchResult,

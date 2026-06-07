@@ -16,10 +16,10 @@ describe('background-indexing-preferences-store', () => {
     __resetBackgroundIndexingPreferencesStoreForTests();
   });
 
-  it('initializes with background indexing disabled and no managed collection', () => {
+  it('initializes with workspace indexing enabled and no managed collection', () => {
     const state = useBackgroundIndexingPreferencesStore.getState();
 
-    expect(state.enabled).toBe(false);
+    expect(state.enabled).toBe(true);
     expect(state.indexingPolicyPreset).toBe('balanced');
     expect(state.managedCollectionId).toBeNull();
     expect(state.mode).toBe('root-folder-cache');
@@ -30,13 +30,13 @@ describe('background-indexing-preferences-store', () => {
   it('updates enablement, policy, managed collection, and pause independently', () => {
     const store = useBackgroundIndexingPreferencesStore.getState();
 
-    store.setEnabled(true);
+    store.setEnabled(false);
     store.setIndexingPolicyPreset('full-root');
     store.setManagedCollectionId('collection-123');
     store.setPaused(true);
 
     expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
-      enabled: true,
+      enabled: false,
       indexingPolicyPreset: 'full-root',
       managedCollectionId: 'collection-123',
       mode: 'root-folder-cache',
@@ -57,7 +57,7 @@ describe('background-indexing-preferences-store', () => {
     useBackgroundIndexingPreferencesStore.getState().reset();
 
     expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
-      enabled: false,
+      enabled: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
