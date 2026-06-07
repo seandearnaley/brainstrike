@@ -27,6 +27,7 @@ import {
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
 } from '../_shared.js';
@@ -352,6 +353,7 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       embeddingSetId,
+      efSearch,
       filePaths,
       selectionSnapshotId,
       includeEmbedding = true,
@@ -463,7 +465,15 @@ export class DrizzleFileChunkRepository {
       LIMIT ${overfetchLimit}
     `;
 
-    const result = await this.db.execute(baseQuery);
+    // Run the ANN tuning and the search in ONE transaction so `SET LOCAL` applies
+    // to the SELECT (autocommit `SET LOCAL` is a silent no-op). Iterative scans +
+    // a wider ef_search keep heavily filtered searches from under-returning.
+    const result = await this.db.transaction(async (tx) => {
+      for (const statement of hnswSearchTuningStatements(efSearch)) {
+        await tx.execute(sql.raw(statement));
+      }
+      return await tx.execute(baseQuery);
+    });
 
     const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
       chunk: this.fromRawRow(row),

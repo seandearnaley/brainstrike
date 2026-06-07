@@ -17,6 +17,7 @@ import {
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
@@ -335,6 +336,7 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       embeddingSetId,
+      efSearch,
       filePaths,
       selectionSnapshotId,
       includeEmbedding = true,
@@ -392,60 +394,30 @@ export class FileChunkRepository {
     params.push(embeddingSetId);
     paramIndex += 1;
 
-    // Try to tune ANN search parameters (no-op if unsupported)
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
-      // Clamp to a reasonable range to avoid pathological settings
-      const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
-      if (!Number.isSafeInteger(ef)) {
-        throw new Error('Invalid HNSW ef_search value');
-      }
-      await this.db.query('SET LOCAL hnsw.ef_search = $1', [ef]);
-    } catch {
-      // ignored: tuning is best-effort
-    }
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
-      if (Number.isFinite(rawProbes) && rawProbes > 0) {
-        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
-        if (!Number.isSafeInteger(probes)) {
-          throw new Error('Invalid IVFFLAT probes value');
-        }
-        await this.db.query('SET LOCAL ivfflat.probes = $1', [probes]);
-      }
-    } catch {
-      // ignored: tuning is best-effort
-    }
-
     // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks.
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
     // Large fan-out reads can project the heavy embedding vector away (keeping
     // only its dimension count) — the distance math still runs in SQL.
     const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
-    const result = await this.db.query(
-      `SELECT ${selectColumns},
+    const searchSql = `SELECT ${selectColumns},
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
-      LIMIT $${paramIndex}`,
-      [...params, overfetchLimit]
-    );
+      LIMIT $${paramIndex}`;
+    const searchParams = [...params, overfetchLimit];
+
+    // Run the ANN tuning and the search inside ONE transaction. `SET LOCAL` only
+    // takes effect within a transaction block, so issuing it autocommit (as the
+    // previous code did) was a silent no-op. The tuning widens `hnsw.ef_search`
+    // and enables iterative scans so heavily filtered searches keep walking the
+    // index until enough rows survive the WHERE clause instead of under-returning.
+    const result = await this.runVectorSearchInTransaction(searchSql, searchParams, efSearch);
 
     const mapped = result.rows.map((row) => {
-      const searchRow = row as FileChunkSearchRow;
+      const searchRow = row as unknown as FileChunkSearchRow;
       const sim = Number.parseFloat(searchRow.similarity);
       return {
         chunk: this.mapRowToChunk(searchRow),
@@ -459,6 +431,33 @@ export class FileChunkRepository {
       (r) => Number.isFinite(r.similarity) && r.similarity >= threshold
     );
     return filtered.slice(0, limit);
+  }
+
+  /**
+   * Run a pgvector ANN search with HNSW tuning applied via `SET LOCAL` inside a
+   * single transaction. `SET LOCAL` only affects the current transaction, so the
+   * SELECT must run in the same transaction as the tuning statements. The search
+   * is read-only; the transaction is committed on success and rolled back on error.
+   */
+  private async runVectorSearchInTransaction(
+    searchSql: string,
+    params: unknown[],
+    efSearch?: number
+  ): Promise<{ rows: Record<string, unknown>[] }> {
+    await this.db.query('BEGIN');
+    try {
+      for (const statement of hnswSearchTuningStatements(efSearch)) {
+        await this.db.query(statement);
+      }
+      const result = await this.db.query<Record<string, unknown>>(searchSql, params);
+      await this.db.query('COMMIT');
+      return { rows: result.rows };
+    } catch (err) {
+      await this.db.query('ROLLBACK').catch(() => {
+        // Surface the original failure, not a secondary rollback error.
+      });
+      throw err;
+    }
   }
 
   /**
