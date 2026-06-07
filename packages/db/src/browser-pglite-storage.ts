@@ -199,6 +199,11 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  * pre-deletion export. Any future export/migration affordance MUST run BEFORE this
  * reclaim (and before the versioned DB opens). The one-time "your index was reset"
  * user notice is tracked as a separate fast-follow, not implemented here.
+ *
+ * ROLLOUT GATE: because this deletion is irreversible the moment it runs, the web
+ * GA rollout of a new engine-major build MUST be gated on that user notice (or an
+ * export affordance) having actually landed — a fast-follow that slips to after GA
+ * means silent data loss in the field, not just a delayed nicety.
  */
 export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string): Promise<void> {
   if (!isBrowserPersistentPGliteDataDir(versionedDataDir)) {

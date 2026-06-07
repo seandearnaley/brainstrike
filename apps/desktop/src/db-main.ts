@@ -1109,42 +1109,94 @@ function reconcileIncompatiblePgDataDir(dataDir: string): string | null {
   }
 
   const backupDir = `${dataDir}.pre-pg${BUNDLED_PG_MAJOR}-from-pg${foundMajor ?? 'unknown'}.bak`;
-  let movedAside = false;
+  const movedAside = setIncompatibleDataDirAside(dataDir, backupDir, foundMajor);
+  mkdirSync(dataDir, { recursive: true });
+  return movedAside ? backupDir : null;
+}
+
+/**
+ * Stamp a moved/copied engine-upgrade backup's mtime to now so the retention clock
+ * starts at move-time, not the old DB's last-write time. The same-boot prune also
+ * excludes the backup by path, so a failed stamp only shortens retention across
+ * LATER boots (never collapses this boot's window) — hence best-effort + warn.
+ */
+function stampEngineUpgradeBackupMtime(backupDir: string): void {
+  try {
+    const movedAt = new Date();
+    utimesSync(backupDir, movedAt, movedAt);
+  } catch (stampErr) {
+    logger.warn('Failed to stamp engine-upgrade backup mtime; retention may run short', {
+      backupDir,
+      error: getErrorDetails(stampErr),
+    });
+  }
+}
+
+/**
+ * Set an unopenable older-major data dir aside, preserving a recoverable backup
+ * wherever possible. Prefers a cheap same-volume rename; if that fails (rare —
+ * `backupDir` is a same-directory sibling so EXDEV cannot apply, leaving lock /
+ * permission / ENOTEMPTY as the realistic causes), it falls back to a copy-aside
+ * so the forensic `.bak` is still created rather than silently degrading the
+ * recovery guarantee to a permanent wipe. Only when even the copy fails does it
+ * wipe — the PG-mismatched dir is unopenable, so the app must still boot greenfield.
+ * Returns true iff a recoverable backup now exists at `backupDir`.
+ */
+function setIncompatibleDataDirAside(
+  dataDir: string,
+  backupDir: string,
+  foundMajor: string | null
+): boolean {
   try {
     rmSync(backupDir, { recursive: true, force: true });
     renameSync(dataDir, backupDir);
-    movedAside = true;
-    // renameSync preserves the dir's original content mtime (≈ the last time the
-    // old DB was written), NOT the move time. Stamp it to now so the retention
-    // clock starts at move time. The same-boot prune additionally excludes this
-    // path (see caller), so a failed stamp can't collapse the recovery window to
-    // zero — the stamp only governs survival across LATER boots.
-    try {
-      const movedAt = new Date();
-      utimesSync(backupDir, movedAt, movedAt);
-    } catch (stampErr) {
-      logger.warn('Failed to stamp engine-upgrade backup mtime; retention may run short', {
-        backupDir,
-        error: getErrorDetails(stampErr),
-      });
-    }
+    stampEngineUpgradeBackupMtime(backupDir);
     logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
       dataDir,
       backupDir,
       expectedMajor: BUNDLED_PG_MAJOR,
       foundMajor,
     });
+    return true;
   } catch (renameErr) {
-    logger.error('Failed to move incompatible data dir aside; wiping instead', {
+    logger.error('Failed to rename incompatible data dir aside; attempting copy-aside', {
       dataDir,
+      backupDir,
       expectedMajor: BUNDLED_PG_MAJOR,
       foundMajor,
       error: getErrorDetails(renameErr),
     });
-    rmSync(dataDir, { recursive: true, force: true });
   }
-  mkdirSync(dataDir, { recursive: true });
-  return movedAside ? backupDir : null;
+
+  try {
+    rmSync(backupDir, { recursive: true, force: true }); // clear any partial from the failed rename
+    cpSync(dataDir, backupDir, { recursive: true });
+    stampEngineUpgradeBackupMtime(backupDir);
+    rmSync(dataDir, { recursive: true, force: true });
+    logger.warn(
+      'Incompatible Postgres data directory copied aside for engine upgrade (rename fallback)',
+      {
+        dataDir,
+        backupDir,
+        expectedMajor: BUNDLED_PG_MAJOR,
+        foundMajor,
+      }
+    );
+    return true;
+  } catch (copyErr) {
+    logger.error(
+      'Copy-aside also failed; wiping incompatible data dir (its data is unrecoverable)',
+      {
+        dataDir,
+        backupDir,
+        expectedMajor: BUNDLED_PG_MAJOR,
+        foundMajor,
+        error: getErrorDetails(copyErr),
+      }
+    );
+    rmSync(dataDir, { recursive: true, force: true });
+    return false;
+  }
 }
 
 /**

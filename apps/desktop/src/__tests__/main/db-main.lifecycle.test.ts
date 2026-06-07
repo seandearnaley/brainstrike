@@ -155,6 +155,8 @@ describe('db-main lifecycle', () => {
     // from a clean slate.
     readFileSyncMock.mockImplementation(() => '');
     utimesSyncMock.mockImplementation(() => undefined);
+    renameSyncMock.mockImplementation(() => undefined);
+    cpSyncMock.mockImplementation(() => undefined);
     readdirSyncMock.mockReturnValue([]);
     statSyncMock.mockReturnValue({ mtimeMs: Date.now() });
   });
@@ -199,6 +201,61 @@ describe('db-main lifecycle', () => {
       expect.stringContaining('.pre-pg18-from-pg17.bak'),
       expect.any(Date),
       expect.any(Date)
+    );
+  });
+
+  it('falls back to copy-aside (preserving a recoverable backup) when the rename fails', async () => {
+    // rename can fail (lock/permission/ENOTEMPTY on the sibling). Rather than
+    // silently wiping — degrading the .bak guarantee to permanent deletion — the
+    // guard copies the dir aside so it stays recoverable, then removes the original.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+    renameSyncMock.mockImplementation(() => {
+      throw new Error('rename failed');
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // The dir is copied to the backup sibling and its mtime stamped.
+    expect(cpSyncMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pgdata$/),
+      expect.stringContaining('.pre-pg18-from-pg17.bak'),
+      expect.objectContaining({ recursive: true })
+    );
+    expect(utimesSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('.pre-pg18-from-pg17.bak'),
+      expect.any(Date),
+      expect.any(Date)
+    );
+    // The original is removed only AFTER the copy succeeded.
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pgdata$/),
+      expect.objectContaining({ recursive: true })
+    );
+  });
+
+  it('wipes as a last resort only when both rename and copy-aside fail', async () => {
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+    renameSyncMock.mockImplementation(() => {
+      throw new Error('rename failed');
+    });
+    cpSyncMock.mockImplementation(() => {
+      throw new Error('copy failed');
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // No recoverable backup could be made → no mtime stamp, and the dir is wiped so
+    // the app still boots greenfield on the unopenable PG17 dir.
+    expect(utimesSyncMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pgdata$/),
+      expect.objectContaining({ recursive: true })
     );
   });
 
