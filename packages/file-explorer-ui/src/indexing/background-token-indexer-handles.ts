@@ -119,16 +119,18 @@ function normalizeSlashRelativePath(relativePath: string, separator: string): st
   let normalized = '';
   let segmentStart = -1;
 
+  const appendSegment = (end: number): void => {
+    const segment = relativePath.slice(segmentStart, end);
+    normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
+    segmentStart = -1;
+  };
+
   for (let index = 0; index < relativePath.length; index++) {
     if (relativePath.charCodeAt(index) === 47) {
       if (segmentStart !== -1) {
         // Avoid split/filter/join here: synthetic handles are created for
         // bulk selected files, so scanning skips per-file segment arrays.
-        normalized += `${normalized.length === 0 ? '' : separator}${relativePath.slice(
-          segmentStart,
-          index
-        )}`;
-        segmentStart = -1;
+        appendSegment(index);
       }
       continue;
     }
@@ -139,7 +141,7 @@ function normalizeSlashRelativePath(relativePath: string, separator: string): st
   }
 
   if (segmentStart !== -1) {
-    normalized += `${normalized.length === 0 ? '' : separator}${relativePath.slice(segmentStart)}`;
+    appendSegment(relativePath.length);
   }
 
   return normalized;

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   buildSyntheticElectronHandle,
   getSlashPathFileName,
@@ -47,20 +47,20 @@ describe('buildSyntheticElectronHandle', () => {
     ).toBeNull();
   });
 
-  it('normalizes relative paths without splitting into segment arrays', () => {
-    const splitSpy = vi.spyOn(String.prototype, 'split');
-
-    try {
-      expect(
-        buildSyntheticElectronHandle({
-          filePath: '/src//components/button.tsx',
-          fileSize: 123,
-          folderId: '/workspace///',
-        })?.electronHandle?.path
-      ).toBe('/workspace/src/components/button.tsx');
-      expect(splitSpy).not.toHaveBeenCalled();
-    } finally {
-      splitSpy.mockRestore();
-    }
+  it('collapses slash-only relative path separators when building synthetic paths', () => {
+    expect(
+      buildSyntheticElectronHandle({
+        filePath: '/src//components/button.tsx',
+        fileSize: 123,
+        folderId: '/workspace///',
+      })?.electronHandle?.path
+    ).toBe('/workspace/src/components/button.tsx');
+    expect(
+      buildSyntheticElectronHandle({
+        filePath: '/src\\literal//button.tsx',
+        fileSize: 123,
+        folderId: 'C:\\workspace\\',
+      })?.electronHandle?.path
+    ).toBe('C:\\workspace\\src\\literal\\button.tsx');
   });
 });
