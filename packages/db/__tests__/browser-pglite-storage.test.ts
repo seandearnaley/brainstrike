@@ -122,18 +122,17 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     expect(removeEntry).not.toHaveBeenCalledWith('other', { recursive: true });
   });
 
-  it('reclaims EVERY same-base variant except the in-use one (all prior majors + unversioned)', async () => {
-    // The key forward-looking case: on a later major (e.g. pg19) the prior
-    // versioned dirs (app-pg18) must also be reclaimed, not just unversioned app.
+  it('reclaims only OLDER same-base variants — unversioned + lower majors, never current or newer', async () => {
     const deleteDatabase = vi.fn();
     g.indexedDB = {
       deleteDatabase,
       databases: () =>
         Promise.resolve([
-          { name: 'app' }, // legacy unversioned
-          { name: 'app-pg17' }, // hypothetical prior major
-          { name: 'app-pg18' }, // in-use → must be kept
-          { name: 'appendix' }, // different base → must be kept
+          { name: 'app' }, // legacy unversioned (oldest) → reclaim
+          { name: 'app-pg17' }, // older major → reclaim
+          { name: 'app-pg18' }, // in-use → keep
+          { name: 'app-pg19' }, // NEWER major (e.g. a newer build) → keep
+          { name: 'appendix' }, // different base → keep
           { name: 'other' },
         ]),
     };
@@ -143,6 +142,8 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     expect(deleteDatabase).toHaveBeenCalledWith('app');
     expect(deleteDatabase).toHaveBeenCalledWith('app-pg17');
     expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg18');
+    // An older build must NOT background-delete a newer build's data.
+    expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg19');
     expect(deleteDatabase).not.toHaveBeenCalledWith('appendix');
     expect(deleteDatabase).not.toHaveBeenCalledWith('other');
   });

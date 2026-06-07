@@ -50,46 +50,56 @@ export function getOpfsAhpBrowserPGliteDataDir(dbName = DEFAULT_BROWSER_DB_NAME)
   return `opfs-ahp://${withEngineVersion(dbName)}`;
 }
 
+/** Current embedded Postgres engine major (e.g. 18), parsed from the version token. */
+const PGLITE_ENGINE_MAJOR = Number(PGLITE_DATA_DIR_VERSION.replace(/^pg/, ''));
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
- * Names to reclaim for a base: the unversioned base and ANY engine-versioned
- * variant of it (`app`, `app-pg17`, `app-pg18`, …), excluding the in-use name.
- * Matching every prior major — not just the immediately-previous suffix — keeps
- * reclamation correct across repeated major bumps (pg18 -> pg19 -> …).
+ * Whether a storage name is an OLDER same-base variant safe to reclaim: the
+ * unversioned base (the original pre-versioning store) or any `-pg<N>` variant
+ * with N strictly less than the current engine major. Matching every *older*
+ * major (not just the immediately-previous suffix) keeps reclamation correct
+ * across repeated bumps, while the `< current` gate means an older build never
+ * background-deletes a NEWER build's `-pg<N+>` data (which a later re-upgrade
+ * could still reopen) — reclaim only ever moves forward.
  */
-function isReclaimableLegacyName(name: string, baseName: string, currentName: string): boolean {
-  if (name === currentName) {
+function isReclaimableLegacyName(name: string, baseName: string, currentMajor: number): boolean {
+  const match = name.match(new RegExp(`^${escapeRegExp(baseName)}(?:-pg(\\d+))?$`));
+  if (!match) {
     return false;
   }
-  return new RegExp(`^${escapeRegExp(baseName)}(-pg\\d+)?$`).test(name);
+  const major = match[1];
+  // Unversioned base = the original (oldest) store; always reclaimable.
+  return major === undefined || Number(major) < currentMajor;
 }
 
 async function legacyIndexedDbNamesToReclaim(
   baseName: string,
-  currentName: string
+  currentMajor: number
 ): Promise<string[]> {
   if (typeof indexedDB === 'undefined') {
     return [];
   }
-  // Enumerate when supported so every prior-major orphan is reclaimed, not just
+  // Enumerate when supported so every older-major orphan is reclaimed, not just
   // the one whose suffix we can derive from the current name.
   if (typeof indexedDB.databases === 'function') {
     const infos = await indexedDB.databases();
     return infos
       .map((info) => info.name)
       .filter((name): name is string => typeof name === 'string')
-      .filter((name) => isReclaimableLegacyName(name, baseName, currentName));
+      .filter((name) => isReclaimableLegacyName(name, baseName, currentMajor));
   }
   // Enumeration unavailable (older Safari/Firefox): best-effort delete the
-  // unversioned base name. Prior versioned majors can't be discovered here; the
-  // maintained factory-reset fallback list is the secondary cleanup path.
-  return baseName === currentName ? [] : [baseName];
+  // unversioned base name (always older). Prior versioned majors can't be
+  // discovered here; the maintained factory-reset fallback list is the
+  // secondary cleanup path.
+  return [baseName];
 }
 
-async function reclaimLegacyOpfsDirs(baseName: string, currentName: string): Promise<void> {
+async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Promise<void> {
   if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
     return;
   }
@@ -100,11 +110,11 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentName: string): Pro
   const names: string[] = [];
   if (typeof root.keys === 'function') {
     for await (const name of root.keys()) {
-      if (isReclaimableLegacyName(name, baseName, currentName)) {
+      if (isReclaimableLegacyName(name, baseName, currentMajor)) {
         names.push(name);
       }
     }
-  } else if (baseName !== currentName) {
+  } else {
     names.push(baseName);
   }
   for (const name of names) {
@@ -126,13 +136,15 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentName: string): Pro
  * origin's storage quota indefinitely — and on a near-full quota the orphan can
  * even make the fresh versioned DB hit QuotaExceededError.
  *
- * Reclaims BOTH the IndexedDB databases and the OPFS directories of every
- * same-base variant (unversioned + all prior majors) EXCEPT the in-use name, by
- * enumerating storage when the browser supports it (falling back to the
- * unversioned base name otherwise). Covers OPFS, which the IndexedDB-only
- * factory-reset fallback list does not reach. Fire-and-forget: deleting absent
- * storage is a no-op and any failure is swallowed so reclamation can't break
- * startup.
+ * Reclaims BOTH the IndexedDB databases and the OPFS directories of every OLDER
+ * same-base variant (the unversioned base + any `-pg<N>` with N < the current
+ * major), by enumerating storage when the browser supports it (falling back to
+ * the unversioned base name otherwise). It deliberately leaves the in-use name
+ * AND any newer-major store untouched, so an older build re-run after a newer
+ * one never destroys data a later re-upgrade could reopen. Covers OPFS, which the
+ * IndexedDB-only factory-reset fallback list does not reach. Fire-and-forget:
+ * deleting absent storage is a no-op and any failure is swallowed so reclamation
+ * can't break startup.
  */
 export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string): Promise<void> {
   if (!isBrowserPersistentPGliteDataDir(versionedDataDir)) {
@@ -149,7 +161,7 @@ export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string
   }
 
   try {
-    const names = await legacyIndexedDbNamesToReclaim(baseName, currentName);
+    const names = await legacyIndexedDbNamesToReclaim(baseName, PGLITE_ENGINE_MAJOR);
     for (const name of names) {
       indexedDB.deleteDatabase(name);
     }
@@ -158,7 +170,7 @@ export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string
   }
 
   try {
-    await reclaimLegacyOpfsDirs(baseName, currentName);
+    await reclaimLegacyOpfsDirs(baseName, PGLITE_ENGINE_MAJOR);
   } catch {
     // best-effort only (entries may be absent, or the OPFS layout differs)
   }
