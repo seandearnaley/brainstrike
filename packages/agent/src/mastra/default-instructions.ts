@@ -84,7 +84,7 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
     : 'Workspace-selection inspection is unavailable in this run.';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
-      ? `For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}.`
+      ? `For broad codebase questions, call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.`
       : 'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.';
   const readContextInstruction =
     names.readWorkspaceContext && names.readWorkspaceFile

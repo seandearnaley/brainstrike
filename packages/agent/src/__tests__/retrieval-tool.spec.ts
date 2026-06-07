@@ -146,6 +146,67 @@ describe('createRetrievalTool', () => {
     expect(deps.resolveEmbeddingSet).toHaveBeenCalledWith('runtime-set-001');
   });
 
+  it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {
+    const deps = createMockDependencies();
+    const runtime: RuntimeData = {
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    const result = await runTool(tool, { query: 'test query' });
+
+    const r = result as { embeddingSetId: string };
+    expect(r.embeddingSetId).toBe('workspace-index-set');
+    expect(deps.resolveEmbeddingSet).toHaveBeenCalledWith('workspace-index-set');
+  });
+
+  it('returns structured workspace index status when the default workspace index is blocked', async () => {
+    const deps = createMockDependencies();
+    const runtime: RuntimeData = {
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingPaused: false,
+      workspaceIndexStatusState: 'blocked',
+      workspaceIndexBlockedReason: 'missing-provider-key',
+      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
+      workspaceIndexQueueProgress: {
+        failed: 1,
+        pending: 3,
+        processed: 7,
+        totalQueued: 11,
+        lastError: 'provider key unavailable',
+      },
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    const result = await runTool(tool, { query: 'test query' });
+
+    expect(result).toEqual({
+      status: 'unavailable',
+      reason: 'workspace-index-blocked',
+      message: 'Workspace Index is blocked: missing-provider-key.',
+      query: 'test query',
+      workspaceIndex: {
+        blockedReason: 'missing-provider-key',
+        embeddingSetId: 'workspace-index-set',
+        enabled: true,
+        lastError: 'OpenAI key is required for Workspace Index.',
+        paused: false,
+        queueProgress: {
+          failed: 1,
+          lastError: 'provider key unavailable',
+          pending: 3,
+          processed: 7,
+          totalQueued: 11,
+        },
+        statusState: 'blocked',
+      },
+    });
+    expect(deps.resolveEmbeddingSet).not.toHaveBeenCalled();
+  });
+
   it('input embeddingSetId takes precedence over runtime', async () => {
     const deps = createMockDependencies();
     const runtime: RuntimeData = { embeddingSetId: 'runtime-set' };
@@ -155,6 +216,22 @@ describe('createRetrievalTool', () => {
 
     const r = result as { embeddingSetId: string };
     expect(r.embeddingSetId).toBe('input-set');
+  });
+
+  it('input embeddingSetId takes precedence over workspace index default', async () => {
+    const deps = createMockDependencies();
+    const runtime: RuntimeData = {
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    const result = await runTool(tool, { query: 'test', embeddingSetId: 'input-set' });
+
+    const r = result as { embeddingSetId: string };
+    expect(r.embeddingSetId).toBe('input-set');
+    expect(deps.resolveEmbeddingSet).toHaveBeenCalledWith('input-set');
   });
 
   it('throws missingEmbeddingSet error when no set provided', async () => {

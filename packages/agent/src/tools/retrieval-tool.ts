@@ -133,6 +133,26 @@ export interface RetrievalToolResult {
   totalTokens: number;
 }
 
+export interface WorkspaceIndexRetrievalStatus {
+  blockedReason: string | null;
+  embeddingSetId: string | null;
+  enabled: boolean;
+  lastError: string | null;
+  paused: boolean;
+  queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
+  statusState: RuntimeData['workspaceIndexStatusState'] | null;
+}
+
+export interface RetrievalUnavailableResult {
+  message: string;
+  query: string;
+  reason: 'workspace-index-blocked' | 'workspace-index-unavailable';
+  status: 'unavailable';
+  workspaceIndex: WorkspaceIndexRetrievalStatus;
+}
+
+export type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
+
 /**
  * Dependencies required by the retrieval tool.
  * Platform-specific implementations provide these callbacks.
@@ -250,6 +270,61 @@ function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] 
   return unique.size > 0 ? Array.from(unique) : undefined;
 }
 
+function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefined): boolean {
+  if (runtime?.workspaceIndexingEnabled !== true) {
+    return false;
+  }
+  const state = runtime.workspaceIndexStatusState;
+  return !(state === 'blocked' || state === 'disabled' || state === 'error');
+}
+
+function hasWorkspaceIndexRuntimeStatus(runtime: RuntimeData | undefined): runtime is RuntimeData {
+  return Boolean(
+    runtime &&
+      (runtime.workspaceIndexEmbeddingSetId ||
+        runtime.workspaceIndexingEnabled !== undefined ||
+        runtime.workspaceIndexingPaused !== undefined ||
+        runtime.workspaceIndexStatusState ||
+        runtime.workspaceIndexBlockedReason ||
+        runtime.workspaceIndexLastError ||
+        runtime.workspaceIndexQueueProgress)
+  );
+}
+
+function createWorkspaceIndexRetrievalStatus(runtime: RuntimeData): WorkspaceIndexRetrievalStatus {
+  return {
+    blockedReason: runtime.workspaceIndexBlockedReason ?? null,
+    embeddingSetId: normalizeText(runtime.workspaceIndexEmbeddingSetId) ?? null,
+    enabled: runtime.workspaceIndexingEnabled === true,
+    lastError: runtime.workspaceIndexLastError ?? null,
+    paused: runtime.workspaceIndexingPaused === true,
+    queueProgress: runtime.workspaceIndexQueueProgress ?? null,
+    statusState: runtime.workspaceIndexStatusState ?? null,
+  };
+}
+
+function createWorkspaceIndexUnavailableResult(
+  runtime: RuntimeData | undefined,
+  query: string
+): RetrievalUnavailableResult | null {
+  if (!hasWorkspaceIndexRuntimeStatus(runtime)) {
+    return null;
+  }
+  const status = createWorkspaceIndexRetrievalStatus(runtime);
+  const isBlocked = status.statusState === 'blocked';
+  const reason = isBlocked ? 'workspace-index-blocked' : 'workspace-index-unavailable';
+  const message = isBlocked
+    ? `Workspace Index is blocked: ${status.blockedReason ?? 'unknown'}.`
+    : 'Workspace Index is unavailable for retrieval.';
+  return {
+    status: 'unavailable',
+    reason,
+    message,
+    query,
+    workspaceIndex: status,
+  };
+}
+
 /**
  * Resolves embedding set ID from input or runtime data.
  * Input takes precedence as it represents explicit tool call intent.
@@ -258,7 +333,13 @@ function resolveRuntimeEmbeddingSetId(
   runtime: RuntimeData | undefined,
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
-  return normalizeText(inputEmbeddingSetId) ?? normalizeText(runtime?.embeddingSetId);
+  return (
+    normalizeText(inputEmbeddingSetId) ??
+    normalizeText(runtime?.embeddingSetId) ??
+    (isWorkspaceIndexRetrievalAvailable(runtime)
+      ? normalizeText(runtime?.workspaceIndexEmbeddingSetId)
+      : undefined)
+  );
 }
 
 /**
@@ -442,7 +523,7 @@ async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
   deps: RetrievalToolDependencies
-): Promise<RetrievalToolResult> {
+): Promise<RetrievalToolExecutionResult> {
   const query = input.query.trim();
   if (!query) {
     throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);
@@ -450,6 +531,10 @@ async function runRetrieval(
 
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
   if (!embeddingSetId) {
+    const unavailable = createWorkspaceIndexUnavailableResult(runtimeData, query);
+    if (unavailable) {
+      return unavailable;
+    }
     throw new Error(RETRIEVAL_ERROR_MESSAGES.missingEmbeddingSet);
   }
 

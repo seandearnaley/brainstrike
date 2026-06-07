@@ -341,9 +341,7 @@ export const RetrievalContextInputSchema = z
 
 export type RetrievalContextInput = z.infer<typeof RetrievalContextInputSchema>;
 
-export const QueryEmbeddingSpaceInputSchema = RetrievalContextInputSchema.extend({
-  embeddingSetId: z.string().min(1),
-}).strict();
+export const QueryEmbeddingSpaceInputSchema = RetrievalContextInputSchema;
 
 export type QueryEmbeddingSpaceInput = z.infer<typeof QueryEmbeddingSpaceInputSchema>;
 

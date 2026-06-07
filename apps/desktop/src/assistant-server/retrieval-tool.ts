@@ -57,7 +57,6 @@ const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
-  missingExplicitEmbeddingSet: 'queryEmbeddingSpace requires an explicit embeddingSetId.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
@@ -75,7 +74,6 @@ const ERROR_MESSAGES = {
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
-  ERROR_MESSAGES.missingExplicitEmbeddingSet,
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
@@ -155,6 +153,26 @@ interface RetrievalToolResult {
   totalTokens: number;
 }
 
+interface WorkspaceIndexRetrievalStatus {
+  blockedReason: string | null;
+  embeddingSetId: string | null;
+  enabled: boolean;
+  lastError: string | null;
+  paused: boolean;
+  queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
+  statusState: RuntimeData['workspaceIndexStatusState'] | null;
+}
+
+interface RetrievalUnavailableResult {
+  message: string;
+  query: string;
+  reason: 'workspace-index-blocked' | 'workspace-index-unavailable';
+  status: 'unavailable';
+  workspaceIndex: WorkspaceIndexRetrievalStatus;
+}
+
+type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
+
 function normalizeText(value: string | null | undefined): string | undefined {
   if (!value) {
     return;
@@ -175,6 +193,61 @@ function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] 
     }
   }
   return unique.size > 0 ? Array.from(unique) : undefined;
+}
+
+function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefined): boolean {
+  if (runtime?.workspaceIndexingEnabled !== true) {
+    return false;
+  }
+  const state = runtime.workspaceIndexStatusState;
+  return !(state === 'blocked' || state === 'disabled' || state === 'error');
+}
+
+function hasWorkspaceIndexRuntimeStatus(runtime: RuntimeData | undefined): runtime is RuntimeData {
+  return Boolean(
+    runtime &&
+      (runtime.workspaceIndexEmbeddingSetId ||
+        runtime.workspaceIndexingEnabled !== undefined ||
+        runtime.workspaceIndexingPaused !== undefined ||
+        runtime.workspaceIndexStatusState ||
+        runtime.workspaceIndexBlockedReason ||
+        runtime.workspaceIndexLastError ||
+        runtime.workspaceIndexQueueProgress)
+  );
+}
+
+function createWorkspaceIndexRetrievalStatus(runtime: RuntimeData): WorkspaceIndexRetrievalStatus {
+  return {
+    blockedReason: runtime.workspaceIndexBlockedReason ?? null,
+    embeddingSetId: normalizeText(runtime.workspaceIndexEmbeddingSetId) ?? null,
+    enabled: runtime.workspaceIndexingEnabled === true,
+    lastError: runtime.workspaceIndexLastError ?? null,
+    paused: runtime.workspaceIndexingPaused === true,
+    queueProgress: runtime.workspaceIndexQueueProgress ?? null,
+    statusState: runtime.workspaceIndexStatusState ?? null,
+  };
+}
+
+function createWorkspaceIndexUnavailableResult(
+  runtime: RuntimeData | undefined,
+  query: string
+): RetrievalUnavailableResult | null {
+  if (!hasWorkspaceIndexRuntimeStatus(runtime)) {
+    return null;
+  }
+  const status = createWorkspaceIndexRetrievalStatus(runtime);
+  const isBlocked = status.statusState === 'blocked';
+  const reason = isBlocked ? 'workspace-index-blocked' : 'workspace-index-unavailable';
+  const message = isBlocked
+    ? `Workspace Index is blocked: ${status.blockedReason ?? 'unknown'}.`
+    : 'Workspace Index is unavailable for retrieval.';
+  return {
+    status: 'unavailable',
+    reason,
+    message,
+    query,
+    workspaceIndex: status,
+  };
 }
 
 function isValidUuid(value: string): boolean {
@@ -357,7 +430,13 @@ function resolveRuntimeEmbeddingSetId(
   runtime: RuntimeData | undefined,
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
-  return normalizeText(runtime?.embeddingSetId) ?? normalizeText(inputEmbeddingSetId);
+  return (
+    normalizeText(inputEmbeddingSetId) ??
+    normalizeText(runtime?.embeddingSetId) ??
+    (isWorkspaceIndexRetrievalAvailable(runtime)
+      ? normalizeText(runtime?.workspaceIndexEmbeddingSetId)
+      : undefined)
+  );
 }
 
 function resolveSelectionFilters(
@@ -656,10 +735,14 @@ async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies = {}
-): Promise<RetrievalToolResult> {
+): Promise<RetrievalToolExecutionResult> {
   const query = normalizeQuery(input.query);
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
   if (!embeddingSetId) {
+    const unavailable = createWorkspaceIndexUnavailableResult(runtimeData, query);
+    if (unavailable) {
+      return unavailable;
+    }
     throw new Error(ERROR_MESSAGES.missingEmbeddingSet);
   }
 
@@ -734,9 +817,10 @@ export async function runQueryEmbeddingSpace(
   input: QueryEmbeddingSpaceInput,
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies = {}
-): Promise<RetrievalToolResult> {
-  if (!normalizeText(input.embeddingSetId)) {
-    throw new Error(ERROR_MESSAGES.missingExplicitEmbeddingSet);
+): Promise<RetrievalToolExecutionResult> {
+  const hasExplicitEmbeddingSet = Boolean(normalizeText(input.embeddingSetId));
+  if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
+    throw new Error('Select an embedding space before querying semantic context.');
   }
   const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
   return await runRetrieval(input, explicitRuntimeData, dependencies);
@@ -765,7 +849,7 @@ export function createQueryEmbeddingSpaceTool(
   return {
     id: QUERY_EMBEDDING_SPACE_TOOL_ID,
     description:
-      'Query a specific embedding space by explicit embeddingSetId. Use listEmbeddingSpaces first when the ID is unknown. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+      'Query semantic workspace context. Omit embeddingSetId for Workspace Index codebase searches; provide embeddingSetId only for a specific non-default embedding space. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
     inputSchema: QueryEmbeddingSpaceInputSchema,
     execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
       const input = QueryEmbeddingSpaceInputSchema.parse(context.context);

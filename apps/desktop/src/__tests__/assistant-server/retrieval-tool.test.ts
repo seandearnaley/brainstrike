@@ -255,6 +255,102 @@ describe('retrieval-tool', () => {
     expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
   });
 
+  it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {
+    const tool = createRetrievalTool({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+      },
+    });
+
+    expect(result.embeddingSetId).toBe('workspace-index-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'workspace-index-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'workspace-index-set',
+    });
+  });
+
+  it('lets an explicit embedding set override the workspace index default', async () => {
+    const tool = createRetrievalTool({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+      },
+    });
+
+    expect(result.embeddingSetId).toBe('explicit-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'explicit-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+    });
+  });
+
+  it('returns structured workspace index status when the default workspace index is blocked', async () => {
+    const tool = createRetrievalTool({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingPaused: false,
+      workspaceIndexStatusState: 'blocked',
+      workspaceIndexBlockedReason: 'missing-provider-key',
+      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
+      workspaceIndexQueueProgress: {
+        failed: 1,
+        pending: 3,
+        processed: 7,
+        totalQueued: 11,
+        lastError: 'provider key unavailable',
+      },
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'unavailable',
+      reason: 'workspace-index-blocked',
+      message: 'Workspace Index is blocked: missing-provider-key.',
+      query: 'Where is assistant retrieval wired?',
+      workspaceIndex: {
+        blockedReason: 'missing-provider-key',
+        embeddingSetId: 'workspace-index-set',
+        enabled: true,
+        lastError: 'OpenAI key is required for Workspace Index.',
+        paused: false,
+        queueProgress: {
+          failed: 1,
+          lastError: 'provider key unavailable',
+          pending: 3,
+          processed: 7,
+          totalQueued: 11,
+        },
+        statusState: 'blocked',
+      },
+    });
+    expect(dbQueryMock).not.toHaveBeenCalled();
+  });
+
   it('does not require API keys for local runtime embedding providers', async () => {
     getKeyMock.mockResolvedValue(undefined);
     resolveHostedProviderApiKeyMock.mockResolvedValue(undefined);

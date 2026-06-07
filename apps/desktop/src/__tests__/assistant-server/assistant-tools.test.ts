@@ -748,6 +748,40 @@ describe('assistant-tools', () => {
     ).rejects.toThrow('Select an embedding space before querying semantic context.');
   });
 
+  it('allows semantic context queries without explicit id when the workspace index is blocked', async () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingPaused: false,
+      workspaceIndexStatusState: 'blocked',
+      workspaceIndexBlockedReason: 'missing-provider-key',
+      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
+      workspaceIndexQueueProgress: {
+        failed: 0,
+        pending: 0,
+        processed: 0,
+        totalQueued: 0,
+      },
+    } as RuntimeData);
+    const tool = tools['brainstrike.queryEmbeddingSpace'];
+
+    const result = await tool.execute({
+      context: {
+        query: 'where is context assembled?',
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'unavailable',
+      reason: 'workspace-index-blocked',
+      workspaceIndex: {
+        embeddingSetId: 'workspace-index-set',
+        blockedReason: 'missing-provider-key',
+      },
+    });
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid directory payloads instead of crashing', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
