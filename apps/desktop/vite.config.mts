@@ -163,10 +163,7 @@ export default defineConfig({
       },
       {
         find: '@brainstrike/utils/workspace-indexing-qos',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/utils/src/workspace-indexing-qos.ts'
-        ),
+        replacement: path.resolve(__dirname, '../../packages/utils/src/workspace-indexing-qos.ts'),
       },
       {
         find: /^@brainstrike\/utils$/,
