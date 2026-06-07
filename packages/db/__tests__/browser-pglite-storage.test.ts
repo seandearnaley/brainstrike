@@ -1,5 +1,6 @@
 import { afterEach, vi } from 'vitest';
 import {
+  enumerationUnavailableLegacyNames,
   getDefaultBrowserPGliteDataDir,
   getRecommendedBrowserPGliteStorage,
   isBrowserPersistentPGliteDataDir,
@@ -174,5 +175,28 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     await expect(reclaimLegacyBrowserPGliteStorage('memory://app')).resolves.toBeUndefined();
     await expect(reclaimLegacyBrowserPGliteStorage('idb://app')).resolves.toBeUndefined();
     expect(deleteDatabase).not.toHaveBeenCalled();
+  });
+});
+
+describe('enumerationUnavailableLegacyNames', () => {
+  it('returns only the unversioned base at the first versioned major (nothing older is versioned)', () => {
+    expect(enumerationUnavailableLegacyNames('app', 18)).toEqual(['app']);
+  });
+
+  it('includes every older VERSIONED major so a prior orphan is not leaked without enumeration', () => {
+    // After a second bump (pg18 -> pg19), the prior versioned `app-pg18` must be
+    // reclaimable on browsers that can't list storage — not just the unversioned base.
+    expect(enumerationUnavailableLegacyNames('app', 19)).toEqual(['app', 'app-pg18']);
+    expect(enumerationUnavailableLegacyNames('app', 20)).toEqual(['app', 'app-pg18', 'app-pg19']);
+  });
+
+  it('never includes the current or a newer major (forward-only)', () => {
+    const names = enumerationUnavailableLegacyNames('app', 19);
+    expect(names).not.toContain('app-pg19');
+    expect(names).not.toContain('app-pg20');
+  });
+
+  it('respects non-default base names', () => {
+    expect(enumerationUnavailableLegacyNames('web', 20)).toEqual(['web', 'web-pg18', 'web-pg19']);
   });
 });

@@ -39,11 +39,11 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  * WHEN BUMPING THIS (e.g. to 'pg19'):
  * 1. Append the just-superseded versioned name(s) (e.g. `app-pg18`, `web-pg18`)
  *    to `FALLBACK_INDEXED_DB_NAMES` in
- *    packages/preferences/src/settings/system/factory-reset-helpers.ts. On
- *    browsers without `indexedDB.databases()` / OPFS `keys()` enumeration
- *    (older Safari/Firefox), `reclaimLegacyBrowserPGliteStorage` can only delete
- *    the unversioned base name, so the prior major's orphan is reclaimed solely
- *    via that maintained fallback list.
+ *    packages/preferences/src/settings/system/factory-reset-helpers.ts as
+ *    defense-in-depth. Automatic reclaim already covers prior versioned majors on
+ *    every browser — enumerating when supported, else via the deterministic
+ *    `enumerationUnavailableLegacyNames` candidate set — so this list is the
+ *    secondary (user-initiated factory-reset) cleanup path, not the only one.
  * 2. Bump `BUNDLED_PG_MAJOR` in apps/desktop/src/pg-data-version.ts to match.
  *
  * DEPENDENCY-PIN LOCKSTEP (separate axis from this token): `@electric-sql/pglite`
@@ -105,6 +105,35 @@ function isReclaimableLegacyName(name: string, baseName: string, currentMajor: n
   return major === undefined || Number(major) < currentMajor;
 }
 
+/**
+ * The Postgres major at which data-dir-name versioning was introduced (`-pg18`).
+ * Before it, browser stores used the unversioned base name (`app`). Used to
+ * enumerate older versioned candidates on browsers that can't list storage.
+ */
+const FIRST_VERSIONED_PG_MAJOR = 18;
+
+/**
+ * Deterministic list of older same-base names to reclaim when the browser CANNOT
+ * enumerate storage (no `indexedDB.databases()` / OPFS `keys()`): the unversioned
+ * base plus every versioned major from the first versioned major up to — but
+ * excluding — the current one. Enumeration is preferred when available; this exists
+ * so that even without it, a prior VERSIONED orphan is still reclaimed. Without it,
+ * after a second bump (pg18 → pg19) the `app-pg18` store could never be discovered
+ * on legacy Safari/Firefox and would leak against the origin quota indefinitely
+ * (automatic relief degrading to one major behind). Forward-only: never lists the
+ * current or a newer major.
+ */
+export function enumerationUnavailableLegacyNames(
+  baseName: string,
+  currentMajor: number
+): string[] {
+  const names = [baseName];
+  for (let major = FIRST_VERSIONED_PG_MAJOR; major < currentMajor; major++) {
+    names.push(`${baseName}-pg${major}`);
+  }
+  return names;
+}
+
 async function legacyIndexedDbNamesToReclaim(
   baseName: string,
   currentMajor: number
@@ -121,11 +150,12 @@ async function legacyIndexedDbNamesToReclaim(
       .filter((name): name is string => typeof name === 'string')
       .filter((name) => isReclaimableLegacyName(name, baseName, currentMajor));
   }
-  // Enumeration unavailable (older Safari/Firefox): best-effort delete the
-  // unversioned base name (always older). Prior versioned majors can't be
-  // discovered here; the maintained factory-reset fallback list is the
-  // secondary cleanup path.
-  return [baseName];
+  // Enumeration unavailable (older Safari/Firefox): we can't discover which
+  // stores exist, so delete the deterministic set of older same-base candidates
+  // (unversioned base + every prior versioned major). Deleting an absent name is a
+  // harmless no-op. The maintained factory-reset list remains a defense-in-depth
+  // secondary path, but this already closes the prior-versioned-orphan leak.
+  return enumerationUnavailableLegacyNames(baseName, currentMajor);
 }
 
 /**
@@ -147,7 +177,10 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
   const root = (await navigator.storage.getDirectory()) as FileSystemDirectoryHandle & {
     keys?: () => AsyncIterable<string>;
   };
-  // Enumerate root entries when supported; otherwise fall back to the base name.
+  // Enumerate root entries when supported; otherwise fall back to the deterministic
+  // older-candidate set (base + every prior versioned major) so a prior versioned
+  // orphan isn't leaked on engines without `keys()`. removeEntry on an absent name
+  // throws and is swallowed per-entry below.
   const names: string[] = [];
   if (typeof root.keys === 'function') {
     for await (const name of root.keys()) {
@@ -156,7 +189,7 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
       }
     }
   } else {
-    names.push(baseName);
+    names.push(...enumerationUnavailableLegacyNames(baseName, currentMajor));
   }
   for (const name of names) {
     try {
@@ -228,6 +261,11 @@ export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string
   try {
     const names = await legacyIndexedDbNamesToReclaim(baseName, PGLITE_ENGINE_MAJOR);
     for (const name of names) {
+      // Fire-and-forget by design: we don't observe the request's onsuccess/
+      // onerror/onblocked. A delete BLOCKED by an open connection in another tab
+      // therefore fails silently and is simply retried on the next cold start
+      // (same best-effort contract as the OPFS per-entry guard) — reclamation must
+      // never block or fail startup, and the orphan only wastes quota until then.
       indexedDB.deleteDatabase(name);
     }
   } catch {
