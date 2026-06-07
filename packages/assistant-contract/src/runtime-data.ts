@@ -81,6 +81,27 @@ export interface RuntimeWorkspaceContextMetadata {
   useTapestryRanges?: boolean;
 }
 
+export type RuntimeWorkspaceIndexStatusState =
+  | 'blocked'
+  | 'disabled'
+  | 'idle'
+  | 'paused'
+  | 'recovering'
+  | 'waiting'
+  | 'scanning'
+  | 'importing'
+  | 'chunking'
+  | 'embedding'
+  | 'error';
+
+export interface RuntimeWorkspaceIndexQueueProgress {
+  failed: number;
+  lastError?: string | null;
+  pending: number;
+  processed: number;
+  totalQueued: number;
+}
+
 export type RuntimeMemoryOptions = RuntimeJsonObject;
 
 export interface RuntimeMemoryContext {
@@ -117,9 +138,13 @@ export interface RuntimeData {
   signal?: AbortSignal;
   tokenBudget?: number | null;
   workspaceContext?: RuntimeWorkspaceContextMetadata;
+  workspaceIndexBlockedReason?: string | null;
   workspaceIndexEmbeddingSetId?: string;
   workspaceIndexingEnabled?: boolean;
   workspaceIndexingMode?: string;
   workspaceIndexingPaused?: boolean;
+  workspaceIndexLastError?: string | null;
+  workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
+  workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
   workspaceRootPath?: string;
 }

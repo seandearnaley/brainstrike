@@ -110,6 +110,8 @@ export interface RuntimeData {
   tokenBudget?: number | null;
   /** Token-aware, content-free snapshot of user/assistant curated workspace context. */
   workspaceContext?: RuntimeWorkspaceContextMetadata;
+  /** Optional reason the workspace index is blocked. */
+  workspaceIndexBlockedReason?: string | null;
   /** Optional embedding set currently configured as the workspace background index. */
   workspaceIndexEmbeddingSetId?: string;
   /** Whether workspace background indexing is enabled in the current workspace. */
@@ -118,6 +120,12 @@ export interface RuntimeData {
   workspaceIndexingMode?: string;
   /** Whether workspace background indexing is paused. */
   workspaceIndexingPaused?: boolean;
+  /** Optional latest workspace index error. */
+  workspaceIndexLastError?: string | null;
+  /** Compact queue progress for the workspace index. */
+  workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
+  /** Live workspace index sync state. */
+  workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
   /** Optional absolute workspace root path for workspace read tools. */
   workspaceRootPath?: string;
 }
@@ -134,6 +142,27 @@ export interface RuntimeWorkspaceContextFileMetadata {
   outputApproxTokens?: number | null;
   path: string;
   ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
+}
+
+export type RuntimeWorkspaceIndexStatusState =
+  | 'blocked'
+  | 'disabled'
+  | 'idle'
+  | 'paused'
+  | 'recovering'
+  | 'waiting'
+  | 'scanning'
+  | 'importing'
+  | 'chunking'
+  | 'embedding'
+  | 'error';
+
+export interface RuntimeWorkspaceIndexQueueProgress {
+  failed: number;
+  lastError?: string | null;
+  pending: number;
+  processed: number;
+  totalQueued: number;
 }
 
 export interface RuntimeWorkspaceContextMetadata {

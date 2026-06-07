@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
 import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
+import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
@@ -871,6 +872,7 @@ function resetTestEnabledModels() {
 beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
+  __resetWorkspaceCollectionSyncStatusStoreForTests();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},
@@ -928,6 +930,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetAssistantPreferencesStoreForTests();
+  __resetWorkspaceCollectionSyncStatusStoreForTests();
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
   Reflect.deleteProperty(window, 'assistant');

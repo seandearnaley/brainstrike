@@ -192,10 +192,14 @@ export function buildAssistantRequestData(args: {
   };
   workspaceContext: RuntimeData['workspaceContext'] | null;
   workspaceIndex: {
+    blockedReason: RuntimeData['workspaceIndexBlockedReason'] | null;
     enabled: boolean;
     embeddingSetId: string | null;
+    lastError: RuntimeData['workspaceIndexLastError'] | null;
     mode: string;
     paused: boolean;
+    queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
+    statusState: RuntimeData['workspaceIndexStatusState'];
   };
   workspaceRootPath: string | null;
 }): Record<string, unknown> {
@@ -219,6 +223,24 @@ export function buildAssistantRequestData(args: {
   data['workspaceIndexingEnabled'] = args.workspaceIndex.enabled;
   data['workspaceIndexingMode'] = args.workspaceIndex.mode;
   data['workspaceIndexingPaused'] = args.workspaceIndex.paused;
+  data['workspaceIndexStatusState'] = args.workspaceIndex.statusState;
+  if (args.workspaceIndex.blockedReason) {
+    data['workspaceIndexBlockedReason'] = args.workspaceIndex.blockedReason;
+  }
+  if (args.workspaceIndex.lastError) {
+    data['workspaceIndexLastError'] = args.workspaceIndex.lastError;
+  }
+  if (args.workspaceIndex.queueProgress) {
+    data['workspaceIndexQueueProgress'] = {
+      failed: args.workspaceIndex.queueProgress.failed,
+      pending: args.workspaceIndex.queueProgress.pending,
+      processed: args.workspaceIndex.queueProgress.processed,
+      totalQueued: args.workspaceIndex.queueProgress.totalQueued,
+      ...(args.workspaceIndex.queueProgress.lastError
+        ? { lastError: args.workspaceIndex.queueProgress.lastError }
+        : {}),
+    };
+  }
   if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
     data['memory'] = {
       threadId: args.selectedMemoryThreadId,
