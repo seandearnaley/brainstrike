@@ -304,7 +304,10 @@ export function SearchIndexingSettingsSection() {
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
   const showPauseControl =
-    enabled && shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
+    enabled &&
+    (paused ||
+      managedCollectionId !== null ||
+      shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state));
 
   return (
     <Card>

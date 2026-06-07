@@ -148,6 +148,42 @@ describe('SearchIndexingSettingsSection', () => {
     expect(screen.getByRole('button', { name: /pause workspace index/i })).not.toBeNull();
   });
 
+  it('keeps the resume control visible when Workspace Index is paused after a sync error', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'set-1',
+      paused: true,
+    });
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'error',
+      managedCollectionName: 'Workspace Index',
+      lastError: 'Root folder not selected.',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    await screen.findByRole('combobox', { name: /managed collection/i });
+    expect(screen.getByRole('button', { name: /resume workspace index/i })).not.toBeNull();
+  });
+
+  it('keeps the pause control visible when a bound Workspace Index has a sync error', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'set-1',
+      paused: false,
+    });
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'error',
+      managedCollectionName: 'Workspace Index',
+      lastError: 'Root folder not selected.',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    await screen.findByRole('combobox', { name: /managed collection/i });
+    expect(screen.getByRole('button', { name: /pause workspace index/i })).not.toBeNull();
+  });
+
   it('preserves the managed collection through a transient empty collection list', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,

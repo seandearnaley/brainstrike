@@ -23,7 +23,8 @@
 | 2026-06-07 | v0.7 | Implemented Phase 5 desktop backfill recovery: scoped queue repair before candidate counting and a background-specific drain timeout so large workspace index drains do not inherit the manual foreground cap. | Commit `fad21ca3b` |
 | 2026-06-07 | v0.8 | Implemented Phase 6 assistant integration: runtime Workspace Index status reaches assistant requests, `queryEmbeddingSpace` can omit `embeddingSetId` for Workspace Index defaulting, blocked Workspace Index state returns structured tool output, and coverage remains available through `listEmbeddingSpaces({ includeStats: true })` instead of adding per-query stats overhead. | Commits `17e6ac800`, `004eab404` |
 | 2026-06-07 | v0.9 | Implemented Phase 7 QoS v1 foundation: shared `@brainstrike/utils/workspace-indexing-qos` policy, app-shell scan/import/backfill policy wiring, visible-renderer activity/visibility and DB-pressure inputs, and desktop embedding worker claim sizing through the same policy. Desktop idle/power/thermal inputs remain a follow-up before Phase 7 is fully closed. | Commits `d6974dc1f`, `279fc8c88` plus current Phase 7 branch work |
-| 2026-06-07 | v1.0 | Wired desktop platform QoS inputs: Electron `powerMonitor` snapshots flow through a typed preload `power.getSnapshot()` bridge into app-shell scan/import/backfill policy and hidden embedding worker claim sizing. | Current Phase 7 branch work |
+| 2026-06-07 | v1.0 | Wired desktop platform QoS inputs: Electron `powerMonitor` snapshots flow through a typed preload `power.getSnapshot()` bridge into app-shell scan/import/backfill policy and hidden embedding worker claim sizing. | Commit `8ab97dc65` |
+| 2026-06-07 | v1.1 | Added Phase 8 desktop verification coverage for fresh Workspace Index bootstrap, stale managed-id rebind, and pause/resume persistence; fixed a DB ESM import-extension runtime launch failure discovered by desktop e2e; made background-indexing preferences a renderer-global singleton so duplicate import paths cannot split pause state. | Commits `555c6b0cb` plus current Phase 8 branch work |
 
 ## 1. Goal
 
@@ -591,9 +592,9 @@ Do not add `--remote-debugging-port` to default desktop E2E.
 
 **Commands**
 
-- `pnpm --dir apps/desktop e2e -- background-indexing-settings.desktop.test.ts`
-- `pnpm --dir apps/desktop e2e -- background-indexing-pause.desktop.test.ts`
-- `pnpm --dir apps/desktop e2e -- workspace-index-bootstrap.desktop.test.ts`
+- `pnpm --dir apps/desktop test:e2e e2e/background-indexing-settings.desktop.test.ts`
+- `pnpm --dir apps/desktop test:e2e e2e/background-indexing-pause.desktop.test.ts --project=smoke`
+- `pnpm --dir apps/desktop test:e2e e2e/workspace-index-bootstrap.desktop.test.ts`
 - `pnpm lint && pnpm type-check && pnpm build && pnpm test`
 
 **Exit criteria**
@@ -601,6 +602,13 @@ Do not add `--remote-debugging-port` to default desktop E2E.
 - Product flow is verified in desktop.
 - Manual debugging notes are captured in PR notes or this PRD revision history.
 - Full local gate passes.
+
+**Implementation note v1.1**
+
+- `workspace-index-bootstrap.desktop.test.ts` verifies a fresh desktop profile creates exactly one protected `Workspace Index` row with `system_role = 'workspace-index'`, `openai::text-embedding-3-small`, and 1536 dimensions, then binds it in settings.
+- `background-indexing-settings.desktop.test.ts` now verifies stale managed collection preferences rebind to the protected Workspace Index instead of surfacing stale metadata.
+- `background-indexing-pause.desktop.test.ts` verifies the settings pause/resume control persists `paused=true/false` through the Electron storage bridge after the Workspace Index is bootstrapped. It uses keyboard activation to exercise the accessible control deterministically in the Electron e2e harness.
+- Desktop e2e command syntax is `pnpm --dir apps/desktop test:e2e e2e/<file>.desktop.test.ts`; do not insert an extra `--` before file arguments because the script already delegates through `run-env`.
 
 ## 11. TDD and Commit Discipline
 
