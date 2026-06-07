@@ -74,3 +74,7 @@
 ## 2026-06-05 - Balanced indexing directory traversal avoids split arrays
 **Learning:** `packages/utils/src/background-indexing-policy.ts` checks every traversed directory under the balanced background indexing policy. The old `.split('/').map(...).filter(...)` path allocated intermediate arrays per directory and measured 2674.38ms over 100k paths x 100 runs on Node 24.16.0; a direct slash scan with the same trim/lowercase segment semantics measured 1960.23ms with identical match counts.
 **Action:** Keep balanced directory exclusion checks on direct slash scanning in `shouldSkipBalancedDirectory()`; do not reintroduce split/map/filter in this traversal hot path.
+
+## 2026-06-07 - Synthetic Electron handle path joins avoid segment arrays
+**Learning:** `packages/file-explorer-ui/src/indexing/background-token-indexer-handles.ts` builds synthetic Electron paths for bulk selected files during background token indexing. The old `relativePath.split('/').filter(...).join(...)` normalization measured 686.90ms over 100k paths x 30 runs on Node 24.16.0; direct trailing-separator trimming plus slash scanning measured 367.53ms with output parity.
+**Action:** Keep `joinElectronAbsolutePath()` on direct slash scanning for synthetic handle creation; do not reintroduce split/filter/join in the bulk indexing path.
