@@ -26,6 +26,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import { type ReactNode, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
+import {
+  isMissingProviderKeyMessage,
+  isWorkspaceIndexBlockedError,
+  WorkspaceIndexBlockedError,
+} from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
@@ -135,8 +140,23 @@ export function WorkspaceCollectionSyncProvider({
   const reportAsyncError = useCallback(
     (operation: string, error: unknown): void => {
       logger.error(`Workspace collection sync ${operation} failed`, { error });
+      if (isWorkspaceIndexBlockedError(error)) {
+        setSyncStatus({
+          state: 'blocked',
+          blockedReason: error.blockedReason,
+          managedCollectionId,
+          managedCollectionName: null,
+          activeRootPath: rootDirectoryHandle?.path ?? null,
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 0,
+          lastError: error.message,
+        });
+        return;
+      }
       setSyncStatus({
         state: 'error',
+        blockedReason: null,
         managedCollectionId,
         managedCollectionName: null,
         activeRootPath: rootDirectoryHandle?.path ?? null,
@@ -160,6 +180,9 @@ export function WorkspaceCollectionSyncProvider({
       }
       const validation = await vectorQueueService.validateApiKeyForSet(embeddingSetId);
       if (!validation.valid) {
+        if (isMissingProviderKeyMessage(validation.message)) {
+          throw new WorkspaceIndexBlockedError('missing-provider-key', validation.message);
+        }
         throw new Error(validation.message);
       }
     },

@@ -53,6 +53,7 @@ import {
   toWorkspaceCollectionSyncImportProgress,
   waitForAbortableDelay,
 } from './workspace-collection-sync-progress';
+import { isWorkspaceIndexBlockedError } from './workspace-index-blocked-error';
 
 const logger = createLogger('WorkspaceCollectionSyncService');
 
@@ -151,6 +152,7 @@ export class WorkspaceCollectionSyncService {
 
   private createClearedProgressState(): Pick<
     WorkspaceCollectionSyncStatusPatch,
+    | 'blockedReason'
     | 'backfillRequestId'
     | 'chunkingProgress'
     | 'currentFilePath'
@@ -165,6 +167,7 @@ export class WorkspaceCollectionSyncService {
   > {
     return {
       backfillRequestId: null,
+      blockedReason: null,
       currentFilePath: null,
       scanSummary: null,
       importProgress: null,
@@ -233,6 +236,7 @@ export class WorkspaceCollectionSyncService {
   }): void {
     this.deps.setStatus({
       state: 'error',
+      blockedReason: null,
       managedCollectionId: args.managedCollectionId,
       managedCollectionName: args.managedCollectionName,
       activeRootPath: args.activeRootPath,
@@ -403,10 +407,14 @@ export class WorkspaceCollectionSyncService {
   }
 
   private async ensureCollectionAccess(context: ResolvedSyncContext): Promise<void> {
+    await this.ensureProviderAccess(context);
+    await this.deps.ensureEmbeddingRuntimeStarted();
+  }
+
+  private async ensureProviderAccess(context: ResolvedSyncContext): Promise<void> {
     if (!isLocalProviderType(context.provider)) {
       await this.deps.validateHostedProviderAccess(context.collection.id);
     }
-    await this.deps.ensureEmbeddingRuntimeStarted();
   }
 
   private setScanningStatus(
@@ -690,6 +698,19 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
   }): void {
     const message = args.error instanceof Error ? args.error.message : String(args.error);
+    if (isWorkspaceIndexBlockedError(args.error)) {
+      this.deps.setStatus({
+        state: 'blocked',
+        managedCollectionId: args.collection.id,
+        managedCollectionName: args.collection.name ?? null,
+        activeRootPath: args.rootPath,
+        ...this.createClearedProgressState(),
+        blockedReason: args.error.blockedReason,
+        lastError: message,
+      });
+      return;
+    }
+
     this.deps.log?.error('Workspace collection sync failed', {
       error: message,
       managedCollectionId: args.collection.id,
@@ -942,6 +963,23 @@ export class WorkspaceCollectionSyncService {
       request,
     });
     if (!context) {
+      return;
+    }
+
+    try {
+      await this.ensureProviderAccess(context);
+    } catch (error) {
+      if (this.isCancelled(currentRunId) || isAbortError(error)) {
+        return;
+      }
+      this.handleSyncFailure({
+        collection: context.collection,
+        error,
+        rootPath: context.rootPath,
+      });
+      return;
+    }
+    if (this.isCancelled(currentRunId)) {
       return;
     }
 

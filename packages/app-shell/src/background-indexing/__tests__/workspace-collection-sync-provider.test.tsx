@@ -1054,10 +1054,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
-  it('fails visibly when the managed collection API key is invalid', async () => {
+  it('blocks workspace indexing when the default hosted provider key is missing', async () => {
+    const missingKeyMessage =
+      'OpenAI API key not configured. Please add your API key (OPENAI_API_KEY) in Settings → Secrets or set the environment variable.';
     validateApiKeyForSetMock.mockResolvedValueOnce({
       valid: false,
-      message: 'Managed collection API key is missing.',
+      message: missingKeyMessage,
     });
 
     render(
@@ -1069,11 +1071,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'error',
-          lastError: 'Managed collection API key is missing.',
+          state: 'blocked',
+          blockedReason: 'missing-provider-key',
+          lastError: missingKeyMessage,
         })
       )
     );
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
   });
 
   it('fails visibly when the shared embedding runtime cannot start', async () => {
