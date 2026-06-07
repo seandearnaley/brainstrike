@@ -1,10 +1,17 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { EmbeddingSetSystemRole, usePGliteDatabase } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import {
   compareCollectionsDesc,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences/stores/vector-status-ui-store';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
+import {
+  getCollectionPickerProtection,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
 
@@ -26,6 +33,7 @@ export interface CollectionRow {
   name: string | null;
   statsAvailable?: boolean | string;
   statsLastRefreshedAt?: string | null;
+  systemRole?: EmbeddingSetSystemRole | null;
   tags: string | null;
 }
 
@@ -55,6 +63,7 @@ export interface CollectionWithDocCount {
   name: string | null;
   statsAvailable?: boolean;
   statsLastRefreshedAt?: string | null;
+  systemRole?: EmbeddingSetSystemRole | null;
   tags: string | null;
 }
 
@@ -74,6 +83,7 @@ const COLLECTIONS_QUERY = `
       s.description,
       s.tags,
       s.category,
+      s.system_role AS "systemRole",
       stats.file_count AS "fileCount",
       stats.chunk_count AS "chunkCount",
       stats.embedded_chunk_count AS "embeddingCount",
@@ -234,6 +244,7 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
         ? true
         : row.statsAvailable === true || row.statsAvailable === 'true',
     statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
+    systemRole: row.systemRole ?? null,
   }));
 }
 
@@ -330,6 +341,7 @@ function areCollectionsEqual(
       leftCollection.description !== rightCollection.description ||
       leftCollection.tags !== rightCollection.tags ||
       leftCollection.category !== rightCollection.category ||
+      (leftCollection.systemRole ?? null) !== (rightCollection.systemRole ?? null) ||
       leftCollection.fileCount !== rightCollection.fileCount ||
       leftCollection.chunkCount !== rightCollection.chunkCount ||
       leftCollection.embeddingCount !== rightCollection.embeddingCount ||
@@ -665,13 +677,21 @@ export function CollectionSelect({
 
   const handleChange = useCallback(
     (value: string) => {
+      const collection = collections.find((candidate) => candidate.id === value);
+      if (collection && getCollectionPickerProtection(collection).isDisabled) {
+        return;
+      }
       onSelectionChange(value || null);
     },
-    [onSelectionChange]
+    [collections, onSelectionChange]
   );
 
   const selectedCollection = useMemo(
-    () => collections.find((c) => c.id === selectedId) ?? null,
+    () =>
+      collections.find(
+        (collection) =>
+          collection.id === selectedId && !getCollectionPickerProtection(collection).isDisabled
+      ) ?? null,
     [collections, selectedId]
   );
   const hasCollections = collections.length > 0;
@@ -688,7 +708,7 @@ export function CollectionSelect({
     <Select
       disabled={!hasCollections || isLoading}
       onValueChange={handleChange}
-      value={selectedId ?? ''}
+      value={selectedCollection?.id ?? ''}
     >
       <SelectTrigger className={`w-full ${styles.trigger} ${triggerClassName ?? ''}`.trim()}>
         <SelectValue placeholder={isLoading ? loadingPlaceholder : placeholder}>
@@ -698,7 +718,12 @@ export function CollectionSelect({
       {hasCollections && (
         <SelectContent className={`${styles.content} ${contentClassName ?? ''}`.trim()}>
           {collections.map((collection) => (
-            <SelectItem className={styles.item} key={collection.id} value={collection.id}>
+            <SelectItem
+              className={styles.item}
+              disabled={getCollectionPickerProtection(collection).isDisabled}
+              key={collection.id}
+              value={collection.id}
+            >
               {formatCollectionLabel(collection)}
             </SelectItem>
           ))}
