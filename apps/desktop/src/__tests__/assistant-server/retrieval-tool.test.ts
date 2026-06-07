@@ -155,7 +155,7 @@ vi.mock('../../secrets', () => ({
   }),
 }));
 
-import { createRetrievalTool } from '../../assistant-server/retrieval-tool';
+import { createRetrievalTool, runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
@@ -279,6 +279,32 @@ describe('retrieval-tool', () => {
     });
   });
 
+  it('keeps the active runtime embedding set ahead of tool input for contextual retrieval', async () => {
+    const tool = createRetrievalTool({
+      embeddingSetId: 'active-set',
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'model-supplied-set',
+      },
+    });
+
+    expect(result.embeddingSetId).toBe('active-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'active-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'active-set',
+    });
+  });
+
   it('lets an explicit embedding set override the workspace index default', async () => {
     const tool = createRetrievalTool({
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
@@ -292,6 +318,31 @@ describe('retrieval-tool', () => {
         embeddingSetId: 'explicit-set',
       },
     });
+
+    expect(result.embeddingSetId).toBe('explicit-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'explicit-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+    });
+  });
+
+  it('lets queryEmbeddingSpace input override active runtime context', async () => {
+    const result = await runQueryEmbeddingSpace(
+      {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+      },
+      {
+        embeddingSetId: 'active-set',
+        workspaceIndexEmbeddingSetId: 'workspace-index-set',
+        workspaceIndexingEnabled: true,
+        workspaceIndexStatusState: 'idle',
+      }
+    );
 
     expect(result.embeddingSetId).toBe('explicit-set');
     expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [

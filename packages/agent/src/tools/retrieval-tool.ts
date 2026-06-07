@@ -327,15 +327,15 @@ function createWorkspaceIndexUnavailableResult(
 
 /**
  * Resolves embedding set ID from input or runtime data.
- * Input takes precedence as it represents explicit tool call intent.
+ * Runtime context takes precedence for contextual retrieval.
  */
 function resolveRuntimeEmbeddingSetId(
   runtime: RuntimeData | undefined,
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
   return (
-    normalizeText(inputEmbeddingSetId) ??
     normalizeText(runtime?.embeddingSetId) ??
+    normalizeText(inputEmbeddingSetId) ??
     (isWorkspaceIndexRetrievalAvailable(runtime)
       ? normalizeText(runtime?.workspaceIndexEmbeddingSetId)
       : undefined)

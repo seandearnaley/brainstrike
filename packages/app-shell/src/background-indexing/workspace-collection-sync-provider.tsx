@@ -381,20 +381,19 @@ export function WorkspaceCollectionSyncProvider({
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
     }
     const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
-    const latestStatus = useWorkspaceCollectionSyncStatusStore.getState();
-    const queueDepth =
-      latestStatus.queueProgress?.pending ??
-      Math.max(0, latestStatus.queuedFiles - latestStatus.processedFiles);
     const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
     return resolveWorkspaceIndexingQosPolicy({
       dbPressure: await readDatabasePressure(),
+      // TODO(workspace-index-qos): wire this to the foreground embedding gate once
+      // query activity is exposed to the app-shell background sync provider.
       foregroundQueryActive: false,
       idleState: powerSnapshot?.idleState ?? 'unknown',
       idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
       manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
       powerSource: powerSnapshot?.powerSource ?? 'unknown',
+      // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
+      // backfill exposes provider throttling as durable state.
       providerRateLimited: false,
-      queueDepth,
       recentUserInputMs,
       thermalState: powerSnapshot?.thermalState ?? 'unknown',
       windowVisible,

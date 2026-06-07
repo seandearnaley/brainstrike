@@ -162,6 +162,67 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
+    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 250,
+      progressThrottleMs: 500,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    };
+    const pausedPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 1000,
+      progressThrottleMs: 1000,
+      reason: 'manual-paused',
+      scanBatchSize: 0,
+      state: 'paused',
+      workerClaimBatchSize: 0,
+    };
+    const log = {
+      error: vi.fn(),
+      warn: vi.fn(),
+    } as unknown as NonNullable<WorkspaceCollectionSyncServiceDependencies['log']>;
+    const deps = createDeps({
+      log,
+      resolveQosPolicy: vi
+        .fn()
+        .mockResolvedValueOnce(foregroundYieldPolicy)
+        .mockResolvedValue(pausedPolicy),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.waitForBackgroundPermit).toHaveBeenCalledWith({
+      label: 'Workspace Index scan',
+    });
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: 'Workspace Index QoS policy does not permit scan work.',
+      })
+    );
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
   it('resumes backfill when files are unchanged but embedding coverage is incomplete', async () => {
     const unchangedContent = 'export const value = 1;';
     const unchangedHash = await generateContentHash(unchangedContent);

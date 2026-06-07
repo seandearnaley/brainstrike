@@ -42,7 +42,6 @@ export interface WorkspaceIndexingQosInputs {
   manualPaused: boolean;
   powerSource: WorkspaceIndexingPowerSource;
   providerRateLimited: boolean;
-  queueDepth: number;
   recentUserInputMs: number | null;
   thermalState: WorkspaceIndexingThermalState;
   windowVisible: boolean;

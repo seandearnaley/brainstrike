@@ -43,6 +43,7 @@ import {
   runRootFolderCacheImport,
 } from './workspace-collection-sync-import';
 import {
+  createAbortError,
   createScanningStatusReporter,
   dispatchQueueDrainedEvent,
   getBackfillDrainPollDelayMs,
@@ -469,6 +470,9 @@ export class WorkspaceCollectionSyncService {
       });
       throwIfAborted(args.abortSignal);
       qosPolicy = await this.deps.resolveQosPolicy();
+    }
+    if (!qosPolicy.allowNewWork && qosPolicy.state === 'paused') {
+      throw createAbortError('Workspace Index sync paused.');
     }
     return qosPolicy;
   }

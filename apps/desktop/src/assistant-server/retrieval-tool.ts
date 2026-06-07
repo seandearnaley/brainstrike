@@ -431,8 +431,8 @@ function resolveRuntimeEmbeddingSetId(
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
   return (
-    normalizeText(inputEmbeddingSetId) ??
     normalizeText(runtime?.embeddingSetId) ??
+    normalizeText(inputEmbeddingSetId) ??
     (isWorkspaceIndexRetrievalAvailable(runtime)
       ? normalizeText(runtime?.workspaceIndexEmbeddingSetId)
       : undefined)

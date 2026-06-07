@@ -16,7 +16,6 @@ const baseInputs: WorkspaceIndexingQosInputs = {
   manualPaused: false,
   powerSource: 'ac',
   providerRateLimited: false,
-  queueDepth: 0,
   recentUserInputMs: null,
   thermalState: 'nominal',
   windowVisible: true,
@@ -48,7 +47,7 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
   });
 
   it('blocks new background claims while a foreground query is active', () => {
-    const policy = resolve({ foregroundQueryActive: true, queueDepth: 120 });
+    const policy = resolve({ foregroundQueryActive: true });
 
     expect(policy).toMatchObject({
       allowNewWork: false,
@@ -60,19 +59,18 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
   });
 
   it('constrains work after recent user activity', () => {
-    const policy = resolve({ recentUserInputMs: 1200, queueDepth: 80 });
+    const policy = resolve({ recentUserInputMs: 1200 });
 
     expect(policy.state).toBe('interactive');
     expect(policy.contentReadConcurrency).toBe(1);
     expect(policy.workerClaimBatchSize).toBe(1);
-    expect(policy.importBatchSize).toBeLessThan(baseInputs.queueDepth + 24);
+    expect(policy.importBatchSize).toBeLessThan(24);
   });
 
   it('raises throughput only when idle on AC power without DB pressure', () => {
     const policy = resolve({
       idleState: 'idle',
       idleTimeMs: 90_000,
-      queueDepth: 500,
       windowVisible: false,
     });
 
@@ -111,7 +109,6 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
         foregroundPressure: true,
         normalPressure: false,
       },
-      queueDepth: 50,
     });
 
     expect(policy).toMatchObject({

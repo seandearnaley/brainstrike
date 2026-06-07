@@ -18,7 +18,6 @@ export const BALANCED_QOS_POLICY = resolveWorkspaceIndexingQosPolicy({
   manualPaused: false,
   powerSource: 'ac',
   providerRateLimited: false,
-  queueDepth: 0,
   recentUserInputMs: null,
   thermalState: 'nominal',
   windowVisible: true,

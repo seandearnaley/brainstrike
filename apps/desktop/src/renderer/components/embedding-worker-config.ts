@@ -196,13 +196,16 @@ function resolveDesktopClaimBatchSize(
 ): number {
   const policy = resolveWorkspaceIndexingQosPolicy({
     dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
+    // TODO(workspace-index-qos): wire this to foreground query activity if the
+    // embedding host exposes in-flight query state to claim-size resolution.
     foregroundQueryActive: false,
     idleState: powerSnapshot?.idleState ?? 'active',
     idleTimeMs: powerSnapshot?.idleTimeMs ?? 0,
     manualPaused: false,
     powerSource: powerSnapshot?.powerSource ?? 'unknown',
+    // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry once
+    // the embedding queue records provider throttling independently of failures.
     providerRateLimited: false,
-    queueDepth: 0,
     recentUserInputMs: null,
     thermalState: powerSnapshot?.thermalState ?? 'unknown',
     windowVisible: false,

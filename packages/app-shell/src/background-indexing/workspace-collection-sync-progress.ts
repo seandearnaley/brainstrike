@@ -25,7 +25,7 @@ interface WorkspaceCollectionSyncProgressStatusBase {
   scanSummary: WorkspaceCollectionSyncScanSummary;
 }
 
-function createAbortError(message: string): Error {
+export function createAbortError(message: string): Error {
   const error = new Error(message);
   error.name = 'AbortError';
   return error;
