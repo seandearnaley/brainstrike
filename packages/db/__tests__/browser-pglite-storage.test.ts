@@ -4,14 +4,15 @@ import {
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
   isOpfsAhpPGliteDataDir,
+  PGLITE_DATA_DIR_VERSION,
 } from '../src/browser-pglite-storage.js';
 
 describe('browser PGlite storage selection', () => {
   it('keeps IndexedDB as the default browser storage backend', () => {
-    expect(getDefaultBrowserPGliteDataDir()).toBe('idb://app');
+    expect(getDefaultBrowserPGliteDataDir()).toBe('idb://app-pg18');
     expect(getRecommendedBrowserPGliteStorage({ hasOpfsDirectory: true, hasWorker: true })).toEqual(
       {
-        dataDir: 'idb://app',
+        dataDir: 'idb://app-pg18',
         reason: 'pglite-recommends-indexeddb',
         storage: 'idb',
       }
@@ -26,7 +27,7 @@ describe('browser PGlite storage selection', () => {
         requestedStorage: 'idb',
       })
     ).toEqual({
-      dataDir: 'idb://app',
+      dataDir: 'idb://app-pg18',
       reason: 'requested-indexeddb',
       storage: 'idb',
     });
@@ -40,7 +41,7 @@ describe('browser PGlite storage selection', () => {
         requestedStorage: 'opfs-ahp',
       })
     ).toEqual({
-      dataDir: 'opfs-ahp://app',
+      dataDir: 'opfs-ahp://app-pg18',
       reason: 'requested-opfs-ahp-supported',
       storage: 'opfs-ahp',
     });
@@ -54,17 +55,26 @@ describe('browser PGlite storage selection', () => {
         requestedStorage: 'opfs-ahp',
       })
     ).toEqual({
-      dataDir: 'idb://app',
+      dataDir: 'idb://app-pg18',
       reason: 'requested-opfs-ahp-unavailable',
       storage: 'idb',
     });
   });
 
+  it('versions persistent browser data dirs by Postgres engine major so PG18 never opens a PG17 directory', () => {
+    // PG17 -> PG18 changes the on-disk format; an unversioned dir name would be
+    // reused across engine majors and fail to initialize. The version suffix forces
+    // a clean greenfield directory per engine major.
+    expect(PGLITE_DATA_DIR_VERSION).toBe('pg18');
+    expect(getDefaultBrowserPGliteDataDir()).toContain(`-${PGLITE_DATA_DIR_VERSION}`);
+    expect(getDefaultBrowserPGliteDataDir('web')).toBe(`idb://web-${PGLITE_DATA_DIR_VERSION}`);
+  });
+
   it('classifies persistent browser storage schemes explicitly', () => {
-    expect(isIndexedDbPGliteDataDir('idb://app')).toBe(true);
-    expect(isOpfsAhpPGliteDataDir('opfs-ahp://app')).toBe(true);
-    expect(isBrowserPersistentPGliteDataDir('idb://app')).toBe(true);
-    expect(isBrowserPersistentPGliteDataDir('opfs-ahp://app')).toBe(true);
-    expect(isBrowserPersistentPGliteDataDir('memory://app')).toBe(false);
+    expect(isIndexedDbPGliteDataDir('idb://app-pg18')).toBe(true);
+    expect(isOpfsAhpPGliteDataDir('opfs-ahp://app-pg18')).toBe(true);
+    expect(isBrowserPersistentPGliteDataDir('idb://app-pg18')).toBe(true);
+    expect(isBrowserPersistentPGliteDataDir('opfs-ahp://app-pg18')).toBe(true);
+    expect(isBrowserPersistentPGliteDataDir('memory://app-pg18')).toBe(false);
   });
 });

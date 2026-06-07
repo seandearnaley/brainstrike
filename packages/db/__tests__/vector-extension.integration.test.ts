@@ -17,7 +17,7 @@ describe('Vector Extension Integration', () => {
     // Create a fresh database with vector extension
     try {
       // Dynamic import to handle module resolution
-      const vectorModule = await import('@electric-sql/pglite/vector');
+      const vectorModule = await import('@electric-sql/pglite-pgvector');
       const vector = vectorModule.vector;
 
       db = new PGlite({

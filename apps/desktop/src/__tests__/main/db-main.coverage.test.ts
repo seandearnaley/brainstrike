@@ -86,7 +86,7 @@ describe('db-main coverage helpers', () => {
   });
 
   it('fails fast when pgvector extension cannot be loaded', async () => {
-    vi.doMock('@electric-sql/pglite/vector', () => {
+    vi.doMock('@electric-sql/pglite-pgvector', () => {
       throw new Error('vector module missing');
     });
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');

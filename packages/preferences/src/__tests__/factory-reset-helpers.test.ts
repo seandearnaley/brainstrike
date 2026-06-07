@@ -17,6 +17,21 @@ const globalWindow = window as Window &
     caches?: CacheStorage;
   };
 
+describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
+  it('includes the PG18 engine-versioned database names so Safari/Firefox fallback wipes them', () => {
+    // The persistent browser data dirs were versioned to idb://app-pg18 / idb://web-pg18
+    // when PGlite upgraded to Postgres 18. The fallback wipe list (used when
+    // indexedDB.databases() is unavailable) must target the versioned names.
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('app-pg18');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('web-pg18');
+  });
+
+  it('retains the legacy unversioned names to clean up stale PG17 installs', () => {
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('app');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('web');
+  });
+});
+
 function createDeleteDatabaseMock() {
   return vi.fn((_name: string) => {
     const request: FakeRequest = {

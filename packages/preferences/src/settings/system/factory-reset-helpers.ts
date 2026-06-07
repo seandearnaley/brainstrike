@@ -8,8 +8,10 @@ const logger = createLogger('FactoryReset');
  * Keep this in sync with any new `idb://` paths introduced in DbProvider/App bootstraps.
  */
 export const FALLBACK_INDEXED_DB_NAMES = [
-  'app', // Default DbProvider path for shared packages and tests (idb://app)
-  'web', // apps/web explicitly uses idb://web for persisted storage
+  'app-pg18', // Default DbProvider path, engine-versioned for Postgres 18 (idb://app-pg18)
+  'web-pg18', // apps/web persisted storage, engine-versioned for Postgres 18 (idb://web-pg18)
+  'app', // Legacy PG17 DbProvider path (idb://app); keep to clean up stale installs
+  'web', // Legacy PG17 apps/web path (idb://web); keep to clean up stale installs
   'brainstrike-desktop', // Desktop renderer stores its queue/embeddings database in IndexedDB
   'brainstrike-web', // Legacy web builds used idb://brainstrike-web; keep to clean up stale installs
   'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)

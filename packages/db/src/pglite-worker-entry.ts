@@ -1,7 +1,7 @@
 import type { PGliteOptions } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite/vector';
 import { worker } from '@electric-sql/pglite/worker';
+import { vector } from '@electric-sql/pglite-pgvector';
 
 type BrainstrikePGliteWorkerInitOptions = Pick<PGliteOptions, 'dataDir' | 'relaxedDurability'>;
 

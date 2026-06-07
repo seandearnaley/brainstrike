@@ -23,6 +23,7 @@ import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import { BUNDLED_PG_MAJOR, isIncompatiblePgDataDir, readPgDataMajor } from './pg-data-version';
 
 const logger = createLogger('DatabaseMain');
 
@@ -171,7 +172,7 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
 async function loadPgVectorExtension(): Promise<unknown> {
   try {
-    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
     const vector = extractExtensionExport(vectorModule, 'vector');
     if (!vector) {
       throw new Error('vector export missing from module');
@@ -884,7 +885,7 @@ function classifyInitializationFailure(
 
   if (
     stage === 'load-extensions' ||
-    message.includes('@electric-sql/pglite/vector') ||
+    message.includes('@electric-sql/pglite-pgvector') ||
     message.includes('vector export missing') ||
     message.includes('failed to load via esm import')
   ) {
@@ -1105,6 +1106,23 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension.
     try {
       acquireDatabaseProcessLock(appDataDir);
+
+      // Greenfield engine-upgrade guard. Runs only after the exclusive process
+      // lock is held, so we never wipe a data dir another process is using.
+      // A data dir written by a different Postgres engine major (e.g. PG17 under
+      // PGlite 0.4) cannot be opened by the bundled engine and crashes with a
+      // non-recoverable "failed to initialize" error — wipe and start fresh
+      // rather than attempting an on-disk upgrade.
+      if (isIncompatiblePgDataDir(dataDir)) {
+        logger.warn('Incompatible Postgres data directory detected; wiping for engine upgrade', {
+          dataDir,
+          expectedMajor: BUNDLED_PG_MAJOR,
+          foundMajor: readPgDataMajor(dataDir),
+        });
+        rmSync(dataDir, { recursive: true, force: true });
+        mkdirSync(dataDir, { recursive: true });
+      }
+
       db = await createVectorDatabase(
         loadedPGlite.PGlite,
         dataDir,

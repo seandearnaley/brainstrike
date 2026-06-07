@@ -8,7 +8,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     // Clear all modules and reset state before each test
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
-    vi.unmock('@electric-sql/pglite/vector');
+    vi.unmock('@electric-sql/pglite-pgvector');
 
     vi.doMock('@electric-sql/pglite', () => {
       PGliteMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
@@ -19,7 +19,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     });
 
     // Mock the vector extension
-    vi.doMock('@electric-sql/pglite/vector', () => ({
+    vi.doMock('@electric-sql/pglite-pgvector', () => ({
       vector: {},
     }));
 
@@ -39,7 +39,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
   afterEach(() => {
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
-    vi.unmock('@electric-sql/pglite/vector');
+    vi.unmock('@electric-sql/pglite-pgvector');
   });
 
   it('returns the same promise when called twice', async () => {
@@ -54,7 +54,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     vi.resetModules();
 
     // Mock vector extension to reject
-    vi.doMock('@electric-sql/pglite/vector', () => ({
+    vi.doMock('@electric-sql/pglite-pgvector', () => ({
       get vector() {
         throw new Error('pgvector extension is required and failed to load: load fail');
       },
@@ -97,7 +97,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
         });
         return { PGlite: PGliteMock };
       });
-      vi.doMock('@electric-sql/pglite/vector', () => ({ vector: {} }));
+      vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
 
       const mod = await import('../src/wasm-loader');
@@ -137,7 +137,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
         });
         return { PGlite: PGliteMock };
       });
-      vi.doMock('@electric-sql/pglite/vector', () => ({ vector: {} }));
+      vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
 
       const mod = await import('../src/wasm-loader');
@@ -163,7 +163,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
         });
         return { PGlite: PGliteMock };
       });
-      vi.doMock('@electric-sql/pglite/vector', () => ({ vector: {} }));
+      vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
 
       const mod = await import('../src/wasm-loader');

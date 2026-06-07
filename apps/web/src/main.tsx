@@ -1,5 +1,5 @@
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
-import { DbProvider } from '@brainstrike/db';
+import { DbProvider, getDefaultBrowserPGliteDataDir } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
@@ -53,7 +53,9 @@ globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ = resolveBootstrapTreeSitterLan
   window.location.search
 );
 
-const DEFAULT_WEB_DB_PATH = 'idb://web';
+// Engine-versioned (idb://web-pg18) so the Postgres 18 upgrade boots a clean
+// directory instead of failing to open a PG17 on-disk database.
+const DEFAULT_WEB_DB_PATH = getDefaultBrowserPGliteDataDir('web');
 const E2E_DB_PATH_SESSION_KEY = 'brainstrike.e2e.dbPath.v1';
 const E2E_DB_PATH_PREFIX = 'idb://web-e2e-';
 

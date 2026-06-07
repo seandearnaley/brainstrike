@@ -12,7 +12,7 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@electric-sql/pglite": "^0.4.4",
+    "@electric-sql/pglite": "0.5.1",
     "lucide-react": "^1.8.0"
   },
   "devDependencies": {

@@ -20,12 +20,26 @@ export interface BrowserPGliteStorageSelection {
 
 const DEFAULT_BROWSER_DB_NAME = 'app';
 
+/**
+ * Persistent PGlite data directories are tagged with the embedded Postgres engine
+ * major. A PG major upgrade (e.g. 17 -> 18 in PGlite 0.5) changes the on-disk
+ * format, so reusing an unversioned directory across majors fails to initialize.
+ * Bumping this token forces a clean, greenfield directory per engine major.
+ *
+ * Bump this whenever the bundled PGlite ships a new Postgres major.
+ */
+export const PGLITE_DATA_DIR_VERSION = 'pg18';
+
+function withEngineVersion(dbName: string): string {
+  return `${dbName}-${PGLITE_DATA_DIR_VERSION}`;
+}
+
 export function getDefaultBrowserPGliteDataDir(dbName = DEFAULT_BROWSER_DB_NAME): string {
-  return `idb://${dbName}`;
+  return `idb://${withEngineVersion(dbName)}`;
 }
 
 export function getOpfsAhpBrowserPGliteDataDir(dbName = DEFAULT_BROWSER_DB_NAME): string {
-  return `opfs-ahp://${dbName}`;
+  return `opfs-ahp://${withEngineVersion(dbName)}`;
 }
 
 export function isIndexedDbPGliteDataDir(dataDir: string | undefined): dataDir is string {

@@ -71,7 +71,7 @@ const vectorSetupMock = vi.fn(async () => ({
   emscriptenOpts: {},
 }));
 
-vi.mock('@electric-sql/pglite/vector', () => ({
+vi.mock('@electric-sql/pglite-pgvector', () => ({
   vector: {
     name: 'pgvector',
     setup: vectorSetupMock,
@@ -94,7 +94,7 @@ const PGliteMock = vi.fn().mockImplementation(function (this: {
 });
 
 vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
-vi.mock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
+vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }));
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),

@@ -45,7 +45,7 @@ async function loadVectorExtension(): Promise<VectorExtension> {
       try {
         // Dynamic import for pgvector extension (ES module compatible)
         /* Stryker disable next-line StringLiteral */
-        const { vector } = await import('@electric-sql/pglite/vector');
+        const { vector } = await import('@electric-sql/pglite-pgvector');
         return vector;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
