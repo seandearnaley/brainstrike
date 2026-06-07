@@ -187,6 +187,18 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  * IndexedDB-only factory-reset fallback list does not reach. Fire-and-forget:
  * deleting absent storage is a no-op and any failure is swallowed so reclamation
  * can't break startup.
+ *
+ * INTENTIONAL ASYMMETRY vs desktop (do NOT "fix" by adding a retention window):
+ * desktop's `reconcileIncompatiblePgDataDir` MOVES an unopenable older-major dir
+ * aside to a `.bak` sibling kept for a 14-day forensic window; the browser here
+ * instead DELETES the legacy store immediately and permanently on the first boot
+ * of the new engine. This is a deliberate greenfield decision — there is no
+ * in-browser `pg_upgrade`, a `.bak` would just double quota pressure (the very
+ * thing this function exists to relieve), and OPFS/IDB give no cheap rename-aside.
+ * Consequence: a web user with an existing index loses it with no retention and no
+ * pre-deletion export. Any future export/migration affordance MUST run BEFORE this
+ * reclaim (and before the versioned DB opens). The one-time "your index was reset"
+ * user notice is tracked as a separate fast-follow, not implemented here.
  */
 export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string): Promise<void> {
   if (!isBrowserPersistentPGliteDataDir(versionedDataDir)) {
