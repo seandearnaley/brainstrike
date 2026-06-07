@@ -13,6 +13,26 @@ interface MockQueueStatsRow {
   succeeded: number;
 }
 
+type QueueRepairFunction = (
+  queue?: string,
+  limit?: number,
+  options?: { embeddingSetId?: string }
+) => Promise<number>;
+
+interface RepairableMockQueue {
+  repairUnclaimableQueued: QueueRepairFunction;
+  requeueFailed: QueueRepairFunction;
+}
+
+function withQueueRepair<T extends object>(jobQueue: T): T & RepairableMockQueue {
+  const repairableQueue = jobQueue as Partial<RepairableMockQueue>;
+  return {
+    ...jobQueue,
+    repairUnclaimableQueued: repairableQueue.repairUnclaimableQueued ?? vi.fn(async () => 0),
+    requeueFailed: repairableQueue.requeueFailed ?? vi.fn(async () => 0),
+  };
+}
+
 describe('embedding-backfill', () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -47,7 +67,7 @@ describe('embedding-backfill', () => {
     };
 
     const backfill = expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 1,
         now: () => currentTime,
@@ -96,7 +116,7 @@ describe('embedding-backfill', () => {
     };
 
     const backfill = expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         drainTimeoutMs: 10,
         now: () => currentTime,
@@ -172,7 +192,7 @@ describe('embedding-backfill', () => {
     const progressUpdates: Array<{ done: number; total: number }> = [];
     const counts = await enqueueEmbeddingBackfill(
       db,
-      jobQueue,
+      withQueueRepair(jobQueue),
       'set-123',
       (done, total) => {
         progressUpdates.push({ done, total });
@@ -193,6 +213,65 @@ describe('embedding-backfill', () => {
     expect(progressUpdates.at(-1)).toEqual({ done: 96, total: 96 });
     expect(progressUpdates.length).toBeLessThanOrEqual(4);
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 96 });
+  });
+
+  it('repairs scoped queued and failed jobs before counting backfill candidates', async () => {
+    let repairedBeforeCandidateCount = false;
+    let queuedRepaired = false;
+    let failedRequeued = false;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          repairedBeforeCandidateCount = queuedRepaired && failedRequeued;
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.startsWith('VACUUM')) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      repairUnclaimableQueued: vi.fn(async () => {
+        queuedRepaired = true;
+        return 1;
+      }),
+      requeueFailed: vi.fn(async () => {
+        failedRequeued = true;
+        return 2;
+      }),
+    };
+
+    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+    });
+
+    expect(jobQueue.repairUnclaimableQueued).toHaveBeenCalledWith('embeddings', 1000, {
+      embeddingSetId: 'set-123',
+    });
+    expect(jobQueue.requeueFailed).toHaveBeenCalledWith('embeddings', 1000, {
+      embeddingSetId: 'set-123',
+    });
+    expect(repairedBeforeCandidateCount).toBe(true);
   });
 
   it('preserves the full provider model suffix when model keys contain additional separators', async () => {
@@ -239,7 +318,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
     });
@@ -263,31 +342,31 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         maxQueueDepth: 0,
       })
     ).rejects.toThrow('maxQueueDepth must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 0,
       })
     ).rejects.toThrow('backlogPollMs must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         queueCapacityTimeoutMs: 0,
       })
     ).rejects.toThrow('queueCapacityTimeoutMs must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         drainTimeoutMs: 0,
       })
     ).rejects.toThrow('drainTimeoutMs must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         progressIntervalMs: 0,
       })
     ).rejects.toThrow('progressIntervalMs must be a positive integer when configured.');
@@ -341,7 +420,7 @@ describe('embedding-backfill', () => {
     const progressUpdates: Array<{ done: number; total: number }> = [];
     await enqueueEmbeddingBackfill(
       db,
-      jobQueue,
+      withQueueRepair(jobQueue),
       'set-123',
       (done, total) => {
         progressUpdates.push({ done, total });
@@ -415,7 +494,7 @@ describe('embedding-backfill', () => {
     const progressUpdates: Array<{ done: number; total: number }> = [];
     const backfillPromise = enqueueEmbeddingBackfill(
       db,
-      jobQueue,
+      withQueueRepair(jobQueue),
       'set-123',
       (done, total) => {
         progressUpdates.push({ done, total });
@@ -482,7 +561,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
       progressIntervalBatches: 1,
@@ -549,7 +628,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         assertCanContinue: () => {
@@ -612,7 +691,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
       progressIntervalBatches: 1,
@@ -678,7 +757,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         assertCanContinue: () => {
           if (vi.mocked(jobQueue.enqueueBatch).mock.calls.length >= 1) {
             throw new Error('Embedding host stopped while backfill was in progress.');
@@ -748,7 +827,7 @@ describe('embedding-backfill', () => {
     };
 
     const drainTicks: number[] = [];
-    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
       onDrainTick: async (completedSinceLastTick) => {
@@ -809,7 +888,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         onDrainTick: async () => {
@@ -868,7 +947,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         progressIntervalBatches: 1,
@@ -926,7 +1005,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         progressIntervalBatches: 1,
@@ -962,11 +1041,17 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    const backfillPromise = enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
-      backlogPollMs: 1,
-      maxQueueDepth: 64,
-      queueCapacityTimeoutMs: 50,
-    });
+    const backfillPromise = enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        queueCapacityTimeoutMs: 50,
+      }
+    );
     const rejection = expect(backfillPromise).rejects.toThrow(
       'Backfill timed out while waiting for queue capacity below 64 jobs (queued=64, running=0, failed=0, succeeded=0).'
     );
@@ -1022,11 +1107,17 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    const backfillPromise = enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
-      backlogPollMs: 1,
-      maxQueueDepth: 64,
-      drainTimeoutMs: 50,
-    });
+    const backfillPromise = enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        drainTimeoutMs: 50,
+      }
+    );
     const rejection = expect(backfillPromise).rejects.toThrow(
       "Backfill timed out while waiting for embedding set 'set-123' to drain."
     );
@@ -1100,15 +1191,21 @@ describe('embedding-backfill', () => {
     };
 
     const drainDeltas: number[] = [];
-    const result = await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
-      backlogPollMs: 1,
-      maxQueueDepth: 64,
-      onDrainTick: async (completedSinceLastTick) => {
-        drainDeltas.push(completedSinceLastTick);
-      },
-      progressIntervalBatches: 1,
-      progressIntervalMs: 1,
-    });
+    const result = await enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        onDrainTick: async (completedSinceLastTick) => {
+          drainDeltas.push(completedSinceLastTick);
+        },
+        progressIntervalBatches: 1,
+        progressIntervalMs: 1,
+      }
+    );
 
     expect(drainDeltas).toEqual([2, 1]);
     expect(result).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 3 });
@@ -1177,15 +1274,21 @@ describe('embedding-backfill', () => {
     };
 
     const drainDeltas: number[] = [];
-    const result = await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
-      backlogPollMs: 1,
-      maxQueueDepth: 1,
-      onDrainTick: async (completedSinceLastTick) => {
-        drainDeltas.push(completedSinceLastTick);
-      },
-      progressIntervalBatches: 1,
-      progressIntervalMs: 1,
-    });
+    const result = await enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 1,
+        onDrainTick: async (completedSinceLastTick) => {
+          drainDeltas.push(completedSinceLastTick);
+        },
+        progressIntervalBatches: 1,
+        progressIntervalMs: 1,
+      }
+    );
 
     expect(drainDeltas).toEqual([1]);
     expect(result).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
@@ -1278,7 +1381,13 @@ describe('embedding-backfill', () => {
       vacuumIntervalMs: 5,
     } satisfies EnqueueEmbeddingBackfillOptions;
 
-    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, options);
+    await enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      options
+    );
 
     const firstVacuumIndex = queryEvents.indexOf('vacuum-file-chunks');
     const finalPendingIndex = queryEvents.lastIndexOf(`pending-${pendingCountCalls}`);
@@ -1371,7 +1480,13 @@ describe('embedding-backfill', () => {
       vacuumIntervalMs: 1000,
     } satisfies EnqueueEmbeddingBackfillOptions;
 
-    await enqueueEmbeddingBackfill(db, jobQueue, 'set-20k', () => undefined, options);
+    await enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-20k',
+      () => undefined,
+      options
+    );
 
     const enqueueBatchCount = vi.mocked(jobQueue.enqueueBatch).mock.calls.length;
     expect(enqueueBatchCount).toBe(Math.ceil(candidateCount / 32));

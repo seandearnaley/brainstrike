@@ -67,6 +67,11 @@ interface QueueBacklogSnapshot {
   succeeded: number;
 }
 
+type EmbeddingBackfillJobQueue = Pick<
+  JobQueue,
+  'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
+>;
+
 const logger = createLogger('DesktopEmbeddingBackfill');
 const EMBEDDINGS_QUEUE = 'embeddings';
 const EMBEDDING_BACKFILL_ENQUEUE_BATCH_SIZE = 32;
@@ -75,6 +80,7 @@ const EMBEDDING_BACKFILL_BACKLOG_POLL_MS = 100;
 const EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
+const EMBEDDING_BACKFILL_QUEUE_REPAIR_LIMIT = 1000;
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
@@ -101,7 +107,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function getEmbeddingQueueBacklogSnapshot(
-  jobQueue: Pick<JobQueue, 'getQueueStats'>
+  jobQueue: Pick<EmbeddingBackfillJobQueue, 'getQueueStats'>
 ): Promise<QueueBacklogSnapshot> {
   const snapshot = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE))[0];
   if (!snapshot) {
@@ -121,7 +127,7 @@ async function getEmbeddingQueueBacklogSnapshot(
 }
 
 async function waitForQueueCapacity(
-  jobQueue: Pick<JobQueue, 'getQueueStats'>,
+  jobQueue: Pick<EmbeddingBackfillJobQueue, 'getQueueStats'>,
   maxQueueDepth: number,
   backlogPollMs: number,
   timeoutMs: number,
@@ -509,7 +515,7 @@ async function loadBackfillCandidateBatch(
 }
 
 async function enqueueEmbeddingChunkJobsBatch(
-  jobQueue: Pick<JobQueue, 'enqueueBatch'>,
+  jobQueue: Pick<EmbeddingBackfillJobQueue, 'enqueueBatch'>,
   batch: BackfillCandidate[],
   embeddingSetId: string,
   metadata: EmbeddingSetJobMetadata
@@ -593,9 +599,35 @@ function createDrainProgressObserver(
   };
 }
 
+async function repairScopedEmbeddingBackfillQueue(
+  jobQueue: Pick<EmbeddingBackfillJobQueue, 'repairUnclaimableQueued' | 'requeueFailed'>,
+  embeddingSetId: string
+): Promise<void> {
+  const repairedQueued = await jobQueue.repairUnclaimableQueued(
+    EMBEDDINGS_QUEUE,
+    EMBEDDING_BACKFILL_QUEUE_REPAIR_LIMIT,
+    { embeddingSetId }
+  );
+  const requeuedFailed = await jobQueue.requeueFailed(
+    EMBEDDINGS_QUEUE,
+    EMBEDDING_BACKFILL_QUEUE_REPAIR_LIMIT,
+    { embeddingSetId }
+  );
+
+  if (repairedQueued === 0 && requeuedFailed === 0) {
+    return;
+  }
+
+  logger.warn('Backfill recovered blocked embedding jobs before candidate counting', {
+    embeddingSetId,
+    repairedQueued,
+    requeuedFailed,
+  });
+}
+
 export async function enqueueEmbeddingBackfill(
   db: Pick<IDatabase, 'query'>,
-  jobQueue: Pick<JobQueue, 'enqueueBatch' | 'getQueueStats'>,
+  jobQueue: EmbeddingBackfillJobQueue,
   embeddingSetId: string,
   onProgress: (done: number, total: number) => void,
   options?: EnqueueEmbeddingBackfillOptions
@@ -617,10 +649,11 @@ export async function enqueueEmbeddingBackfill(
   } = resolveEnqueueEmbeddingBackfillOptions(options);
   const onDrainTick = options?.onDrainTick;
 
+  const runStartedAt = new Date().toISOString();
   logger.info('Backfill requested', { embeddingSetId });
   const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
+  await repairScopedEmbeddingBackfillQueue(jobQueue, embeddingSetId);
   const total = await countBackfillCandidates(db, embeddingSetId);
-  const runStartedAt = new Date().toISOString();
   logger.info('Embedding set metadata resolved for backfill', {
     embeddingSetId,
     modelKey: metadata.modelKey,
