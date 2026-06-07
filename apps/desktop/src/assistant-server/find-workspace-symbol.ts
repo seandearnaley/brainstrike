@@ -72,7 +72,13 @@ function advanceNormal(state: BraceScanState, ch: string, next: string | undefin
 }
 
 /** Net brace depth delta for a line, ignoring braces inside line/block comments
- * and string/template literals. */
+ * and string/template literals.
+ *
+ * Known limitation (best-effort, single pass): this scanner does NOT recognize
+ * regex literals, so unbalanced braces inside one — e.g. `/[{]/` or `/\}/` — are
+ * counted as real braces and can skew the delta for that line. Like the
+ * multi-line string/comment caveat, this only affects the heuristic enclosing
+ * range, which always stays bounded and path-safe. */
 function braceDelta(line: string): number {
   const state: BraceScanState = { depth: 0, inString: null, inBlockComment: false, pos: 0 };
   while (state.pos < line.length) {
