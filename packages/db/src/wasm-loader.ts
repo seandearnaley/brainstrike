@@ -4,6 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import type { LiveNamespace } from '@electric-sql/pglite/live';
 import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
 import {
+  IDB_DB_NAME_PREFIX,
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
   isOpfsAhpPGliteDataDir,
@@ -436,11 +437,26 @@ class WasmLoader {
       throw new Error(`Cannot delete non-IndexedDB path: ${dataDir}`);
     }
 
-    const dbName = dataDir.slice(idbPrefix.length);
-    if (!dbName) {
+    const bareName = dataDir.slice(idbPrefix.length);
+    if (!bareName) {
       throw new Error('Invalid IndexedDB path: database name is empty');
     }
 
+    // PGlite's idb backend is Emscripten IDBFS, which names the actual IndexedDB
+    // database `/pglite/<dataDir>` — NOT the bare name (verified against pglite
+    // 0.5.1; see IDB_DB_NAME_PREFIX). Deleting only the bare name silently no-ops
+    // against a real PGlite store, so target the prefixed name; also delete the
+    // bare name as a harmless no-op safety net for any non-pglite/legacy store.
+    const dbNames = [`${IDB_DB_NAME_PREFIX}${bareName}`, bareName];
+    await Promise.all(dbNames.map((dbName) => this.deleteOneIndexedDb(dbName)));
+  }
+
+  /**
+   * Delete a single IndexedDB database by its exact name. Resolves on success or
+   * when blocked (the delete completes once other connections close); rejects only
+   * on a genuine deletion error. Deleting an absent database fires `onsuccess`.
+   */
+  private deleteOneIndexedDb(dbName: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const request = window.indexedDB.deleteDatabase(dbName);
 

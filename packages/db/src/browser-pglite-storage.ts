@@ -149,7 +149,7 @@ export function enumerationUnavailableLegacyNames(
  * it stores under the bare name at the OPFS root, see `reclaimLegacyOpfsDirs`).
  * Re-verify on a pglite engine upgrade.
  */
-const IDB_DB_NAME_PREFIX = '/pglite/';
+export const IDB_DB_NAME_PREFIX = '/pglite/';
 
 async function legacyIndexedDbNamesToReclaim(
   baseName: string,

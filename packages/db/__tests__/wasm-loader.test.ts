@@ -177,3 +177,53 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     });
   });
 });
+
+describe('wasmLoader.deleteIndexedDB', () => {
+  const g = globalThis as unknown as {
+    window?: { indexedDB?: { deleteDatabase: (name: string) => unknown } };
+  };
+  const originalWindow = g.window;
+
+  afterEach(() => {
+    g.window = originalWindow;
+    vi.resetModules();
+  });
+
+  function installDeleteDatabaseSpy(): { deleted: string[] } {
+    const deleted: string[] = [];
+    const deleteDatabase = vi.fn((name: string) => {
+      deleted.push(name);
+      const request: {
+        onsuccess: ((event: unknown) => void) | null;
+        onerror: ((event: unknown) => void) | null;
+        onblocked: ((event: unknown) => void) | null;
+        error: unknown;
+      } = { onsuccess: null, onerror: null, onblocked: null, error: null };
+      queueMicrotask(() => request.onsuccess?.(undefined));
+      return request;
+    });
+    g.window = { indexedDB: { deleteDatabase } };
+    return { deleted };
+  }
+
+  it('deletes the real /pglite/-prefixed IndexedDB database PGlite actually creates', async () => {
+    // PGlite's idb backend (Emscripten IDBFS) names the database `/pglite/<name>`,
+    // so deleting the bare `web-pg18` is a no-op against the real store.
+    const { deleted } = installDeleteDatabaseSpy();
+
+    const mod = await import('../src/wasm-loader');
+    await mod.wasmLoader.deleteIndexedDB('idb://web-pg18');
+
+    expect(deleted).toContain('/pglite/web-pg18');
+  });
+
+  it('also targets the bare name as a no-op safety net for non-pglite/legacy stores', async () => {
+    const { deleted } = installDeleteDatabaseSpy();
+
+    const mod = await import('../src/wasm-loader');
+    await mod.wasmLoader.deleteIndexedDB('idb://app-pg18');
+
+    expect(deleted).toContain('/pglite/app-pg18');
+    expect(deleted).toContain('app-pg18');
+  });
+});
