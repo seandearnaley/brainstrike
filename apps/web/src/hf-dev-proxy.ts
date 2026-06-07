@@ -27,7 +27,12 @@ export function isAllowedHfDevPath(path: string): boolean {
     return false;
   }
   const afterResolve = path.slice(ALLOWED_RESOLVE_PREFIX.length);
-  const decoded = decodeURIComponent(afterResolve);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(afterResolve);
+  } catch {
+    return false;
+  }
   return decoded.includes('/') && !decoded.includes('..');
 }
 
