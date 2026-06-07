@@ -1,3 +1,4 @@
+import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
 // ============================================================================
@@ -159,6 +160,23 @@ export const ReadWorkspaceDirectoryInputSchema = z
 
 export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryInputSchema>;
 
+export const FindWorkspaceSymbolInputSchema = z
+  .object({
+    path: z.string().min(1).describe('Workspace-relative file path'),
+    query: z.string().min(1).describe('Symbol name or substring to find'),
+    maxMatches: z.number().int().positive().max(20).optional().describe('Max matches (default 5)'),
+    contextLines: z
+      .number()
+      .int()
+      .min(0)
+      .max(10)
+      .optional()
+      .describe('Preview lines before/after each match (default 2)'),
+  })
+  .strict();
+
+export type FindWorkspaceSymbolInput = z.infer<typeof FindWorkspaceSymbolInputSchema>;
+
 export const ListWorkspaceContextInputSchema = z
   .object({
     includeTokenEstimates: z
@@ -232,6 +250,12 @@ const WorkspaceTapestryRangeInputSchema = z
     startLine: z.number().int().positive().describe('1-based inclusive starting line'),
     endLine: z.number().int().positive().describe('1-based inclusive ending line'),
     isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
+    color: z
+      .enum(TAPESTRY_COLOR_NAMES)
+      .optional()
+      .describe(
+        'Optional named color to group related ranges (red, orange, yellow, green, cyan, blue, purple, pink, gray). Reuse the same color for the same concept. Omit to auto-assign.'
+      ),
   })
   .strict()
   .refine((value) => value.endLine >= value.startLine, {
@@ -351,6 +375,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
   'web.echo': EchoInput,
   // Minimal BrainStrike native tools
+  'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,

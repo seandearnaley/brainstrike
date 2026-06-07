@@ -1,4 +1,5 @@
 import type { DirectoryHandle, FileHandle, IFileNode } from './file-system';
+import type { TapestryColorName } from './tapestry-colors';
 
 /**
  * Result of a database test operation
@@ -252,6 +253,7 @@ export interface AssistantWorkspaceContextSelectionUpdatePayload {
 export type AssistantWorkspaceTapestryUpdateMode = 'replace' | 'add' | 'clear';
 
 export interface AssistantWorkspaceTapestryRangePayload {
+  color?: TapestryColorName;
   endLine: number;
   isActive?: boolean;
   startLine: number;

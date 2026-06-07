@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentMessage } from '../index';
+import type { AgentMessage, StreamChunk } from '../index';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
 
 // Import the runtime functions - we'll need to expose some internal functions for testing
@@ -487,11 +487,13 @@ describe('agent-runtime edge cases', () => {
       Agent.prototype.stream = originalStream;
     });
 
-    it('throws MastraAgentError when stream emits a top-level error chunk', async () => {
-      // Top-level provider errors (e.g. Ollama HTTP 400 because the model
-      // does not support tool calling) must propagate as exceptions so the
-      // data-stream session emits a real error event instead of silently
-      // dropping a tool-event with no toolCallId.
+    it('terminates gracefully (visible error + run.failed + finish) on a top-level error chunk', async () => {
+      // Top-level provider errors (e.g. Anthropic HTTP 404 for an unavailable
+      // model, or Ollama HTTP 400 because the model can't satisfy the tool set)
+      // arrive as `'error'` parts. They must NOT throw/hang: the run terminates
+      // with a visible assistant message, a terminal `run.failed` run-event that
+      // clears in-flight spinners, and an error finish. Throwing previously left
+      // the thread hung on a forever-spinning "Generation step started".
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
@@ -500,11 +502,8 @@ describe('agent-runtime edge cases', () => {
       Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
-            controller.enqueue({
-              type: 'error',
-              error: 'Test error message',
-            });
-            controller.enqueue({ type: 'finish', usage: {} });
+            controller.enqueue({ type: 'step-start' });
+            controller.enqueue({ type: 'error', error: 'Test error message' });
             controller.close();
           },
         });
@@ -517,24 +516,36 @@ describe('agent-runtime edge cases', () => {
           { runtime: { apiKey: 'test-key', provider: 'openai' } }
         );
 
-        await expect(async () => {
-          for await (const _chunk of iterator) {
-            // Drain
-          }
-        }).rejects.toSatisfy((error: unknown) => {
-          if (!isMastraAgentError(error)) {
-            return false;
-          }
-          expect(error.code).toBe('mastra_agent_stream_failure');
-          expect(error.message).toContain('Test error message');
-          return true;
-        });
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const text = chunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+              chunk.type === 'text-delta'
+          )
+          .map((chunk) => chunk.value)
+          .join('');
+        expect(text).toContain('Test error message');
+
+        const runEventKinds = chunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+              chunk.type === 'run-event'
+          )
+          .map((chunk) => chunk.event.kind);
+        expect(runEventKinds).toContain('run.failed');
+
+        const finish = chunks.find((chunk) => chunk.type === 'message-finish');
+        expect(finish).toMatchObject({ finishReason: 'error' });
       } finally {
         Agent.prototype.stream = originalStream;
       }
     });
 
-    it('throws MastraAgentError when stream emits a tripwire chunk', async () => {
+    it('terminates gracefully (visible reason + run.failed + finish) on a tripwire chunk', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
@@ -560,18 +571,30 @@ describe('agent-runtime edge cases', () => {
           { runtime: { apiKey: 'test-key', provider: 'openai' } }
         );
 
-        await expect(async () => {
-          for await (const _chunk of iterator) {
-            // Drain
-          }
-        }).rejects.toSatisfy((error: unknown) => {
-          if (!isMastraAgentError(error)) {
-            return false;
-          }
-          expect(error.code).toBe('mastra_agent_stream_failure');
-          expect(error.message).toContain('Content policy violation');
-          return true;
-        });
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const text = chunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+              chunk.type === 'text-delta'
+          )
+          .map((chunk) => chunk.value)
+          .join('');
+        expect(text).toContain('Content policy violation');
+
+        const runEventKinds = chunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+              chunk.type === 'run-event'
+          )
+          .map((chunk) => chunk.event.kind);
+        expect(runEventKinds).toContain('run.failed');
+
+        const finish = chunks.find((chunk) => chunk.type === 'message-finish');
+        expect(finish).toMatchObject({ finishReason: 'error' });
       } finally {
         Agent.prototype.stream = originalStream;
       }

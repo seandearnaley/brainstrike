@@ -53,6 +53,7 @@ const FULL_TOOL_MAP = new Map<string, string>([
   ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
   ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
   ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+  ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
 ]);
 
 describe('buildDefaultInstructions', () => {
@@ -66,12 +67,38 @@ describe('buildDefaultInstructions', () => {
   it('makes precise Tapestry selection the default when selection tools are registered', () => {
     const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
     expect(prompt).toMatch(/Context Explorer/);
-    expect(prompt).toMatch(/not whole files/i);
+    expect(prompt).toMatch(/never the whole file/i);
     expect(prompt).toContain('updateWorkspaceTapestrySelections');
     expect(prompt).toContain('updateWorkspaceContextSelection');
     expect(prompt).toMatch(/1-based/);
     expect(prompt).toContain('startLine');
     expect(prompt).toContain('endLine');
+  });
+
+  it('forbids whole-file fallback for a named symbol and requires the reported range to match the tool call', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    // When the user names a specific symbol/function/section, the model must
+    // select only that span and must not silently select the whole file.
+    expect(prompt).toMatch(/MUST NOT fall back to whole-file/i);
+    expect(prompt).toMatch(/symbol, function, type, section, or line range/i);
+    // The model previously claimed a precise range in prose while selecting the
+    // whole file; the reported range must equal what it passed to the tool.
+    expect(prompt).toMatch(/MUST exactly equal the ranges you passed/i);
+  });
+
+  it('explains how to derive line ranges from a direct file read (no embedding result)', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    // Without an embedding index, the model reads the file and counts from the
+    // returned startLine to the symbol's first/last line.
+    expect(prompt).toMatch(/when there is no embedding result/i);
+    expect(prompt).toContain('readWorkspaceFile');
+    expect(prompt).toMatch(/first and last line of the requested symbol/i);
+    // readWorkspaceFile returns a raw slice with NO inline line numbers, so the
+    // prompt must not claim otherwise (that wording produced off-by-one ranges)
+    // and must steer the model to count from startLine instead.
+    expect(prompt).not.toMatch(/content with 1-based line numbers/i);
+    expect(prompt).toMatch(/no inline line numbers/i);
+    expect(prompt).toMatch(/count from startLine/i);
   });
 
   it('degrades gracefully without selection tools and does not leak raw tool IDs into guidance', () => {
@@ -82,5 +109,28 @@ describe('buildDefaultInstructions', () => {
     const prompt = buildDefaultInstructions(noSelection);
     expect(prompt).toMatch(/Precise context selection is unavailable/i);
     expect(prompt).not.toContain('brainstrike.updateWorkspaceTapestrySelections');
+  });
+
+  it('steers symbol lookup and color grouping when the tools are registered', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    expect(prompt).toContain('findWorkspaceSymbol');
+    // findWorkspaceSymbol is a substring/brace heuristic (best-effort), not exact;
+    // the prompt must not call it "exact" (which would tell the model to report a
+    // possibly-wrong range as exact) and must steer it to verify the result.
+    expect(prompt).toMatch(/best-effort range[^.]*without reading the whole file/i);
+    expect(prompt).toMatch(/verify the returned range/i);
+    expect(prompt).not.toMatch(/exact range without reading/i);
+    expect(prompt).toMatch(/color/i);
+    expect(prompt).toMatch(/group related/i);
+  });
+
+  it('omits symbol-lookup guidance when findWorkspaceSymbol is not registered', () => {
+    const prompt = buildDefaultInstructions(
+      new Map([
+        ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+        ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
+      ])
+    );
+    expect(prompt).not.toContain('findWorkspaceSymbol');
   });
 });
