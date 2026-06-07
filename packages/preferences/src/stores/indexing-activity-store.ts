@@ -241,7 +241,7 @@ function deriveErrorSnapshot(args: IndexingActivitySnapshotInput): IndexingActiv
     });
   }
 
-  if (args.background.state === 'error') {
+  if (args.background.state === 'blocked' || args.background.state === 'error') {
     return buildSnapshot(args, {
       lastError: args.background.lastError ?? 'Background indexing failed',
       phase: 'background-indexing',

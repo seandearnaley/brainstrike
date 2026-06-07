@@ -55,7 +55,7 @@ function getStatusItemValue(
   | 'Scanning'
   | 'Waiting'
   | 'Off' {
-  if (state === 'error') {
+  if (state === 'blocked' || state === 'error') {
     return 'Blocked';
   }
   if (state === 'waiting') {
@@ -96,7 +96,7 @@ function getStatusItemState(
   return {
     isBusy,
     status:
-      state === 'error'
+      state === 'blocked' || state === 'error'
         ? 'warning'
         : state === 'paused'
           ? 'disconnected'
@@ -154,7 +154,11 @@ export function CollectionSyncStatusItem() {
           type="button"
         >
           <StatusBarItem
-            icon={syncStatus.state === 'error' ? TriangleAlert : Database}
+            icon={
+              syncStatus.state === 'blocked' || syncStatus.state === 'error'
+                ? TriangleAlert
+                : Database
+            }
             label={`Cache: ${label}`}
             status={status}
             testId="collection-sync-status-item"
@@ -165,10 +169,14 @@ export function CollectionSyncStatusItem() {
       <PopoverContent align="center" className="w-96 space-y-3" side="top">
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <div className="font-medium text-sm">Background index cache</div>
+            <div className="font-medium text-sm">Workspace Index cache</div>
             <Badge
               variant={
-                syncStatus.state === 'error' ? 'destructive' : enabled ? 'secondary' : 'outline'
+                syncStatus.state === 'blocked' || syncStatus.state === 'error'
+                  ? 'destructive'
+                  : enabled
+                    ? 'secondary'
+                    : 'outline'
               }
             >
               {isBusy ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}
@@ -212,14 +220,14 @@ export function CollectionSyncStatusItem() {
         {showPauseControl ? (
           <div className="flex justify-end">
             <Button
-              aria-label="Background indexing"
+              aria-label="Workspace Index"
               aria-pressed={!paused}
               onClick={() => setPaused(!paused)}
               size="sm"
               type="button"
               variant="outline"
             >
-              {paused ? 'Resume background indexing' : 'Pause background indexing'}
+              {paused ? 'Resume workspace index' : 'Pause workspace index'}
             </Button>
           </div>
         ) : null}

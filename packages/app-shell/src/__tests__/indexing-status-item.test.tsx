@@ -128,7 +128,7 @@ describe('IndexingStatusItem', () => {
     render(<IndexingStatusItem />);
 
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
-    await userEvent.click(await screen.findByRole('button', { name: 'Pause background indexing' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Pause workspace index' }));
 
     await waitFor(() => {
       expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(true);
@@ -143,6 +143,22 @@ describe('IndexingStatusItem', () => {
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
       state: 'error',
+      pauseReasons: [],
+    });
+
+    render(<IndexingStatusItem />);
+
+    expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Indexing:Blocked');
+  });
+
+  it('shows blocked Workspace Index status as blocked activity', () => {
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: 'OpenAI API key not configured.',
+      paused: false,
+      managedCollectionId: 'collection-a',
+      managedCollectionName: 'Workspace Index',
+      state: 'blocked',
       pauseReasons: [],
     });
 

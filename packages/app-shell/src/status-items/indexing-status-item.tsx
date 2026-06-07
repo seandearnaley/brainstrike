@@ -303,7 +303,7 @@ export function IndexingStatusItem() {
         {snapshot.background.enabled || snapshot.background.managedCollectionId ? (
           <div className="flex justify-end">
             <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
-              {paused ? 'Resume background indexing' : 'Pause background indexing'}
+              {paused ? 'Resume workspace index' : 'Pause workspace index'}
             </Button>
           </div>
         ) : null}
