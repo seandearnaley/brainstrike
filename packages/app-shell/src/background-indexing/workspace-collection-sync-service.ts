@@ -469,6 +469,8 @@ export class WorkspaceCollectionSyncService {
         label: QOS_RETRY_LABELS[args.phase],
       });
       throwIfAborted(args.abortSignal);
+      await waitForAbortableDelay(Math.max(1, qosPolicy.interBatchDelayMs), args.abortSignal);
+      throwIfAborted(args.abortSignal);
       qosPolicy = await this.deps.resolveQosPolicy();
     }
     if (!qosPolicy.allowNewWork && qosPolicy.state === 'paused') {

@@ -68,14 +68,27 @@ export class DrizzleEmbeddingSetsRepository {
           category: null,
           systemRole: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.systemRole,
         })
+        .onConflictDoNothing()
         .returning();
 
-      if (!inserted) {
-        throw new Error('Failed to create the workspace index embedding set.');
+      const [selected] =
+        inserted === undefined
+          ? await tx
+              .select()
+              .from(embeddingSets)
+              .where(eq(embeddingSets.systemRole, WORKSPACE_INDEX_SYSTEM_ROLE))
+              .limit(1)
+          : [inserted];
+
+      if (!selected) {
+        throw new Error('Failed to create or load the workspace index embedding set.');
       }
 
-      await tx.insert(collectionIndexingStats).values({ embeddingSetId: id }).onConflictDoNothing();
-      return inserted;
+      await tx
+        .insert(collectionIndexingStats)
+        .values({ embeddingSetId: selected.id })
+        .onConflictDoNothing();
+      return selected;
     });
 
     await ensureDimensionIndexExists(dbAdapter, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);

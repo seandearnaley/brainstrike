@@ -162,6 +162,64 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
   });
 
+  it('backs off before re-resolving foreground-yielding QoS when the permit returns immediately', async () => {
+    vi.useFakeTimers();
+    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 25,
+      progressThrottleMs: 500,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    };
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 3;',
+        })),
+      },
+      resolveQosPolicy: vi
+        .fn()
+        .mockResolvedValueOnce(foregroundYieldPolicy)
+        .mockResolvedValue(BALANCED_QOS_POLICY),
+      waitForBackgroundPermit: vi.fn(async () => undefined),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    try {
+      const syncPromise = service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      });
+      for (let index = 0; index < 10; index += 1) {
+        await Promise.resolve();
+      }
+
+      expect(deps.waitForBackgroundPermit).toHaveBeenCalledWith({
+        label: 'Workspace Index scan',
+      });
+      expect(deps.resolveQosPolicy).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(24);
+      expect(deps.resolveQosPolicy).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await syncPromise;
+      expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+      expect(deps.resolveQosPolicy).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
     const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
       allowNewWork: false,
