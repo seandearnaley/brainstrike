@@ -39,6 +39,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
+    },
+    "./browser-pglite-storage": {
+      "types": "./dist/browser-pglite-storage.d.ts",
+      "import": "./dist/browser-pglite-storage.js",
+      "require": "./dist/browser-pglite-storage.js"
     }
   },
   "files": [

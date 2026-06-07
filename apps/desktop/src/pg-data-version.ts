@@ -2,12 +2,6 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import path from 'node:path';
 
 /**
- * Suffix used for a data dir moved aside during an engine-major upgrade
- * (`<dataDir>.pre-pg<new>-from-pg<old>.bak`). See db-main's upgrade guard.
- */
-export const ENGINE_UPGRADE_BACKUP_SUFFIX = '.bak';
-
-/**
  * How long a moved-aside upgrade backup is retained before it is reclaimed. The
  * old dir can't be opened by the bundled engine — it's forensic insurance only —
  * so it is swept on a later successful boot once the window has elapsed.
@@ -27,18 +21,17 @@ export function isEngineUpgradeBackupName(name: string): boolean {
 }
 
 /**
- * Postgres engine major bundled with the current PGlite release.
+ * Postgres engine major bundled with the current PGlite release (e.g. '18').
  *
- * PGlite 0.5 ships Postgres 18. A PG major upgrade changes the on-disk catalog
- * format, so a data directory written by an older engine (PG17 under PGlite 0.4)
- * cannot be opened by the new engine — PGlite fails with a generic
- * "failed to initialize properly" error that the corruption-recovery path does
- * not classify as recoverable.
- *
- * Bump this whenever the bundled PGlite ships a new Postgres major — and keep it
- * in lockstep with `PGLITE_DATA_DIR_VERSION` in
- * packages/db/src/browser-pglite-storage.ts (which also documents appending the
- * superseded versioned name to the factory-reset fallback list).
+ * MUST stay in lockstep with `PGLITE_DATA_DIR_VERSION` ('pg18') in
+ * packages/db/src/browser-pglite-storage.ts. It is redeclared here (rather than
+ * imported) because the Electron MAIN process is deliberately isolated from
+ * `@brainstrike/db` (tsconfig.main uses classic resolution with no db path, so
+ * the main bundle never pulls in renderer/PGlite code). Drift is guarded by the
+ * cross-package test `pg-engine-major-sync.test.ts`. A PG major upgrade changes
+ * the on-disk catalog format, so a data dir written by an older engine cannot be
+ * opened by the new one — PGlite fails with a generic "failed to initialize
+ * properly" error that corruption-recovery does not classify as recoverable.
  */
 export const BUNDLED_PG_MAJOR = '18';
 
@@ -99,7 +92,9 @@ export function pruneStaleEngineUpgradeBackups(
   }
 
   for (const name of entries) {
-    if (!(name.startsWith(prefix) && name.endsWith(ENGINE_UPGRADE_BACKUP_SUFFIX))) {
+    // Scope to THIS data dir's backups (prefix) AND reuse the canonical predicate
+    // so a loose sibling like `pgdata.pre-pgfoo.bak` is not swept.
+    if (!(name.startsWith(prefix) && isEngineUpgradeBackupName(name))) {
       continue;
     }
     const full = path.join(parent, name);
