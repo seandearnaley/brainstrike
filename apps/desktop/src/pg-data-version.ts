@@ -69,6 +69,32 @@ export function isIncompatiblePgDataDir(
 }
 
 /**
+ * Whether an existing data directory was written by a NEWER Postgres engine major
+ * than the one currently bundled (e.g. a PG19 dir under a PG18 build, after the
+ * user rolls the app back to an older version). Downgrading the on-disk engine is
+ * unsupported, but the newer data is still valid for a future re-upgrade — so such
+ * a dir must be left UNTOUCHED (fail loudly) rather than wiped or moved aside. This
+ * mirrors the browser reclaim's forward-only `< currentMajor` guard so neither
+ * platform can silently destroy data a newer build owns. A non-numeric/garbage
+ * version is treated as "not newer" so it falls through to the normal wipe path.
+ */
+export function isNewerPgDataDir(
+  dataDir: string,
+  bundledMajor: string = BUNDLED_PG_MAJOR
+): boolean {
+  const major = readPgDataMajor(dataDir);
+  if (major === null) {
+    return false;
+  }
+  const found = Number(major);
+  const bundled = Number(bundledMajor);
+  if (!(Number.isFinite(found) && Number.isFinite(bundled))) {
+    return false;
+  }
+  return found > bundled;
+}
+
+/**
  * Reclaim engine-upgrade backups (`<dataDir>.pre-pg*.bak` siblings) older than
  * `retentionMs`, so a moved-aside old database doesn't sit on disk forever and
  * compound across major bumps. Best-effort and side-effect-tolerant: unreadable

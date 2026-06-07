@@ -99,6 +99,18 @@ async function legacyIndexedDbNamesToReclaim(
   return [baseName];
 }
 
+/**
+ * OPFS layout (verified against @electric-sql/pglite@0.5.1, dist/fs/opfs-ahp.js):
+ * a data dir `opfs-ahp://app-pg18` has its scheme stripped to `app-pg18`
+ * (`dataDir.slice(11)` in index.js) and the OPFS-AHP FS resolves that bare name as
+ * a single directory handle directly under the OPFS root
+ * (`root.getDirectoryHandle('app-pg18', { create: true })` in its `init`). The
+ * engine's per-DB files (`state.txt`, the `data/` pool) live INSIDE that named
+ * dir. So each `-pg<N>` major is a distinct top-level root entry, and
+ * `root.removeEntry(name, { recursive: true })` reclaims an older major's entire
+ * tree in one call. (Our dbName has no `/`, so the name is always a single
+ * top-level segment.)
+ */
 async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Promise<void> {
   if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
     return;
@@ -177,7 +189,7 @@ export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string
   try {
     await reclaimLegacyOpfsDirs(baseName, PGLITE_ENGINE_MAJOR);
   } catch {
-    // best-effort only (entries may be absent, or the OPFS layout differs)
+    // best-effort only (entries may be absent, or a handle is still held elsewhere)
   }
 }
 

@@ -149,6 +149,10 @@ describe('db-main lifecycle', () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
+    // clearAllMocks() resets call history but NOT implementations, so without this
+    // a per-test readFileSync override (e.g. a PG_VERSION major) would leak into
+    // later tests. Restore the empty default so each test starts from a clean slate.
+    readFileSyncMock.mockImplementation(() => '');
   });
 
   afterEach(() => {
@@ -203,6 +207,27 @@ describe('db-main lifecycle', () => {
     await initializeMainDatabase();
 
     expect(renameSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('fails loudly and leaves a NEWER-major data dir untouched (no downgrade)', async () => {
+    // PG_VERSION reports a NEWER engine major (e.g. PG19 written by a later build,
+    // then the user rolled back to this PG18 build). Downgrading the on-disk engine
+    // is unsupported, but the newer data is still valid for a re-upgrade — so the
+    // guard must NOT move it aside or wipe it. Init must fail loudly instead.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '19' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/newer/i);
+
+    // Crucially: the newer dir is preserved — neither moved aside nor wiped.
+    expect(renameSyncMock).not.toHaveBeenCalled();
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    const wipedDataDir = rmSyncMock.mock.calls.some(([target]) =>
+      String(target).endsWith('pgdata')
+    );
+    expect(wipedDataDir).toBe(false);
   });
 
   it('closeDatabase still closes handle when syncToFs fails', async () => {

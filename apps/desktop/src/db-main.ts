@@ -29,6 +29,7 @@ import {
   BUNDLED_PG_MAJOR,
   isEngineUpgradeBackupName,
   isIncompatiblePgDataDir,
+  isNewerPgDataDir,
   pruneStaleEngineUpgradeBackups,
   readPgDataMajor,
 } from './pg-data-version';
@@ -1071,6 +1072,71 @@ async function handleCorruptionError(
 }
 
 /**
+ * Greenfield engine-upgrade reconciliation for the on-disk PGlite data directory.
+ * A data dir written by a different Postgres engine major cannot be opened by the
+ * bundled engine (PGlite crashes with a non-recoverable "failed to initialize"
+ * error), so this brings the directory into a state the bundled engine can open:
+ *
+ * - NEWER major (e.g. a PG19 dir under this PG18 build, after the user rolled the
+ *   app back): leave it UNTOUCHED and throw. Downgrading the on-disk engine is
+ *   unsupported, but the newer data is still valid for a future re-upgrade, so
+ *   wiping/moving it would be silent data loss. The user should update instead.
+ *   Mirrors the browser reclaim's forward-only `< currentMajor` guard.
+ * - OLDER major (e.g. PG17 under PGlite 0.4): move it aside to a `.bak` sibling and
+ *   start fresh. A same-volume rename is instant and uses no extra disk (unlike a
+ *   multi-GB cpSync, which would freeze startup and could ENOSPC the fresh init),
+ *   while still preserving the old data for manual/forensic recovery. A rename
+ *   failure falls back to a plain wipe rather than blocking startup.
+ *
+ * Caller MUST hold the exclusive process lock so no other process owns the dir.
+ */
+function reconcileIncompatiblePgDataDir(dataDir: string): void {
+  if (!isIncompatiblePgDataDir(dataDir)) {
+    return;
+  }
+  const foundMajor = readPgDataMajor(dataDir);
+  if (isNewerPgDataDir(dataDir)) {
+    throw new Error(
+      `Postgres data directory at ${dataDir} was created by a newer engine major ` +
+        `(PG${foundMajor}); this build bundles PG${BUNDLED_PG_MAJOR}. Update BrainStrike ` +
+        'instead of downgrading. The data directory was left untouched.'
+    );
+  }
+
+  const backupDir = `${dataDir}.pre-pg${BUNDLED_PG_MAJOR}-from-pg${foundMajor ?? 'unknown'}.bak`;
+  try {
+    rmSync(backupDir, { recursive: true, force: true });
+    renameSync(dataDir, backupDir);
+    // renameSync preserves the dir's original content mtime (≈ the last time the
+    // old DB was written), NOT the move time. Stamp it to now so the retention
+    // clock starts at move time — otherwise upgrading after a long idle period
+    // would let this same boot's prune delete the fresh backup immediately,
+    // collapsing the recovery window to zero.
+    try {
+      const movedAt = new Date();
+      utimesSync(backupDir, movedAt, movedAt);
+    } catch {
+      // best-effort: if stamping fails, retention falls back to the old mtime
+    }
+    logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
+      dataDir,
+      backupDir,
+      expectedMajor: BUNDLED_PG_MAJOR,
+      foundMajor,
+    });
+  } catch (renameErr) {
+    logger.error('Failed to move incompatible data dir aside; wiping instead', {
+      dataDir,
+      expectedMajor: BUNDLED_PG_MAJOR,
+      foundMajor,
+      error: getErrorDetails(renameErr),
+    });
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+  mkdirSync(dataDir, { recursive: true });
+}
+
+/**
  * Initialize the database with NodeFS
  * Creates the directory if it doesn't exist and runs migrations.
  * If corruption is detected, automatically resets and retries once.
@@ -1121,52 +1187,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
       acquireDatabaseProcessLock(appDataDir);
 
       // Greenfield engine-upgrade guard. Runs only after the exclusive process
-      // lock is held, so we never wipe a data dir another process is using.
-      // A data dir written by a different Postgres engine major (e.g. PG17 under
-      // PGlite 0.4) cannot be opened by the bundled engine and crashes with a
-      // non-recoverable "failed to initialize" error — wipe and start fresh
-      // rather than attempting an on-disk upgrade.
-      if (isIncompatiblePgDataDir(dataDir)) {
-        const foundMajor = readPgDataMajor(dataDir);
-        // Move the incompatible data dir aside instead of copying or deleting it.
-        // A same-volume rename is instant and uses no extra disk — unlike a
-        // multi-GB cpSync, which would freeze startup and double disk usage (and
-        // could even ENOSPC the fresh init). It still preserves the old data for
-        // manual/forensic recovery. The old dir can't be opened by the bundled
-        // engine, so a rename failure falls back to a plain wipe rather than
-        // blocking startup.
-        const backupDir = `${dataDir}.pre-pg${BUNDLED_PG_MAJOR}-from-pg${foundMajor ?? 'unknown'}.bak`;
-        try {
-          rmSync(backupDir, { recursive: true, force: true });
-          renameSync(dataDir, backupDir);
-          // renameSync preserves the dir's original content mtime (≈ the last time
-          // the old DB was written), NOT the move time. Stamp it to now so the
-          // retention clock starts at move time — otherwise upgrading after a long
-          // idle period would let this same boot's prune delete the fresh backup
-          // immediately, collapsing the recovery window to zero.
-          try {
-            const movedAt = new Date();
-            utimesSync(backupDir, movedAt, movedAt);
-          } catch {
-            // best-effort: if stamping fails, retention falls back to the old mtime
-          }
-          logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
-            dataDir,
-            backupDir,
-            expectedMajor: BUNDLED_PG_MAJOR,
-            foundMajor,
-          });
-        } catch (renameErr) {
-          logger.error('Failed to move incompatible data dir aside; wiping instead', {
-            dataDir,
-            expectedMajor: BUNDLED_PG_MAJOR,
-            foundMajor,
-            error: getErrorDetails(renameErr),
-          });
-          rmSync(dataDir, { recursive: true, force: true });
-        }
-        mkdirSync(dataDir, { recursive: true });
-      }
+      // lock is held, so we never touch a data dir another process is using.
+      reconcileIncompatiblePgDataDir(dataDir);
 
       db = await createVectorDatabase(
         loadedPGlite.PGlite,

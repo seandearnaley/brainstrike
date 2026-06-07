@@ -6,6 +6,7 @@ import {
   BUNDLED_PG_MAJOR,
   isEngineUpgradeBackupName,
   isIncompatiblePgDataDir,
+  isNewerPgDataDir,
   pruneStaleEngineUpgradeBackups,
   readPgDataMajor,
 } from '../../pg-data-version';
@@ -82,6 +83,33 @@ describe('pg-data-version guard', () => {
     mkdirSync(path.join(dir, 'nested'), { recursive: true });
     writeFileSync(path.join(dir, 'nested', 'PG_VERSION'), '  18  \n', 'utf8');
     expect(isIncompatiblePgDataDir(path.join(dir, 'nested'))).toBe(false);
+  });
+
+  it('flags a NEWER-major data dir (PG19 under a PG18 build) as newer', () => {
+    writePgVersion('19');
+    expect(isNewerPgDataDir(dir)).toBe(true);
+    // A newer dir is still "incompatible" (can't be opened) but must be handled
+    // by failing loudly, not wiped — the two predicates partition incompatible.
+    expect(isIncompatiblePgDataDir(dir)).toBe(true);
+  });
+
+  it('does NOT flag an OLDER-major data dir (PG17) as newer', () => {
+    writePgVersion('17');
+    expect(isNewerPgDataDir(dir)).toBe(false);
+  });
+
+  it('does NOT flag a matching PG18 data dir as newer', () => {
+    writePgVersion('18');
+    expect(isNewerPgDataDir(dir)).toBe(false);
+  });
+
+  it('does NOT flag a fresh/empty data dir as newer (nothing to compare)', () => {
+    expect(isNewerPgDataDir(dir)).toBe(false);
+  });
+
+  it('does NOT flag a non-numeric PG_VERSION as newer (falls through to wipe path)', () => {
+    writePgVersion('garbage');
+    expect(isNewerPgDataDir(dir)).toBe(false);
   });
 });
 
