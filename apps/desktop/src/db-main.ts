@@ -9,6 +9,7 @@ import {
   renameSync,
   rmSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1132,6 +1133,17 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
         try {
           rmSync(backupDir, { recursive: true, force: true });
           renameSync(dataDir, backupDir);
+          // renameSync preserves the dir's original content mtime (≈ the last time
+          // the old DB was written), NOT the move time. Stamp it to now so the
+          // retention clock starts at move time — otherwise upgrading after a long
+          // idle period would let this same boot's prune delete the fresh backup
+          // immediately, collapsing the recovery window to zero.
+          try {
+            const movedAt = new Date();
+            utimesSync(backupDir, movedAt, movedAt);
+          } catch {
+            // best-effort: if stamping fails, retention falls back to the old mtime
+          }
           logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
             dataDir,
             backupDir,

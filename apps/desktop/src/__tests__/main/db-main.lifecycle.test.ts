@@ -59,6 +59,8 @@ const openSyncMock = vi.fn(() => 123);
 const writeFileSyncMock = vi.fn();
 const closeSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
+const utimesSyncMock = vi.fn();
+const statSyncMock = vi.fn(() => ({ mtimeMs: Date.now() }));
 const readFileSyncMock = vi.fn(() => '');
 const readdirSyncMock = vi.fn(() => []);
 const lstatSyncMock = vi.fn(() => ({
@@ -70,6 +72,8 @@ vi.mock('node:fs', () => ({
   mkdirSync: mkdirSyncMock,
   rmSync: rmSyncMock,
   renameSync: renameSyncMock,
+  utimesSync: utimesSyncMock,
+  statSync: statSyncMock,
   cpSync: cpSyncMock,
   openSync: openSyncMock,
   writeFileSync: writeFileSyncMock,
@@ -83,6 +87,8 @@ vi.mock('node:fs', () => ({
     mkdirSync: mkdirSyncMock,
     rmSync: rmSyncMock,
     renameSync: renameSyncMock,
+    utimesSync: utimesSyncMock,
+    statSync: statSyncMock,
     cpSync: cpSyncMock,
     openSync: openSyncMock,
     writeFileSync: writeFileSyncMock,
@@ -178,6 +184,14 @@ describe('db-main lifecycle', () => {
       expect.stringContaining('.pre-pg18-from-pg17.bak')
     );
     expect(cpSyncMock).not.toHaveBeenCalled();
+    // The backup's mtime is stamped to the move time (renameSync preserves the
+    // OLD content mtime), so the retention clock starts now — not at the last DB
+    // write — and this boot's prune can't immediately delete the fresh backup.
+    expect(utimesSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('.pre-pg18-from-pg17.bak'),
+      expect.any(Date),
+      expect.any(Date)
+    );
   });
 
   it('does NOT move aside a matching (current Postgres major) data dir', async () => {
