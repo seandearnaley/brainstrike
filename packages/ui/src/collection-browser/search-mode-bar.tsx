@@ -32,23 +32,31 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   advancedOptionsOpen,
   onAdvancedOptionsOpenChange,
   className,
+  disabled = false,
+  disabledReason,
 }: SearchModeBarProps) {
   const handleSemanticQueryChange = React.useCallback(
     (value: string) => {
+      if (disabled) {
+        return;
+      }
       onSemanticQueryChange(value);
       if (value.trim() === '' && mode === 'semantic' && hasSearched) {
         onModeChange('quick');
       }
     },
-    [onSemanticQueryChange, mode, hasSearched, onModeChange]
+    [disabled, onSemanticQueryChange, mode, hasSearched, onModeChange]
   );
 
   const handleClearSemanticQuery = React.useCallback(() => {
+    if (disabled) {
+      return;
+    }
     onSemanticQueryChange('');
     if (mode === 'semantic' && hasSearched) {
       onModeChange('quick');
     }
-  }, [onSemanticQueryChange, mode, hasSearched, onModeChange]);
+  }, [disabled, onSemanticQueryChange, mode, hasSearched, onModeChange]);
 
   const handleSemanticInputChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,7 +69,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        if (!isSearching && semanticQuery.trim()) {
+        if (!(disabled || isSearching) && semanticQuery.trim()) {
           onSemanticSearch();
         }
       }
@@ -73,12 +81,15 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         e.currentTarget.blur();
       }
     },
-    [isSearching, semanticQuery, onSemanticSearch]
+    [disabled, isSearching, semanticQuery, onSemanticSearch]
   );
 
   const handleToggleExpanded = React.useCallback(() => {
+    if (disabled) {
+      return;
+    }
     onSearchExpandedChange(!isSearchExpanded);
-  }, [isSearchExpanded, onSearchExpandedChange]);
+  }, [disabled, isSearchExpanded, onSearchExpandedChange]);
 
   const panelRef = React.useRef<HTMLElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
@@ -167,10 +178,12 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         aria-label={`${isSearchExpanded ? 'Collapse' : 'Expand'} hybrid search`}
         className="h-auto w-full justify-between rounded-none px-3 py-1.5 text-left hover:bg-muted/50"
         depress={false}
+        disabled={disabled}
         id={triggerId}
         onClick={handleToggleExpanded}
         ref={triggerRef}
         size="sm"
+        title={disabled ? disabledReason : undefined}
         variant="ghost"
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -202,14 +215,15 @@ export const SearchModeBar = React.memo(function SearchModeBar({
               <Input
                 aria-label="Hybrid search query"
                 className="h-9 pr-8 text-xs"
-                disabled={isSearching}
+                disabled={disabled || isSearching}
                 maxLength={10_000}
                 onChange={handleSemanticInputChange}
                 onKeyDown={handleSemanticKeyDown}
                 placeholder="Describe what you want to find... (Cmd+Enter)"
+                title={disabled ? disabledReason : undefined}
                 value={semanticQuery}
               />
-              {semanticQuery && !isSearching && (
+              {semanticQuery && !(disabled || isSearching) && (
                 <Button
                   aria-label="Clear query"
                   className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
@@ -227,7 +241,9 @@ export const SearchModeBar = React.memo(function SearchModeBar({
                   <Button
                     aria-label="Search options"
                     className="h-9 w-9 shrink-0 p-0"
+                    disabled={disabled}
                     size="sm"
+                    title={disabled ? disabledReason : undefined}
                     variant="outline"
                   >
                     <Settings2 className="h-4 w-4" />
@@ -240,9 +256,10 @@ export const SearchModeBar = React.memo(function SearchModeBar({
             )}
             <Button
               className="h-9 shrink-0 px-2.5"
-              disabled={isSearching || !semanticQuery.trim()}
+              disabled={disabled || isSearching || !semanticQuery.trim()}
               onClick={onSemanticSearch}
               size="sm"
+              title={disabled ? disabledReason : undefined}
             >
               {isSearching ? (
                 <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />

@@ -229,6 +229,22 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Query' })).toBeDisabled();
   });
 
+  it('disables the full hybrid search affordance when disabled', () => {
+    render(
+      <SearchModeBar
+        {...createProps({
+          disabled: true,
+          isSearchExpanded: true,
+          semanticQuery: 'test',
+        })}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /collapse hybrid search/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Hybrid search query' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Query' })).toBeDisabled();
+  });
+
   it('calls onSemanticSearch when search button is clicked', () => {
     const onSemanticSearch = vi.fn();
     render(

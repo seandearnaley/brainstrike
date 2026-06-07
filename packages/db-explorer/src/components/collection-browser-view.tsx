@@ -121,6 +121,15 @@ function canUseCollectionForNormalSearch(
   return activeCollectionId !== null && activeCollectionSystemRole !== 'workspace-index';
 }
 
+function getNormalSearchDisabledReason(
+  activeCollectionSystemRole: 'workspace-index' | null | undefined
+): string | undefined {
+  if (activeCollectionSystemRole !== 'workspace-index') {
+    return;
+  }
+  return 'Workspace Index is system-managed and cannot be used for normal collection search.';
+}
+
 export interface CollectionBrowserViewProps {
   /** Active collection ID */
   activeCollectionId: string | null;
@@ -710,6 +719,7 @@ export function CollectionBrowserView({
     activeCollectionId,
     activeCollectionSystemRole
   );
+  const searchDisabledReason = getNormalSearchDisabledReason(activeCollectionSystemRole);
   const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
   // In semantic/hybrid search mode the tree is built from the bounded search-result
   // set (not the paginated file list), so the file-list pager is meaningless here:
@@ -1131,6 +1141,8 @@ export function CollectionBrowserView({
         }
         advancedOptionsOpen={advancedOptionsOpen}
         className="border-border border-b"
+        disabled={searchDisabledReason !== undefined}
+        disabledReason={searchDisabledReason}
         hasSearched={hasScopedSemanticSearch}
         isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}

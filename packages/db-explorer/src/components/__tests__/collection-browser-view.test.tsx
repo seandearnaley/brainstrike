@@ -158,11 +158,13 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
   const SearchModeBar = ({
     advancedOptions,
+    disabled,
     isSearchExpanded,
     onSemanticSearch,
     onSearchExpandedChange,
   }: {
     advancedOptions?: ReactNode;
+    disabled?: boolean;
     isSearchExpanded?: boolean;
     onSemanticSearch?: () => void;
     onSearchExpandedChange?: (expanded: boolean) => void;
@@ -173,12 +175,18 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         // the real component's behavior instead of the mock.
         aria-expanded={isSearchExpanded ? 'true' : 'false'}
         aria-label={isSearchExpanded ? 'Collapse hybrid search' : 'Expand hybrid search'}
+        disabled={disabled}
         onClick={() => onSearchExpandedChange?.(!isSearchExpanded)}
         type="button"
       >
         Hybrid search
       </button>
-      <button aria-label="Run hybrid search" onClick={onSemanticSearch} type="button">
+      <button
+        aria-label="Run hybrid search"
+        disabled={disabled}
+        onClick={onSemanticSearch}
+        type="button"
+      >
         Run hybrid search
       </button>
       {isSearchExpanded && advancedOptions}
@@ -497,6 +505,7 @@ describe('CollectionBrowserView', () => {
   it('does not execute hybrid search for the protected workspace index collection', async () => {
     const user = userEvent.setup();
     useCollectionBrowserStore.getState().setSemanticQuery('workspace query');
+    useCollectionBrowserStore.getState().setSearchPanelExpanded(true);
 
     render(
       <CollectionBrowserView
@@ -508,6 +517,8 @@ describe('CollectionBrowserView', () => {
       />
     );
 
+    expect(screen.getByRole('button', { name: /collapse hybrid search/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Run hybrid search' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Run hybrid search' }));
 
     expect(semanticSearchMock.executeSearch).not.toHaveBeenCalled();
