@@ -24,7 +24,8 @@
 | 2026-06-07 | v0.8 | Implemented Phase 6 assistant integration: runtime Workspace Index status reaches assistant requests, `queryEmbeddingSpace` can omit `embeddingSetId` for Workspace Index defaulting, blocked Workspace Index state returns structured tool output, and coverage remains available through `listEmbeddingSpaces({ includeStats: true })` instead of adding per-query stats overhead. | Commits `17e6ac800`, `004eab404` |
 | 2026-06-07 | v0.9 | Implemented Phase 7 QoS v1 foundation: shared `@brainstrike/utils/workspace-indexing-qos` policy, app-shell scan/import/backfill policy wiring, visible-renderer activity/visibility and DB-pressure inputs, and desktop embedding worker claim sizing through the same policy. Desktop idle/power/thermal inputs remain a follow-up before Phase 7 is fully closed. | Commits `d6974dc1f`, `279fc8c88` plus current Phase 7 branch work |
 | 2026-06-07 | v1.0 | Wired desktop platform QoS inputs: Electron `powerMonitor` snapshots flow through a typed preload `power.getSnapshot()` bridge into app-shell scan/import/backfill policy and hidden embedding worker claim sizing. | Commit `8ab97dc65` |
-| 2026-06-07 | v1.1 | Added Phase 8 desktop verification coverage for fresh Workspace Index bootstrap, stale managed-id rebind, and pause/resume persistence; fixed a DB ESM import-extension runtime launch failure discovered by desktop e2e; made background-indexing preferences a renderer-global singleton so duplicate import paths cannot split pause state. | Commits `555c6b0cb` plus current Phase 8 branch work |
+| 2026-06-07 | v1.1 | Added Phase 8 desktop verification coverage for fresh Workspace Index bootstrap, stale managed-id rebind, and pause/resume persistence; fixed a DB ESM import-extension runtime launch failure discovered by desktop e2e; made background-indexing preferences a renderer-global singleton so duplicate import paths cannot split pause state. | Commits `555c6b0cb`, `f71e68940` |
+| 2026-06-07 | v1.2 | Manual Agent DevTools verification found and closed a protected-UI affordance gap: shared hybrid-search controls now support a disabled state and Database Explorer passes it when the active collection is the Workspace Index. | Commit `2d9f64c5b` |
 
 ## 1. Goal
 
@@ -609,6 +610,18 @@ Do not add `--remote-debugging-port` to default desktop E2E.
 - `background-indexing-settings.desktop.test.ts` now verifies stale managed collection preferences rebind to the protected Workspace Index instead of surfacing stale metadata.
 - `background-indexing-pause.desktop.test.ts` verifies the settings pause/resume control persists `paused=true/false` through the Electron storage bridge after the Workspace Index is bootstrapped. It uses keyboard activation to exercise the accessible control deterministically in the Electron e2e harness.
 - Desktop e2e command syntax is `pnpm --dir apps/desktop test:e2e e2e/<file>.desktop.test.ts`; do not insert an extra `--` before file arguments because the script already delegates through `run-env`.
+
+**Manual verification note v1.2**
+
+- Command: `pnpm --filter @brainstrike/desktop dev:agent-debug`.
+- Environment: macOS desktop dev build, Electron 41.2.1, Node 24.14.1, isolated Agent DevTools profile, commit `2d9f64c5b`.
+- Chrome DevTools/CDP target: visible renderer at `http://localhost:38181/`.
+- Observed: fresh isolated profile showed a single `Workspace Index` collection row with OpenAI small, 1536 dimensions, cosine distance, and zero-file/zero-chunk coverage.
+- Observed: `window.embeddingHost.getStatus()` returned `state: 'stopped'`, `active: false`, `lastError: null` in the no-key profile; no background embedding work started.
+- Observed: `window.power.getSnapshot()` returned idle/AC/nominal platform inputs, proving the visible renderer can read the desktop QoS power bridge.
+- Observed: the Workspace Index collection row rendered as `role="option"` with `aria-disabled="true"`, and clicking it did not change `brainstrike.activeEmbeddingSetId`.
+- Observed: Export and Import actions were disabled for the Workspace Index row. Initial inspection found generic hybrid-search controls still enabled when no valid active collection was selected; commit `2d9f64c5b` adds a disabled SearchModeBar path for any actual Workspace Index active-collection state, with unit coverage in `@brainstrike/ui` and integration coverage in `@brainstrike/db-explorer`.
+- Console observation: the no-key profile emitted `[WorkspaceCollectionSyncProvider] Workspace collection sync failed`, which is the current missing-provider-key blocked path. The manual check did not observe fallback embedding work.
 
 ## 11. TDD and Commit Discipline
 
