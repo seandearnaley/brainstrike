@@ -315,6 +315,8 @@ describe('IndexingActivityCoordinator', () => {
   });
 
   it('keeps unknown live query state unavailable instead of inventing idle zero counts', async () => {
+    useBackgroundIndexingPreferencesStore.getState().setEnabled(false);
+
     render(<IndexingActivityCoordinator />);
 
     await waitFor(() => {

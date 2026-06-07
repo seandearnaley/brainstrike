@@ -103,6 +103,23 @@ describe('indexing-activity-store', () => {
     expect(useIndexingActivityStore.getState().snapshot.lastUpdatedAt).toEqual(expect.any(Number));
   });
 
+  it('does not report idle from a stopped worker without an explicit queue snapshot', () => {
+    useIndexingActivityStore.getState().setWorkerSnapshot({
+      state: 'stopped',
+      lastError: null,
+    });
+
+    expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+      status: 'unavailable',
+      phase: null,
+      queue: null,
+      worker: {
+        state: 'stopped',
+        lastError: null,
+      },
+    });
+  });
+
   it('derives active queue state from queued and running jobs', () => {
     useIndexingActivityStore.getState().setQueueSnapshot({
       queued: 8,
