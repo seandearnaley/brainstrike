@@ -100,11 +100,21 @@ export function isNewerPgDataDir(
  * compound across major bumps. Best-effort and side-effect-tolerant: unreadable
  * entries are skipped, and the just-created backup (mtime ≈ now) is never swept.
  * Returns the paths that were removed.
+ *
+ * `excludePath` is a backup that must NEVER be pruned regardless of its mtime —
+ * pass the backup created earlier in THIS boot. The retention clock relies on the
+ * backup's mtime being stamped to move-time, but that stamp is best-effort
+ * (`utimesSync` can throw); if it didn't take, the backup keeps the old DB's last
+ * write mtime, which after a long idle period can already exceed `retentionMs`.
+ * Without this exclusion the same-boot prune would then delete the fresh backup
+ * immediately, collapsing the recovery window to zero. The exclusion makes
+ * same-boot survival deterministic and independent of whether the stamp succeeded.
  */
 export function pruneStaleEngineUpgradeBackups(
   dataDir: string,
   retentionMs: number = ENGINE_UPGRADE_BACKUP_RETENTION_MS,
-  now: number = Date.now()
+  now: number = Date.now(),
+  excludePath: string | null = null
 ): string[] {
   const parent = path.dirname(dataDir);
   const prefix = `${path.basename(dataDir)}.pre-pg`;
@@ -124,6 +134,11 @@ export function pruneStaleEngineUpgradeBackups(
       continue;
     }
     const full = path.join(parent, name);
+    // Never sweep the backup created this boot — its mtime may predate retention
+    // if the move-time stamp failed.
+    if (excludePath !== null && full === excludePath) {
+      continue;
+    }
     try {
       if (now - statSync(full).mtimeMs > retentionMs) {
         rmSync(full, { recursive: true, force: true });

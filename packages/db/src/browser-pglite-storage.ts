@@ -45,6 +45,15 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  *    the unversioned base name, so the prior major's orphan is reclaimed solely
  *    via that maintained fallback list.
  * 2. Bump `BUNDLED_PG_MAJOR` in apps/desktop/src/pg-data-version.ts to match.
+ *
+ * DEPENDENCY-PIN LOCKSTEP (separate axis from this token): `@electric-sql/pglite`
+ * and `@electric-sql/pglite-pgvector` MUST be bumped together. pgvector declares
+ * an EXACT peer on a single pglite version (0.0.2 → `@electric-sql/pglite: 0.5.1`),
+ * and both are pinned to exact versions across every package.json that uses them
+ * (db, agent, embeddings, vector-management, file-import, token-cache, desktop).
+ * Bumping pglite alone (e.g. to a 0.5.x patch) breaks peer resolution until
+ * pgvector ships a matching release — so move both in the same change. There is no
+ * Renovate/Dependabot in this repo to enforce it; this note is the reminder.
  */
 export const PGLITE_DATA_DIR_VERSION = 'pg18';
 

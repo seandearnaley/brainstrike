@@ -27,6 +27,7 @@ import { app } from 'electron';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
   BUNDLED_PG_MAJOR,
+  ENGINE_UPGRADE_BACKUP_RETENTION_MS,
   isEngineUpgradeBackupName,
   isIncompatiblePgDataDir,
   isNewerPgDataDir,
@@ -1089,10 +1090,14 @@ async function handleCorruptionError(
  *   failure falls back to a plain wipe rather than blocking startup.
  *
  * Caller MUST hold the exclusive process lock so no other process owns the dir.
+ *
+ * Returns the path of the backup created this boot (so the caller can exclude it
+ * from the same-boot retention prune), or null when no backup was moved aside
+ * (compatible dir, or the rename failed and the dir was wiped instead).
  */
-function reconcileIncompatiblePgDataDir(dataDir: string): void {
+function reconcileIncompatiblePgDataDir(dataDir: string): string | null {
   if (!isIncompatiblePgDataDir(dataDir)) {
-    return;
+    return null;
   }
   const foundMajor = readPgDataMajor(dataDir);
   if (isNewerPgDataDir(dataDir)) {
@@ -1104,19 +1109,24 @@ function reconcileIncompatiblePgDataDir(dataDir: string): void {
   }
 
   const backupDir = `${dataDir}.pre-pg${BUNDLED_PG_MAJOR}-from-pg${foundMajor ?? 'unknown'}.bak`;
+  let movedAside = false;
   try {
     rmSync(backupDir, { recursive: true, force: true });
     renameSync(dataDir, backupDir);
+    movedAside = true;
     // renameSync preserves the dir's original content mtime (≈ the last time the
     // old DB was written), NOT the move time. Stamp it to now so the retention
-    // clock starts at move time — otherwise upgrading after a long idle period
-    // would let this same boot's prune delete the fresh backup immediately,
-    // collapsing the recovery window to zero.
+    // clock starts at move time. The same-boot prune additionally excludes this
+    // path (see caller), so a failed stamp can't collapse the recovery window to
+    // zero — the stamp only governs survival across LATER boots.
     try {
       const movedAt = new Date();
       utimesSync(backupDir, movedAt, movedAt);
-    } catch {
-      // best-effort: if stamping fails, retention falls back to the old mtime
+    } catch (stampErr) {
+      logger.warn('Failed to stamp engine-upgrade backup mtime; retention may run short', {
+        backupDir,
+        error: getErrorDetails(stampErr),
+      });
     }
     logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
       dataDir,
@@ -1134,6 +1144,7 @@ function reconcileIncompatiblePgDataDir(dataDir: string): void {
     rmSync(dataDir, { recursive: true, force: true });
   }
   mkdirSync(dataDir, { recursive: true });
+  return movedAside ? backupDir : null;
 }
 
 /**
@@ -1188,7 +1199,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
       // Greenfield engine-upgrade guard. Runs only after the exclusive process
       // lock is held, so we never touch a data dir another process is using.
-      reconcileIncompatiblePgDataDir(dataDir);
+      const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
 
       db = await createVectorDatabase(
         loadedPGlite.PGlite,
@@ -1200,9 +1211,17 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
       // Reclaim any engine-upgrade backups past their retention window now that
       // the new engine has booted successfully, so moved-aside old data dirs
-      // don't accumulate on disk across major bumps. Best-effort; never fatal.
+      // don't accumulate on disk across major bumps. Exclude a backup moved aside
+      // THIS boot: its retention clock relies on a best-effort mtime stamp that may
+      // have failed, so excluding it by path keeps the prune from deleting it
+      // immediately. Best-effort; never fatal.
       try {
-        const pruned = pruneStaleEngineUpgradeBackups(dataDir);
+        const pruned = pruneStaleEngineUpgradeBackups(
+          dataDir,
+          ENGINE_UPGRADE_BACKUP_RETENTION_MS,
+          Date.now(),
+          movedAsideBackup
+        );
         if (pruned.length > 0) {
           logger.info('Reclaimed stale engine-upgrade backups', { pruned });
         }

@@ -150,9 +150,13 @@ describe('db-main lifecycle', () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
     // clearAllMocks() resets call history but NOT implementations, so without this
-    // a per-test readFileSync override (e.g. a PG_VERSION major) would leak into
-    // later tests. Restore the empty default so each test starts from a clean slate.
+    // a per-test override (a PG_VERSION major, a thrown utimes, an enumerated
+    // backup) would leak into later tests. Restore defaults so each test starts
+    // from a clean slate.
     readFileSyncMock.mockImplementation(() => '');
+    utimesSyncMock.mockImplementation(() => undefined);
+    readdirSyncMock.mockReturnValue([]);
+    statSyncMock.mockReturnValue({ mtimeMs: Date.now() });
   });
 
   afterEach(() => {
@@ -196,6 +200,33 @@ describe('db-main lifecycle', () => {
       expect.any(Date),
       expect.any(Date)
     );
+  });
+
+  it('does not let the same-boot prune delete the just-moved backup when the mtime stamp fails', async () => {
+    // Edge case: utimesSync throws, so the moved-aside backup keeps the old DB's
+    // (already-stale) content mtime. The unconditional same-boot prune must still
+    // NOT delete it — the freshly-moved backup is excluded by path, independent of
+    // mtime — otherwise the recovery window collapses to zero.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+    utimesSyncMock.mockImplementation(() => {
+      throw new Error('utimes failed');
+    });
+    // The prune enumerates the backup and sees a stale mtime (older than retention).
+    const backupName = 'pgdata.pre-pg18-from-pg17.bak';
+    readdirSyncMock.mockReturnValue([backupName]);
+    statSyncMock.mockReturnValue({ mtimeMs: 0 });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // rmSync hits the backup path exactly once — the reconcile pre-clear — and the
+    // prune does NOT remove it a second time (it was excluded).
+    const backupRmCalls = rmSyncMock.mock.calls.filter(([target]) =>
+      String(target).endsWith(backupName)
+    );
+    expect(backupRmCalls).toHaveLength(1);
   });
 
   it('does NOT move aside a matching (current Postgres major) data dir', async () => {

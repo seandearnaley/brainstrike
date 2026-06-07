@@ -167,4 +167,21 @@ describe('pruneStaleEngineUpgradeBackups', () => {
     expect(existsSync(dataDir)).toBe(true);
     expect(existsSync(path.join(appDataDir, 'pgdata.lock'))).toBe(true);
   });
+
+  it('never prunes the excluded just-created backup, even when its mtime is already stale', () => {
+    // Models the utimes-stamp-failed edge case: a backup moved aside THIS boot whose
+    // mtime is the old DB's last-write time (already older than retention). Passing
+    // it as excludePath must keep the same-boot prune from collapsing the recovery
+    // window to zero — independent of mtime.
+    const justMoved = makeBackup('pgdata.pre-pg18-from-pg17.bak');
+    const olderOrphan = makeBackup('pgdata.pre-pg17-from-pg16.bak');
+    const future = Date.now() + 365 * 24 * 60 * 60 * 1000;
+
+    const pruned = pruneStaleEngineUpgradeBackups(dataDir, 24 * 60 * 60 * 1000, future, justMoved);
+
+    // The excluded backup survives; the unrelated stale orphan is still reclaimed.
+    expect(pruned).toEqual([olderOrphan]);
+    expect(existsSync(justMoved)).toBe(true);
+    expect(existsSync(olderOrphan)).toBe(false);
+  });
 });
