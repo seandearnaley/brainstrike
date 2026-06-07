@@ -258,6 +258,13 @@ export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string
     return;
   }
 
+  // BOTH backends are reclaimed regardless of the active scheme, by design (NOT a
+  // missed scope-to-scheme optimization). The selected backend can differ from a
+  // PRIOR build's: a user can toggle the OPFS opt-in, or OPFS support can appear/
+  // disappear, switching idb⇄opfs-ahp across upgrades. An orphan left under the
+  // OTHER scheme would then never be reclaimed if we only swept the active one.
+  // The cross-backend pass is cheap (one `databases()` + one OPFS root walk) and
+  // runs once, fire-and-forget, AFTER open — so it doesn't gate startup.
   try {
     const names = await legacyIndexedDbNamesToReclaim(baseName, PGLITE_ENGINE_MAJOR);
     for (const name of names) {
