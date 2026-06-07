@@ -3,7 +3,7 @@
 **Status**: Draft for phased implementation
 **Owner**: Sean Dearnaley
 **Created**: 2026-06-07
-**Last revised**: 2026-06-07 v0.7
+**Last revised**: 2026-06-07 v0.8
 **Target packages**: `@brainstrike/db`, `@brainstrike/preferences`, `@brainstrike/app-shell`, `@brainstrike/vector-management`, `@brainstrike/ui`, `@brainstrike/db-explorer`, `@brainstrike/agent`, `apps/desktop`
 **Rollout posture**: Phased, stacked PRs, red/green TDD, regular commits
 **Source analysis**: `docs/background-indexer-deep-dive-2026-06-07.md`
@@ -21,6 +21,7 @@
 | 2026-06-07 | v0.5 | Implemented Phase 3 settings/status copy, idle pause affordance, missing-key status badge, and global blocked status handling for `state: blocked`. | Commits `c818931dd`, `ba775dcc3` |
 | 2026-06-07 | v0.6 | Implemented Phase 4 protected collection UI: shared picker protection, durable `systemRole` propagation through selectors, and Database Explorer guards for selection, edit/delete, manual import, and hybrid search. | Commits `21d8d3f5d`, `8fe41ce97`, `0eecf7177` |
 | 2026-06-07 | v0.7 | Implemented Phase 5 desktop backfill recovery: scoped queue repair before candidate counting and a background-specific drain timeout so large workspace index drains do not inherit the manual foreground cap. | Commit `fad21ca3b` |
+| 2026-06-07 | v0.8 | Implemented Phase 6 assistant integration: runtime Workspace Index status reaches assistant requests, `queryEmbeddingSpace` can omit `embeddingSetId` for Workspace Index defaulting, blocked Workspace Index state returns structured tool output, and coverage remains available through `listEmbeddingSpaces({ includeStats: true })` instead of adding per-query stats overhead. | Commits `17e6ac800`, `004eab404` |
 
 ## 1. Goal
 
@@ -461,6 +462,12 @@ Each phase should land as a separate PR unless implementation evidence shows two
 - Assistant can reliably use the workspace index without user collection selection.
 - Blocked/incomplete states are explicit.
 
+**Implementation note v0.8**
+
+- `brainstrike.queryEmbeddingSpace` now defaults to the Workspace Index when `embeddingSetId` is omitted and a Workspace Index runtime snapshot is present.
+- If the Workspace Index is blocked/unavailable, `queryEmbeddingSpace` returns structured status with queue progress and the exact blocked reason instead of throwing a generic missing-set error.
+- Coverage stats are exposed through `brainstrike.listEmbeddingSpaces({ includeStats: true, workspaceIndexOnly: true })`. They are not duplicated into every query result because that would add a stats query to the hot retrieval path.
+
 ### Phase 7: Adaptive QoS Controller v1
 
 **Goal**: Replace scattered static behavior with a small explicit QoS policy controller.
@@ -695,11 +702,11 @@ Record:
 
 | ID | Decision | Current recommendation | Owner | Status |
 |---|---|---|---|---|
-| D1 | DB representation for system collection role | Add first-class columns, not tags/category. | Engineering | Proposed |
+| D1 | DB representation for system collection role | Add first-class columns, not tags/category. | Engineering | Implemented |
 | D2 | Whether workspace index can be directly searched by advanced users | Provide a dedicated inspector/search path, not normal collection selector. | Product/Engineering | Proposed |
 | D3 | Background backfill completion semantics | Decouple durable enqueue from full drain for background source, or make drain policy adaptive. | Engineering | Proposed |
-| D4 | Assistant retrieval default path | Workspace/codebase retrieval defaults to workspace index when ready. | Engineering | Proposed |
-| D5 | Default hosted model | `openai::text-embedding-3-small`, 1536D, cosine. | Product/Engineering | Proposed |
+| D4 | Assistant retrieval default path | Workspace/codebase retrieval defaults to Workspace Index when ready; coverage stats stay on `listEmbeddingSpaces`. | Engineering | Implemented |
+| D5 | Default hosted model | `openai::text-embedding-3-small`, 1536D, cosine. | Product/Engineering | Implemented |
 
 ## 16. PRD Maintenance Rules
 
