@@ -3,7 +3,7 @@
 **Status**: Draft for phased implementation
 **Owner**: Sean Dearnaley
 **Created**: 2026-06-07
-**Last revised**: 2026-06-07 v0.4
+**Last revised**: 2026-06-07 v0.5
 **Target packages**: `@brainstrike/db`, `@brainstrike/preferences`, `@brainstrike/app-shell`, `@brainstrike/vector-management`, `@brainstrike/ui`, `@brainstrike/db-explorer`, `@brainstrike/agent`, `apps/desktop`
 **Rollout posture**: Phased, stacked PRs, red/green TDD, regular commits
 **Source analysis**: `docs/background-indexer-deep-dive-2026-06-07.md`
@@ -18,6 +18,7 @@
 | 2026-06-07 | v0.2 | Corrected DB test-lane verification to use the package-local script in `@brainstrike/db`. | Phase 1 implementation evidence |
 | 2026-06-07 | v0.3 | Implemented Phase 1 DB system role, migration registration, repository API, and exported workspace-index defaults/constants. | Commit `243ddd895` |
 | 2026-06-07 | v0.4 | Implemented Phase 2 bootstrap defaults, fresh/stale preference binding, `blocked:missing-provider-key`, early provider validation, and pause-preserving bootstrap. | Commits `4738f5566`, `896ace664`, `40cbe6e57` |
+| 2026-06-07 | v0.5 | Implemented Phase 3 settings/status copy, idle pause affordance, missing-key status badge, and global blocked status handling for `state: blocked`. | Commits `c818931dd`, `ba775dcc3` |
 
 ## 1. Goal
 
