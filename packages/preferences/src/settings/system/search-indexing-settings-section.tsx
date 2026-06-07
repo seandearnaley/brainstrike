@@ -63,9 +63,20 @@ function toCollectionOption(collection: {
 }
 
 function getStatusBadge(
-  state: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>['state']
+  status: Pick<
+    ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>,
+    'blockedReason' | 'state'
+  >
 ) {
-  switch (state) {
+  switch (status.state) {
+    case 'blocked':
+      return {
+        label:
+          status.blockedReason === 'missing-provider-key' ? 'Waiting for OpenAI key' : 'Blocked',
+        icon: AlertTriangle,
+        variant: 'destructive' as const,
+        iconClassName: 'size-3.5',
+      };
     case 'scanning':
       return {
         label: 'Scanning root',
@@ -160,6 +171,7 @@ export function SearchIndexingSettingsSection() {
   const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
     state: state.state,
     backfillRequestId: state.backfillRequestId,
+    blockedReason: state.blockedReason,
     managedCollectionName: state.managedCollectionName,
     currentFilePath: state.currentFilePath,
     lastError: state.lastError,
@@ -287,33 +299,33 @@ export function SearchIndexingSettingsSection() {
     [indexingPolicyPreset]
   );
 
-  const statusBadge = getStatusBadge(syncStatus.state);
+  const statusBadge = getStatusBadge(syncStatus);
   const StatusIcon = statusBadge.icon;
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
-  const showPauseControl = shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
+  const showPauseControl =
+    enabled && shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Search & Indexing</CardTitle>
+        <CardTitle>Workspace Index</CardTitle>
         <CardDescription>
-          Enable background indexing for the selected root folder. BrainStrike stores the managed
-          collection as a durable cache, so previously indexed roots remain searchable instead of
-          being purged when you switch folders.
+          Keep the selected root folder searchable through BrainStrike's system-managed workspace
+          index collection.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm">Background indexing</Label>
+            <Label className="font-medium text-sm">Workspace Index</Label>
             <p className="text-muted-foreground text-sm">
               When enabled, BrainStrike scans the selected root folder, chunks eligible text files,
-              and stores embeddings in one managed collection for reuse.
+              and stores embeddings in the protected workspace index.
             </p>
           </div>
           <Switch
-            aria-label="Background indexing"
+            aria-label="Workspace Index"
             checked={enabled}
             onCheckedChange={(value) => setEnabled(value === true)}
           />
@@ -421,7 +433,7 @@ export function SearchIndexingSettingsSection() {
           {showPauseControl ? (
             <div className="flex justify-end">
               <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
-                {paused ? 'Resume background indexing' : 'Pause background indexing'}
+                {paused ? 'Resume workspace index' : 'Pause workspace index'}
               </Button>
             </div>
           ) : null}
