@@ -1,3 +1,4 @@
+import { afterEach, vi } from 'vitest';
 import {
   getDefaultBrowserPGliteDataDir,
   getRecommendedBrowserPGliteStorage,
@@ -5,6 +6,7 @@ import {
   isIndexedDbPGliteDataDir,
   isOpfsAhpPGliteDataDir,
   PGLITE_DATA_DIR_VERSION,
+  reclaimLegacyBrowserPGliteStorage,
 } from '../src/browser-pglite-storage.js';
 
 describe('browser PGlite storage selection', () => {
@@ -76,5 +78,47 @@ describe('browser PGlite storage selection', () => {
     expect(isBrowserPersistentPGliteDataDir('idb://app-pg18')).toBe(true);
     expect(isBrowserPersistentPGliteDataDir('opfs-ahp://app-pg18')).toBe(true);
     expect(isBrowserPersistentPGliteDataDir('memory://app-pg18')).toBe(false);
+  });
+});
+
+describe('reclaimLegacyBrowserPGliteStorage', () => {
+  const g = globalThis as unknown as {
+    indexedDB?: { deleteDatabase: (name: string) => unknown };
+    navigator?: { storage?: { getDirectory?: () => Promise<unknown> } };
+  };
+  const originalIndexedDB = g.indexedDB;
+
+  afterEach(() => {
+    g.indexedDB = originalIndexedDB;
+    vi.restoreAllMocks();
+  });
+
+  it('deletes the legacy (unversioned) IndexedDB database for the same base name', async () => {
+    const deleteDatabase = vi.fn();
+    g.indexedDB = { deleteDatabase };
+
+    await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
+
+    expect(deleteDatabase).toHaveBeenCalledWith('app');
+    // Must NOT delete the in-use versioned database.
+    expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg18');
+  });
+
+  it('derives the legacy name for non-default db names (e.g. web)', async () => {
+    const deleteDatabase = vi.fn();
+    g.indexedDB = { deleteDatabase };
+
+    await reclaimLegacyBrowserPGliteStorage('opfs-ahp://web-pg18');
+
+    expect(deleteDatabase).toHaveBeenCalledWith('web');
+  });
+
+  it('does nothing for a non-versioned or non-persistent dir, and never throws', async () => {
+    const deleteDatabase = vi.fn();
+    g.indexedDB = { deleteDatabase };
+
+    await expect(reclaimLegacyBrowserPGliteStorage('memory://app')).resolves.toBeUndefined();
+    await expect(reclaimLegacyBrowserPGliteStorage('idb://app')).resolves.toBeUndefined();
+    expect(deleteDatabase).not.toHaveBeenCalled();
   });
 });

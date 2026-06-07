@@ -24,7 +24,12 @@ import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
-import { BUNDLED_PG_MAJOR, isIncompatiblePgDataDir, readPgDataMajor } from './pg-data-version';
+import {
+  BUNDLED_PG_MAJOR,
+  isIncompatiblePgDataDir,
+  pruneStaleEngineUpgradeBackups,
+  readPgDataMajor,
+} from './pg-data-version';
 
 const logger = createLogger('DatabaseMain');
 
@@ -1152,6 +1157,20 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
         loadedPGlite.live
       );
       logger.debug('Database initialized with pgvector extension at:', dataDir);
+
+      // Reclaim any engine-upgrade backups past their retention window now that
+      // the new engine has booted successfully, so moved-aside old data dirs
+      // don't accumulate on disk across major bumps. Best-effort; never fatal.
+      try {
+        const pruned = pruneStaleEngineUpgradeBackups(dataDir);
+        if (pruned.length > 0) {
+          logger.info('Reclaimed stale engine-upgrade backups', { pruned });
+        }
+      } catch (pruneErr) {
+        logger.warn('Failed to prune stale engine-upgrade backups', {
+          error: getErrorDetails(pruneErr),
+        });
+      }
     } catch (err) {
       recordInitializationFailure('open-database', err);
       releaseInitializationLockOnce();

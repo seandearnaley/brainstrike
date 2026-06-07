@@ -7,6 +7,7 @@ import {
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
   isOpfsAhpPGliteDataDir,
+  reclaimLegacyBrowserPGliteStorage,
 } from './browser-pglite-storage.js';
 
 type VectorExtension = Extension;
@@ -191,6 +192,12 @@ class WasmLoader {
       if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
         this.workerClientStartups.delete(cacheKey);
         this.workerCache.set(cacheKey, db);
+        // One-time best-effort reclamation of the pre-engine-version legacy storage
+        // (e.g. idb://app) now that the versioned DB (idb://app-pg18) has opened, so
+        // the orphaned old database doesn't sit against the origin's storage quota.
+        if (normalizedDataDir) {
+          void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
+        }
       }
       return db;
     } catch (error) {

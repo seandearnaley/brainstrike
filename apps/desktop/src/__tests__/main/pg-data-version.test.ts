@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BUNDLED_PG_MAJOR, isIncompatiblePgDataDir, readPgDataMajor } from '../../pg-data-version';
+import {
+  BUNDLED_PG_MAJOR,
+  isIncompatiblePgDataDir,
+  pruneStaleEngineUpgradeBackups,
+  readPgDataMajor,
+} from '../../pg-data-version';
 
 describe('pg-data-version guard', () => {
   let dir: string;
@@ -62,5 +67,61 @@ describe('pg-data-version guard', () => {
     mkdirSync(path.join(dir, 'nested'), { recursive: true });
     writeFileSync(path.join(dir, 'nested', 'PG_VERSION'), '  18  \n', 'utf8');
     expect(isIncompatiblePgDataDir(path.join(dir, 'nested'))).toBe(false);
+  });
+});
+
+describe('pruneStaleEngineUpgradeBackups', () => {
+  let appDataDir: string;
+  let dataDir: string;
+
+  beforeEach(() => {
+    appDataDir = mkdtempSync(path.join(tmpdir(), 'bs-prune-'));
+    dataDir = path.join(appDataDir, 'pgdata');
+    mkdirSync(dataDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(appDataDir, { recursive: true, force: true });
+  });
+
+  function makeBackup(name: string): string {
+    const full = path.join(appDataDir, name);
+    mkdirSync(full, { recursive: true });
+    return full;
+  }
+
+  it('removes engine-upgrade backups older than the retention window', () => {
+    const stale = makeBackup('pgdata.pre-pg18-from-pg17.bak');
+    const olderMajor = makeBackup('pgdata.pre-pg17-from-pg16.bak');
+    // Treat "now" as far in the future so the just-created dirs exceed retention.
+    const future = Date.now() + 365 * 24 * 60 * 60 * 1000;
+
+    const pruned = pruneStaleEngineUpgradeBackups(dataDir, 24 * 60 * 60 * 1000, future);
+
+    expect(pruned.sort()).toEqual([olderMajor, stale].sort());
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(olderMajor)).toBe(false);
+  });
+
+  it('keeps a recent backup within the retention window and never touches the live dir', () => {
+    const recent = makeBackup('pgdata.pre-pg18-from-pg17.bak');
+
+    const pruned = pruneStaleEngineUpgradeBackups(dataDir, 24 * 60 * 60 * 1000, Date.now());
+
+    expect(pruned).toEqual([]);
+    expect(existsSync(recent)).toBe(true);
+    expect(existsSync(dataDir)).toBe(true);
+  });
+
+  it('ignores non-backup siblings (the live pgdata dir and unrelated entries)', () => {
+    makeBackup('other-dir');
+    writeFileSync(path.join(appDataDir, 'pgdata.lock'), 'x', 'utf8');
+    const future = Date.now() + 365 * 24 * 60 * 60 * 1000;
+
+    const pruned = pruneStaleEngineUpgradeBackups(dataDir, 24 * 60 * 60 * 1000, future);
+
+    expect(pruned).toEqual([]);
+    expect(existsSync(dataDir)).toBe(true);
+    expect(existsSync(path.join(appDataDir, 'pgdata.lock'))).toBe(true);
   });
 });

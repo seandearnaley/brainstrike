@@ -1,5 +1,18 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
+
+/**
+ * Suffix used for a data dir moved aside during an engine-major upgrade
+ * (`<dataDir>.pre-pg<new>-from-pg<old>.bak`). See db-main's upgrade guard.
+ */
+export const ENGINE_UPGRADE_BACKUP_SUFFIX = '.bak';
+
+/**
+ * How long a moved-aside upgrade backup is retained before it is reclaimed. The
+ * old dir can't be opened by the bundled engine — it's forensic insurance only —
+ * so it is swept on a later successful boot once the window has elapsed.
+ */
+export const ENGINE_UPGRADE_BACKUP_RETENTION_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
 /**
  * Postgres engine major bundled with the current PGlite release.
@@ -45,4 +58,45 @@ export function isIncompatiblePgDataDir(
 ): boolean {
   const major = readPgDataMajor(dataDir);
   return major !== null && major !== expectedMajor;
+}
+
+/**
+ * Reclaim engine-upgrade backups (`<dataDir>.pre-pg*.bak` siblings) older than
+ * `retentionMs`, so a moved-aside old database doesn't sit on disk forever and
+ * compound across major bumps. Best-effort and side-effect-tolerant: unreadable
+ * entries are skipped, and the just-created backup (mtime ≈ now) is never swept.
+ * Returns the paths that were removed.
+ */
+export function pruneStaleEngineUpgradeBackups(
+  dataDir: string,
+  retentionMs: number = ENGINE_UPGRADE_BACKUP_RETENTION_MS,
+  now: number = Date.now()
+): string[] {
+  const parent = path.dirname(dataDir);
+  const prefix = `${path.basename(dataDir)}.pre-pg`;
+  const pruned: string[] = [];
+
+  let entries: string[];
+  try {
+    entries = readdirSync(parent);
+  } catch {
+    return pruned;
+  }
+
+  for (const name of entries) {
+    if (!(name.startsWith(prefix) && name.endsWith(ENGINE_UPGRADE_BACKUP_SUFFIX))) {
+      continue;
+    }
+    const full = path.join(parent, name);
+    try {
+      if (now - statSync(full).mtimeMs > retentionMs) {
+        rmSync(full, { recursive: true, force: true });
+        pruned.push(full);
+      }
+    } catch {
+      // best-effort: skip entries we can't stat or remove
+    }
+  }
+
+  return pruned;
 }
