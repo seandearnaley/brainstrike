@@ -258,6 +258,72 @@ describe('EmbeddingSetsRepository', () => {
     expect(statements[0]).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
   });
 
+  it('creates one protected workspace index set with the default hosted embedding model', async () => {
+    const first = await repo.getOrCreateWorkspaceIndexSet();
+    const second = await repo.getOrCreateWorkspaceIndexSet();
+
+    expect(second.id).toBe(first.id);
+    expect(first).toMatchObject({
+      name: 'Workspace Index',
+      description: 'System-managed workspace index for assistant retrieval.',
+      modelKey: 'openai::text-embedding-3-small',
+      modelId: 'text-embedding-3-small',
+      dimensions: 1536,
+      distance: 'cosine',
+      systemRole: 'workspace-index',
+    });
+
+    const stats = await db.query<{ embedding_set_id: string }>(
+      'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = $1',
+      [first.id]
+    );
+    expect(stats.rows).toHaveLength(1);
+  });
+
+  it('keeps regular user-created sets user-owned', async () => {
+    const set = await repo.getOrCreateSet(
+      'openai::text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine',
+      { name: 'User Search Collection' }
+    );
+
+    expect(set.systemRole).toBeUndefined();
+
+    const fetched = await repo.getById(set.id);
+    expect(fetched?.systemRole).toBeUndefined();
+  });
+
+  it('enforces a single workspace index system role at the database level', async () => {
+    await repo.getOrCreateWorkspaceIndexSet();
+
+    await expect(
+      db.query(
+        `INSERT INTO embedding_sets (
+          id,
+          model_key,
+          model_id,
+          dimensions,
+          distance,
+          created_at,
+          name,
+          system_role
+        )
+        VALUES (
+          'duplicate-workspace-index',
+          'openai::text-embedding-3-small',
+          'text-embedding-3-small',
+          1536,
+          'cosine',
+          CURRENT_TIMESTAMP,
+          'Duplicate Workspace Index',
+          'workspace-index'
+        )`
+      )
+    ).rejects.toThrow();
+  });
+
   it('rejects invalid numeric values when listing embedding spaces', async () => {
     const trackedRepo = new EmbeddingSetsRepository({
       exec: db.exec.bind(db),

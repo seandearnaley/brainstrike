@@ -118,6 +118,22 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
       expect(first.id).not.toBe(second.id);
     });
+
+    it('should create one protected workspace index set', async () => {
+      const first = await repository.getOrCreateWorkspaceIndexSet();
+      const second = await repository.getOrCreateWorkspaceIndexSet();
+
+      expect(second.id).toBe(first.id);
+      expect(first).toMatchObject({
+        name: 'Workspace Index',
+        description: 'System-managed workspace index for assistant retrieval.',
+        modelKey: 'openai::text-embedding-3-small',
+        modelId: 'text-embedding-3-small',
+        dimensions: 1536,
+        distance: 'cosine',
+        systemRole: 'workspace-index',
+      });
+    });
   });
 
   describe('getById', () => {

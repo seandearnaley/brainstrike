@@ -27,6 +27,7 @@ export interface IEmbeddingSetsRepository {
     distance: EmbeddingDistance,
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet>;
+  getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet>;
   updateMetadata(
     id: string,
     metadata: { name?: string; description?: string; tags?: string; category?: string }

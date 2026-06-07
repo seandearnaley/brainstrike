@@ -15,6 +15,7 @@
 | Date | Version | Change | Driven by |
 |---|---:|---|---|
 | 2026-06-07 | v0.1 | Initial PRD from background indexer deep dive. Defines product target, architecture, phased PR sequence, TDD rules, and validation plan. | Background indexer analysis |
+| 2026-06-07 | v0.2 | Corrected DB test-lane verification to use the package-local script in `@brainstrike/db`. | Phase 1 implementation evidence |
 
 ## 1. Goal
 
@@ -253,13 +254,13 @@ Each phase should land as a separate PR unless implementation evidence shows two
 - GREEN: implement read mapping and default values.
 - RED: migration test verifies existing rows get `null` system role.
 - GREEN: register migration in both migration ledgers.
-- RED: `node scripts/test-lanes.mjs check` fails if new test file is unassigned.
+- RED: `pnpm --filter @brainstrike/db run test:db:check-lanes` fails if a new DB test file is unassigned.
 - GREEN: assign test lane if needed.
 
 **Commands**
 
 - `pnpm --filter @brainstrike/db test -- embedding-sets-repository`
-- `node scripts/test-lanes.mjs check`
+- `pnpm --filter @brainstrike/db run test:db:check-lanes`
 - `pnpm lint && pnpm type-check`
 
 **Exit criteria**
@@ -613,7 +614,7 @@ Every PR must run:
 
 Run the relevant broader gate:
 
-- DB/schema changes: `pnpm --filter @brainstrike/db test` plus `node scripts/test-lanes.mjs check`.
+- DB/schema changes: `pnpm --filter @brainstrike/db test` plus `pnpm --filter @brainstrike/db run test:db:check-lanes`.
 - App-shell background indexing changes: `pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/indexing-contract-boundary.test.ts src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`.
 - Desktop main/IPC changes: `pnpm --dir apps/desktop test`.
 - UI collection changes: affected UI/vector/db-explorer tests plus Playwright where applicable.

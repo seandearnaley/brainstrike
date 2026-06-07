@@ -1,6 +1,11 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { ensureDimensionIndexExists } from '../migrations/dimension-index-helpers.js';
-import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
+import {
+  type EmbeddingDistance,
+  type EmbeddingSet,
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
+  WORKSPACE_INDEX_SYSTEM_ROLE,
+} from '../models/embedding-set';
 import {
   normalizeEmbeddingSetInputMetadata,
   repairPersistedEmbeddingSetMetadata,
@@ -79,6 +84,93 @@ export class EmbeddingSetsRepository {
   private readonly logger = createLogger('EmbeddingSetsRepository');
 
   constructor(private readonly db: EmbeddingSetsDb) {}
+
+  async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
+    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
+      modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
+      modelId: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelId,
+    });
+    const id = generateUUID();
+    const now = new Date().toISOString();
+    const result = await this.db.query(
+      `WITH existing AS (
+         SELECT *
+           FROM embedding_sets
+          WHERE system_role = $9
+          LIMIT 1
+       ),
+       inserted AS (
+         INSERT INTO embedding_sets (
+           id,
+           model_key,
+           model_id,
+           dimensions,
+           distance,
+           created_at,
+           name,
+           description,
+           tags,
+           category,
+           system_role
+         )
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9
+          WHERE NOT EXISTS (SELECT 1 FROM existing)
+         ON CONFLICT DO NOTHING
+         RETURNING *
+       ),
+       selected AS (
+         SELECT * FROM existing
+         UNION ALL
+         SELECT * FROM inserted
+         LIMIT 1
+       ),
+       seeded_stats AS (
+         INSERT INTO collection_indexing_stats (
+           embedding_set_id,
+           file_count,
+           chunk_count,
+           embedded_chunk_count,
+           pending_chunk_count,
+           dirty,
+           last_refreshed_at
+         )
+         SELECT id, 0, 0, 0, 0, FALSE, NOW()
+           FROM selected
+         ON CONFLICT (embedding_set_id) DO NOTHING
+         RETURNING embedding_set_id
+       )
+       SELECT *
+         FROM selected
+        CROSS JOIN (SELECT COUNT(*) AS seeded_stats_count FROM seeded_stats) seeded_stats_count`,
+      [
+        id,
+        normalizedMetadata.modelKey,
+        normalizedMetadata.modelId,
+        WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions,
+        WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.distance,
+        now,
+        WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.name,
+        WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.description,
+        WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.systemRole,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      const fallback = await this.db.query(
+        'SELECT * FROM embedding_sets WHERE system_role = $1 LIMIT 1',
+        [WORKSPACE_INDEX_SYSTEM_ROLE]
+      );
+      const row = fallback.rows[0];
+      if (!row) {
+        throw new Error('Failed to create or load the workspace index embedding set.');
+      }
+      return this.readEmbeddingSet(row as Record<string, unknown>);
+    }
+
+    await ensureDimensionIndexExists(this.db, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+
+    return this.readEmbeddingSet(result.rows[0] as Record<string, unknown>);
+  }
 
   async getOrCreateSet(
     modelKey: string,
@@ -325,6 +417,9 @@ export class EmbeddingSetsRepository {
     }
     if (row['category'] !== null) {
       result.category = String(row['category']);
+    }
+    if (row['system_role'] === WORKSPACE_INDEX_SYSTEM_ROLE) {
+      result.systemRole = WORKSPACE_INDEX_SYSTEM_ROLE;
     }
 
     return result;
