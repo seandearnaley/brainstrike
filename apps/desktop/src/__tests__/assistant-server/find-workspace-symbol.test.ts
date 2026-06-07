@@ -51,6 +51,26 @@ describe('findSymbolMatches', () => {
     expect(result).toMatchObject({ matches: [], totalMatches: 0, truncated: false });
   });
 
+  it('falls back to a bounded indentation range when braces never balance (mis-scan)', () => {
+    // The single-pass scanner miscounts the `{` inside the regex literal as a
+    // real opening brace that never closes. The enclosing range must NOT span to
+    // EOF (near-whole-file) — it falls back to the bounded indentation heuristic.
+    const content = [
+      'const myRegex = /[{]/;', // 1: opening brace miscounted, never balances
+      '  helper();', // 2: indented continuation
+      'topLevel();', // 3: dedent ends the indent block
+      'more();', // 4
+      'evenMore();', // 5
+    ].join('\n');
+
+    const [match] = findSymbolMatches(content, 'myRegex', {
+      maxMatches: 1,
+      contextLines: 0,
+    }).matches;
+
+    expect(match).toMatchObject({ declarationLine: 1, startLine: 1, endLine: 2 });
+  });
+
   describe('declaration ranking', () => {
     it('surfaces the real declaration over earlier imports/call sites when capped', () => {
       const content = [

@@ -841,6 +841,10 @@ function processMastraStreamPart(
  * replaces throwing on the error part: the throw surfaced a data-stream error
  * frame the renderer never rendered, leaving the thread hung on a spinner.
  */
+/** Cap the provider error detail rendered as visible assistant text. Provider
+ * error bodies can be verbose; the full detail is preserved in the log. */
+const MAX_VISIBLE_PROVIDER_ERROR_CHARS = 600;
+
 function makeProviderErrorTermination(
   detail: string,
   lifecycleState: ToolLifecycleState,
@@ -852,15 +856,23 @@ function makeProviderErrorTermination(
   // invisible server-side — the `mastra_agent_stream_finished` success line in
   // the finally block would be the only record. Log at error level with a
   // distinct code so these stay diagnosable even though the user sees a clean
-  // message. (Per AGENTS.md "Feedback & Observability".)
+  // message. (Per AGENTS.md "Feedback & Observability".) The FULL detail goes to
+  // the log; the visible message is clamped below.
   logger.error('mastra stream terminated by provider error', {
     code: 'mastra_agent_stream_provider_error',
     detail,
   });
+  // Clamp the user-visible detail: provider error bodies can be arbitrarily long
+  // (and occasionally echo request context), which reads poorly as persisted
+  // assistant text. The full detail stays in the log breadcrumb above.
+  const visibleDetail =
+    detail.length > MAX_VISIBLE_PROVIDER_ERROR_CHARS
+      ? `${detail.slice(0, MAX_VISIBLE_PROVIDER_ERROR_CHARS)}…`
+      : detail;
   return {
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),
-      { type: 'text-delta', value: `The model request failed: ${detail}` },
+      { type: 'text-delta', value: `The model request failed: ${visibleDetail}` },
       makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', makeStepMetadata(part)),
       makeErrorFinishChunk(),
     ],

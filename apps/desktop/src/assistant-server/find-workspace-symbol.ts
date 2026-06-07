@@ -104,6 +104,25 @@ function indentWidth(line: string): number {
   return match ? match[0].length : 0;
 }
 
+/** Bounded indentation-based block end index (0-based): the last line indented
+ * deeper than the declaration. Used for brace-less languages AND as the bounded
+ * fallback when a brace block opens but never balances. */
+function resolveIndentBlockEndIndex(lines: string[], declIndex: number): number {
+  const declIndent = indentWidth(lines[declIndex] ?? '');
+  let end = declIndex;
+  for (let i = declIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (line.trim().length === 0) {
+      continue;
+    }
+    if (indentWidth(line) <= declIndent) {
+      break;
+    }
+    end = i;
+  }
+  return end;
+}
+
 /** Best-effort enclosing block end index (0-based) for the declaration at declIndex. */
 function resolveBlockEndIndex(lines: string[], declIndex: number): number {
   const lookahead = Math.min(declIndex + 5, lines.length - 1);
@@ -125,21 +144,13 @@ function resolveBlockEndIndex(lines: string[], declIndex: number): number {
         return i;
       }
     }
-    return lines.length - 1;
+    // Braces opened but never balanced — almost always a mis-scan (regex /
+    // template / cross-line comment, per braceDelta's documented limits), not a
+    // genuine EOF-spanning block. Fall through to the bounded indentation
+    // heuristic instead of returning `lines.length - 1` (a near-whole-file range
+    // that defeats the precise-selection goal).
   }
-  const declIndent = indentWidth(lines[declIndex] ?? '');
-  let end = declIndex;
-  for (let i = declIndex + 1; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
-    if (line.trim().length === 0) {
-      continue;
-    }
-    if (indentWidth(line) <= declIndent) {
-      break;
-    }
-    end = i;
-  }
-  return end;
+  return resolveIndentBlockEndIndex(lines, declIndex);
 }
 
 function buildPreview(lines: string[], declIndex: number, contextLines: number): string {

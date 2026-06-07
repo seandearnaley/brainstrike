@@ -291,4 +291,62 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(providerErrorLog).toBeDefined();
     expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
   });
+
+  it('clamps an over-long provider error in the visible message but logs the full detail', async () => {
+    const longDetail = `boom ${'x'.repeat(5000)} end`;
+    modelHolder.current = {
+      specificationVersion: 'v2',
+      provider: 'fake',
+      modelId: 'fake-model',
+      supportedUrls: {},
+      doGenerate: () => Promise.reject(new Error('unused')),
+      doStream: () =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ type: 'error', error: { message: longDetail } });
+              controller.close();
+            },
+          }),
+        }),
+    };
+
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    let visibleText = '';
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u4', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+        { runtime: { provider: 'openai', apiKey: 'test-key' } }
+      );
+      for await (const chunk of iterator) {
+        if (chunk.type === 'text-delta') {
+          visibleText += chunk.value;
+        }
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    // Visible message is bounded (no arbitrary-length provider string in-thread).
+    expect(visibleText.length).toBeLessThan(longDetail.length);
+    expect(visibleText).toContain('…');
+    // ...but the full detail is preserved in the server-side log breadcrumb.
+    const providerErrorLog = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error'
+      )
+    );
+    const loggedDetail = providerErrorLog?.args.find(
+      (arg): arg is { detail: string } =>
+        typeof arg === 'object' &&
+        arg !== null &&
+        typeof (arg as { detail?: unknown }).detail === 'string'
+    );
+    expect(loggedDetail?.detail).toContain(longDetail);
+  });
 });
