@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -1114,26 +1115,33 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
       // non-recoverable "failed to initialize" error — wipe and start fresh
       // rather than attempting an on-disk upgrade.
       if (isIncompatiblePgDataDir(dataDir)) {
-        // Best-effort backup of the profile (same mechanism as factory reset)
-        // before the wipe, so the old engine's data is recoverable rather than
-        // silently destroyed. The old data can't be opened by the new engine, so
-        // a backup failure must not block startup — log and proceed.
-        let backupDir: string | null = null;
+        const foundMajor = readPgDataMajor(dataDir);
+        // Move the incompatible data dir aside instead of copying or deleting it.
+        // A same-volume rename is instant and uses no extra disk — unlike a
+        // multi-GB cpSync, which would freeze startup and double disk usage (and
+        // could even ENOSPC the fresh init). It still preserves the old data for
+        // manual/forensic recovery. The old dir can't be opened by the bundled
+        // engine, so a rename failure falls back to a plain wipe rather than
+        // blocking startup.
+        const backupDir = `${dataDir}.pre-pg${BUNDLED_PG_MAJOR}-from-pg${foundMajor ?? 'unknown'}.bak`;
         try {
-          backupDir = createResetBackup(appDataDir);
-        } catch (backupErr) {
-          logger.error('Failed to back up data directory before engine-upgrade wipe', {
-            appDataDir,
-            error: getErrorDetails(backupErr),
+          rmSync(backupDir, { recursive: true, force: true });
+          renameSync(dataDir, backupDir);
+          logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
+            dataDir,
+            backupDir,
+            expectedMajor: BUNDLED_PG_MAJOR,
+            foundMajor,
           });
+        } catch (renameErr) {
+          logger.error('Failed to move incompatible data dir aside; wiping instead', {
+            dataDir,
+            expectedMajor: BUNDLED_PG_MAJOR,
+            foundMajor,
+            error: getErrorDetails(renameErr),
+          });
+          rmSync(dataDir, { recursive: true, force: true });
         }
-        logger.warn('Incompatible Postgres data directory detected; wiping for engine upgrade', {
-          dataDir,
-          expectedMajor: BUNDLED_PG_MAJOR,
-          foundMajor: readPgDataMajor(dataDir),
-          backupDir,
-        });
-        rmSync(dataDir, { recursive: true, force: true });
         mkdirSync(dataDir, { recursive: true });
       }
 

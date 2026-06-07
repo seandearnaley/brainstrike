@@ -53,6 +53,7 @@ function getPGliteInitializationLockWritePath(): string {
 const existsSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
 const rmSyncMock = vi.fn();
+const renameSyncMock = vi.fn();
 const cpSyncMock = vi.fn();
 const openSyncMock = vi.fn(() => 123);
 const writeFileSyncMock = vi.fn();
@@ -68,6 +69,7 @@ vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
   rmSync: rmSyncMock,
+  renameSync: renameSyncMock,
   cpSync: cpSyncMock,
   openSync: openSyncMock,
   writeFileSync: writeFileSyncMock,
@@ -80,6 +82,7 @@ vi.mock('node:fs', () => ({
     existsSync: existsSyncMock,
     mkdirSync: mkdirSyncMock,
     rmSync: rmSyncMock,
+    renameSync: renameSyncMock,
     cpSync: cpSyncMock,
     openSync: openSyncMock,
     writeFileSync: writeFileSyncMock,
@@ -159,9 +162,9 @@ describe('db-main lifecycle', () => {
     expect(closeMock).toHaveBeenCalled();
   });
 
-  it('wipes an incompatible (older Postgres major) data dir before initializing', async () => {
-    // PG_VERSION reports an older engine major → the greenfield guard must wipe
-    // the data dir and start fresh instead of trying to open it.
+  it('moves an incompatible (older Postgres major) data dir aside before initializing', async () => {
+    // PG_VERSION reports an older engine major → the greenfield guard must move
+    // the data dir aside (cheap rename, no cpSync) and start fresh.
     readFileSyncMock.mockImplementation((candidate: string) =>
       String(candidate).endsWith('PG_VERSION') ? '17' : ''
     );
@@ -169,13 +172,15 @@ describe('db-main lifecycle', () => {
     const { initializeMainDatabase } = await import('../../db-main');
     await initializeMainDatabase();
 
-    expect(rmSyncMock).toHaveBeenCalledWith(
+    // The old dir is renamed aside, not copied — proves no multi-GB cpSync.
+    expect(renameSyncMock).toHaveBeenCalledWith(
       expect.stringContaining('pgdata'),
-      expect.objectContaining({ recursive: true, force: true })
+      expect.stringContaining('.pre-pg18-from-pg17.bak')
     );
+    expect(cpSyncMock).not.toHaveBeenCalled();
   });
 
-  it('does NOT wipe a matching (current Postgres major) data dir', async () => {
+  it('does NOT move aside a matching (current Postgres major) data dir', async () => {
     readFileSyncMock.mockImplementation((candidate: string) =>
       String(candidate).endsWith('PG_VERSION') ? '18' : ''
     );
@@ -183,10 +188,7 @@ describe('db-main lifecycle', () => {
     const { initializeMainDatabase } = await import('../../db-main');
     await initializeMainDatabase();
 
-    expect(rmSyncMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('pgdata'),
-      expect.objectContaining({ recursive: true, force: true })
-    );
+    expect(renameSyncMock).not.toHaveBeenCalled();
   });
 
   it('closeDatabase still closes handle when syncToFs fails', async () => {
