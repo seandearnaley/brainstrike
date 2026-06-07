@@ -5,7 +5,7 @@ import {
   type EmbeddingSet,
   WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
   WORKSPACE_INDEX_SYSTEM_ROLE,
-} from '../models/embedding-set';
+} from '../models/embedding-set.js';
 import {
   normalizeEmbeddingSetInputMetadata,
   repairPersistedEmbeddingSetMetadata,

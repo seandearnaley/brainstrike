@@ -3,7 +3,7 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
+import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set.js';
 import type {
   FileImportRequest,
   FileImportResult,
