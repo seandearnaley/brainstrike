@@ -164,7 +164,7 @@ function createBalancedPolicy(inputs: WorkspaceIndexingQosInputs): WorkspaceInde
     reason: inputs.windowVisible ? 'window-visible' : 'balanced',
     scanBatchSize: 48,
     state: 'balanced',
-    workerClaimBatchSize: 8,
+    workerClaimBatchSize: 16,
   };
 }
 

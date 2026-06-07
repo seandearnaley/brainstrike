@@ -130,4 +130,13 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
       })
     ).toThrow('Workspace Index QoS requires a database pressure snapshot.');
   });
+
+  it('preserves the existing balanced worker claim throughput', () => {
+    const policy = resolve({ windowVisible: false });
+
+    expect(policy).toMatchObject({
+      state: 'balanced',
+      workerClaimBatchSize: 16,
+    });
+  });
 });

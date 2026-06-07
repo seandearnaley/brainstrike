@@ -34,6 +34,7 @@ import {
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import type { WorkspaceIndexingQosPolicy } from './indexing-qos-controller';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
   collectPreparedChangesInBatches,
@@ -98,6 +99,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   >;
   log?: typeof logger;
   onManagedCollectionMissing?: (managedCollectionId: string) => void;
+  resolveQosPolicy: () => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
   subscribeToBackfillProgress: (
@@ -438,8 +440,9 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
     context: ResolvedSyncContext;
     abortSignal: AbortSignal;
+    qosPolicy: WorkspaceIndexingQosPolicy;
   }): Promise<PreparedChangesSummary> {
-    const { request, context, abortSignal } = args;
+    const { request, context, abortSignal, qosPolicy } = args;
     const entryPolicy = createBackgroundIndexingEntryPolicy({
       preset: request.indexingPolicyPreset,
     });
@@ -480,6 +483,7 @@ export class WorkspaceCollectionSyncService {
         onCurrentFile: (path) => {
           statusReporter.report(path);
         },
+        qosPolicy,
         rootPath: context.activeRootPath,
         ...(this.deps.fileContentProcessor
           ? { fileContentProcessor: this.deps.fileContentProcessor }
@@ -580,12 +584,16 @@ export class WorkspaceCollectionSyncService {
     abortSignal: AbortSignal;
     chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
     collection: EmbeddingSet;
+    qosPolicy: WorkspaceIndexingQosPolicy;
     rootPath: string;
     summary: Pick<
       PreparedChangesSummary,
       'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
     >;
   }): Promise<void> {
+    if (!args.qosPolicy.allowNewWork) {
+      throw new Error('Workspace Index QoS policy does not permit backfill enqueue work.');
+    }
     const pendingRequestId = `pending:${args.collection.id}:${Date.now()}`;
     let resolvedRequestId = pendingRequestId;
     let unsubscribeBackfillProgress: (() => void) | null = null;
@@ -848,10 +856,12 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
     runId: number;
   }): Promise<void> {
+    const qosPolicy = await this.deps.resolveQosPolicy();
     const prepared = await this.collectPreparedChanges({
       request: args.request,
       context: args.context,
       abortSignal: args.abortSignal,
+      qosPolicy,
     });
     this.setScanSummary(args.context, prepared);
 
@@ -863,6 +873,7 @@ export class WorkspaceCollectionSyncService {
           abortSignal: args.abortSignal,
           chunkingProgress: null,
           collection: args.context.collection,
+          qosPolicy: await this.deps.resolveQosPolicy(),
           rootPath: args.context.rootPath,
           summary: prepared,
         });
@@ -916,6 +927,7 @@ export class WorkspaceCollectionSyncService {
           )
         );
       },
+      qosPolicy: await this.deps.resolveQosPolicy(),
       setImporting: this.deps.setImporting,
       waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
     });
@@ -928,6 +940,7 @@ export class WorkspaceCollectionSyncService {
       abortSignal: args.abortSignal,
       chunkingProgress,
       collection: args.context.collection,
+      qosPolicy: await this.deps.resolveQosPolicy(),
       rootPath: args.context.rootPath,
       summary: prepared,
     });

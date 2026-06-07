@@ -2,10 +2,12 @@ import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
   createDatabasePressureController,
   createPriorityDbHandle,
+  type DatabaseWorkSchedulerSnapshot,
   type DbHandle,
   ElectronEmbeddingSetsRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
+  getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   usePGliteDatabase,
 } from '@brainstrike/db';
@@ -24,7 +26,20 @@ import {
 } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
-import { type ReactNode, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  resolveWorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingQosPolicy,
+} from './indexing-qos-controller';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
   isMissingProviderKeyMessage,
@@ -49,6 +64,7 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
   priority: 'background',
 } as const;
 const BACKGROUND_PRESSURE_POLL_MS = 50;
+const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
@@ -91,6 +107,97 @@ function createWaitForBackgroundPermit(
   }).waitForBackgroundPermit;
 }
 
+function toWorkspaceIndexingDatabasePressure(
+  snapshot: DatabaseWorkSchedulerSnapshot
+): WorkspaceIndexingDatabasePressure {
+  const waitingReason = getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt);
+  const normalPressure = waitingReason?.startsWith('normal-') === true;
+  return {
+    available: true,
+    foregroundPressure: waitingReason !== null && !normalPressure,
+    normalPressure,
+  };
+}
+
+function createReadDatabasePressure(
+  db: DbHandle
+): () => Promise<WorkspaceIndexingDatabasePressure> {
+  const scheduler = getDatabaseWorkScheduler(db);
+  if (scheduler) {
+    return async () => toWorkspaceIndexingDatabasePressure(scheduler.getSnapshot());
+  }
+
+  const schedulerSnapshot =
+    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  if (!schedulerSnapshot) {
+    throw new Error('Workspace Index QoS requires database scheduler snapshots.');
+  }
+
+  return async () => toWorkspaceIndexingDatabasePressure(await schedulerSnapshot());
+}
+
+function useDocumentVisibility(): boolean {
+  const readVisibility = (): boolean =>
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible';
+  const [visible, setVisible] = useState(readVisibility);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const handleVisibilityChange = (): void => {
+      setVisible(readVisibility());
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  return visible;
+}
+
+function useRecentUserInputMs(): number | null {
+  const [lastInputAt, setLastInputAt] = useState<number | null>(null);
+  const lastInputRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const recordInput = (): void => {
+      const now = Date.now();
+      lastInputRef.current = now;
+      setLastInputAt(now);
+    };
+    const inputEvents = ['keydown', 'pointerdown', 'wheel'] as const;
+    for (const eventName of inputEvents) {
+      window.addEventListener(eventName, recordInput, { passive: true });
+    }
+    return () => {
+      for (const eventName of inputEvents) {
+        window.removeEventListener(eventName, recordInput);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (lastInputAt === null) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      if (lastInputRef.current === lastInputAt) {
+        setLastInputAt(null);
+      }
+    }, RECENT_USER_INPUT_WINDOW_MS);
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [lastInputAt]);
+
+  return lastInputAt === null ? null : Math.max(0, Date.now() - lastInputAt);
+}
+
 export function WorkspaceCollectionSyncProvider({
   children,
 }: WorkspaceCollectionSyncProviderProps) {
@@ -101,6 +208,10 @@ export function WorkspaceCollectionSyncProvider({
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
   const waitForBackgroundPermit = useMemo(
     () => (backgroundDb ? createWaitForBackgroundPermit(backgroundDb) : null),
+    [backgroundDb]
+  );
+  const readDatabasePressure = useMemo(
+    () => (backgroundDb ? createReadDatabasePressure(backgroundDb) : null),
     [backgroundDb]
   );
   const backgroundRepositories = useMemo(() => {
@@ -131,6 +242,8 @@ export function WorkspaceCollectionSyncProvider({
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
+  const windowVisible = useDocumentVisibility();
+  const recentUserInputMs = useRecentUserInputMs();
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -196,6 +309,30 @@ export function WorkspaceCollectionSyncProvider({
     }
   }, [runtimeController]);
 
+  const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
+    if (!readDatabasePressure) {
+      throw new Error('Workspace Index QoS requires database scheduler snapshots.');
+    }
+    const latestStatus = useWorkspaceCollectionSyncStatusStore.getState();
+    const queueDepth =
+      latestStatus.queueProgress?.pending ??
+      Math.max(0, latestStatus.queuedFiles - latestStatus.processedFiles);
+    const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
+    return resolveWorkspaceIndexingQosPolicy({
+      dbPressure: await readDatabasePressure(),
+      foregroundQueryActive: false,
+      idleState: 'unknown',
+      idleTimeMs: null,
+      manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
+      powerSource: 'unknown',
+      providerRateLimited: false,
+      queueDepth,
+      recentUserInputMs,
+      thermalState: 'unknown',
+      windowVisible,
+    });
+  }, [readDatabasePressure, recentUserInputMs, windowVisible]);
+
   const service = useMemo(() => {
     if (
       !(
@@ -242,6 +379,7 @@ export function WorkspaceCollectionSyncProvider({
           setManagedCollectionId(null);
         }
       },
+      resolveQosPolicy,
       // Background indexing must NOT raise the foreground `isImporting` pause flag:
       // that flag gates the collection selector + count live queries
       // (liveQueryEnabled = !isImporting), so toggling it freezes the file/chunk
@@ -260,6 +398,7 @@ export function WorkspaceCollectionSyncProvider({
     ensureEmbeddingRuntimeStarted,
     ensureChunkingWorker,
     fileSystemAdapter,
+    resolveQosPolicy,
     runtimeController,
     setManagedCollectionId,
     setSyncStatus,
