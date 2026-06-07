@@ -134,6 +134,21 @@ export function enumerationUnavailableLegacyNames(
   return names;
 }
 
+/**
+ * Prefix PGlite's idb backend gives its actual IndexedDB databases. The backend is
+ * Emscripten IDBFS, which names the IndexedDB database after the in-WASM mount path
+ * — `/pglite/<dataDir>`, NOT the bare scheme-stripped name. So an `idb://app-pg18`
+ * data dir lives in an IndexedDB database literally named `/pglite/app-pg18`.
+ *
+ * Verified empirically against @electric-sql/pglite@0.5.1: opening
+ * `new PGlite({ dataDir: 'idb://probe-xyz' })` under fake-indexeddb and listing
+ * `indexedDB.databases()` returns `["/pglite/probe-xyz"]`. Reclaim/deletion MUST
+ * use this prefix or it silently matches nothing (the OPFS-AHP backend differs —
+ * it stores under the bare name at the OPFS root, see `reclaimLegacyOpfsDirs`).
+ * Re-verify on a pglite engine upgrade.
+ */
+const IDB_DB_NAME_PREFIX = '/pglite/';
+
 async function legacyIndexedDbNamesToReclaim(
   baseName: string,
   currentMajor: number
@@ -142,20 +157,28 @@ async function legacyIndexedDbNamesToReclaim(
     return [];
   }
   // Enumerate when supported so every older-major orphan is reclaimed, not just
-  // the one whose suffix we can derive from the current name.
+  // the one whose suffix we can derive from the current name. The real DB names are
+  // `/pglite/<dataDir>`; strip the prefix to test reclaimability, but return the
+  // FULL name so the caller deletes the database that actually exists.
   if (typeof indexedDB.databases === 'function') {
     const infos = await indexedDB.databases();
     return infos
       .map((info) => info.name)
       .filter((name): name is string => typeof name === 'string')
-      .filter((name) => isReclaimableLegacyName(name, baseName, currentMajor));
+      .filter((name) => name.startsWith(IDB_DB_NAME_PREFIX))
+      .filter((name) =>
+        isReclaimableLegacyName(name.slice(IDB_DB_NAME_PREFIX.length), baseName, currentMajor)
+      );
   }
   // Enumeration unavailable (older Safari/Firefox): we can't discover which
-  // stores exist, so delete the deterministic set of older same-base candidates
-  // (unversioned base + every prior versioned major). Deleting an absent name is a
-  // harmless no-op. The maintained factory-reset list remains a defense-in-depth
-  // secondary path, but this already closes the prior-versioned-orphan leak.
-  return enumerationUnavailableLegacyNames(baseName, currentMajor);
+  // stores exist, so target the deterministic set of older same-base candidates
+  // (unversioned base + every prior versioned major), each as its real
+  // `/pglite/`-prefixed database name. Deleting an absent name is a harmless no-op.
+  // The maintained factory-reset list remains a defense-in-depth secondary path,
+  // but this already closes the prior-versioned-orphan leak.
+  return enumerationUnavailableLegacyNames(baseName, currentMajor).map(
+    (name) => `${IDB_DB_NAME_PREFIX}${name}`
+  );
 }
 
 /**

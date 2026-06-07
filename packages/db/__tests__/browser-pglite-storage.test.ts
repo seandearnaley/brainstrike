@@ -124,48 +124,53 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
   });
 
   it('reclaims only OLDER same-base variants — unversioned + lower majors, never current or newer', async () => {
+    // PGlite's idb backend (Emscripten IDBFS) names the actual IndexedDB database
+    // `/pglite/<dataDir>` — NOT the bare data-dir name — so reclaim must match and
+    // delete the prefixed names. (Verified empirically against pglite 0.5.1.)
     const deleteDatabase = vi.fn();
     g.indexedDB = {
       deleteDatabase,
       databases: () =>
         Promise.resolve([
-          { name: 'app' }, // legacy unversioned (oldest) → reclaim
-          { name: 'app-pg17' }, // older major → reclaim
-          { name: 'app-pg18' }, // in-use → keep
-          { name: 'app-pg19' }, // NEWER major (e.g. a newer build) → keep
-          { name: 'appendix' }, // different base → keep
-          { name: 'other' },
+          { name: '/pglite/app' }, // legacy unversioned (oldest) → reclaim
+          { name: '/pglite/app-pg17' }, // older major → reclaim
+          { name: '/pglite/app-pg18' }, // in-use → keep
+          { name: '/pglite/app-pg19' }, // NEWER major (e.g. a newer build) → keep
+          { name: '/pglite/appendix' }, // different base → keep
+          { name: 'brainstrike-desktop' }, // non-pglite store (no /pglite/ prefix) → keep
         ]),
     };
 
     await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
 
-    expect(deleteDatabase).toHaveBeenCalledWith('app');
-    expect(deleteDatabase).toHaveBeenCalledWith('app-pg17');
-    expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg18');
+    expect(deleteDatabase).toHaveBeenCalledWith('/pglite/app');
+    expect(deleteDatabase).toHaveBeenCalledWith('/pglite/app-pg17');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('/pglite/app-pg18');
     // An older build must NOT background-delete a newer build's data.
-    expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg19');
-    expect(deleteDatabase).not.toHaveBeenCalledWith('appendix');
-    expect(deleteDatabase).not.toHaveBeenCalledWith('other');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('/pglite/app-pg19');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('/pglite/appendix');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('brainstrike-desktop');
   });
 
-  it('falls back to deleting the unversioned base name when enumeration is unavailable', async () => {
+  it('falls back to deleting the /pglite/-prefixed base name when enumeration is unavailable', async () => {
     const deleteDatabase = vi.fn();
     g.indexedDB = { deleteDatabase }; // no databases()
 
     await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');
 
-    expect(deleteDatabase).toHaveBeenCalledWith('app');
-    expect(deleteDatabase).not.toHaveBeenCalledWith('app-pg18');
+    expect(deleteDatabase).toHaveBeenCalledWith('/pglite/app');
+    expect(deleteDatabase).not.toHaveBeenCalledWith('/pglite/app-pg18');
+    // Must target the real (prefixed) name, not the bare one (a no-op vs pglite).
+    expect(deleteDatabase).not.toHaveBeenCalledWith('app');
   });
 
-  it('derives the base name for non-default db names (e.g. web)', async () => {
+  it('derives the /pglite/-prefixed name for non-default db names (e.g. web)', async () => {
     const deleteDatabase = vi.fn();
     g.indexedDB = { deleteDatabase };
 
     await reclaimLegacyBrowserPGliteStorage('opfs-ahp://web-pg18');
 
-    expect(deleteDatabase).toHaveBeenCalledWith('web');
+    expect(deleteDatabase).toHaveBeenCalledWith('/pglite/web');
   });
 
   it('does nothing for a non-versioned or non-persistent dir, and never throws', async () => {

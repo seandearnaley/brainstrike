@@ -30,6 +30,17 @@ describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
     expect(FALLBACK_INDEXED_DB_NAMES).toContain('app');
     expect(FALLBACK_INDEXED_DB_NAMES).toContain('web');
   });
+
+  it('targets the real /pglite/-prefixed IndexedDB names PGlite actually creates', () => {
+    // PGlite's idb backend (Emscripten IDBFS) names the IndexedDB database
+    // `/pglite/<dataDir>`, NOT the bare data-dir name — so a fallback list of bare
+    // names matches nothing against pglite stores. The list must include the
+    // prefixed names for the non-enumerating (Safari/Firefox) wipe to work.
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/app-pg18');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/web-pg18');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/app');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/web');
+  });
 });
 
 function createDeleteDatabaseMock() {

@@ -6,14 +6,30 @@ const logger = createLogger('FactoryReset');
  * Known IndexedDB database names that Brainstrike creates across environments.
  * Used as a fallback when the browser cannot enumerate databases (Safari/WebKit, Firefox).
  * Keep this in sync with any new `idb://` paths introduced in DbProvider/App bootstraps.
+ *
+ * IMPORTANT: PGlite's idb backend (Emscripten IDBFS) names its IndexedDB database
+ * `/pglite/<dataDir>` — NOT the bare data-dir name — so for every `idb://<name>`
+ * PGlite store we list the REAL `/pglite/<name>` database name. (Verified against
+ * pglite 0.5.1; see IDB_DB_NAME_PREFIX in @brainstrike/db browser-pglite-storage.)
+ * The bare names are kept too as harmless no-ops / for any non-PGlite store that
+ * really is named bare. Non-PGlite IndexedDB stores (queue/file-handles) are NOT
+ * prefixed.
  */
 export const FALLBACK_INDEXED_DB_NAMES = [
-  'app-pg18', // Default DbProvider path, engine-versioned for Postgres 18 (idb://app-pg18)
-  'web-pg18', // apps/web persisted storage, engine-versioned for Postgres 18 (idb://web-pg18)
-  'app', // Legacy PG17 DbProvider path (idb://app); keep to clean up stale installs
-  'web', // Legacy PG17 apps/web path (idb://web); keep to clean up stale installs
-  'brainstrike-desktop', // Desktop renderer stores its queue/embeddings database in IndexedDB
-  'brainstrike-web', // Legacy web builds used idb://brainstrike-web; keep to clean up stale installs
+  // PGlite stores — the real database names are `/pglite/<dataDir>`.
+  '/pglite/app-pg18', // Default DbProvider path (idb://app-pg18), engine-versioned for PG18
+  '/pglite/web-pg18', // apps/web persisted storage (idb://web-pg18), engine-versioned for PG18
+  '/pglite/app', // Legacy PG17 DbProvider path (idb://app)
+  '/pglite/web', // Legacy PG17 apps/web path (idb://web)
+  '/pglite/brainstrike-web', // Legacy web builds used idb://brainstrike-web (PGlite)
+  // Bare names kept as no-op safety nets for stale installs.
+  'app-pg18',
+  'web-pg18',
+  'app',
+  'web',
+  // Non-PGlite IndexedDB stores (named bare, not via Emscripten IDBFS).
+  'brainstrike-desktop', // Desktop renderer queue/embeddings database
+  'brainstrike-web', // Legacy bare web store (kept for stale installs)
   'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)
 ] as const;
 
