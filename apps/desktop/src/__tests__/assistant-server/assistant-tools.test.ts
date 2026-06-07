@@ -1,7 +1,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
+import { NATIVE_TOOL_DEFAULTS, type RuntimeData } from '@brainstrike/agent';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -798,5 +798,110 @@ describe('assistant-tools', () => {
     ).rejects.toThrow(
       'No workspace root is available. Open/select a folder in the left file tree first.'
     );
+  });
+
+  it('findWorkspaceSymbol returns a precise enclosing range without whole-file content', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
+      [
+        'export function add(a: number, b: number): number {',
+        '  return a + b;',
+        '}',
+        '',
+        'export const PI = 3.14;',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    const result = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'add' } });
+    expect(result.matches[0]).toMatchObject({ declarationLine: 1, startLine: 1, endLine: 3 });
+    expect(result.path).toBe('/src/lib/math.ts');
+    expect(result).not.toHaveProperty('content');
+
+    const none = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'nope' } });
+    expect(none).toMatchObject({ matches: [], totalMatches: 0, truncated: false });
+
+    await expect(
+      tool.execute({ context: { path: '../outside.ts', query: 'x' } })
+    ).rejects.toThrow();
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
+    // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
+    // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools
+    // in real assistant runs — so a tool registered here but not there works only
+    // in tests. Guard against that drift.
+    const tools = buildDesktopAssistantTools(undefined);
+    const missing = Object.keys(tools).filter((id) => !(id in NATIVE_TOOL_DEFAULTS));
+    expect(missing).toEqual([]);
+  });
+
+  it('findWorkspaceSymbol applies the workspace read guards (binary / non-file)', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    // Binary file (NUL byte) must error cleanly, not be scanned as UTF-8 garbage.
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'lib', 'bin.dat'),
+      Buffer.from([0x41, 0x00, 0x42])
+    );
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    await expect(
+      tool.execute({ context: { path: '/src/lib/bin.dat', query: 'A' } })
+    ).rejects.toThrow(/binary file/i);
+
+    // A directory path must give the friendly "is not a file" error, not EISDIR.
+    await expect(tool.execute({ context: { path: '/src/lib', query: 'x' } })).rejects.toThrow(
+      /is not a file/i
+    );
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('forwards tapestry range color to the broadcast payload', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const send = vi.fn();
+    const hiddenSend = vi.fn();
+    getAllWindowsMock.mockReturnValue([
+      createMockWindow({ id: 1201, role: 'visible-ui', send }),
+      createMockWindow({ id: 1202, role: 'llm-host', send: hiddenSend }),
+    ]);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-1',
+    } as RuntimeData);
+
+    await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
+      context: {
+        mode: 'replace',
+        updates: [
+          {
+            path: '/src/main.ts',
+            ranges: [{ startLine: 1, endLine: 2, color: 'blue' }],
+          },
+        ],
+      },
+    });
+
+    const tapestryCall = send.mock.calls.find(
+      (call) => call[0] === 'assistant:workspace-context-tapestry-update'
+    );
+    expect(tapestryCall).toBeDefined();
+    const capturedTapestryPayload = tapestryCall?.[1] as {
+      updates: { ranges: { startLine: number; endLine: number; color?: string }[] }[];
+    };
+    expect(capturedTapestryPayload.updates[0].ranges[0]).toMatchObject({
+      startLine: 1,
+      endLine: 2,
+      color: 'blue',
+    });
+    expect(hiddenSend).not.toHaveBeenCalled();
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 });

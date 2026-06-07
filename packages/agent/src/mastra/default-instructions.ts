@@ -9,9 +9,11 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
+  findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
 } as const;
 
 interface ModelFacingToolNames {
+  findWorkspaceSymbol: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   queryEmbeddingSpace: string | null;
@@ -41,6 +43,10 @@ function resolveModelFacingToolName(
 function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): ModelFacingToolNames {
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
+    findWorkspaceSymbol: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.findWorkspaceSymbol
+    ),
     listEmbeddingSpaces: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
@@ -116,7 +122,19 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
         .filter(Boolean)
         .join(' ')
     : '';
-  const selectionLine = [selectionDefaultInstruction, tapestryMechanicsInstruction]
+  const symbolLookupInstruction =
+    names.findWorkspaceSymbol && names.updateWorkspaceTapestrySelections
+      ? `When the user names a symbol/function/type, call ${names.findWorkspaceSymbol} to get its exact range without reading the whole file, then pass that range to ${names.updateWorkspaceTapestrySelections}.`
+      : '';
+  const colorGroupingInstruction = names.updateWorkspaceTapestrySelections
+    ? 'You may set a named color per range (red, orange, yellow, green, cyan, blue, purple, pink, gray) to group related context — reuse the same color for the same concept.'
+    : '';
+  const selectionLine = [
+    selectionDefaultInstruction,
+    tapestryMechanicsInstruction,
+    symbolLookupInstruction,
+    colorGroupingInstruction,
+  ]
     .filter(Boolean)
     .join(' ');
 

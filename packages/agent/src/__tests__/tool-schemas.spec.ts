@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getToolSchemaDisplay } from '../registry/tool-schemas-display';
-import { validateToolInput } from '../tools/schemas';
+import { UpdateWorkspaceTapestrySelectionsInputSchema, validateToolInput } from '../tools/schemas';
 
 describe('tool schemas', () => {
   it('passes through unknown tool names', () => {
@@ -93,5 +93,29 @@ describe('tool schemas', () => {
   it('documents context curation tools in schema display metadata', () => {
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
+  });
+});
+
+describe('UpdateWorkspaceTapestrySelectionsInputSchema color', () => {
+  const base = {
+    updates: [{ path: '/a.ts', ranges: [{ startLine: 1, endLine: 3 }] }],
+  };
+
+  it('accepts an omitted color', () => {
+    expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(base).success).toBe(true);
+  });
+
+  it('accepts a valid named color', () => {
+    const input = {
+      updates: [{ path: '/a.ts', ranges: [{ startLine: 1, endLine: 3, color: 'blue' }] }],
+    };
+    expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(input).success).toBe(true);
+  });
+
+  it('rejects an unknown color name (no silent fallback)', () => {
+    const input = {
+      updates: [{ path: '/a.ts', ranges: [{ startLine: 1, endLine: 3, color: 'chartreuse' }] }],
+    };
+    expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(input).success).toBe(false);
   });
 });

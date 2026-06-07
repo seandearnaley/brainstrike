@@ -53,6 +53,7 @@ const FULL_TOOL_MAP = new Map<string, string>([
   ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
   ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
   ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+  ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
 ]);
 
 describe('buildDefaultInstructions', () => {
@@ -102,5 +103,23 @@ describe('buildDefaultInstructions', () => {
     const prompt = buildDefaultInstructions(noSelection);
     expect(prompt).toMatch(/Precise context selection is unavailable/i);
     expect(prompt).not.toContain('brainstrike.updateWorkspaceTapestrySelections');
+  });
+
+  it('steers symbol lookup and color grouping when the tools are registered', () => {
+    const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
+    expect(prompt).toContain('findWorkspaceSymbol');
+    expect(prompt).toMatch(/exact range[^.]*without reading the whole file/i);
+    expect(prompt).toMatch(/color/i);
+    expect(prompt).toMatch(/group related/i);
+  });
+
+  it('omits symbol-lookup guidance when findWorkspaceSymbol is not registered', () => {
+    const prompt = buildDefaultInstructions(
+      new Map([
+        ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+        ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
+      ])
+    );
+    expect(prompt).not.toContain('findWorkspaceSymbol');
   });
 });

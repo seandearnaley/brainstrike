@@ -1,3 +1,4 @@
+import { TAPESTRY_COLOR_HEX, TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils/crypto';
 import type { FileTapestry, LineData, TapestryRange } from './types';
 
@@ -61,16 +62,11 @@ const COMMENTS = [
   '// FIXME: Potential memory leak here',
 ] as const;
 
-const COLORS = [
-  '#ef4444', // red-500
-  '#f97316', // orange-500
-  '#eab308', // yellow-500
-  '#22c55e', // green-500
-  '#06b6d4', // cyan-500
-  '#3b82f6', // blue-500
-  '#a855f7', // purple-500
-  '#ec4899', // pink-500
-] as const;
+// Auto-assign palette derived from the single source of truth in
+// @brainstrike/types so it can't drift from the agent-set tapestry colors. The
+// first 8 names are the auto-assign palette; `gray` (the de-emphasis color) is
+// intentionally excluded from automatic assignment.
+const COLORS = TAPESTRY_COLOR_NAMES.slice(0, 8).map((name) => TAPESTRY_COLOR_HEX[name]);
 
 const getRandomItem = <T>(items: readonly T[]): T => {
   if (items.length === 0) {

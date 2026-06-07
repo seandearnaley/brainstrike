@@ -32,7 +32,11 @@ import {
   toolLineRangeToTapestryRange,
   type useWorkspaceContextCurationStore,
 } from '@brainstrike/file-explorer-ui/preview';
-import { getGoogleThinkingLevels } from '@brainstrike/types';
+import {
+  getGoogleThinkingLevels,
+  resolveTapestryColorHex,
+  type TapestryColorName,
+} from '@brainstrike/types';
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
@@ -249,6 +253,7 @@ function getAssistantTapestryColor(key: string): string {
 }
 
 export function buildAssistantTapestryRange(args: {
+  color?: TapestryColorName;
   compositeKey: string;
   endLine: number;
   index: number;
@@ -265,7 +270,7 @@ export function buildAssistantTapestryRange(args: {
     startLine: internalRange.startLine,
     endLine: internalRange.endLine,
     isActive: args.isActive !== false,
-    color: getAssistantTapestryColor(rangeKey),
+    color: resolveTapestryColorHex(args.color) ?? getAssistantTapestryColor(rangeKey),
     userModified: true,
   };
 }
