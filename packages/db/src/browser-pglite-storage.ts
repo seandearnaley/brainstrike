@@ -50,14 +50,16 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  * and `@electric-sql/pglite-pgvector` MUST be bumped together. pgvector declares
  * an EXACT peer on a single pglite version (0.0.2 → `@electric-sql/pglite: 0.5.1`).
  * The pins live in different sets of package.json files:
- *   - `@electric-sql/pglite` (exact) — all 7 consumers: db, agent, embeddings,
- *     vector-management, file-import, token-cache, desktop.
- *   - `@electric-sql/pglite-pgvector` (exact) — ONLY db, agent, desktop (the four
- *     others don't import the vector extension, so they correctly omit it).
+ *   - `@electric-sql/pglite` (exact) — runtime `dependencies` in db, embeddings,
+ *     vector-management, file-import, token-cache, desktop; a `devDependency` in
+ *     agent (only its tests construct a PGlite — prod receives a DB from the caller).
+ *   - `@electric-sql/pglite-pgvector` (exact) — runtime `dependencies` in db and
+ *     desktop; a `devDependency` in agent (test-only). The remaining packages don't
+ *     import the vector extension and correctly omit it.
  * Bumping pglite alone (e.g. to a 0.5.x patch) breaks peer resolution until
- * pgvector ships a matching release — so move both in the same change (updating
- * pgvector in db/agent/desktop, not all 7). There is no Renovate/Dependabot in
- * this repo to enforce it; this note is the reminder.
+ * pgvector ships a matching release — so move both in the same change (every
+ * package.json that pins them, including agent's devDependencies). There is no
+ * Renovate/Dependabot in this repo to enforce it; this note is the reminder.
  */
 export const PGLITE_DATA_DIR_VERSION = 'pg18';
 
