@@ -12,6 +12,10 @@ import type {
 } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  resolveWorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingDatabasePressure,
+} from '@brainstrike/utils/workspace-indexing-qos';
 
 const logger = createLogger('EmbeddingWorkerConfig');
 // Desktop local embedding runs in a hidden renderer backed by the DB scheduler.
@@ -95,18 +99,52 @@ function createCachedSchedulerSnapshotReader(
   };
 }
 
-function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
+function getDesktopDatabasePressureReason(snapshot: DatabaseWorkSchedulerSnapshot): string | null {
   // The stats window is intentionally evaluated after the scheduler quiet
   // window: recent foreground work always wins, even if latency samples are low.
   // If the scheduler quiet window is tuned longer than this desktop stats
   // window, the quiet-window branch deliberately owns that full period.
-  return (
-    getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
-      foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
-      foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
-      foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
-    }) !== null
-  );
+  return getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
+    foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
+    foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
+    foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
+  });
+}
+
+function toWorkspaceIndexingDatabasePressure(
+  snapshot: DatabaseWorkSchedulerSnapshot
+): WorkspaceIndexingDatabasePressure {
+  const reason = getDesktopDatabasePressureReason(snapshot);
+  const normalPressure = reason?.startsWith('normal-') === true;
+  return {
+    available: true,
+    foregroundPressure: reason !== null && !normalPressure,
+    normalPressure,
+  };
+}
+
+function resolveDesktopClaimBatchSize(
+  snapshot: DatabaseWorkSchedulerSnapshot,
+  idleClaimBatchSize: number
+): number {
+  const policy = resolveWorkspaceIndexingQosPolicy({
+    dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
+    foregroundQueryActive: false,
+    idleState: 'active',
+    idleTimeMs: 0,
+    manualPaused: false,
+    powerSource: 'unknown',
+    providerRateLimited: false,
+    queueDepth: 0,
+    recentUserInputMs: null,
+    thermalState: 'unknown',
+    windowVisible: false,
+  });
+  const positiveClaimBatchSize =
+    policy.workerClaimBatchSize > 0
+      ? policy.workerClaimBatchSize
+      : DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE;
+  return Math.min(positiveClaimBatchSize, idleClaimBatchSize);
 }
 
 type BackgroundPermit = NonNullable<EmbeddingWorkerOptions['waitForBackgroundPermit']>;
@@ -144,10 +182,7 @@ function createDesktopPressureControls(
   return {
     resolveClaimBatchSize: async () => {
       const snapshot = await snapshotSource.getSnapshot();
-      if (hasForegroundDatabasePressure(snapshot)) {
-        return DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE;
-      }
-      return idleClaimBatchSize;
+      return resolveDesktopClaimBatchSize(snapshot, idleClaimBatchSize);
     },
     waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),
   };

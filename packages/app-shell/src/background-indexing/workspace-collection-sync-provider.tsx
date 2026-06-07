@@ -25,6 +25,11 @@ import {
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  resolveWorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingQosPolicy,
+} from '@brainstrike/utils/workspace-indexing-qos';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import {
   type ReactNode,
@@ -35,11 +40,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import {
-  resolveWorkspaceIndexingQosPolicy,
-  type WorkspaceIndexingDatabasePressure,
-  type WorkspaceIndexingQosPolicy,
-} from './indexing-qos-controller';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
   isMissingProviderKeyMessage,

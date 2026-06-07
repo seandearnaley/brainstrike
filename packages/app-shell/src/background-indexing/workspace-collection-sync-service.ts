@@ -34,7 +34,7 @@ import {
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { WorkspaceIndexingQosPolicy } from './indexing-qos-controller';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
   collectPreparedChangesInBatches,

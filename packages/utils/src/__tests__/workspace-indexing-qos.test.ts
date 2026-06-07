@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingQosInputs,
-} from '../indexing-qos-controller';
+} from '../workspace-indexing-qos';
 
 const baseInputs: WorkspaceIndexingQosInputs = {
   dbPressure: {

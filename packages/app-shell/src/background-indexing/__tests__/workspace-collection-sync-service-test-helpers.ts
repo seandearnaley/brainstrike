@@ -1,6 +1,6 @@
 import type { EmbeddingSet } from '@brainstrike/db';
+import { resolveWorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { vi } from 'vitest';
-import { resolveWorkspaceIndexingQosPolicy } from '../indexing-qos-controller';
 import type { WorkspaceCollectionSyncServiceDependencies } from '../workspace-collection-sync-service';
 
 export const ROOT_PATH = '/workspace/root';

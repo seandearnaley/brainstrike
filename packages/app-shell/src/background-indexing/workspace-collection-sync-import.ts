@@ -26,7 +26,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import type { WorkspaceIndexingQosPolicy } from './indexing-qos-controller';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { buildRootFolderCacheIdentityKey } from './root-folder-cache-reconciliation';
 import {
   buildBatchImportErrors,

@@ -198,6 +198,11 @@
       "import": "./dist/relative-file-path.mjs",
       "require": "./dist/relative-file-path.js"
     },
+    "./workspace-indexing-qos": {
+      "types": "./dist/workspace-indexing-qos.d.ts",
+      "import": "./dist/workspace-indexing-qos.mjs",
+      "require": "./dist/workspace-indexing-qos.js"
+    },
     "./crypto": {
       "types": "./dist/crypto.d.ts",
       "import": "./dist/crypto.mjs",
