@@ -59,6 +59,13 @@ import { isWorkspaceIndexBlockedError } from './workspace-index-blocked-error';
 const logger = createLogger('WorkspaceCollectionSyncService');
 
 const DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS = 10 * 60 * 1000;
+const QOS_RETRY_LABELS = {
+  backfill: 'Workspace Index backfill',
+  import: 'Workspace Index import',
+  scan: 'Workspace Index scan',
+} as const;
+
+type WorkspaceIndexingQosPhase = keyof typeof QOS_RETRY_LABELS;
 
 interface RootDirectoryHandle {
   _internal?: unknown;
@@ -434,6 +441,36 @@ export class WorkspaceCollectionSyncService {
       pauseReasons: [],
       ...(options?.resetProgress ? this.createClearedProgressState() : {}),
     });
+  }
+
+  private setQosWaitingStatus(context: ResolvedSyncContext): void {
+    this.deps.setStatus({
+      state: 'waiting',
+      managedCollectionId: context.collection.id,
+      managedCollectionName: context.collection.name ?? null,
+      activeRootPath: context.rootPath,
+      currentFilePath: null,
+      lastError: null,
+      pauseReasons: [],
+    });
+  }
+
+  private async resolveQosPolicyForNewWork(args: {
+    abortSignal: AbortSignal;
+    context: ResolvedSyncContext;
+    phase: WorkspaceIndexingQosPhase;
+  }): Promise<WorkspaceIndexingQosPolicy> {
+    let qosPolicy = await this.deps.resolveQosPolicy();
+    while (!qosPolicy.allowNewWork && qosPolicy.state === 'foreground-yielding') {
+      throwIfAborted(args.abortSignal);
+      this.setQosWaitingStatus(args.context);
+      await this.deps.waitForBackgroundPermit({
+        label: QOS_RETRY_LABELS[args.phase],
+      });
+      throwIfAborted(args.abortSignal);
+      qosPolicy = await this.deps.resolveQosPolicy();
+    }
+    return qosPolicy;
   }
 
   private async collectPreparedChanges(args: {
@@ -856,12 +893,16 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
     runId: number;
   }): Promise<void> {
-    const qosPolicy = await this.deps.resolveQosPolicy();
+    const scanQosPolicy = await this.resolveQosPolicyForNewWork({
+      abortSignal: args.abortSignal,
+      context: args.context,
+      phase: 'scan',
+    });
     const prepared = await this.collectPreparedChanges({
       request: args.request,
       context: args.context,
       abortSignal: args.abortSignal,
-      qosPolicy,
+      qosPolicy: scanQosPolicy,
     });
     this.setScanSummary(args.context, prepared);
 
@@ -873,7 +914,11 @@ export class WorkspaceCollectionSyncService {
           abortSignal: args.abortSignal,
           chunkingProgress: null,
           collection: args.context.collection,
-          qosPolicy: await this.deps.resolveQosPolicy(),
+          qosPolicy: await this.resolveQosPolicyForNewWork({
+            abortSignal: args.abortSignal,
+            context: args.context,
+            phase: 'backfill',
+          }),
           rootPath: args.context.rootPath,
           summary: prepared,
         });
@@ -927,7 +972,11 @@ export class WorkspaceCollectionSyncService {
           )
         );
       },
-      qosPolicy: await this.deps.resolveQosPolicy(),
+      qosPolicy: await this.resolveQosPolicyForNewWork({
+        abortSignal: args.abortSignal,
+        context: args.context,
+        phase: 'import',
+      }),
       setImporting: this.deps.setImporting,
       waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
     });
@@ -940,7 +989,11 @@ export class WorkspaceCollectionSyncService {
       abortSignal: args.abortSignal,
       chunkingProgress,
       collection: args.context.collection,
-      qosPolicy: await this.deps.resolveQosPolicy(),
+      qosPolicy: await this.resolveQosPolicyForNewWork({
+        abortSignal: args.abortSignal,
+        context: args.context,
+        phase: 'backfill',
+      }),
       rootPath: args.context.rootPath,
       summary: prepared,
     });

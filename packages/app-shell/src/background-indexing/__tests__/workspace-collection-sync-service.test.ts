@@ -1,12 +1,14 @@
 import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
 import { generateContentHash } from '@brainstrike/utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   WorkspaceCollectionSyncService,
   type WorkspaceCollectionSyncServiceDependencies,
 } from '../workspace-collection-sync-service';
 import {
+  BALANCED_QOS_POLICY,
   createCollection,
   createDeps,
   createRootHandle,
@@ -104,6 +106,60 @@ describe('WorkspaceCollectionSyncService', () => {
         processedFiles: 1,
       })
     );
+  });
+
+  it('waits and retries when startup QoS temporarily yields scan work to foreground DB pressure', async () => {
+    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 250,
+      progressThrottleMs: 500,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    };
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      resolveQosPolicy: vi
+        .fn()
+        .mockResolvedValueOnce(foregroundYieldPolicy)
+        .mockResolvedValueOnce(foregroundYieldPolicy)
+        .mockResolvedValueOnce(foregroundYieldPolicy)
+        .mockResolvedValue(BALANCED_QOS_POLICY),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.waitForBackgroundPermit).toHaveBeenCalledWith({
+      label: 'Workspace Index scan',
+    });
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'waiting',
+        lastError: null,
+      })
+    );
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: 'Workspace Index QoS policy does not permit scan work.',
+      })
+    );
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
   });
 
   it('resumes backfill when files are unchanged but embedding coverage is incomplete', async () => {
