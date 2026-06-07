@@ -4,6 +4,8 @@ import { WINDOWS_ABSOLUTE_PATH_REGEX } from '@brainstrike/utils/relative-file-pa
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
+const SLASH_CODE = '/'.charCodeAt(0);
+const BACKSLASH_CODE = '\\'.charCodeAt(0);
 
 export interface ElectronFileHandle {
   kind: 'file';
@@ -107,7 +109,7 @@ function trimTrailingPathSeparators(path: string): string {
   let end = path.length;
   while (end > 0) {
     const code = path.charCodeAt(end - 1);
-    if (code !== 47 && code !== 92) {
+    if (code !== SLASH_CODE && code !== BACKSLASH_CODE) {
       break;
     }
     end--;
@@ -122,7 +124,7 @@ function normalizeSlashRelativePath(relativePath: string, separator: string): st
   let segmentStart = -1;
 
   for (let index = 0; index < relativePath.length; index++) {
-    if (relativePath.charCodeAt(index) === 47) {
+    if (relativePath.charCodeAt(index) === SLASH_CODE) {
       if (segmentStart !== -1) {
         const segment = relativePath.slice(segmentStart, index);
         normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
