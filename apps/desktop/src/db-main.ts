@@ -1114,10 +1114,24 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
       // non-recoverable "failed to initialize" error — wipe and start fresh
       // rather than attempting an on-disk upgrade.
       if (isIncompatiblePgDataDir(dataDir)) {
+        // Best-effort backup of the profile (same mechanism as factory reset)
+        // before the wipe, so the old engine's data is recoverable rather than
+        // silently destroyed. The old data can't be opened by the new engine, so
+        // a backup failure must not block startup — log and proceed.
+        let backupDir: string | null = null;
+        try {
+          backupDir = createResetBackup(appDataDir);
+        } catch (backupErr) {
+          logger.error('Failed to back up data directory before engine-upgrade wipe', {
+            appDataDir,
+            error: getErrorDetails(backupErr),
+          });
+        }
         logger.warn('Incompatible Postgres data directory detected; wiping for engine upgrade', {
           dataDir,
           expectedMajor: BUNDLED_PG_MAJOR,
           foundMajor: readPgDataMajor(dataDir),
+          backupDir,
         });
         rmSync(dataDir, { recursive: true, force: true });
         mkdirSync(dataDir, { recursive: true });

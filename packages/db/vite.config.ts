@@ -23,7 +23,9 @@ export default defineConfig({
   },
   plugins: [wasm()],
   optimizeDeps: {
-    exclude: ['@electric-sql/pglite'],
+    // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
+    // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
+    exclude: ['@electric-sql/pglite', '@electric-sql/pglite-pgvector'],
   },
   build: {
     target: 'esnext',

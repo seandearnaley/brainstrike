@@ -159,6 +159,36 @@ describe('db-main lifecycle', () => {
     expect(closeMock).toHaveBeenCalled();
   });
 
+  it('wipes an incompatible (older Postgres major) data dir before initializing', async () => {
+    // PG_VERSION reports an older engine major → the greenfield guard must wipe
+    // the data dir and start fresh instead of trying to open it.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('pgdata'),
+      expect.objectContaining({ recursive: true, force: true })
+    );
+  });
+
+  it('does NOT wipe a matching (current Postgres major) data dir', async () => {
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '18' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(rmSyncMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('pgdata'),
+      expect.objectContaining({ recursive: true, force: true })
+    );
+  });
+
   it('closeDatabase still closes handle when syncToFs fails', async () => {
     const { initializeMainDatabase, closeDatabase } = await import('../../db-main');
     await initializeMainDatabase();
