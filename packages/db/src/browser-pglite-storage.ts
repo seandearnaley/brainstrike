@@ -133,8 +133,13 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  *
  * A PG major upgrade versions the data-dir name (idb://app -> idb://app-pg18),
  * which abandons the old database. Without reclamation it counts against the
- * origin's storage quota indefinitely — and on a near-full quota the orphan can
- * even make the fresh versioned DB hit QuotaExceededError.
+ * origin's storage quota indefinitely, pressuring the new DB toward eviction.
+ *
+ * NOTE: this runs AFTER the versioned DB has opened, so it relieves *ongoing*
+ * quota pressure but cannot prevent a first-open QuotaExceededError if the orphan
+ * already left the origin over quota before bootstrap (largely theoretical — open
+ * + schema bootstrap writes are small; reclaiming before open would instead add
+ * its enumeration/delete latency to every cold start).
  *
  * Reclaims BOTH the IndexedDB databases and the OPFS directories of every OLDER
  * same-base variant (the unversioned base + any `-pg<N>` with N < the current
