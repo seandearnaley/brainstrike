@@ -447,6 +447,43 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
+  it('preserves manual pause while bootstrapping fresh workspace index preferences', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: true,
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        '00000000-0000-0000-0000-000000000101'
+      )
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'paused',
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          pauseReasons: ['Paused manually'],
+        })
+      )
+    );
+
+    expect(validateApiKeyForSetMock).not.toHaveBeenCalled();
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
+  });
+
   it('does not raise the foreground isImporting pause flag during background indexing', async () => {
     // Regression: background indexing used to set the global `isImporting` flag,
     // which gates the collection selector + count live queries (liveQueryEnabled =

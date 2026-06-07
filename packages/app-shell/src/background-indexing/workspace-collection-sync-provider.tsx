@@ -292,6 +292,26 @@ export function WorkspaceCollectionSyncProvider({
         if (!collection) {
           return;
         }
+        const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
+        if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
+          setSyncStatus({
+            state: 'paused',
+            managedCollectionId: collection.id,
+            managedCollectionName: collection.name ?? null,
+            activeRootPath: rootDirectoryHandle?.path ?? null,
+            currentFilePath: null,
+            queuedFiles: 0,
+            processedFiles: 0,
+            lastError: null,
+            pauseReasons: [
+              ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
+              ...getBackgroundWorkPauseReasonLabels(
+                latestBackgroundWorkSnapshot.automaticPauseReasons
+              ),
+            ],
+          });
+          return;
+        }
         setSyncStatus({
           state: 'idle',
           managedCollectionId: collection.id,
