@@ -4,10 +4,25 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BUNDLED_PG_MAJOR,
+  isEngineUpgradeBackupName,
   isIncompatiblePgDataDir,
   pruneStaleEngineUpgradeBackups,
   readPgDataMajor,
 } from '../../pg-data-version';
+
+describe('isEngineUpgradeBackupName', () => {
+  it('matches engine-upgrade moved-aside backups', () => {
+    expect(isEngineUpgradeBackupName('pgdata.pre-pg18-from-pg17.bak')).toBe(true);
+    expect(isEngineUpgradeBackupName('pgdata.pre-pg19-from-pgunknown.bak')).toBe(true);
+  });
+
+  it('does not match the live data dir, lock files, or reset snapshots', () => {
+    expect(isEngineUpgradeBackupName('pgdata')).toBe(false);
+    expect(isEngineUpgradeBackupName('.db-process.lock')).toBe(false);
+    expect(isEngineUpgradeBackupName('pgdata.bak')).toBe(false);
+    expect(isEngineUpgradeBackupName('some-profile-2026-01-01.bak')).toBe(false);
+  });
+});
 
 describe('pg-data-version guard', () => {
   let dir: string;

@@ -27,6 +27,7 @@ import { app } from 'electron';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
   BUNDLED_PG_MAJOR,
+  isEngineUpgradeBackupName,
   isIncompatiblePgDataDir,
   pruneStaleEngineUpgradeBackups,
   readPgDataMajor,
@@ -573,6 +574,11 @@ function createResetBackup(appDataDir: string): string | null {
     recursive: true,
     errorOnExist: true,
     force: false,
+    // Exclude engine-upgrade moved-aside backups (`pgdata.pre-pg*.bak`): they
+    // live inside appDataDir, can't be opened by the bundled engine, and would
+    // otherwise be deep-copied into every reset snapshot taken during their
+    // retention window — re-bloating disk exactly when space is tight.
+    filter: (source) => !isEngineUpgradeBackupName(path.basename(source)),
   });
   pruneProfileResetBackups(backupRootDir, profileName);
 

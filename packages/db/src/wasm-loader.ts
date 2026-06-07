@@ -157,6 +157,10 @@ class WasmLoader {
     // Cache persisted databases only (not memory://)
     if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
       this.dbCache.set(cacheKey, db);
+      // Mirror the worker-host path's legacy reclamation for the direct idb path.
+      // (In the real browser app idb routes through the worker host, so this is
+      // effectively unreachable today — wired for symmetry/future-proofing.)
+      void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
     }
 
     return db;
@@ -192,9 +196,13 @@ class WasmLoader {
       if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
         this.workerClientStartups.delete(cacheKey);
         this.workerCache.set(cacheKey, db);
-        // One-time best-effort reclamation of the pre-engine-version legacy storage
-        // (e.g. idb://app) now that the versioned DB (idb://app-pg18) has opened, so
-        // the orphaned old database doesn't sit against the origin's storage quota.
+        // Best-effort reclamation of the pre-engine-version legacy storage
+        // (e.g. idb://app) now that the versioned DB (idb://app-pg18) has opened,
+        // so the orphaned old database doesn't sit against the origin's quota.
+        // Fires once per new (non-cached) worker-host cold start; it re-enumerates
+        // storage each cold start but is a cheap idempotent no-op once the legacy
+        // store is gone. Kept un-gated (rather than a persisted once-marker) so a
+        // transiently-stuck entry is retried on a later launch.
         if (normalizedDataDir) {
           void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
         }

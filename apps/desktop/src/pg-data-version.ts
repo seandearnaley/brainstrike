@@ -14,6 +14,18 @@ export const ENGINE_UPGRADE_BACKUP_SUFFIX = '.bak';
  */
 export const ENGINE_UPGRADE_BACKUP_RETENTION_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
+const ENGINE_UPGRADE_BACKUP_RE = /\.pre-pg\d+-from-pg[^/\\]*\.bak$/;
+
+/**
+ * Whether a name is an engine-upgrade moved-aside backup
+ * (`<base>.pre-pg<new>-from-pg<old>.bak`). Used to exclude these (unopenable,
+ * forensic-only) dirs from profile reset-backup copies so they aren't duplicated
+ * into every snapshot taken during the retention window.
+ */
+export function isEngineUpgradeBackupName(name: string): boolean {
+  return ENGINE_UPGRADE_BACKUP_RE.test(name);
+}
+
 /**
  * Postgres engine major bundled with the current PGlite release.
  *

@@ -551,7 +551,13 @@ describe('db-main lifecycle', () => {
       expect.stringContaining(
         path.join('/mock/documents', 'BrainStrike-dev', 'backups', 'test-profile-')
       ),
-      { recursive: true, errorOnExist: true, force: false }
+      // Reset backups now exclude engine-upgrade `.bak` siblings via a filter.
+      expect.objectContaining({
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        filter: expect.any(Function),
+      })
     );
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
   });
