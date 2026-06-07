@@ -25,6 +25,7 @@ const laneDefinitions = [
       /^gemma-local-llm-migration\.test\.ts$/,
       /^migration-/,
       /^migration-integration\.test\.ts$/,
+      /^pglite-engine-major\.integration\.test\.ts$/,
       /^provider-catalog-timestamps-migration\.test\.ts$/,
       /^runtime-import-extensions\.test\.ts$/,
       /^view-filter-presets-migration\.test\.ts$/,

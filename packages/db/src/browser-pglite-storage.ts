@@ -26,6 +26,16 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  * format, so reusing an unversioned directory across majors fails to initialize.
  * Bumping this token forces a clean, greenfield directory per engine major.
  *
+ * THIS MUST TRACK THE ENGINE `@electric-sql/pglite` BUNDLES. Bump it whenever the
+ * pinned pglite dependency moves to a release shipping a new Postgres major — not
+ * just when you "feel like" versioning. If it lags the engine, a fresh install
+ * writes a higher `PG_VERSION` than this constant, the desktop guard treats it as
+ * "newer", and `reconcileIncompatiblePgDataDir` throws on every boot. The
+ * `pglite-engine-major.integration.test.ts` anchor (which opens a real PGlite
+ * handle and compares its server-version major to `PGLITE_ENGINE_MAJOR`) fails CI
+ * if this drifts, so a forgotten bump is caught before release rather than in the
+ * field.
+ *
  * WHEN BUMPING THIS (e.g. to 'pg19'):
  * 1. Append the just-superseded versioned name(s) (e.g. `app-pg18`, `web-pg18`)
  *    to `FALLBACK_INDEXED_DB_NAMES` in
@@ -50,8 +60,14 @@ export function getOpfsAhpBrowserPGliteDataDir(dbName = DEFAULT_BROWSER_DB_NAME)
   return `opfs-ahp://${withEngineVersion(dbName)}`;
 }
 
-/** Current embedded Postgres engine major (e.g. 18), parsed from the version token. */
-const PGLITE_ENGINE_MAJOR = Number(PGLITE_DATA_DIR_VERSION.replace(/^pg/, ''));
+/**
+ * Current embedded Postgres engine major (e.g. 18), parsed from the version token.
+ * Exported so an integration test can anchor it to the major actually reported by
+ * an opened PGlite handle — closing the loop so this constant (and, via the
+ * cross-package drift test, desktop's `BUNDLED_PG_MAJOR`) can't silently fall out
+ * of step with the engine `@electric-sql/pglite` bundles.
+ */
+export const PGLITE_ENGINE_MAJOR = Number(PGLITE_DATA_DIR_VERSION.replace(/^pg/, ''));
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
