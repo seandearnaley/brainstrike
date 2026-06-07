@@ -42,6 +42,7 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', () => {
   const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
     const foregroundYielding = inputs.dbPressure.available && inputs.dbPressure.foregroundPressure;
     const interactive = inputs.dbPressure.available && inputs.dbPressure.normalPressure;
+    const constrained = inputs.powerSource === 'battery' || inputs.thermalState === 'serious';
     return {
       allowNewWork: !foregroundYielding,
       allowPowerSaveBlocker: false,
@@ -55,10 +56,20 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', () => {
         ? 'foreground-db-pressure'
         : interactive
           ? 'normal-db-pressure'
-          : 'balanced',
+          : constrained
+            ? inputs.powerSource === 'battery'
+              ? 'battery'
+              : 'thermal-serious'
+            : 'balanced',
       scanBatchSize: foregroundYielding ? 0 : 48,
-      state: foregroundYielding ? 'foreground-yielding' : interactive ? 'interactive' : 'balanced',
-      workerClaimBatchSize: foregroundYielding ? 0 : interactive ? 1 : 16,
+      state: foregroundYielding
+        ? 'foreground-yielding'
+        : interactive
+          ? 'interactive'
+          : constrained
+            ? 'system-constrained'
+            : 'balanced',
+      workerClaimBatchSize: foregroundYielding ? 0 : interactive || constrained ? 1 : 16,
     };
   };
   resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
@@ -141,6 +152,36 @@ describe('createEmbeddingWorkerConfig', () => {
         windowVisible: false,
       })
     );
+  });
+
+  it('constrains desktop claim size from the power snapshot', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    Object.assign(window, {
+      power: {
+        getSnapshot: vi.fn(async () => ({
+          idleState: 'active',
+          idleTimeMs: 0,
+          powerSource: 'battery',
+          sampledAt: 1234,
+          thermalState: 'nominal',
+        })),
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          powerSource: 'battery',
+          thermalState: 'nominal',
+        })
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
   });
 
   it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {

@@ -28,7 +28,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import {
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingIdleState,
+  type WorkspaceIndexingPowerSource,
   type WorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingThermalState,
 } from '@brainstrike/utils/workspace-indexing-qos';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import {
@@ -65,6 +68,31 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
 } as const;
 const BACKGROUND_PRESSURE_POLL_MS = 50;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
+const VALID_IDLE_STATES = new Set<WorkspaceIndexingIdleState>([
+  'active',
+  'idle',
+  'locked',
+  'unknown',
+]);
+const VALID_POWER_SOURCES = new Set<WorkspaceIndexingPowerSource>(['ac', 'battery', 'unknown']);
+const VALID_THERMAL_STATES = new Set<WorkspaceIndexingThermalState>([
+  'critical',
+  'fair',
+  'nominal',
+  'serious',
+  'unknown',
+]);
+
+interface WorkspaceIndexingPowerSnapshot {
+  idleState: WorkspaceIndexingIdleState;
+  idleTimeMs: number;
+  powerSource: WorkspaceIndexingPowerSource;
+  thermalState: WorkspaceIndexingThermalState;
+}
+
+interface WorkspaceIndexingPowerBridge {
+  getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
+}
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
@@ -134,6 +162,44 @@ function createReadDatabasePressure(
   }
 
   return async () => toWorkspaceIndexingDatabasePressure(await schedulerSnapshot());
+}
+
+function assertValidPowerSnapshot(
+  snapshot: WorkspaceIndexingPowerSnapshot
+): WorkspaceIndexingPowerSnapshot {
+  if (!VALID_IDLE_STATES.has(snapshot.idleState)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid idleState: ${snapshot.idleState}`
+    );
+  }
+  if (!(Number.isFinite(snapshot.idleTimeMs) && snapshot.idleTimeMs >= 0)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid idleTimeMs: ${snapshot.idleTimeMs}`
+    );
+  }
+  if (!VALID_POWER_SOURCES.has(snapshot.powerSource)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid powerSource: ${snapshot.powerSource}`
+    );
+  }
+  if (!VALID_THERMAL_STATES.has(snapshot.thermalState)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid thermalState: ${snapshot.thermalState}`
+    );
+  }
+  return snapshot;
+}
+
+function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapshot>) | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const bridge = (window as Window & { power?: WorkspaceIndexingPowerBridge }).power;
+  const getSnapshot = bridge?.getSnapshot;
+  if (typeof getSnapshot !== 'function') {
+    return null;
+  }
+  return async () => assertValidPowerSnapshot(await getSnapshot());
 }
 
 function useDocumentVisibility(): boolean {
@@ -214,6 +280,7 @@ export function WorkspaceCollectionSyncProvider({
     () => (backgroundDb ? createReadDatabasePressure(backgroundDb) : null),
     [backgroundDb]
   );
+  const readPowerSnapshot = useMemo(() => createReadPowerSnapshot(), []);
   const backgroundRepositories = useMemo(() => {
     if (!backgroundDb) {
       return null;
@@ -313,6 +380,7 @@ export function WorkspaceCollectionSyncProvider({
     if (!readDatabasePressure) {
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
     }
+    const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
     const latestStatus = useWorkspaceCollectionSyncStatusStore.getState();
     const queueDepth =
       latestStatus.queueProgress?.pending ??
@@ -321,17 +389,17 @@ export function WorkspaceCollectionSyncProvider({
     return resolveWorkspaceIndexingQosPolicy({
       dbPressure: await readDatabasePressure(),
       foregroundQueryActive: false,
-      idleState: 'unknown',
-      idleTimeMs: null,
+      idleState: powerSnapshot?.idleState ?? 'unknown',
+      idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
       manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
-      powerSource: 'unknown',
+      powerSource: powerSnapshot?.powerSource ?? 'unknown',
       providerRateLimited: false,
       queueDepth,
       recentUserInputMs,
-      thermalState: 'unknown',
+      thermalState: powerSnapshot?.thermalState ?? 'unknown',
       windowVisible,
     });
-  }, [readDatabasePressure, recentUserInputMs, windowVisible]);
+  }, [readDatabasePressure, readPowerSnapshot, recentUserInputMs, windowVisible]);
 
   const service = useMemo(() => {
     if (

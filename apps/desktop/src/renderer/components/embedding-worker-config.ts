@@ -15,6 +15,9 @@ import { createLogger } from '@brainstrike/utils/logger';
 import {
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingIdleState,
+  type WorkspaceIndexingPowerSource,
+  type WorkspaceIndexingThermalState,
 } from '@brainstrike/utils/workspace-indexing-qos';
 
 const logger = createLogger('EmbeddingWorkerConfig');
@@ -29,6 +32,31 @@ const DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS = 10;
 const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
+const VALID_IDLE_STATES = new Set<WorkspaceIndexingIdleState>([
+  'active',
+  'idle',
+  'locked',
+  'unknown',
+]);
+const VALID_POWER_SOURCES = new Set<WorkspaceIndexingPowerSource>(['ac', 'battery', 'unknown']);
+const VALID_THERMAL_STATES = new Set<WorkspaceIndexingThermalState>([
+  'critical',
+  'fair',
+  'nominal',
+  'serious',
+  'unknown',
+]);
+
+interface WorkspaceIndexingPowerSnapshot {
+  idleState: WorkspaceIndexingIdleState;
+  idleTimeMs: number;
+  powerSource: WorkspaceIndexingPowerSource;
+  thermalState: WorkspaceIndexingThermalState;
+}
+
+interface WorkspaceIndexingPowerBridge {
+  getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
+}
 
 function parsePositiveIntegerEnv(
   name:
@@ -64,6 +92,44 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
   return {
     getSnapshot: createCachedSchedulerSnapshotReader(schedulerSnapshot),
   };
+}
+
+function assertValidPowerSnapshot(
+  snapshot: WorkspaceIndexingPowerSnapshot
+): WorkspaceIndexingPowerSnapshot {
+  if (!VALID_IDLE_STATES.has(snapshot.idleState)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid idleState: ${snapshot.idleState}`
+    );
+  }
+  if (!(Number.isFinite(snapshot.idleTimeMs) && snapshot.idleTimeMs >= 0)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid idleTimeMs: ${snapshot.idleTimeMs}`
+    );
+  }
+  if (!VALID_POWER_SOURCES.has(snapshot.powerSource)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid powerSource: ${snapshot.powerSource}`
+    );
+  }
+  if (!VALID_THERMAL_STATES.has(snapshot.thermalState)) {
+    throw new Error(
+      `Workspace Index QoS power snapshot has invalid thermalState: ${snapshot.thermalState}`
+    );
+  }
+  return snapshot;
+}
+
+function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapshot>) | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const bridge = (window as Window & { power?: WorkspaceIndexingPowerBridge }).power;
+  const getSnapshot = bridge?.getSnapshot;
+  if (typeof getSnapshot !== 'function') {
+    return null;
+  }
+  return async () => assertValidPowerSnapshot(await getSnapshot());
 }
 
 function createCachedSchedulerSnapshotReader(
@@ -125,19 +191,20 @@ function toWorkspaceIndexingDatabasePressure(
 
 function resolveDesktopClaimBatchSize(
   snapshot: DatabaseWorkSchedulerSnapshot,
-  idleClaimBatchSize: number
+  idleClaimBatchSize: number,
+  powerSnapshot: WorkspaceIndexingPowerSnapshot | null
 ): number {
   const policy = resolveWorkspaceIndexingQosPolicy({
     dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
     foregroundQueryActive: false,
-    idleState: 'active',
-    idleTimeMs: 0,
+    idleState: powerSnapshot?.idleState ?? 'active',
+    idleTimeMs: powerSnapshot?.idleTimeMs ?? 0,
     manualPaused: false,
-    powerSource: 'unknown',
+    powerSource: powerSnapshot?.powerSource ?? 'unknown',
     providerRateLimited: false,
     queueDepth: 0,
     recentUserInputMs: null,
-    thermalState: 'unknown',
+    thermalState: powerSnapshot?.thermalState ?? 'unknown',
     windowVisible: false,
   });
   const positiveClaimBatchSize =
@@ -175,6 +242,7 @@ function createDesktopPressureControls(
   gate: ForegroundEmbeddingGate | undefined
 ): Pick<EmbeddingWorkerOptions, 'resolveClaimBatchSize' | 'waitForBackgroundPermit'> {
   const snapshotSource = createPressureSnapshotSource(db);
+  const readPowerSnapshot = createReadPowerSnapshot();
   const pressureController = createDatabasePressureController({
     pollMs: DESKTOP_PRESSURE_POLL_MS,
     snapshotSource,
@@ -182,7 +250,11 @@ function createDesktopPressureControls(
   return {
     resolveClaimBatchSize: async () => {
       const snapshot = await snapshotSource.getSnapshot();
-      return resolveDesktopClaimBatchSize(snapshot, idleClaimBatchSize);
+      return resolveDesktopClaimBatchSize(
+        snapshot,
+        idleClaimBatchSize,
+        readPowerSnapshot ? await readPowerSnapshot() : null
+      );
     },
     waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),
   };

@@ -61,6 +61,7 @@ import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1104,6 +1105,7 @@ if (singleInstanceLockAcquired) {
 
       unregisterMainPlatformIpcHandlers = registerMainPlatformIpcHandlers({
         getAssistantUrl: () => assistantUrl,
+        getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
         noteNextWindowReload,
       });
 

@@ -3,7 +3,7 @@
 **Status**: Draft for phased implementation
 **Owner**: Sean Dearnaley
 **Created**: 2026-06-07
-**Last revised**: 2026-06-07 v0.9
+**Last revised**: 2026-06-07 v1.0
 **Target packages**: `@brainstrike/db`, `@brainstrike/preferences`, `@brainstrike/app-shell`, `@brainstrike/vector-management`, `@brainstrike/ui`, `@brainstrike/db-explorer`, `@brainstrike/agent`, `apps/desktop`
 **Rollout posture**: Phased, stacked PRs, red/green TDD, regular commits
 **Source analysis**: `docs/background-indexer-deep-dive-2026-06-07.md`
@@ -23,6 +23,7 @@
 | 2026-06-07 | v0.7 | Implemented Phase 5 desktop backfill recovery: scoped queue repair before candidate counting and a background-specific drain timeout so large workspace index drains do not inherit the manual foreground cap. | Commit `fad21ca3b` |
 | 2026-06-07 | v0.8 | Implemented Phase 6 assistant integration: runtime Workspace Index status reaches assistant requests, `queryEmbeddingSpace` can omit `embeddingSetId` for Workspace Index defaulting, blocked Workspace Index state returns structured tool output, and coverage remains available through `listEmbeddingSpaces({ includeStats: true })` instead of adding per-query stats overhead. | Commits `17e6ac800`, `004eab404` |
 | 2026-06-07 | v0.9 | Implemented Phase 7 QoS v1 foundation: shared `@brainstrike/utils/workspace-indexing-qos` policy, app-shell scan/import/backfill policy wiring, visible-renderer activity/visibility and DB-pressure inputs, and desktop embedding worker claim sizing through the same policy. Desktop idle/power/thermal inputs remain a follow-up before Phase 7 is fully closed. | Commits `d6974dc1f`, `279fc8c88` plus current Phase 7 branch work |
+| 2026-06-07 | v1.0 | Wired desktop platform QoS inputs: Electron `powerMonitor` snapshots flow through a typed preload `power.getSnapshot()` bridge into app-shell scan/import/backfill policy and hidden embedding worker claim sizing. | Current Phase 7 branch work |
 
 ## 1. Goal
 
@@ -543,8 +544,8 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 - The QoS controller lives in `@brainstrike/utils/workspace-indexing-qos`, not app-shell, so app-shell scan/import/backfill and the desktop hidden embedding host share one policy source.
 - App-shell now resolves policy before scanning, importing, and enqueueing managed backfill. `allowNewWork: false` fails fast for scan/import/enqueue paths instead of silently continuing.
-- The visible renderer currently supplies manual pause, recent user input, document visibility, queue depth, and DB pressure. Desktop idle time, power source, and thermal state are explicit `unknown` inputs until a main/preload platform snapshot bridge is added.
-- The desktop embedding worker now derives claim size from the same QoS policy. Foreground DB pressure maps to one-at-a-time claims because `EmbeddingWorkerOptions.resolveClaimBatchSize` requires a positive integer; foreground query embeddings still use the existing foreground gate as the hard stop for new background claims.
+- The visible renderer currently supplies manual pause, recent user input, document visibility, queue depth, DB pressure, and desktop platform power snapshots when the Electron bridge is available.
+- The desktop embedding worker now derives claim size from the same QoS policy using DB pressure plus the desktop power snapshot. Foreground DB pressure maps to one-at-a-time claims because `EmbeddingWorkerOptions.resolveClaimBatchSize` requires a positive integer; foreground query embeddings still use the existing foreground gate as the hard stop for new background claims.
 - The existing `EmbeddingHostManager` power-save blocker remains active-work-driven with an idle grace period. It is not yet driven by the QoS `allowPowerSaveBlocker` flag.
 
 ### Phase 8: Desktop E2E and Manual Verification Hardening

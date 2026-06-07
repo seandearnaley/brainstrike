@@ -17,6 +17,10 @@ import {
   encodeFileSelection,
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
+import type {
+  WorkspaceIndexingQosInputs,
+  WorkspaceIndexingQosPolicy,
+} from '@brainstrike/utils/workspace-indexing-qos';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
@@ -43,6 +47,7 @@ const {
   fileSystemState,
   fileTreeContextState,
   idleSchedulerSnapshot,
+  resolveWorkspaceIndexingQosPolicyMock,
 } = vi.hoisted(() => ({
   runEnhancedImportMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
@@ -108,6 +113,7 @@ const {
   ensureEmbeddingRuntimeStartedMock: vi.fn(),
   enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
   cancelBackfillMock: vi.fn(async () => {}),
+  resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
   dbState: {
     current: {
       query: vi.fn(async () => ({ rows: [] })),
@@ -220,6 +226,18 @@ const {
     snapshotAt: 1000,
   },
 }));
+
+vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+  resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
+    (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy =>
+      actual.resolveWorkspaceIndexingQosPolicy(inputs)
+  );
+  return {
+    ...actual,
+    resolveWorkspaceIndexingQosPolicy: resolveWorkspaceIndexingQosPolicyMock,
+  };
+});
 
 vi.mock('@brainstrike/db', () => ({
   WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
@@ -460,6 +478,42 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('uses the desktop power snapshot for QoS policy inputs when available', async () => {
+    Object.assign(window, {
+      power: {
+        getSnapshot: vi.fn(async () => ({
+          idleState: 'idle',
+          idleTimeMs: 90_000,
+          powerSource: 'battery',
+          sampledAt: 1234,
+          thermalState: 'serious',
+        })),
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            idleState: 'idle',
+            idleTimeMs: 90_000,
+            powerSource: 'battery',
+            thermalState: 'serious',
+          })
+        )
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
   });
 
   it('creates and syncs the default workspace index when fresh preferences have no managed collection', async () => {

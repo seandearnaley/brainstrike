@@ -48,6 +48,7 @@ const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
 const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
 const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
+const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
@@ -721,6 +722,7 @@ if (shouldExposeBridge('desktopDiagnostics')) {
 
 // Power state events (suspend/resume awareness for GPU keep-alive, etc.)
 contextBridge.exposeInMainWorld('power', {
+  getSnapshot: () => ipcRenderer.invoke(APP_POWER_SNAPSHOT_CHANNEL),
   onPowerState: (callback: (state: 'suspend' | 'resume') => void) => {
     const listener = (_event: unknown, state: 'suspend' | 'resume') => callback(state);
     ipcRenderer.on(APP_POWER_STATE_EVENT, listener);

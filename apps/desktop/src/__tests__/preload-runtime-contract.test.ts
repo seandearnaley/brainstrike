@@ -134,6 +134,7 @@ describe('preload runtime contract', () => {
       ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT:
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.previewContextSelectionUpdate,
       APP_POWER_STATE_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState,
+      APP_POWER_SNAPSHOT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot,
       ASSISTANT_GET_URL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
       ASSISTANT_ROOT_TREE_SELECTION_EVENT:
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.rootTreeSelectionUpdate,
