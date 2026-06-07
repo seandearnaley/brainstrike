@@ -116,6 +116,8 @@ function trimTrailingPathSeparators(path: string): string {
 }
 
 function normalizeSlashRelativePath(relativePath: string, separator: string): string {
+  // Avoid split/filter/join here: synthetic handles are created for bulk
+  // selected files, so scanning skips per-file segment arrays.
   let normalized = '';
   let segmentStart = -1;
 
@@ -128,8 +130,6 @@ function normalizeSlashRelativePath(relativePath: string, separator: string): st
   for (let index = 0; index < relativePath.length; index++) {
     if (relativePath.charCodeAt(index) === 47) {
       if (segmentStart !== -1) {
-        // Avoid split/filter/join here: synthetic handles are created for
-        // bulk selected files, so scanning skips per-file segment arrays.
         appendSegment(index);
       }
       continue;
