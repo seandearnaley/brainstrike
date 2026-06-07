@@ -3,7 +3,7 @@
 **Status**: Draft for phased implementation
 **Owner**: Sean Dearnaley
 **Created**: 2026-06-07
-**Last revised**: 2026-06-07 v0.1
+**Last revised**: 2026-06-07 v0.4
 **Target packages**: `@brainstrike/db`, `@brainstrike/preferences`, `@brainstrike/app-shell`, `@brainstrike/vector-management`, `@brainstrike/ui`, `@brainstrike/db-explorer`, `@brainstrike/agent`, `apps/desktop`
 **Rollout posture**: Phased, stacked PRs, red/green TDD, regular commits
 **Source analysis**: `docs/background-indexer-deep-dive-2026-06-07.md`
@@ -16,6 +16,8 @@
 |---|---:|---|---|
 | 2026-06-07 | v0.1 | Initial PRD from background indexer deep dive. Defines product target, architecture, phased PR sequence, TDD rules, and validation plan. | Background indexer analysis |
 | 2026-06-07 | v0.2 | Corrected DB test-lane verification to use the package-local script in `@brainstrike/db`. | Phase 1 implementation evidence |
+| 2026-06-07 | v0.3 | Implemented Phase 1 DB system role, migration registration, repository API, and exported workspace-index defaults/constants. | Commit `243ddd895` |
+| 2026-06-07 | v0.4 | Implemented Phase 2 bootstrap defaults, fresh/stale preference binding, `blocked:missing-provider-key`, early provider validation, and pause-preserving bootstrap. | Commits `4738f5566`, `896ace664`, `40cbe6e57` |
 
 ## 1. Goal
 
@@ -275,11 +277,15 @@ Each phase should land as a separate PR unless implementation evidence shows two
 **Likely files**
 
 - Create: `packages/app-shell/src/background-indexing/workspace-index-bootstrap-service.ts`
+- Create: `packages/app-shell/src/background-indexing/workspace-index-blocked-error.ts`
 - Modify: `packages/app-shell/src/background-indexing/workspace-collection-sync-provider.tsx`
+- Modify: `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts`
 - Modify: `packages/preferences/src/stores/background-indexing-preferences-store.ts`
 - Modify: `packages/preferences/src/stores/workspace-collection-sync-status-store.ts`
-- Test: `packages/app-shell/src/background-indexing/__tests__/workspace-index-bootstrap-service.test.ts`
+- Test: `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`
+- Test: `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`
 - Test: `packages/preferences/src/__tests__/background-indexing-preferences-store.test.ts`
+- Test: `packages/preferences/src/__tests__/workspace-collection-sync-status-store.test.ts`
 
 **Red/green TDD sequence**
 
@@ -294,8 +300,8 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 **Commands**
 
-- `pnpm --filter @brainstrike/app-shell exec vitest run src/background-indexing/__tests__/workspace-index-bootstrap-service.test.ts`
-- `pnpm --filter @brainstrike/preferences test -- background-indexing-preferences-store`
+- `pnpm --filter @brainstrike/app-shell exec vitest run src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`
+- `pnpm --filter @brainstrike/preferences exec vitest run src/__tests__/background-indexing-preferences-store.test.ts src/__tests__/workspace-collection-sync-status-store.test.ts`
 - `pnpm lint && pnpm type-check`
 
 **Exit criteria**
