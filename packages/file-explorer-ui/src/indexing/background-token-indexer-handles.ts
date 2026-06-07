@@ -95,15 +95,54 @@ function joinElectronAbsolutePath(rootPath: string, relativePath: string): strin
     rootPath.startsWith('\\\\') ||
     rootPath.includes('\\');
   const separator = prefersBackslashes ? '\\' : '/';
-  const trimmedRootPath = rootPath.replace(/[\\/]+$/u, '');
-  const normalizedRelativePath = relativePath
-    .split('/')
-    .filter((segment) => segment.length > 0)
-    .join(separator);
+  const trimmedRootPath = trimTrailingPathSeparators(rootPath);
+  const normalizedRelativePath = normalizeSlashRelativePath(relativePath, separator);
   if (normalizedRelativePath.length === 0) {
     return trimmedRootPath;
   }
   return `${trimmedRootPath}${separator}${normalizedRelativePath}`;
+}
+
+function trimTrailingPathSeparators(path: string): string {
+  let end = path.length;
+  while (end > 0) {
+    const code = path.charCodeAt(end - 1);
+    if (code !== 47 && code !== 92) {
+      break;
+    }
+    end--;
+  }
+  return end === path.length ? path : path.slice(0, end);
+}
+
+function normalizeSlashRelativePath(relativePath: string, separator: string): string {
+  let normalized = '';
+  let segmentStart = -1;
+
+  for (let index = 0; index < relativePath.length; index++) {
+    if (relativePath.charCodeAt(index) === 47) {
+      if (segmentStart !== -1) {
+        // Avoid split/filter/join here: synthetic handles are created for
+        // bulk selected files, so scanning skips per-file segment arrays.
+        normalized += `${normalized.length === 0 ? '' : separator}${relativePath.slice(
+          segmentStart,
+          index
+        )}`;
+        segmentStart = -1;
+      }
+      continue;
+    }
+
+    if (segmentStart === -1) {
+      segmentStart = index;
+    }
+  }
+
+  if (segmentStart !== -1) {
+    normalized += `${normalized.length === 0 ? '' : separator}${relativePath.slice(segmentStart)}`;
+  }
+
+  return normalized;
 }
 
 export function getSlashPathFileName(filePath: string): string {
