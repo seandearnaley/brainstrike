@@ -181,11 +181,20 @@ const MEMBER_PREFIXES = 'export|default|async|public|private|protected|static|re
  */
 function declarationScore(line: string, escapedQuery: string): number {
   // `function add`, `class Add`, `const add =` — the query IS the declared name.
+  // The strongest signal, ranked above member/method shapes so a real named
+  // declaration wins over an earlier call site that happens to look like `name(`.
   const namedDecl = new RegExp(`\\b(?:${DECLARATION_KEYWORDS})\\s+${escapedQuery}\\b`);
+  if (namedDecl.test(line)) {
+    return 3;
+  }
   // Trimmed line starts with the query as a member/method/property declaration:
   // `add(`, `add:`, `add =`, optionally after `export`/`async`/`public`/... .
+  // NOTE: a bare top-level CALL (`add(args);`) also matches the `name(` shape —
+  // substring matching can't fully tell a class method from a call — so it ranks
+  // BELOW a named declaration. A call before a class method (both score 2) still
+  // ties on file order; output is best-effort and the model is told to verify.
   const memberDecl = new RegExp(`^(?:(?:${MEMBER_PREFIXES})\\s+)*${escapedQuery}\\s*[(:=]`);
-  if (namedDecl.test(line) || memberDecl.test(line.trimStart())) {
+  if (memberDecl.test(line.trimStart())) {
     return 2;
   }
   // Word-boundary match (a genuine use of the symbol, not e.g. `addItem`).

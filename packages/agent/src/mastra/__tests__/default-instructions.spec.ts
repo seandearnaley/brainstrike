@@ -114,7 +114,12 @@ describe('buildDefaultInstructions', () => {
   it('steers symbol lookup and color grouping when the tools are registered', () => {
     const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
     expect(prompt).toContain('findWorkspaceSymbol');
-    expect(prompt).toMatch(/exact range[^.]*without reading the whole file/i);
+    // findWorkspaceSymbol is a substring/brace heuristic (best-effort), not exact;
+    // the prompt must not call it "exact" (which would tell the model to report a
+    // possibly-wrong range as exact) and must steer it to verify the result.
+    expect(prompt).toMatch(/best-effort range[^.]*without reading the whole file/i);
+    expect(prompt).toMatch(/verify the returned range/i);
+    expect(prompt).not.toMatch(/exact range without reading/i);
     expect(prompt).toMatch(/color/i);
     expect(prompt).toMatch(/group related/i);
   });

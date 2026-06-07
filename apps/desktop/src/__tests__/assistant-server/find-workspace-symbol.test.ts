@@ -110,6 +110,26 @@ describe('findSymbolMatches', () => {
       expect(result.matches[0]?.declarationLine).toBe(3);
     });
 
+    it('ranks a named declaration above earlier call sites that look like `name(`', () => {
+      // A bare top-level call `doThing(...)` matches the member-declaration shape
+      // (`name(`), so without ranking named declarations higher, a call before
+      // the definition would crowd the real `function doThing` past the cap.
+      const content = [
+        'doThing(initialArgs);', // 1: call (member-decl-shaped)
+        'doThing(moreArgs);', // 2: call
+        'export function doThing(x: number) {', // 3: the real declaration
+        '  return x;',
+        '}',
+      ].join('\n');
+
+      const [match] = findSymbolMatches(content, 'doThing', {
+        maxMatches: 1,
+        contextLines: 0,
+      }).matches;
+
+      expect(match?.declarationLine).toBe(3);
+    });
+
     it('does not treat a partial-identifier collision as a word-boundary match', () => {
       // `paddle` and `addItem` contain "add" but are not the symbol; the real
       // word-boundary use should outrank them under the cap.

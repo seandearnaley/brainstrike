@@ -124,7 +124,7 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
     : '';
   const symbolLookupInstruction =
     names.findWorkspaceSymbol && names.updateWorkspaceTapestrySelections
-      ? `When the user names a symbol/function/type, call ${names.findWorkspaceSymbol} to get its exact range without reading the whole file, then pass that range to ${names.updateWorkspaceTapestrySelections}.`
+      ? `When the user names a symbol/function/type, call ${names.findWorkspaceSymbol} to get its best-effort range without reading the whole file, verify the returned range covers the symbol, then pass it to ${names.updateWorkspaceTapestrySelections}.`
       : '';
   const colorGroupingInstruction = names.updateWorkspaceTapestrySelections
     ? 'You may set a named color per range (red, orange, yellow, green, cyan, blue, purple, pink, gray) to group related context — reuse the same color for the same concept.'
