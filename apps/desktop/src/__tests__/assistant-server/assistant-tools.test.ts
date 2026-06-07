@@ -1,7 +1,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
+import { NATIVE_TOOL_DEFAULTS, type RuntimeData } from '@brainstrike/agent';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -828,6 +828,38 @@ describe('assistant-tools', () => {
     await expect(
       tool.execute({ context: { path: '../outside.ts', query: 'x' } })
     ).rejects.toThrow();
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
+    // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
+    // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools
+    // in real assistant runs — so a tool registered here but not there works only
+    // in tests. Guard against that drift.
+    const tools = buildDesktopAssistantTools(undefined);
+    const missing = Object.keys(tools).filter((id) => !(id in NATIVE_TOOL_DEFAULTS));
+    expect(missing).toEqual([]);
+  });
+
+  it('findWorkspaceSymbol applies the workspace read guards (binary / non-file)', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    // Binary file (NUL byte) must error cleanly, not be scanned as UTF-8 garbage.
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'lib', 'bin.dat'),
+      Buffer.from([0x41, 0x00, 0x42])
+    );
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    await expect(
+      tool.execute({ context: { path: '/src/lib/bin.dat', query: 'A' } })
+    ).rejects.toThrow(/binary file/i);
+
+    // A directory path must give the friendly "is not a file" error, not EISDIR.
+    await expect(tool.execute({ context: { path: '/src/lib', query: 'x' } })).rejects.toThrow(
+      /is not a file/i
+    );
 
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });

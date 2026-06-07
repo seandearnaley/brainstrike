@@ -248,13 +248,16 @@ async function runFindWorkspaceSymbol(
   matches: ReturnType<typeof findSymbolMatches>['matches'];
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
-  const resolved = await resolveWorkspaceAbsolutePath(rootPath, input.path);
-  const content = await fsPromises.readFile(resolved.absolutePath, 'utf8');
-  const { matches, totalMatches, truncated } = findSymbolMatches(content, input.query, {
+  // Route through the checked reader so the same guards apply (isFile, 2 MB size
+  // cap, NUL-byte binary probe). Symbol scanning returns only a tiny bounded
+  // result, so a multi-MB bundle or binary file must error cleanly rather than
+  // be loaded and scanned in full on the main process.
+  const file = await readWorkspaceTextFile({ rootPath, requestedPath: input.path });
+  const { matches, totalMatches, truncated } = findSymbolMatches(file.content, input.query, {
     maxMatches: input.maxMatches ?? 5,
     contextLines: input.contextLines ?? 2,
   });
-  return { path: resolved.workspacePath, totalMatches, truncated, matches };
+  return { path: file.path, totalMatches, truncated, matches };
 }
 
 async function runReadWorkspaceFile(
@@ -1330,7 +1333,7 @@ export function buildDesktopAssistantTools(
     [FIND_WORKSPACE_SYMBOL_TOOL_ID]: {
       id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
       description:
-        "Find a symbol's exact 1-based line range in a workspace file without returning whole-file content. Use this to get a function/type/section range, then pass it to brainstrike.updateWorkspaceTapestrySelections.",
+        "Find a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content. Matching is substring-based, so verify the returned range. Use this to get a function/type/section range, then pass it to brainstrike.updateWorkspaceTapestrySelections.",
       inputSchema: FindWorkspaceSymbolInputSchema,
       execute: async (input: ToolExecuteInput<FindWorkspaceSymbolInput>) => {
         const resolvedInput = parseToolExecuteInput(FindWorkspaceSymbolInputSchema, input);

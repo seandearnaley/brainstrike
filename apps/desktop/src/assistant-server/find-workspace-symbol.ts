@@ -146,20 +146,61 @@ function buildPreview(lines: string[], declIndex: number, contextLines: number):
   return out.join('\n');
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Keywords that introduce a named declaration whose identifier follows. */
+const DECLARATION_KEYWORDS = 'function|class|interface|type|enum|struct|trait|fn|def|const|let|var';
+/** Member/property/assignment-style declaration prefixes (class methods, object props). */
+const MEMBER_PREFIXES = 'export|default|async|public|private|protected|static|readonly|get|set';
+
+/**
+ * Rank how strongly a matching line looks like the *declaration* of `query`
+ * (vs. an import, call site, or partial-identifier collision). Higher is more
+ * declaration-like — used so the real definition isn't crowded past `maxMatches`
+ * by earlier usages. Substring-only matching is best-effort, so this is a
+ * heuristic, not a parser.
+ */
+function declarationScore(line: string, escapedQuery: string): number {
+  // `function add`, `class Add`, `const add =` — the query IS the declared name.
+  const namedDecl = new RegExp(`\\b(?:${DECLARATION_KEYWORDS})\\s+${escapedQuery}\\b`);
+  // Trimmed line starts with the query as a member/method/property declaration:
+  // `add(`, `add:`, `add =`, optionally after `export`/`async`/`public`/... .
+  const memberDecl = new RegExp(`^(?:(?:${MEMBER_PREFIXES})\\s+)*${escapedQuery}\\s*[(:=]`);
+  if (namedDecl.test(line) || memberDecl.test(line.trimStart())) {
+    return 2;
+  }
+  // Word-boundary match (a genuine use of the symbol, not e.g. `addItem`).
+  if (new RegExp(`\\b${escapedQuery}\\b`).test(line)) {
+    return 1;
+  }
+  // Substring-only collision (kept so totals/behavior are unchanged), ranked last.
+  return 0;
+}
+
 export function findSymbolMatches(
   content: string,
   query: string,
   options: FindSymbolOptions
 ): FindSymbolResult {
   const lines = content.split('\n');
-  const declIndexes: number[] = [];
+  const escapedQuery = escapeRegExp(query);
+  const scored: Array<{ index: number; order: number; score: number }> = [];
   for (let i = 0; i < lines.length; i += 1) {
-    if ((lines[i] ?? '').includes(query)) {
-      declIndexes.push(i);
+    const line = lines[i] ?? '';
+    if (line.includes(query)) {
+      scored.push({ index: i, order: scored.length, score: declarationScore(line, escapedQuery) });
     }
   }
-  const totalMatches = declIndexes.length;
-  const capped = declIndexes.slice(0, Math.max(0, options.maxMatches));
+  const totalMatches = scored.length;
+  const capped = scored
+    // Declaration-like lines first; ties preserve file order (stable via `order`).
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, Math.max(0, options.maxMatches))
+    // Present the selected matches in file order for stable, readable output.
+    .sort((a, b) => a.index - b.index)
+    .map((entry) => entry.index);
   const matches: SymbolMatch[] = capped.map((declIndex) => {
     const endIndex = resolveBlockEndIndex(lines, declIndex);
     return {

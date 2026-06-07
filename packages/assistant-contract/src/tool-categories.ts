@@ -131,6 +131,12 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: false,
     estimatedTokens: 140,
   },
+  'brainstrike.findWorkspaceSymbol': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 150,
+  },
   'brainstrike.readWorkspaceDirectory': {
     category: 'retrieval',
     loadingTier: 'critical',

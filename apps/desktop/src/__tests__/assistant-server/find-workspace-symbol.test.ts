@@ -50,4 +50,59 @@ describe('findSymbolMatches', () => {
     const result = findSymbolMatches(TS, 'doesNotExist', { maxMatches: 5, contextLines: 0 });
     expect(result).toMatchObject({ matches: [], totalMatches: 0, truncated: false });
   });
+
+  describe('declaration ranking', () => {
+    it('surfaces the real declaration over earlier imports/call sites when capped', () => {
+      const content = [
+        "import { add } from './math';", // 1: import (usage)
+        'const x = add(1, 2);', // 2: call (note: leading `const`, but declares x not add)
+        'const y = add(3, 4);', // 3: call
+        'const z = add(5, 6);', // 4: call
+        'const w = add(7, 8);', // 5: call
+        'export function add(a: number, b: number): number {', // 6: declaration
+        '  return a + b;',
+        '}',
+      ].join('\n');
+
+      const result = findSymbolMatches(content, 'add', { maxMatches: 2, contextLines: 0 });
+
+      // The actual declaration (line 6) must be surfaced even though it is the
+      // 6th substring match and the cap is 2 — declaration-looking lines rank
+      // ahead of imports/call sites so the definition isn't crowded out.
+      expect(result.matches.map((m) => m.declarationLine)).toContain(6);
+      expect(result.totalMatches).toBe(6);
+      expect(result.truncated).toBe(true);
+      // Selected matches are still presented in file order.
+      const ordered = result.matches.map((m) => m.declarationLine);
+      expect([...ordered]).toEqual([...ordered].sort((a, b) => a - b));
+    });
+
+    it('ranks a const/let/var declaration of the symbol above its uses', () => {
+      const content = [
+        'foo(handler);', // 1: usage
+        'bar(handler);', // 2: usage
+        'export const handler = () => {};', // 3: declaration
+      ].join('\n');
+
+      const result = findSymbolMatches(content, 'handler', { maxMatches: 1, contextLines: 0 });
+
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]?.declarationLine).toBe(3);
+    });
+
+    it('does not treat a partial-identifier collision as a word-boundary match', () => {
+      // `paddle` and `addItem` contain "add" but are not the symbol; the real
+      // word-boundary use should outrank them under the cap.
+      const content = [
+        'const paddle = makePaddle();', // 1: collision (substring only)
+        'const list = addItem(list);', // 2: collision (substring only)
+        'add(1, 2);', // 3: word-boundary use of `add`
+      ].join('\n');
+
+      const result = findSymbolMatches(content, 'add', { maxMatches: 1, contextLines: 0 });
+
+      expect(result.totalMatches).toBe(3);
+      expect(result.matches[0]?.declarationLine).toBe(3);
+    });
+  });
 });
