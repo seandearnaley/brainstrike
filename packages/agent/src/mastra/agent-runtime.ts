@@ -846,6 +846,17 @@ function makeProviderErrorTermination(
   lifecycleState: ToolLifecycleState,
   part: unknown
 ): ProcessStreamPartResult {
+  // Preserve the server-side breadcrumb. We terminate the run gracefully here
+  // (visible message + run.failed) instead of throwing through
+  // handleStreamFailure, so without this log the provider failure would be
+  // invisible server-side — the `mastra_agent_stream_finished` success line in
+  // the finally block would be the only record. Log at error level with a
+  // distinct code so these stay diagnosable even though the user sees a clean
+  // message. (Per AGENTS.md "Feedback & Observability".)
+  logger.error('mastra stream terminated by provider error', {
+    code: 'mastra_agent_stream_provider_error',
+    detail,
+  });
   return {
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),

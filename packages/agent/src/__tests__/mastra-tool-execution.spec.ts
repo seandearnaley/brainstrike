@@ -20,6 +20,7 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -241,14 +242,21 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         }),
     };
 
-    const iterator = await streamMastraAgent(
-      [{ id: 'u3', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
-      { runtime: { provider: 'openai', apiKey: 'test-key' } }
-    );
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
 
     const chunks: StreamChunk[] = [];
-    for await (const chunk of iterator) {
-      chunks.push(chunk);
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u3', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+        { runtime: { provider: 'openai', apiKey: 'test-key' } }
+      );
+
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    } finally {
+      removeLogListener();
     }
 
     const text = chunks
@@ -269,5 +277,18 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     const finish = chunks.find((chunk) => chunk.type === 'message-finish');
     expect(finish).toMatchObject({ finishReason: 'error' });
+
+    // Observability: graceful termination must still leave a server-side
+    // breadcrumb — the failure must NOT look like a clean finish in the logs.
+    const providerErrorLog = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error'
+      )
+    );
+    expect(providerErrorLog).toBeDefined();
+    expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
   });
 });
