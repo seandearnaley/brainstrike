@@ -88,11 +88,17 @@ describe('buildDefaultInstructions', () => {
 
   it('explains how to derive line ranges from a direct file read (no embedding result)', () => {
     const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
-    // Without an embedding index, the model must read the file and use its
-    // 1-based line numbers to compute the symbol's exact range.
+    // Without an embedding index, the model reads the file and counts from the
+    // returned startLine to the symbol's first/last line.
     expect(prompt).toMatch(/when there is no embedding result/i);
     expect(prompt).toContain('readWorkspaceFile');
     expect(prompt).toMatch(/first and last line of the requested symbol/i);
+    // readWorkspaceFile returns a raw slice with NO inline line numbers, so the
+    // prompt must not claim otherwise (that wording produced off-by-one ranges)
+    // and must steer the model to count from startLine instead.
+    expect(prompt).not.toMatch(/content with 1-based line numbers/i);
+    expect(prompt).toMatch(/no inline line numbers/i);
+    expect(prompt).toMatch(/count from startLine/i);
   });
 
   it('degrades gracefully without selection tools and does not leak raw tool IDs into guidance', () => {

@@ -116,7 +116,7 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
           ? `${names.queryEmbeddingSpace} results include per-chunk 1-based source line ranges — pass those directly.`
           : '',
         names.readWorkspaceFile
-          ? `When there is no embedding result for the target, ${names.readWorkspaceFile} returns the file content with 1-based line numbers: read the file, find the exact first and last line of the requested symbol, and pass those as the range.`
+          ? `When there is no embedding result for the target, ${names.readWorkspaceFile} returns the file content plus 1-based startLine/endLine/totalLines metadata (the content itself has no inline line numbers): read it and count from startLine to find the first and last line of the requested symbol, then pass those as the range.`
           : '',
       ]
         .filter(Boolean)
