@@ -114,11 +114,20 @@ function parseNodeId(nodeId: string): {
   return { nodeType, originalId };
 }
 
+function canUseCollectionForNormalSearch(
+  activeCollectionId: string | null,
+  activeCollectionSystemRole: 'workspace-index' | null | undefined
+): activeCollectionId is string {
+  return activeCollectionId !== null && activeCollectionSystemRole !== 'workspace-index';
+}
+
 export interface CollectionBrowserViewProps {
   /** Active collection ID */
   activeCollectionId: string | null;
   /** Display name for embedding coverage notices */
   activeCollectionName?: string;
+  /** Durable system role for the active collection, when known. */
+  activeCollectionSystemRole?: 'workspace-index' | null;
   /** File chunks */
   chunks: DatabaseFileChunkSummary[];
   /** Height of the browser */
@@ -328,6 +337,7 @@ export function CollectionBrowserView({
   pendingChunkIds,
   activeCollectionId,
   activeCollectionName,
+  activeCollectionSystemRole = null,
   isLoading = false,
   height = 500,
   onFileSelect,
@@ -680,16 +690,26 @@ export function CollectionBrowserView({
 
   // Handle semantic search execution
   const handleSearch = useCallback(() => {
-    if (activeCollectionId === null) {
+    if (!canUseCollectionForNormalSearch(activeCollectionId, activeCollectionSystemRole)) {
       return;
     }
     if (semanticQuery.trim()) {
       setSearchMode('semantic');
       void executeSearch(semanticQuery, searchConfig, activeCollectionId);
     }
-  }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
+  }, [
+    semanticQuery,
+    searchConfig,
+    activeCollectionId,
+    activeCollectionSystemRole,
+    executeSearch,
+    setSearchMode,
+  ]);
 
-  const hasActiveCollection = activeCollectionId !== null;
+  const hasActiveCollection = canUseCollectionForNormalSearch(
+    activeCollectionId,
+    activeCollectionSystemRole
+  );
   const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
   // In semantic/hybrid search mode the tree is built from the bounded search-result
   // set (not the paginated file list), so the file-list pager is meaningless here:

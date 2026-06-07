@@ -3,10 +3,11 @@ import {
   CollectionPicker,
   type CollectionPickerCollection,
   ErrorBoundary,
+  getCollectionPickerProtection,
   useToast,
 } from '@brainstrike/ui';
 import { useCollections } from '@brainstrike/vector-management';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 interface SearchCollectionSelectorProps {
   /**
@@ -63,6 +64,14 @@ export function SearchCollectionSelector({
 
   // Use shared hook for collection data
   const { collections, loading, error } = useCollections(db);
+  const selectedCollection = useMemo(
+    () => collections.find((collection) => collection.id === activeCollectionId) ?? null,
+    [activeCollectionId, collections]
+  );
+  const selectedId =
+    selectedCollection && !getCollectionPickerProtection(selectedCollection).isDisabled
+      ? activeCollectionId
+      : null;
 
   // Handle errors with toast notifications
   useEffect(() => {
@@ -85,6 +94,9 @@ export function SearchCollectionSelector({
 
   const handleEdit = useCallback(
     (collection: CollectionPickerCollection) => {
+      if (getCollectionPickerProtection(collection).isDisabled) {
+        return;
+      }
       onEditCollection(collection);
     },
     [onEditCollection]
@@ -92,9 +104,27 @@ export function SearchCollectionSelector({
 
   const handleDelete = useCallback(
     (collection: CollectionPickerCollection) => {
+      if (getCollectionPickerProtection(collection).isDisabled) {
+        return;
+      }
       onDeleteCollection(collection);
     },
     [onDeleteCollection]
+  );
+
+  const handleSelect = useCallback(
+    (collectionId: string | null) => {
+      if (!collectionId) {
+        onCollectionChange(null);
+        return;
+      }
+      const collection = collections.find((candidate) => candidate.id === collectionId);
+      if (collection && getCollectionPickerProtection(collection).isDisabled) {
+        return;
+      }
+      onCollectionChange(collectionId);
+    },
+    [collections, onCollectionChange]
   );
 
   const isLoading = loading || !db;
@@ -108,8 +138,8 @@ export function SearchCollectionSelector({
         onCreate={onCreateCollection}
         onDelete={handleDelete}
         onEdit={handleEdit}
-        onSelect={onCollectionChange}
-        selectedId={activeCollectionId}
+        onSelect={handleSelect}
+        selectedId={selectedId}
         showHeader={false}
       />
     </ErrorBoundary>

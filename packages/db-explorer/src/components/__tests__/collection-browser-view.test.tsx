@@ -494,6 +494,25 @@ describe('CollectionBrowserView', () => {
     expect(semanticSearchMock.executeSearch).not.toHaveBeenCalled();
   });
 
+  it('does not execute hybrid search for the protected workspace index collection', async () => {
+    const user = userEvent.setup();
+    useCollectionBrowserStore.getState().setSemanticQuery('workspace query');
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="workspace-index"
+        activeCollectionSystemRole="workspace-index"
+        chunks={[]}
+        height={500}
+        records={[]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Run hybrid search' }));
+
+    expect(semanticSearchMock.executeSearch).not.toHaveBeenCalled();
+  });
+
   it('filters stale semantic results from a previously active collection', () => {
     semanticSearchMock.state = {
       error: null,

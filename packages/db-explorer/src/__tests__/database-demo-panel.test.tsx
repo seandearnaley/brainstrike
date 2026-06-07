@@ -128,6 +128,13 @@ const mockCollectionCountLiveQueryResult = {
   refresh: vi.fn().mockResolvedValue(undefined),
 };
 
+const mockCollectionLiveQueryResult = {
+  rows: [] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
 const mockDatabase = {
   query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
 };
@@ -159,6 +166,9 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
       // by its distinctive projection before the generic file_records branch.
       if (options.query.includes('AS "recordsCount"')) {
         return mockCollectionCountLiveQueryResult;
+      }
+      if (options.query.includes('FROM embedding_sets s')) {
+        return mockCollectionLiveQueryResult;
       }
       if (options.query.includes('FROM file_records')) {
         return mockRecordLiveQueryResult;
@@ -452,6 +462,9 @@ describe('DatabaseDemoPanel', () => {
     mockChunkLiveQueryResult.rows = [];
     mockChunkLiveQueryResult.loading = false;
     mockChunkLiveQueryResult.error = null;
+    mockCollectionLiveQueryResult.rows = [];
+    mockCollectionLiveQueryResult.loading = false;
+    mockCollectionLiveQueryResult.error = null;
   });
 
   it('registers the provided embedding queue for semantic search lifetime', async () => {
@@ -619,6 +632,54 @@ describe('DatabaseDemoPanel', () => {
         mode: 'root-folder-cache',
         hasHydrated: true,
       });
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
+    });
+
+    it('disables manual import when the active collection has the workspace index system role', async () => {
+      useVectorStatusUIStoreDirect.getState().setCachedCollections([
+        {
+          id: TEST_COLLECTION_ID,
+          modelKey: 'openai::text-embedding-3-small',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2026-06-07T00:00:00Z',
+          name: 'Workspace Index',
+          description: 'System-managed workspace index for assistant retrieval.',
+          tags: null,
+          category: null,
+          fileCount: 1,
+          chunkCount: 1,
+          embeddingCount: 1,
+          systemRole: 'workspace-index',
+        },
+      ]);
+      mockCollectionLiveQueryResult.rows = [
+        {
+          id: TEST_COLLECTION_ID,
+          modelKey: 'openai::text-embedding-3-small',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2026-06-07T00:00:00Z',
+          name: 'Workspace Index',
+          description: 'System-managed workspace index for assistant retrieval.',
+          tags: null,
+          category: null,
+          fileCount: '1',
+          chunkCount: '1',
+          embeddingCount: '1',
+          systemRole: 'workspace-index',
+        },
+      ];
 
       renderWithProviders(<DatabaseDemoPanel />);
 
