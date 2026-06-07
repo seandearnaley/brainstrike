@@ -121,16 +121,12 @@ function normalizeSlashRelativePath(relativePath: string, separator: string): st
   let normalized = '';
   let segmentStart = -1;
 
-  const appendSegment = (end: number): void => {
-    const segment = relativePath.slice(segmentStart, end);
-    normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
-    segmentStart = -1;
-  };
-
   for (let index = 0; index < relativePath.length; index++) {
     if (relativePath.charCodeAt(index) === 47) {
       if (segmentStart !== -1) {
-        appendSegment(index);
+        const segment = relativePath.slice(segmentStart, index);
+        normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
+        segmentStart = -1;
       }
       continue;
     }
@@ -141,7 +137,8 @@ function normalizeSlashRelativePath(relativePath: string, separator: string): st
   }
 
   if (segmentStart !== -1) {
-    appendSegment(relativePath.length);
+    const segment = relativePath.slice(segmentStart);
+    normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
   }
 
   return normalized;
