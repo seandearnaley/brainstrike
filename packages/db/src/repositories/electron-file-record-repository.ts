@@ -1,11 +1,6 @@
+import type { TransactionStatement } from '../atomic-transaction.js';
 import { BaseFileRecordRepository } from './base-repository.js';
 import type { IDatabase } from './interfaces.js';
-
-/** One statement in an atomic IPC transaction. */
-export interface ElectronDbTransactionStatement {
-  params?: unknown[];
-  sql: string;
-}
 
 /**
  * Electron IPC API
@@ -23,9 +18,11 @@ export interface ElectronDbAPI {
    *
    * Optional: the real desktop preload provides it; older or mocked `ElectronDbAPI`
    * implementations may not, in which case callers fall back to raw BEGIN/COMMIT.
+   * Reuses {@link TransactionStatement} (the single source of truth, also used by
+   * `runStatementsInTransaction`) rather than redeclaring the `{ sql, params }` shape.
    */
   transaction?: (
-    statements: ElectronDbTransactionStatement[],
+    statements: TransactionStatement[],
     resultIndex: number
   ) => Promise<{ rows: unknown[] }>;
 }
