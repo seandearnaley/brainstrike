@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
@@ -278,6 +278,29 @@ describe('EmbeddingSetsRepository', () => {
       [first.id]
     );
     expect(stats.rows).toHaveLength(1);
+  });
+
+  it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+    const trackedDb = {
+      exec: vi.fn(async (sql: string): Promise<void> => {
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          throw new Error('transient index creation failure');
+        }
+        await db.exec(sql);
+      }),
+      query: db.query.bind(db),
+    };
+    const trackedRepo = new EmbeddingSetsRepository(trackedDb);
+
+    const created = await trackedRepo.getOrCreateWorkspaceIndexSet();
+
+    expect(created.systemRole).toBe('workspace-index');
+    await expect(repo.getById(created.id)).resolves.toEqual(
+      expect.objectContaining({ id: created.id })
+    );
+    expect(trackedDb.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
+    );
   });
 
   it('keeps regular user-created sets user-owned', async () => {

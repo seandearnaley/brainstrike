@@ -135,6 +135,27 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       });
     });
 
+    it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+      const originalExec = client.exec.bind(client);
+      const exec = vi.spyOn(client, 'exec').mockImplementation(async (sql: string) => {
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          throw new Error('transient index creation failure');
+        }
+        return await originalExec(sql);
+      });
+
+      const created = await repository.getOrCreateWorkspaceIndexSet();
+
+      expect(created.systemRole).toBe('workspace-index');
+      await expect(repository.getById(created.id)).resolves.toEqual(
+        expect.objectContaining({ id: created.id })
+      );
+      expect(exec).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
+      );
+      exec.mockRestore();
+    });
+
     it('falls back to the protected workspace index row when insert loses a unique-index race', async () => {
       type EmbeddingSetRow = typeof schema.embeddingSets.$inferSelect;
       const workspaceIndexRow: EmbeddingSetRow = {

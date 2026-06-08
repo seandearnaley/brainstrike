@@ -91,7 +91,7 @@ export class DrizzleEmbeddingSetsRepository {
       return selected;
     });
 
-    await ensureDimensionIndexExists(dbAdapter, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+    await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
 
     return this.readEmbeddingSet(row);
   }
@@ -143,16 +143,7 @@ export class DrizzleEmbeddingSetsRepository {
       );
     }
 
-    // Ensure HNSW index exists for this dimension (idempotent, best-effort)
-    try {
-      // Note: This still uses raw SQL as index creation isn't supported by Drizzle query builder
-      await ensureDimensionIndexExists(dbAdapter, dimensions);
-    } catch (error) {
-      this.logger.warn('Failed to ensure dimension index exists', {
-        dimensions,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.ensureDimensionIndexBestEffort(dimensions);
 
     this.logger.info('Created new embedding set', {
       id,
@@ -306,5 +297,16 @@ export class DrizzleEmbeddingSetsRepository {
       modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
     };
+  }
+
+  private async ensureDimensionIndexBestEffort(dimensions: number): Promise<void> {
+    try {
+      await ensureDimensionIndexExists(this.createQueryAdapter(), dimensions);
+    } catch (error) {
+      this.logger.warn('Failed to ensure dimension index exists', {
+        dimensions,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }

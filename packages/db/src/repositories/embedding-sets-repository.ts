@@ -164,10 +164,11 @@ export class EmbeddingSetsRepository {
       if (!row) {
         throw new Error('Failed to create or load the workspace index embedding set.');
       }
+      await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
       return this.readEmbeddingSet(row as Record<string, unknown>);
     }
 
-    await ensureDimensionIndexExists(this.db, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+    await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
 
     return this.readEmbeddingSet(result.rows[0] as Record<string, unknown>);
   }
@@ -245,17 +246,7 @@ export class EmbeddingSetsRepository {
       );
     }
 
-    // Ensure HNSW index exists for this dimension (idempotent, best-effort)
-    // This allows new embedding dimensions to automatically get indexes
-    try {
-      await ensureDimensionIndexExists(this.db, dimensions);
-    } catch (error) {
-      // Non-fatal: queries will still work via sequential scan fallback
-      this.logger.warn('Failed to ensure dimension index exists', {
-        dimensions,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.ensureDimensionIndexBestEffort(dimensions);
 
     this.logger.info('Created new embedding set', {
       id,
@@ -476,5 +467,16 @@ export class EmbeddingSetsRepository {
       modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
     };
+  }
+
+  private async ensureDimensionIndexBestEffort(dimensions: number): Promise<void> {
+    try {
+      await ensureDimensionIndexExists(this.db, dimensions);
+    } catch (error) {
+      this.logger.warn('Failed to ensure dimension index exists', {
+        dimensions,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
