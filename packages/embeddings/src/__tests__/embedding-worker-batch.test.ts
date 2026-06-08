@@ -424,6 +424,42 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(claimManySpy.mock.calls[0]?.[0]).toMatchObject({ limit: 3 });
   });
 
+  it('treats a null resolved claim batch size as intentional no-claim backpressure', async () => {
+    const claimManySpy = vi.spyOn(JobQueue.prototype, 'claimMany');
+    claimManySpy.mockClear();
+    const metricLogs: Record<string, unknown>[] = [];
+    const resolveClaimBatchSize = vi.fn(async () => null);
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 10,
+      concurrency: 1,
+      leaseMs: 2000,
+      metricsIntervalMs: 5000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      resolveClaimBatchSize,
+      service: new FakeEmbeddingService(),
+      log: (event, meta) => {
+        if (event === 'worker_metrics') {
+          metricLogs.push(meta as Record<string, unknown>);
+        }
+      },
+    });
+
+    try {
+      await waitFor(async () => metricLogs.length > 0, 7000);
+    } finally {
+      await controller.stop();
+    }
+
+    expect(resolveClaimBatchSize).toHaveBeenCalled();
+    expect(claimManySpy).not.toHaveBeenCalled();
+    expect(metricLogs.at(-1)).toMatchObject({
+      effectiveClaimBatchSize: 0,
+      effectiveClaimBatchSizeError: null,
+    });
+  });
+
   it('keeps heartbeating only unfinished jobs after streamed sub-batches complete', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-stream-heartbeat';

@@ -101,7 +101,7 @@ export interface EmbeddingWorkerOptions {
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string;
   reinitEveryN?: number;
-  resolveClaimBatchSize?: () => number | Promise<number>;
+  resolveClaimBatchSize?: () => number | null | Promise<number | null>;
   service?: EmbeddingService;
   statsRefreshCompletedChunkThreshold?: number;
   statsRefreshMinIntervalMs?: number;
@@ -304,6 +304,11 @@ export async function startEmbeddingWorker(
     }
     try {
       const resolved = await options.resolveClaimBatchSize();
+      if (resolved === null) {
+        lastClaimBatchSize = 0;
+        lastClaimBatchSizeError = null;
+        return null;
+      }
       const requestedClaimBatchSize = resolvePositiveIntegerOption(
         resolved,
         claimBatchSize,
