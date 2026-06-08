@@ -294,9 +294,20 @@ export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string
 
   // BOTH backends are reclaimed regardless of the active scheme, by design (NOT a
   // missed scope-to-scheme optimization). The selected backend can differ from a
-  // PRIOR build's: a user can toggle the OPFS opt-in, or OPFS support can appear/
-  // disappear, switching idb⇄opfs-ahp across upgrades. An orphan left under the
-  // OTHER scheme would then never be reclaimed if we only swept the active one.
+  // PRIOR build's (a user toggles the OPFS opt-in, or OPFS support appears/
+  // disappears), so an OLDER-MAJOR orphan can be stranded under the other scheme —
+  // e.g. a PG17 `idb` store after switching to `opfs-ahp` on the PG18 build. The
+  // cross-backend pass reclaims those.
+  //
+  // KNOWN LIMITATION (correct-by-design): reclaim is forward-only (`< currentMajor`),
+  // so a SAME-major backend switch is NOT covered — switching idb→opfs-ahp while
+  // both are on pg18 leaves the other backend's `/pglite/app-pg18` store untouched
+  // (its major `18 < 18` is false), and it persists for the PG18 lifetime, becoming
+  // reclaimable only at the next major bump. This is intentional: by name alone an
+  // in-use `app-pg18` on one backend is indistinguishable from an orphan on the
+  // other, so the "never delete current-major data that might be reopened" invariant
+  // wins over relieving that same-major orphan.
+  //
   // The cross-backend pass is cheap (one `databases()` + one OPFS root walk) and
   // runs once, fire-and-forget, AFTER open — so it doesn't gate startup.
   try {
