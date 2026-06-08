@@ -400,6 +400,9 @@ export function WorkspaceCollectionSyncProvider({
     const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
     return resolveWorkspaceIndexingQosPolicy({
       dbPressure: await readDatabasePressure(),
+      // Coarse app-shell signal: this spans the full assistant turn so background
+      // indexing yields while tool/LLM work is active. The desktop hidden-host
+      // ForegroundEmbeddingGate remains the embedding-scoped GPU coordination path.
       foregroundQueryActive: getAssistantForegroundActivitySnapshot(),
       idleState: powerSnapshot?.idleState ?? 'unknown',
       idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
