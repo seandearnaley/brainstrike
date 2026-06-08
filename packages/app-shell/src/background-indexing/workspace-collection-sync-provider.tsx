@@ -16,7 +16,10 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import {
+  useWorkspaceCollectionSyncStatusStore,
+  type WorkspaceCollectionSyncStatusPatch,
+} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import {
   getBackgroundWorkArbiterSnapshot,
   getBackgroundWorkPauseReasonLabels,
@@ -68,6 +71,37 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
 } as const;
 const BACKGROUND_PRESSURE_POLL_MS = 50;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
+
+function createClearedProgressPatch(): Pick<
+  WorkspaceCollectionSyncStatusPatch,
+  | 'backfillRequestId'
+  | 'blockedReason'
+  | 'chunkingProgress'
+  | 'currentFilePath'
+  | 'embeddingProgress'
+  | 'importProgress'
+  | 'lastError'
+  | 'pauseReasons'
+  | 'processedFiles'
+  | 'queueProgress'
+  | 'queuedFiles'
+  | 'scanSummary'
+> {
+  return {
+    backfillRequestId: null,
+    blockedReason: null,
+    currentFilePath: null,
+    scanSummary: null,
+    importProgress: null,
+    chunkingProgress: null,
+    embeddingProgress: null,
+    queueProgress: null,
+    queuedFiles: 0,
+    processedFiles: 0,
+    lastError: null,
+    pauseReasons: [],
+  };
+}
 
 interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
@@ -269,13 +303,11 @@ export function WorkspaceCollectionSyncProvider({
       if (isWorkspaceIndexBlockedError(error)) {
         setSyncStatus({
           state: 'blocked',
-          blockedReason: error.blockedReason,
           managedCollectionId,
           managedCollectionName: null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
-          currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
+          ...createClearedProgressPatch(),
+          blockedReason: error.blockedReason,
           lastError: error.message,
         });
         return;

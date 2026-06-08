@@ -94,7 +94,7 @@ export function SearchCollectionSelector({
 
   const handleEdit = useCallback(
     (collection: CollectionPickerCollection) => {
-      if (getCollectionPickerProtection(collection).isDisabled) {
+      if (!getCollectionPickerProtection(collection).canEdit) {
         return;
       }
       onEditCollection(collection);
@@ -104,7 +104,7 @@ export function SearchCollectionSelector({
 
   const handleDelete = useCallback(
     (collection: CollectionPickerCollection) => {
-      if (getCollectionPickerProtection(collection).isDisabled) {
+      if (!getCollectionPickerProtection(collection).canDelete) {
         return;
       }
       onDeleteCollection(collection);

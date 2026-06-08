@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
 import { CollectionPicker } from '../collection-picker';
+import { getCollectionPickerProtection } from '../protection';
 import type { CollectionPickerCollection } from '../types';
 
 // Mock useTheme
@@ -224,5 +225,21 @@ describe('CollectionPicker', () => {
     fireEvent.keyDown(listbox, { key: 'Enter' });
 
     expect(defaultProps.onSelect).toHaveBeenCalledWith('1');
+  });
+});
+
+describe('getCollectionPickerProtection', () => {
+  it('provides a disabled reason for non-selectable collections', () => {
+    const baseCollection = mockCollections[0];
+    if (!baseCollection) {
+      throw new Error('Expected at least one mock collection');
+    }
+
+    expect(
+      getCollectionPickerProtection({
+        ...baseCollection,
+        canNormalSearchSelect: false,
+      }).disabledReason
+    ).toBe('Selection is disabled for this collection');
   });
 });

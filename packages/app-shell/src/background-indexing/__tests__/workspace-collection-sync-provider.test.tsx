@@ -25,6 +25,7 @@ import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
+import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
 
 const {
   runEnhancedImportMock,
@@ -1322,6 +1323,91 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
     expect(enqueueBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('clears stale progress when bootstrap reports blocked indexing', async () => {
+    const missingKeyMessage = 'OpenAI API key not configured.';
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    getOrCreateWorkspaceIndexSetMock.mockRejectedValueOnce(
+      new WorkspaceIndexBlockedError('missing-provider-key', missingKeyMessage)
+    );
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'importing',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      managedCollectionName: 'Managed Cache',
+      activeRootPath: '/workspace/root',
+      backfillRequestId: 'background-indexing-backfill:stale',
+      currentFilePath: 'src/stale.ts',
+      queuedFiles: 12,
+      processedFiles: 4,
+      scanSummary: {
+        changedFiles: 8,
+        discoveredFiles: 20,
+        excludedEntries: 2,
+        unchangedFiles: 10,
+      },
+      importProgress: {
+        completed: 4,
+        current: 'src/stale.ts',
+        errorCount: 0,
+        total: 8,
+      },
+      chunkingProgress: {
+        chunksCreated: 14,
+        currentFile: 'src/stale.ts',
+        filesProcessed: 3,
+        strategyUsed: 'markdown',
+        totalFiles: 8,
+      },
+      embeddingProgress: {
+        chunksProcessed: 2,
+        currentChunk: 'stale chunk',
+        modelName: 'text-embedding-3-small',
+        totalChunks: 14,
+      },
+      queueProgress: {
+        failed: 0,
+        lastError: null,
+        lastEvent: null,
+        pending: 12,
+        processed: 2,
+        totalQueued: 14,
+      },
+      pauseReasons: ['Paused manually'],
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'blocked',
+          blockedReason: 'missing-provider-key',
+          lastError: missingKeyMessage,
+          backfillRequestId: null,
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 0,
+          scanSummary: null,
+          importProgress: null,
+          chunkingProgress: null,
+          embeddingProgress: null,
+          queueProgress: null,
+          pauseReasons: [],
+        })
+      )
+    );
   });
 
   it('uses the typed missing-provider-key reason instead of parsing validation prose', async () => {
