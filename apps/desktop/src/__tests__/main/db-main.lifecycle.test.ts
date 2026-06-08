@@ -257,6 +257,17 @@ describe('db-main lifecycle', () => {
       expect.stringMatching(/pgdata$/),
       expect.objectContaining({ recursive: true })
     );
+    // The partial/unstamped `.bak` left by the failed cpSync must ALSO be cleaned
+    // up — and specifically AFTER cpSync (the pre-clear before cpSync can't remove a
+    // partial the failed copy hadn't written yet), not left to linger ~14 days until
+    // the retention prune reaps it.
+    const cpOrder = cpSyncMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    const bakCleanedAfterCopy = rmSyncMock.mock.calls.some(
+      ([target], index) =>
+        String(target).endsWith('.pre-pg18-from-pg17.bak') &&
+        (rmSyncMock.mock.invocationCallOrder[index] ?? 0) > cpOrder
+    );
+    expect(bakCleanedAfterCopy).toBe(true);
   });
 
   it('does not let the same-boot prune delete the just-moved backup when the mtime stamp fails', async () => {

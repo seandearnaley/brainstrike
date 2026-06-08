@@ -1210,6 +1210,10 @@ function setIncompatibleDataDirAside(
         error: getErrorDetails(copyErr),
       }
     );
+    // Drop the partial/unstamped backup the failed cpSync may have left behind, so
+    // it doesn't linger for the whole retention window (its dir mtime ≈ now). The
+    // copy-aside guarantee has already failed here, so there's nothing to preserve.
+    rmSync(backupDir, { recursive: true, force: true });
     rmSync(dataDir, { recursive: true, force: true });
     return false;
   }
