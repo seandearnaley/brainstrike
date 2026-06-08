@@ -152,6 +152,76 @@ async function clearIndexedDbDatabases(): Promise<void> {
 }
 
 /**
+ * OPFS-AHP root directory names that Brainstrike's PGlite stores live under, used
+ * as a fallback when the OPFS root cannot be enumerated. Unlike IndexedDB (where
+ * Emscripten IDBFS names the database `/pglite/<dataDir>`), the OPFS-AHP backend
+ * stores under the BARE data-dir name at the OPFS root, so these are bare.
+ * Keep in sync with `getOpfsAhpBrowserPGliteDataDir` and engine-version bumps.
+ */
+export const FALLBACK_OPFS_DIR_NAMES = ['app-pg18', 'web-pg18', 'app', 'web'] as const;
+
+// Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned
+// or not, so enumeration-based clearing never touches an unrelated OPFS consumer.
+const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
+
+/**
+ * Removes Brainstrike's PGlite OPFS-AHP stores so a factory reset is a true fresh
+ * start for users who opted into OPFS storage. The rest of this module is
+ * IndexedDB-only; OPFS is a separate persistent location made first-class (and
+ * engine-versioned, `opfs-ahp://app-pg18`) by the PGlite 0.5 upgrade, so per the
+ * FACTORY RESET CONTRACT it must be integrated into the reset pipeline — otherwise
+ * the current-major OPFS store survives the reset and reopens on next launch.
+ *
+ * Enumerates the OPFS root when supported (clearing every versioned/older pglite
+ * dir, scoped to the base pattern so unrelated entries are never swept); falls back
+ * to the known names otherwise. Best-effort per entry: a held handle or absent dir
+ * must not fail the reset.
+ */
+async function clearOpfsPGliteStores(): Promise<void> {
+  if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
+    return;
+  }
+
+  let root: (FileSystemDirectoryHandle & { keys?: () => AsyncIterable<string> }) | null = null;
+  try {
+    root = (await navigator.storage.getDirectory()) as FileSystemDirectoryHandle & {
+      keys?: () => AsyncIterable<string>;
+    };
+  } catch (error) {
+    logger.warn('Failed to open OPFS root during factory reset', { error });
+    return;
+  }
+
+  const names: string[] = [];
+  if (typeof root.keys === 'function') {
+    try {
+      for await (const name of root.keys()) {
+        if (OPFS_PGLITE_DIR_RE.test(name)) {
+          names.push(name);
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to enumerate OPFS root; falling back to known names', { error });
+    }
+  }
+  if (names.length === 0) {
+    names.push(...FALLBACK_OPFS_DIR_NAMES);
+  }
+
+  const opfsRoot = root;
+  await Promise.all(
+    [...new Set(names)].map(async (name) => {
+      try {
+        await opfsRoot.removeEntry(name, { recursive: true });
+      } catch {
+        // best-effort: an absent entry or a handle still held by another tab must
+        // not fail the reset.
+      }
+    })
+  );
+}
+
+/**
  * Clears the CacheStorage entries so cached bundles and responses do not survive resets.
  */
 async function clearCacheStorage(): Promise<void> {
@@ -194,6 +264,8 @@ async function clearCacheStorage(): Promise<void> {
  * - Electron secrets: API keys and provider configurations (brainstrike-secrets.json)
  * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
  * - IndexedDB: All databases enumerated and deleted (unless skipIndexedDb=true)
+ * - OPFS-AHP: Brainstrike's PGlite OPFS stores (opfs-ahp://app-pg18 etc.) — always
+ *   run (separate from the IndexedDB layer), best-effort and idempotent
  * - CacheStorage: All caches (fetch, worker bundles)
  *
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
@@ -224,7 +296,10 @@ export async function clearPersistentUiState(
     logger.warn('Failed to clear sessionStorage', { error });
   }
 
-  const tasks = [clearElectronStorage(), clearCacheStorage()];
+  // OPFS clearing always runs (even with skipIndexedDb): OPFS-AHP is a distinct
+  // persistent layer from IndexedDB, and removing absent/already-cleared dirs is a
+  // harmless no-op, so it can't double-delete with a DB-layer reset.
+  const tasks = [clearElectronStorage(), clearCacheStorage(), clearOpfsPGliteStores()];
   if (!skipIndexedDb) {
     tasks.push(clearIndexedDbDatabases());
   }

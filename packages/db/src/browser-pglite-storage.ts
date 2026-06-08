@@ -263,10 +263,13 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  * major), by enumerating storage when the browser supports it (falling back to
  * the unversioned base name otherwise). It deliberately leaves the in-use name
  * AND any newer-major store untouched, so an older build re-run after a newer
- * one never destroys data a later re-upgrade could reopen. Covers OPFS, which the
- * IndexedDB-only factory-reset fallback list does not reach. Fire-and-forget:
- * deleting absent storage is a no-op and any failure is swallowed so reclamation
- * can't break startup.
+ * one never destroys data a later re-upgrade could reopen. This is the AUTOMATIC,
+ * per-cold-start cleanup for OLDER-major orphans (no user action); a "Factory Reset
+ * Brainstrike" separately clears the CURRENT store too, across both backends —
+ * `clearPersistentUiState` now walks the OPFS root as well as IndexedDB
+ * (`clearOpfsPGliteStores` in factory-reset-helpers.ts). Fire-and-forget: deleting
+ * absent storage is a no-op and any failure is swallowed so reclamation can't break
+ * startup.
  *
  * SAME-BASE ONLY (not redundant with the factory-reset list): this reclaims only
  * variants of the CURRENT base name (e.g. `web` → `/pglite/web`, `/pglite/web-pg17`,
