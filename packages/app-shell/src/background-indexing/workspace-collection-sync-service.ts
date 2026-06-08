@@ -635,7 +635,7 @@ export class WorkspaceCollectionSyncService {
     >;
   }): Promise<void> {
     if (!args.qosPolicy.allowNewWork) {
-      throw new Error('Workspace Index QoS policy does not permit backfill enqueue work.');
+      throw createAbortError('Workspace Index QoS policy does not permit backfill enqueue work.');
     }
     const pendingRequestId = `pending:${args.collection.id}:${Date.now()}`;
     let resolvedRequestId = pendingRequestId;

@@ -870,6 +870,54 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('treats defensive backfill QoS denial as an abort instead of a sync failure', async () => {
+    const backfillDeniedPolicy: WorkspaceIndexingQosPolicy = {
+      ...BALANCED_QOS_POLICY,
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      reason: 'provider-rate-limited',
+      scanBatchSize: 0,
+      state: 'system-constrained',
+      workerClaimBatchSize: 0,
+    };
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      resolveQosPolicy: vi
+        .fn()
+        .mockResolvedValueOnce(BALANCED_QOS_POLICY)
+        .mockResolvedValueOnce(BALANCED_QOS_POLICY)
+        .mockResolvedValueOnce(backfillDeniedPolicy),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'error',
+      })
+    );
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: 'Workspace Index QoS policy does not permit backfill enqueue work.',
+      })
+    );
+  });
+
   it('aborts in-flight import work when the sync is cancelled', async () => {
     let startedResolve: (() => void) | null = null;
     const started = new Promise<void>((resolve) => {
