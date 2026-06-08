@@ -4,9 +4,11 @@ import { PGlite } from '@electric-sql/pglite';
 import type { LiveNamespace } from '@electric-sql/pglite/live';
 import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
 import {
+  IDB_DB_NAME_PREFIX,
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
   isOpfsAhpPGliteDataDir,
+  reclaimLegacyBrowserPGliteStorage,
 } from './browser-pglite-storage.js';
 
 type VectorExtension = Extension;
@@ -45,7 +47,7 @@ async function loadVectorExtension(): Promise<VectorExtension> {
       try {
         // Dynamic import for pgvector extension (ES module compatible)
         /* Stryker disable next-line StringLiteral */
-        const { vector } = await import('@electric-sql/pglite/vector');
+        const { vector } = await import('@electric-sql/pglite-pgvector');
         return vector;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -156,6 +158,10 @@ class WasmLoader {
     // Cache persisted databases only (not memory://)
     if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
       this.dbCache.set(cacheKey, db);
+      // Mirror the worker-host path's legacy reclamation for the direct idb path.
+      // (In the real browser app idb routes through the worker host, so this is
+      // effectively unreachable today — wired for symmetry/future-proofing.)
+      void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
     }
 
     return db;
@@ -191,6 +197,16 @@ class WasmLoader {
       if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
         this.workerClientStartups.delete(cacheKey);
         this.workerCache.set(cacheKey, db);
+        // Best-effort reclamation of the pre-engine-version legacy storage
+        // (e.g. idb://app) now that the versioned DB (idb://app-pg18) has opened,
+        // so the orphaned old database doesn't sit against the origin's quota.
+        // Fires once per new (non-cached) worker-host cold start; it re-enumerates
+        // storage each cold start but is a cheap idempotent no-op once the legacy
+        // store is gone. Kept un-gated (rather than a persisted once-marker) so a
+        // transiently-stuck entry is retried on a later launch.
+        if (normalizedDataDir) {
+          void reclaimLegacyBrowserPGliteStorage(normalizedDataDir).catch(() => undefined);
+        }
       }
       return db;
     } catch (error) {
@@ -421,11 +437,26 @@ class WasmLoader {
       throw new Error(`Cannot delete non-IndexedDB path: ${dataDir}`);
     }
 
-    const dbName = dataDir.slice(idbPrefix.length);
-    if (!dbName) {
+    const bareName = dataDir.slice(idbPrefix.length);
+    if (!bareName) {
       throw new Error('Invalid IndexedDB path: database name is empty');
     }
 
+    // PGlite's idb backend is Emscripten IDBFS, which names the actual IndexedDB
+    // database `/pglite/<dataDir>` — NOT the bare name (verified against pglite
+    // 0.5.1; see IDB_DB_NAME_PREFIX). Deleting only the bare name silently no-ops
+    // against a real PGlite store, so target the prefixed name; also delete the
+    // bare name as a harmless no-op safety net for any non-pglite/legacy store.
+    const dbNames = [`${IDB_DB_NAME_PREFIX}${bareName}`, bareName];
+    await Promise.all(dbNames.map((dbName) => this.deleteOneIndexedDb(dbName)));
+  }
+
+  /**
+   * Delete a single IndexedDB database by its exact name. Resolves on success or
+   * when blocked (the delete completes once other connections close); rejects only
+   * on a genuine deletion error. Deleting an absent database fires `onsuccess`.
+   */
+  private deleteOneIndexedDb(dbName: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const request = window.indexedDB.deleteDatabase(dbName);
 

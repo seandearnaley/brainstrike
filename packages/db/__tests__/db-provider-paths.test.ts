@@ -17,7 +17,7 @@ describe('getDefaultDbPath additional coverage', () => {
   it('handles different environment configurations', () => {
     // Test browser environment
     global.window = {} as Window & typeof globalThis;
-    expect(getDefaultDbPath()).toBe('idb://app');
+    expect(getDefaultDbPath()).toBe('idb://app-pg18');
 
     // Test Node environment
     global.window = undefined as unknown as Window & typeof globalThis;

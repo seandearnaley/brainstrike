@@ -506,11 +506,12 @@ export function AssistantUiPanelWrapper({
             ? []
             : update.ranges.map((range, index) =>
                 buildAssistantTapestryRange({
+                  ...(range.color ? { color: range.color } : {}),
                   compositeKey,
-                  index,
-                  startLine: range.startLine,
                   endLine: range.endLine,
+                  index,
                   isActive: range.isActive,
+                  startLine: range.startLine,
                 })
               );
         const existingRanges =

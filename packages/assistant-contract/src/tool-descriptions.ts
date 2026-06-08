@@ -1,6 +1,8 @@
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.readWorkspaceFile':
     'Read a file from the selected workspace root with optional range and truncation',
+  'brainstrike.findWorkspaceSymbol':
+    "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
   'brainstrike.readWorkspaceDirectory':
     'List a workspace directory in a compact, token-efficient format',
   'brainstrike.listWorkspaceContext':

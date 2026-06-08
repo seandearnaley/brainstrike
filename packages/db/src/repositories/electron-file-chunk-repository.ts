@@ -13,6 +13,7 @@ import {
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
@@ -88,8 +89,8 @@ export class ElectronFileChunkRepository {
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, to_tsvector('english', $4), $17, $18)
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       ON CONFLICT (id) DO UPDATE SET
         content = EXCLUDED.content,
         content_hash = EXCLUDED.content_hash,
@@ -100,7 +101,6 @@ export class ElectronFileChunkRepository {
         end_line = EXCLUDED.end_line,
         start_offset = EXCLUDED.start_offset,
         end_offset = EXCLUDED.end_offset,
-        content_tsvector = to_tsvector('english', EXCLUDED.content),
         embedding = EXCLUDED.embedding,
         embedding_set_id = EXCLUDED.embedding_set_id,
         embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -150,7 +150,7 @@ export class ElectronFileChunkRepository {
         const values = batch
           .map((_, index) => {
             const baseIndex = index * 18;
-            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 17}, $${baseIndex + 18})`;
+            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18})`;
           })
           .join(', ');
 
@@ -178,7 +178,7 @@ export class ElectronFileChunkRepository {
         const result = await this.db.query(
           `INSERT INTO file_chunks (
               id, file_record_id, chunk_index, content, content_hash, 
-              token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+              token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
             ) VALUES ${values} 
             ON CONFLICT (id) DO UPDATE SET
               content = EXCLUDED.content,
@@ -190,7 +190,6 @@ export class ElectronFileChunkRepository {
               end_line = EXCLUDED.end_line,
               start_offset = EXCLUDED.start_offset,
               end_offset = EXCLUDED.end_offset,
-              content_tsvector = to_tsvector('english', EXCLUDED.content),
               embedding = EXCLUDED.embedding,
               embedding_set_id = EXCLUDED.embedding_set_id,
               embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -228,7 +227,7 @@ export class ElectronFileChunkRepository {
       const values = batch
         .map((_, index) => {
           const baseIndex = index * 18;
-          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 17}, $${baseIndex + 18})`;
+          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18})`;
         })
         .join(', ');
 
@@ -256,7 +255,7 @@ export class ElectronFileChunkRepository {
       const result = await tx.query(
         `INSERT INTO file_chunks (
             id, file_record_id, chunk_index, content, content_hash,
-            token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+            token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
           ) VALUES ${values}
           ON CONFLICT (id) DO UPDATE SET
             content = EXCLUDED.content,
@@ -268,7 +267,6 @@ export class ElectronFileChunkRepository {
             end_line = EXCLUDED.end_line,
             start_offset = EXCLUDED.start_offset,
             end_offset = EXCLUDED.end_offset,
-            content_tsvector = to_tsvector('english', EXCLUDED.content),
             embedding = EXCLUDED.embedding,
             embedding_set_id = EXCLUDED.embedding_set_id,
             embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -330,6 +328,7 @@ export class ElectronFileChunkRepository {
       fileRecordId,
       chunkType,
       embeddingSetId,
+      efSearch,
       filePaths,
       selectionSnapshotId,
       includeEmbedding = true,
@@ -379,51 +378,28 @@ export class ElectronFileChunkRepository {
       queryEmbedding
     );
 
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
-      const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
-      await this.db.query(`SET LOCAL hnsw.ef_search = ${ef}`);
-    } catch {
-      // best-effort tuning only
-    }
-
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
-      if (Number.isFinite(rawProbes) && rawProbes > 0) {
-        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
-        await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
-      }
-    } catch {
-      // best-effort tuning only
-    }
-
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
     // Large fan-out reads can project the heavy embedding vector away (keeping
     // only its dimension count) — the distance math still runs in SQL.
     const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
-    const result = await this.db.query(
-      `SELECT ${selectColumns},
+    const searchSql = `SELECT ${selectColumns},
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
-      LIMIT $${paramIndex}`,
-      [...params, overfetchLimit]
+      LIMIT $${paramIndex}`;
+    // Run the ANN tuning and the search in ONE transaction so `SET LOCAL` applies
+    // to the SELECT (autocommit `SET LOCAL` is a silent no-op). Iterative scans +
+    // a wider ef_search keep heavily filtered searches from under-returning.
+    const result = await this.runVectorSearchInTransaction(
+      searchSql,
+      [...params, overfetchLimit],
+      efSearch
     );
 
-    const filtered = (result.rows as FileChunkSearchRow[]).filter((row) => {
+    const filtered = (result.rows as unknown as FileChunkSearchRow[]).filter((row) => {
       const similarity = Number(row.similarity);
       return Number.isFinite(similarity) && similarity >= threshold;
     });
@@ -433,6 +409,48 @@ export class ElectronFileChunkRepository {
       similarity: Number(row.similarity),
       rank: Number(row.rank),
     }));
+  }
+
+  /**
+   * Run a pgvector ANN search with HNSW tuning applied via `SET LOCAL` inside a
+   * single transaction. `SET LOCAL` only affects the current transaction, so the
+   * SELECT must run in the same transaction as the tuning statements. Read-only:
+   * committed on success, rolled back on error.
+   */
+  private async runVectorSearchInTransaction(
+    searchSql: string,
+    params: unknown[],
+    efSearch?: number
+  ): Promise<{ rows: Record<string, unknown>[] }> {
+    // NOTE: unlike the PGlite-direct FileChunkRepository (which uses
+    // `this.db.transaction()` to hold the connection lock), this raw BEGIN/COMMIT
+    // over IPC does NOT serialize against a concurrent query — so a parallel FTS
+    // SELECT from HybridSearchService's Promise.all can interleave into this vector
+    // transaction. The residual hazard is ISOLATION (the FTS read inherits this tx's
+    // open snapshot) and ERROR COUPLING (an FTS failure aborts this tx, so the vector
+    // SELECT then fails with "current transaction is aborted", and vice-versa). The
+    // `SET LOCAL` tuning itself still TAKES EFFECT: a GUC set with SET LOCAL persists
+    // for the whole transaction, and an interleaved plain SELECT neither resets it
+    // nor commits the block, so the vector SELECT (issued after the tuning, before
+    // the explicit COMMIT) always sees the ef_search/iterative_scan values — the
+    // search is tuned, not silently untuned. `ElectronDbAPI` exposes only `exec`/
+    // `query`, no `transaction()` primitive, so the fix needs an atomic IPC
+    // transaction (run the tuning + SELECT inside `pglite.transaction()` in the main
+    // process). Deliberately deferred — tracked in issue #1141.
+    await this.db.query('BEGIN');
+    try {
+      for (const statement of hnswSearchTuningStatements(efSearch)) {
+        await this.db.query(statement);
+      }
+      const result = await this.db.query(searchSql, params);
+      await this.db.query('COMMIT');
+      return { rows: result.rows as Record<string, unknown>[] };
+    } catch (err) {
+      await this.db.query('ROLLBACK').catch(() => {
+        // Surface the original failure, not a secondary rollback error.
+      });
+      throw err;
+    }
   }
 
   /**
@@ -872,8 +890,9 @@ export class ElectronFileChunkRepository {
 
   private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
     if (chunk.content !== undefined) {
+      // content_tsvector is a STORED generated column; Postgres recomputes it
+      // automatically when `content` changes, so we must not set it here.
       appendColumn(builder, 'content', chunk.content);
-      builder.setParts.push(`content_tsvector = to_tsvector('english', $${builder.index - 1})`);
     }
 
     const simpleFields: [unknown, string][] = [

@@ -1,13 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   batchArray,
   computeCosineSimilarity,
   computeOverfetchLimit,
   cosineToSearchSimilarity,
+  DEFAULT_HNSW_EF_SEARCH,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
+  MAX_HNSW_EF_SEARCH,
   MAX_OVERFETCH_LIMIT,
   parseEmbeddingLoose,
+  resolveHnswEfSearch,
 } from '../src/repositories/_shared';
 
 describe('file_chunks column projections', () => {
@@ -252,5 +256,87 @@ describe('cosineToSearchSimilarity', () => {
   it('should work with typical cosine similarities', () => {
     expect(cosineToSearchSimilarity(0.8)).toBeCloseTo(0.9, 6);
     expect(cosineToSearchSimilarity(-0.5)).toBeCloseTo(0.25, 6);
+  });
+});
+
+describe('resolveHnswEfSearch', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults to DEFAULT_HNSW_EF_SEARCH when nothing is provided', () => {
+    vi.stubEnv('HNSW_EF_SEARCH', undefined);
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+    expect(DEFAULT_HNSW_EF_SEARCH).toBe(100);
+  });
+
+  it('honors an explicit per-query override above the env and default', () => {
+    vi.stubEnv('HNSW_EF_SEARCH', '40');
+    expect(resolveHnswEfSearch(250)).toBe(250);
+  });
+
+  it('falls back to the HNSW_EF_SEARCH env var when no override is given', () => {
+    vi.stubEnv('HNSW_EF_SEARCH', '80');
+    expect(resolveHnswEfSearch()).toBe(80);
+  });
+
+  it('clamps to the [1, MAX_HNSW_EF_SEARCH] range', () => {
+    vi.stubEnv('HNSW_EF_SEARCH', undefined);
+    expect(resolveHnswEfSearch(0)).toBe(1);
+    expect(resolveHnswEfSearch(-5)).toBe(1);
+    expect(resolveHnswEfSearch(MAX_HNSW_EF_SEARCH + 1000)).toBe(MAX_HNSW_EF_SEARCH);
+  });
+
+  it('ignores non-finite or non-integer inputs and uses the default', () => {
+    vi.stubEnv('HNSW_EF_SEARCH', undefined);
+    expect(resolveHnswEfSearch(Number.NaN)).toBe(DEFAULT_HNSW_EF_SEARCH);
+    expect(resolveHnswEfSearch(Number.POSITIVE_INFINITY)).toBe(DEFAULT_HNSW_EF_SEARCH);
+    vi.stubEnv('HNSW_EF_SEARCH', 'not-a-number');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+  });
+
+  it('treats a non-positive or empty HNSW_EF_SEARCH env as unset (default, not 1)', () => {
+    // `Number('0')`/`Number('')` are finite 0, which would otherwise clamp UP to 1.
+    // A 0/empty env meaning "ef_search=1" is a surprising footgun — fall back to default.
+    vi.stubEnv('HNSW_EF_SEARCH', '0');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+    vi.stubEnv('HNSW_EF_SEARCH', '');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+    vi.stubEnv('HNSW_EF_SEARCH', '-10');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+  });
+});
+
+describe('hnswSearchTuningStatements', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('emits transaction-scoped ef_search and STRICT-order iterative_scan settings', () => {
+    vi.stubEnv('IVFFLAT_PROBES', undefined);
+    // strict_order (not relaxed_order) for top-N completeness: relaxed can stop the
+    // iterative scan early and miss a closer row beyond the first window, so a
+    // LIMIT n may not be the true n-nearest.
+    expect(hnswSearchTuningStatements(120)).toEqual([
+      'SET LOCAL hnsw.ef_search = 120',
+      "SET LOCAL hnsw.iterative_scan = 'strict_order'",
+    ]);
+  });
+
+  it('uses the resolved (clamped) ef_search so interpolation is always a safe integer', () => {
+    const [efStmt] = hnswSearchTuningStatements(9_999_999);
+    expect(efStmt).toBe(`SET LOCAL hnsw.ef_search = ${MAX_HNSW_EF_SEARCH}`);
+  });
+
+  it('appends ivfflat.probes when IVFFLAT_PROBES is set (restores IVFFLAT recall tuning)', () => {
+    vi.stubEnv('IVFFLAT_PROBES', '12');
+    expect(hnswSearchTuningStatements(120)).toContain('SET LOCAL ivfflat.probes = 12');
+  });
+
+  it('omits ivfflat.probes when IVFFLAT_PROBES is unset / non-positive', () => {
+    vi.stubEnv('IVFFLAT_PROBES', undefined);
+    expect(hnswSearchTuningStatements(120).some((s) => s.includes('ivfflat.probes'))).toBe(false);
+    vi.stubEnv('IVFFLAT_PROBES', '0');
+    expect(hnswSearchTuningStatements(120).some((s) => s.includes('ivfflat.probes'))).toBe(false);
   });
 });

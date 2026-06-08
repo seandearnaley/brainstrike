@@ -53,11 +53,14 @@ function getPGliteInitializationLockWritePath(): string {
 const existsSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
 const rmSyncMock = vi.fn();
+const renameSyncMock = vi.fn();
 const cpSyncMock = vi.fn();
 const openSyncMock = vi.fn(() => 123);
 const writeFileSyncMock = vi.fn();
 const closeSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
+const utimesSyncMock = vi.fn();
+const statSyncMock = vi.fn(() => ({ mtimeMs: Date.now() }));
 const readFileSyncMock = vi.fn(() => '');
 const readdirSyncMock = vi.fn(() => []);
 const lstatSyncMock = vi.fn(() => ({
@@ -68,6 +71,9 @@ vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
   rmSync: rmSyncMock,
+  renameSync: renameSyncMock,
+  utimesSync: utimesSyncMock,
+  statSync: statSyncMock,
   cpSync: cpSyncMock,
   openSync: openSyncMock,
   writeFileSync: writeFileSyncMock,
@@ -80,6 +86,9 @@ vi.mock('node:fs', () => ({
     existsSync: existsSyncMock,
     mkdirSync: mkdirSyncMock,
     rmSync: rmSyncMock,
+    renameSync: renameSyncMock,
+    utimesSync: utimesSyncMock,
+    statSync: statSyncMock,
     cpSync: cpSyncMock,
     openSync: openSyncMock,
     writeFileSync: writeFileSyncMock,
@@ -111,7 +120,7 @@ const PGliteMock = vi.fn().mockImplementation(function (this: {
   this.syncToFs = syncToFsMock;
 });
 vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
-vi.mock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
+vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }));
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),
@@ -140,6 +149,16 @@ describe('db-main lifecycle', () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
+    // clearAllMocks() resets call history but NOT implementations, so without this
+    // a per-test override (a PG_VERSION major, a thrown utimes, an enumerated
+    // backup) would leak into later tests. Restore defaults so each test starts
+    // from a clean slate.
+    readFileSyncMock.mockImplementation(() => '');
+    utimesSyncMock.mockImplementation(() => undefined);
+    renameSyncMock.mockImplementation(() => undefined);
+    cpSyncMock.mockImplementation(() => undefined);
+    readdirSyncMock.mockReturnValue([]);
+    statSyncMock.mockReturnValue({ mtimeMs: Date.now() });
   });
 
   afterEach(() => {
@@ -157,6 +176,157 @@ describe('db-main lifecycle', () => {
     const after = await initializeMainDatabase();
     expect(after).not.toBe(before);
     expect(closeMock).toHaveBeenCalled();
+  });
+
+  it('moves an incompatible (older Postgres major) data dir aside before initializing', async () => {
+    // PG_VERSION reports an older engine major → the greenfield guard must move
+    // the data dir aside (cheap rename, no cpSync) and start fresh.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // The old dir is renamed aside, not copied — proves no multi-GB cpSync.
+    expect(renameSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('pgdata'),
+      expect.stringContaining('.pre-pg18-from-pg17.bak')
+    );
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    // The backup's mtime is stamped to the move time (renameSync preserves the
+    // OLD content mtime), so the retention clock starts now — not at the last DB
+    // write — and this boot's prune can't immediately delete the fresh backup.
+    expect(utimesSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('.pre-pg18-from-pg17.bak'),
+      expect.any(Date),
+      expect.any(Date)
+    );
+  });
+
+  it('falls back to copy-aside (preserving a recoverable backup) when the rename fails', async () => {
+    // rename can fail (lock/permission/ENOTEMPTY on the sibling). Rather than
+    // silently wiping — degrading the .bak guarantee to permanent deletion — the
+    // guard copies the dir aside so it stays recoverable, then removes the original.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+    renameSyncMock.mockImplementation(() => {
+      throw new Error('rename failed');
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // The dir is copied to the backup sibling and its mtime stamped.
+    expect(cpSyncMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pgdata$/),
+      expect.stringContaining('.pre-pg18-from-pg17.bak'),
+      expect.objectContaining({ recursive: true })
+    );
+    expect(utimesSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('.pre-pg18-from-pg17.bak'),
+      expect.any(Date),
+      expect.any(Date)
+    );
+    // The original is removed only AFTER the copy succeeded.
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pgdata$/),
+      expect.objectContaining({ recursive: true })
+    );
+  });
+
+  it('wipes as a last resort only when both rename and copy-aside fail', async () => {
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+    renameSyncMock.mockImplementation(() => {
+      throw new Error('rename failed');
+    });
+    cpSyncMock.mockImplementation(() => {
+      throw new Error('copy failed');
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // No recoverable backup could be made → no mtime stamp, and the dir is wiped so
+    // the app still boots greenfield on the unopenable PG17 dir.
+    expect(utimesSyncMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      expect.stringMatching(/pgdata$/),
+      expect.objectContaining({ recursive: true })
+    );
+    // The partial/unstamped `.bak` left by the failed cpSync must ALSO be cleaned
+    // up — and specifically AFTER cpSync (the pre-clear before cpSync can't remove a
+    // partial the failed copy hadn't written yet), not left to linger ~14 days until
+    // the retention prune reaps it.
+    const cpOrder = cpSyncMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    const bakCleanedAfterCopy = rmSyncMock.mock.calls.some(
+      ([target], index) =>
+        String(target).endsWith('.pre-pg18-from-pg17.bak') &&
+        (rmSyncMock.mock.invocationCallOrder[index] ?? 0) > cpOrder
+    );
+    expect(bakCleanedAfterCopy).toBe(true);
+  });
+
+  it('does not let the same-boot prune delete the just-moved backup when the mtime stamp fails', async () => {
+    // Edge case: utimesSync throws, so the moved-aside backup keeps the old DB's
+    // (already-stale) content mtime. The unconditional same-boot prune must still
+    // NOT delete it — the freshly-moved backup is excluded by path, independent of
+    // mtime — otherwise the recovery window collapses to zero.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '17' : ''
+    );
+    utimesSyncMock.mockImplementation(() => {
+      throw new Error('utimes failed');
+    });
+    // The prune enumerates the backup and sees a stale mtime (older than retention).
+    const backupName = 'pgdata.pre-pg18-from-pg17.bak';
+    readdirSyncMock.mockReturnValue([backupName]);
+    statSyncMock.mockReturnValue({ mtimeMs: 0 });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    // rmSync hits the backup path exactly once — the reconcile pre-clear — and the
+    // prune does NOT remove it a second time (it was excluded).
+    const backupRmCalls = rmSyncMock.mock.calls.filter(([target]) =>
+      String(target).endsWith(backupName)
+    );
+    expect(backupRmCalls).toHaveLength(1);
+  });
+
+  it('does NOT move aside a matching (current Postgres major) data dir', async () => {
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '18' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(renameSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('fails loudly and leaves a NEWER-major data dir untouched (no downgrade)', async () => {
+    // PG_VERSION reports a NEWER engine major (e.g. PG19 written by a later build,
+    // then the user rolled back to this PG18 build). Downgrading the on-disk engine
+    // is unsupported, but the newer data is still valid for a re-upgrade — so the
+    // guard must NOT move it aside or wipe it. Init must fail loudly instead.
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('PG_VERSION') ? '19' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/newer/i);
+
+    // Crucially: the newer dir is preserved — neither moved aside nor wiped.
+    expect(renameSyncMock).not.toHaveBeenCalled();
+    expect(cpSyncMock).not.toHaveBeenCalled();
+    const wipedDataDir = rmSyncMock.mock.calls.some(([target]) =>
+      String(target).endsWith('pgdata')
+    );
+    expect(wipedDataDir).toBe(false);
   });
 
   it('closeDatabase still closes handle when syncToFs fails', async () => {
@@ -505,7 +675,13 @@ describe('db-main lifecycle', () => {
       expect.stringContaining(
         path.join('/mock/documents', 'BrainStrike-dev', 'backups', 'test-profile-')
       ),
-      { recursive: true, errorOnExist: true, force: false }
+      // Reset backups now exclude engine-upgrade `.bak` siblings via a filter.
+      expect.objectContaining({
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        filter: expect.any(Function),
+      })
     );
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
   });

@@ -348,6 +348,8 @@ export {
   type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type FindWorkspaceSymbolInput,
+  FindWorkspaceSymbolInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,

@@ -17,6 +17,7 @@ import {
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
@@ -91,8 +92,8 @@ export class FileChunkRepository {
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, to_tsvector('english', $4), $17, $18)
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       ON CONFLICT (id) DO UPDATE SET
         content = EXCLUDED.content,
         content_hash = EXCLUDED.content_hash,
@@ -103,7 +104,6 @@ export class FileChunkRepository {
         end_line = EXCLUDED.end_line,
         start_offset = EXCLUDED.start_offset,
         end_offset = EXCLUDED.end_offset,
-        content_tsvector = to_tsvector('english', EXCLUDED.content),
         embedding = EXCLUDED.embedding,
         embedding_set_id = EXCLUDED.embedding_set_id,
         embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -154,7 +154,7 @@ export class FileChunkRepository {
         const values = batch
           .map((_, index) => {
             const baseIndex = index * 18;
-            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 17}, $${baseIndex + 18})`;
+            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18})`;
           })
           .join(', ');
 
@@ -182,7 +182,7 @@ export class FileChunkRepository {
         const result = await this.db.query(
           `INSERT INTO file_chunks (
               id, file_record_id, chunk_index, content, content_hash, 
-              token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+              token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
             ) VALUES ${values} 
             ON CONFLICT (id) DO UPDATE SET
               content = EXCLUDED.content,
@@ -194,7 +194,6 @@ export class FileChunkRepository {
               end_line = EXCLUDED.end_line,
               start_offset = EXCLUDED.start_offset,
               end_offset = EXCLUDED.end_offset,
-              content_tsvector = to_tsvector('english', EXCLUDED.content),
               embedding = EXCLUDED.embedding,
               embedding_set_id = EXCLUDED.embedding_set_id,
               embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -233,7 +232,7 @@ export class FileChunkRepository {
       const values = batch
         .map((_, index) => {
           const baseIndex = index * 18;
-          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 17}, $${baseIndex + 18})`;
+          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18})`;
         })
         .join(', ');
 
@@ -261,7 +260,7 @@ export class FileChunkRepository {
       const result = await tx.query(
         `INSERT INTO file_chunks (
             id, file_record_id, chunk_index, content, content_hash,
-            token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+            token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
           ) VALUES ${values}
           ON CONFLICT (id) DO UPDATE SET
             content = EXCLUDED.content,
@@ -273,7 +272,6 @@ export class FileChunkRepository {
             end_line = EXCLUDED.end_line,
             start_offset = EXCLUDED.start_offset,
             end_offset = EXCLUDED.end_offset,
-            content_tsvector = to_tsvector('english', EXCLUDED.content),
             embedding = EXCLUDED.embedding,
             embedding_set_id = EXCLUDED.embedding_set_id,
             embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -335,6 +333,7 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       embeddingSetId,
+      efSearch,
       filePaths,
       selectionSnapshotId,
       includeEmbedding = true,
@@ -392,60 +391,30 @@ export class FileChunkRepository {
     params.push(embeddingSetId);
     paramIndex += 1;
 
-    // Try to tune ANN search parameters (no-op if unsupported)
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
-      // Clamp to a reasonable range to avoid pathological settings
-      const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
-      if (!Number.isSafeInteger(ef)) {
-        throw new Error('Invalid HNSW ef_search value');
-      }
-      await this.db.query('SET LOCAL hnsw.ef_search = $1', [ef]);
-    } catch {
-      // ignored: tuning is best-effort
-    }
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
-      if (Number.isFinite(rawProbes) && rawProbes > 0) {
-        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
-        if (!Number.isSafeInteger(probes)) {
-          throw new Error('Invalid IVFFLAT probes value');
-        }
-        await this.db.query('SET LOCAL ivfflat.probes = $1', [probes]);
-      }
-    } catch {
-      // ignored: tuning is best-effort
-    }
-
     // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks.
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
     // Large fan-out reads can project the heavy embedding vector away (keeping
     // only its dimension count) — the distance math still runs in SQL.
     const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
-    const result = await this.db.query(
-      `SELECT ${selectColumns},
+    const searchSql = `SELECT ${selectColumns},
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
-      LIMIT $${paramIndex}`,
-      [...params, overfetchLimit]
-    );
+      LIMIT $${paramIndex}`;
+    const searchParams = [...params, overfetchLimit];
+
+    // Run the ANN tuning and the search inside ONE transaction. `SET LOCAL` only
+    // takes effect within a transaction block, so issuing it autocommit (as the
+    // previous code did) was a silent no-op. The tuning widens `hnsw.ef_search`
+    // and enables iterative scans so heavily filtered searches keep walking the
+    // index until enough rows survive the WHERE clause instead of under-returning.
+    const result = await this.runVectorSearchInTransaction(searchSql, searchParams, efSearch);
 
     const mapped = result.rows.map((row) => {
-      const searchRow = row as FileChunkSearchRow;
+      const searchRow = row as unknown as FileChunkSearchRow;
       const sim = Number.parseFloat(searchRow.similarity);
       return {
         chunk: this.mapRowToChunk(searchRow),
@@ -459,6 +428,33 @@ export class FileChunkRepository {
       (r) => Number.isFinite(r.similarity) && r.similarity >= threshold
     );
     return filtered.slice(0, limit);
+  }
+
+  /**
+   * Run a pgvector ANN search with HNSW tuning applied via `SET LOCAL` inside a
+   * single transaction. `SET LOCAL` only affects the current transaction, so the
+   * SELECT must run in the same transaction as the tuning statements. The search
+   * is read-only; the transaction is committed on success and rolled back on error.
+   */
+  private async runVectorSearchInTransaction(
+    searchSql: string,
+    params: unknown[],
+    efSearch?: number
+  ): Promise<{ rows: Record<string, unknown>[] }> {
+    // Use PGlite's transaction() rather than raw BEGIN/COMMIT via separate query()
+    // calls: transaction() holds PGlite's transaction lock, so the SET LOCAL tuning
+    // + SELECT run atomically. A CONCURRENT query on the single shared connection
+    // (e.g. HybridSearchService runs this vector search and a plain FTS SELECT via
+    // Promise.all) therefore cannot interleave INTO this transaction — which with
+    // raw BEGIN/COMMIT would pull the FTS read inside this tx, inheriting its
+    // snapshot and coupling their abort states.
+    return await this.db.transaction(async (tx) => {
+      for (const statement of hnswSearchTuningStatements(efSearch)) {
+        await tx.query(statement);
+      }
+      const result = await tx.query<Record<string, unknown>>(searchSql, params);
+      return { rows: result.rows };
+    });
   }
 
   /**
@@ -878,9 +874,9 @@ export class FileChunkRepository {
 
   /**
    * Build distance expressions for similarity search.
-   * CRITICAL: The embedding column is cast to vector(dimension) to match the
-   * partial HNSW index expression `(embedding::vector(N))`. Without this cast,
-   * the query planner cannot use the dimension-specific indexes.
+   * CRITICAL: The embedding column is cast to halfvec(dimension) to match the
+   * half-precision partial HNSW index expression `(embedding::halfvec(N))`.
+   * Without this cast, the query planner cannot use the dimension-specific indexes.
    */
   private buildDistanceExpressions(
     distance: 'cosine' | 'l2' | 'ip',
@@ -889,9 +885,18 @@ export class FileChunkRepository {
     similarityExpr: string;
     orderExpr: string;
   } {
-    // Cast embedding to fixed-dimension vector to enable HNSW index usage
-    const embeddingCast = `(embedding::vector(${dimension}))`;
-    const paramCast = `$1::vector(${dimension})`;
+    // Cast embedding (and the query param) to fixed-dimension halfvec so the
+    // ORDER BY matches the half-precision HNSW partial index built by the
+    // dimension-index-helpers. The full-precision vector stays in the COLUMN, but
+    // BOTH the ANN ranking (orderExpr) AND the returned similarity score
+    // (similarityExpr, also used for the `>= threshold` filter) are computed in fp16
+    // here. Intentional: keeping the score on the same halfvec cast as the rank keeps
+    // the returned score monotonic with the result order. Computing similarityExpr on
+    // full-precision `vector` would give exact scores but could desync them from the
+    // halfvec rank; the fp16 quantization error (~3 sig digits) is negligible for
+    // thresholding/display.
+    const embeddingCast = `(embedding::halfvec(${dimension}))`;
+    const paramCast = `$1::halfvec(${dimension})`;
 
     if (distance === 'l2') {
       return {
@@ -920,8 +925,9 @@ export class FileChunkRepository {
 
   private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
     if (chunk.content !== undefined) {
+      // content_tsvector is a STORED generated column; Postgres recomputes it
+      // automatically when `content` changes, so we must not set it here.
       appendColumn(builder, 'content', chunk.content);
-      builder.setParts.push(`content_tsvector = to_tsvector('english', $${builder.index - 1})`);
     }
 
     const simpleFields: [unknown, string][] = [

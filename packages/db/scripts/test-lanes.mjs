@@ -25,6 +25,7 @@ const laneDefinitions = [
       /^gemma-local-llm-migration\.test\.ts$/,
       /^migration-/,
       /^migration-integration\.test\.ts$/,
+      /^pglite-engine-major\.integration\.test\.ts$/,
       /^provider-catalog-timestamps-migration\.test\.ts$/,
       /^runtime-import-extensions\.test\.ts$/,
       /^view-filter-presets-migration\.test\.ts$/,
@@ -61,11 +62,14 @@ const laneDefinitions = [
   {
     name: 'search',
     matches: [
+      /^hnsw-search-tuning\.integration\.test\.ts$/,
       /^hybrid-search-service\.test\.ts$/,
       /^retrieval-eval-runner\.test\.ts$/,
       /^retrieval-harness\.test\.ts$/,
       /^rrf\.test\.ts$/,
       /^search-/,
+      /^tsvector-generated-column\.integration\.test\.ts$/,
+      /^uuidv7-primary-keys\.integration\.test\.ts$/,
       /^vector-extension\.integration\.test\.ts$/,
     ],
   },

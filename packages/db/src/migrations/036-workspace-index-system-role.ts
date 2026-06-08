@@ -1,7 +1,7 @@
 import type { Migration } from './migration-runner';
 
-export const migration034WorkspaceIndexSystemRole: Migration = {
-  version: 34,
+export const migration036WorkspaceIndexSystemRole: Migration = {
+  version: 36,
   name: 'workspace_index_system_role',
   up: `
     ALTER TABLE embedding_sets

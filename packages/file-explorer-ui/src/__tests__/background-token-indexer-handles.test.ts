@@ -46,4 +46,21 @@ describe('buildSyntheticElectronHandle', () => {
       })
     ).toBeNull();
   });
+
+  it('collapses slash-only relative path separators when building synthetic paths', () => {
+    expect(
+      buildSyntheticElectronHandle({
+        filePath: '/src//components/button.tsx',
+        fileSize: 123,
+        folderId: '/workspace///',
+      })?.electronHandle?.path
+    ).toBe('/workspace/src/components/button.tsx');
+    expect(
+      buildSyntheticElectronHandle({
+        filePath: '/src\\literal//button.tsx',
+        fileSize: 123,
+        folderId: 'C:\\workspace\\',
+      })?.electronHandle?.path
+    ).toBe('C:\\workspace\\src\\literal\\button.tsx');
+  });
 });

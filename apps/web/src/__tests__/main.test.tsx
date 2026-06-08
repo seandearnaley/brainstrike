@@ -15,6 +15,7 @@ vi.mock('react-helmet-async', () => ({
 
 vi.mock('@brainstrike/db', () => ({
   DbProvider: dbProviderMock,
+  getDefaultBrowserPGliteDataDir: vi.fn((dbName = 'app') => `idb://${dbName}-pg18`),
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => null),
 }));
@@ -229,7 +230,7 @@ describe('main entry file', () => {
     render(element);
 
     expect(dbProviderMock).toHaveBeenCalledWith(
-      expect.objectContaining({ dbPath: 'idb://web' }),
+      expect.objectContaining({ dbPath: 'idb://web-pg18' }),
       undefined
     );
   }, 60_000);

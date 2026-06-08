@@ -296,7 +296,7 @@ function formatDesktopDatabaseInitError(
   const failureDetail = failureMessage ? ` Last failure: ${failureMessage}` : '';
 
   if (!failure) {
-    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
+    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite-pgvector is available.${failureDetail}`;
   }
 
   if (failure.category === 'concurrency') {
@@ -320,7 +320,7 @@ function formatDesktopDatabaseInitError(
   }
 
   if (failure.category === 'missing-extension') {
-    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
+    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite-pgvector is available.${failureDetail}`;
   }
 
   return `${fallbackMessage}${failureDetail}`;
@@ -523,7 +523,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       if (!hasVector) {
         throw new Error(
-          'pgvector extension failed to initialize. Ensure @electric-sql/pglite/vector is bundled.'
+          'pgvector extension failed to initialize. Ensure @electric-sql/pglite-pgvector is bundled.'
         );
       }
 

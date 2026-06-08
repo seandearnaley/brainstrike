@@ -28,7 +28,9 @@ const MAX_DIMENSION = 65_535;
  * but without HNSW index acceleration (falls back to sequential scan).
  * @see https://github.com/pgvector/pgvector#hnsw
  */
-export const MAX_HNSW_DIMENSION = 2000;
+// halfvec HNSW indexes support up to 4000 dimensions (vs 2000 for full-precision
+// vector). The dimension index helpers build halfvec indexes, so the ceiling is 4000.
+export const MAX_HNSW_DIMENSION = 4000;
 
 /**
  * Maximum allowed value for HNSW M parameter.
@@ -141,7 +143,7 @@ export async function createDimensionIndex(
   validateDimensionForSql(dimension, 'createDimensionIndex');
   validateHnswParamsForSql(params, 'createDimensionIndex');
 
-  // pgvector's HNSW index only supports up to 2000 dimensions.
+  // pgvector's halfvec HNSW index supports up to 4000 dimensions (MAX_HNSW_DIMENSION).
   // Vectors with more dimensions can still be stored and queried via sequential scan.
   if (dimension > MAX_HNSW_DIMENSION) {
     logger.warn(
@@ -160,12 +162,16 @@ export async function createDimensionIndex(
     throw new Error(`createDimensionIndex: Invalid index name format: ${name}`);
   }
 
-  // Use expression cast + partial index on vector_dims()
-  // This allows the query planner to use the index when WHERE includes vector_dims(embedding) = N
+  // Use a half-precision (halfvec) expression cast + partial index on vector_dims().
+  // halfvec halves the on-disk HNSW index and speeds builds/search for a tiny
+  // recall cost; it also raises pgvector's HNSW dimension ceiling from 2000 to
+  // 4000, so large models (e.g. 3072-dim) get an ANN index instead of a seq scan.
+  // The full-precision vector stays in the column; only the index/ranking is fp16.
+  // The query planner uses this index when the ORDER BY casts to halfvec(N) too.
   // SECURITY: dimension and params are validated integers above, safe for SQL interpolation
   const sqlStatement = `
     CREATE INDEX IF NOT EXISTS ${name} ON file_chunks
-    USING hnsw ((embedding::vector(${dimension})) vector_cosine_ops)
+    USING hnsw ((embedding::halfvec(${dimension})) halfvec_cosine_ops)
     WITH (m=${params.m}, ef_construction=${params.ef})
     WHERE vector_dims(embedding) = ${dimension}
   `;

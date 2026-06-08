@@ -164,8 +164,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/worker-runtime
       '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.5.1
+        version: 0.5.1
+      '@electric-sql/pglite-pgvector':
+        specifier: 0.0.2
+        version: 0.0.2(@electric-sql/pglite@0.5.1)
       '@fontsource-variable/geist':
         specifier: ^5.2.8
         version: 5.2.8
@@ -703,9 +706,6 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
       '@huggingface/transformers':
         specifier: ^4.1.0
         version: 4.1.0
@@ -731,6 +731,12 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.5.1
+        version: 0.5.1
+      '@electric-sql/pglite-pgvector':
+        specifier: 0.0.2
+        version: 0.0.2(@electric-sql/pglite@0.5.1)
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
@@ -941,11 +947,14 @@ importers:
         specifier: workspace:*
         version: link:../utils
       '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.5.1
+        version: 0.5.1
+      '@electric-sql/pglite-pgvector':
+        specifier: 0.0.2
+        version: 0.0.2(@electric-sql/pglite@0.5.1)
       drizzle-orm:
         specifier: 0.45.2
-        version: 0.45.2(@electric-sql/pglite@0.4.4)
+        version: 0.45.2(@electric-sql/pglite@0.5.1)
       react:
         specifier: ^19.2.4
         version: 19.2.5
@@ -1176,8 +1185,8 @@ importers:
         version: 19.2.5
     devDependencies:
       '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.5.1
+        version: 0.5.1
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
@@ -1371,7 +1380,7 @@ importers:
         version: link:../workers
       drizzle-orm:
         specifier: 0.45.2
-        version: 0.45.2(@electric-sql/pglite@0.4.4)
+        version: 0.45.2(@electric-sql/pglite@0.5.1)
       react:
         specifier: ^19.2.4
         version: 19.2.5
@@ -1444,8 +1453,8 @@ importers:
         version: link:../worker-runtime
     devDependencies:
       '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.5.1
+        version: 0.5.1
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
@@ -1957,8 +1966,8 @@ importers:
         specifier: workspace:*
         version: link:../worker-runtime
       '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.5.1
+        version: 0.5.1
       tiktoken:
         specifier: ^1.0.22
         version: 1.0.22
@@ -2254,8 +2263,8 @@ importers:
         specifier: workspace:*
         version: link:../worker-runtime
       '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.5.1
+        version: 0.5.1
       lucide-react:
         specifier: ^1.8.0
         version: 1.8.0(react@19.2.5)
@@ -4090,8 +4099,13 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@electric-sql/pglite@0.4.4':
-    resolution: {integrity: sha512-g/6CWAJ4XOkObWCWAQ2IReZD8VvsDy3poRHSKvpRR2F96F8WJ3HVbjpso3gN7l0q6QPPgvxSSpl/qo5k8a7mkQ==}
+  '@electric-sql/pglite-pgvector@0.0.2':
+    resolution: {integrity: sha512-Gu9Nv7JHlg6BgOLqPCR6lCjI+3xlb7ej5qUtHWmzEYA0ZKzuNgeDK16nRO0ELInwzhLptLqX7VdWyYRElSXjdQ==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.1
+
+  '@electric-sql/pglite@0.5.1':
+    resolution: {integrity: sha512-h2Vc+qkQqsEL5kvyN5nBAxn3Vbyvka7QfDW7Io+CdcwU1+X8JbCAN2og+5dI11S3eJuDfroUCxzJaap6k+ezEw==}
 
   '@electron/asar@3.4.1':
     resolution: {integrity: sha512-i4/rNPRS84t0vSRa2HorerGRXWyF4vThfHesw0dmcWHp+cspK743UanA0suA5Q5y8kzY2y6YKrvbIUn69BCAiA==}
@@ -18774,7 +18788,11 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@electric-sql/pglite@0.4.4': {}
+  '@electric-sql/pglite-pgvector@0.0.2(@electric-sql/pglite@0.5.1)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.1
+
+  '@electric-sql/pglite@0.5.1': {}
 
   '@electron/asar@3.4.1':
     dependencies:
@@ -25001,9 +25019,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(@electric-sql/pglite@0.4.4):
+  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.1):
     optionalDependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.5.1
 
   dunder-proto@1.0.1:
     dependencies:

@@ -82,6 +82,48 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       'File content payload with metadata, including truncation status and approximate token count',
   },
 
+  'brainstrike.findWorkspaceSymbol': {
+    toolId: 'brainstrike.findWorkspaceSymbol',
+    description:
+      "Locate a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content.",
+    parameters: [
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Workspace-relative file path to search',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'query',
+        type: 'string',
+        description: 'Symbol name or substring to find',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'maxMatches',
+        type: 'number',
+        description: 'Maximum matches to return',
+        required: false,
+        default: 5,
+        min: 1,
+        max: 20,
+      },
+      {
+        name: 'contextLines',
+        type: 'number',
+        description: 'Preview lines before/after each match',
+        required: false,
+        default: 2,
+        min: 0,
+        max: 10,
+      },
+    ],
+    returns:
+      'Matched symbols with best-effort enclosing 1-based line ranges and small preview snippets (no whole-file content)',
+  },
+
   'brainstrike.readWorkspaceDirectory': {
     toolId: 'brainstrike.readWorkspaceDirectory',
     description:

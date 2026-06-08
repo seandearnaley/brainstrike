@@ -4,6 +4,8 @@ import { WINDOWS_ABSOLUTE_PATH_REGEX } from '@brainstrike/utils/relative-file-pa
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
+const SLASH_CODE = '/'.charCodeAt(0);
+const BACKSLASH_CODE = '\\'.charCodeAt(0);
 
 export interface ElectronFileHandle {
   kind: 'file';
@@ -95,15 +97,53 @@ function joinElectronAbsolutePath(rootPath: string, relativePath: string): strin
     rootPath.startsWith('\\\\') ||
     rootPath.includes('\\');
   const separator = prefersBackslashes ? '\\' : '/';
-  const trimmedRootPath = rootPath.replace(/[\\/]+$/u, '');
-  const normalizedRelativePath = relativePath
-    .split('/')
-    .filter((segment) => segment.length > 0)
-    .join(separator);
+  const trimmedRootPath = trimTrailingPathSeparators(rootPath);
+  const normalizedRelativePath = normalizeSlashRelativePath(relativePath, separator);
   if (normalizedRelativePath.length === 0) {
     return trimmedRootPath;
   }
   return `${trimmedRootPath}${separator}${normalizedRelativePath}`;
+}
+
+function trimTrailingPathSeparators(path: string): string {
+  let end = path.length;
+  while (end > 0) {
+    const code = path.charCodeAt(end - 1);
+    if (code !== SLASH_CODE && code !== BACKSLASH_CODE) {
+      break;
+    }
+    end--;
+  }
+  return end === path.length ? path : path.slice(0, end);
+}
+
+function normalizeSlashRelativePath(relativePath: string, separator: string): string {
+  // Avoid split/filter/join here: synthetic handles are created for bulk
+  // selected files, so scanning skips per-file segment arrays.
+  let normalized = '';
+  let segmentStart = -1;
+
+  for (let index = 0; index < relativePath.length; index++) {
+    if (relativePath.charCodeAt(index) === SLASH_CODE) {
+      if (segmentStart !== -1) {
+        const segment = relativePath.slice(segmentStart, index);
+        normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
+        segmentStart = -1;
+      }
+      continue;
+    }
+
+    if (segmentStart === -1) {
+      segmentStart = index;
+    }
+  }
+
+  if (segmentStart !== -1) {
+    const segment = relativePath.slice(segmentStart);
+    normalized = normalized.length === 0 ? segment : `${normalized}${separator}${segment}`;
+  }
+
+  return normalized;
 }
 
 export function getSlashPathFileName(filePath: string): string {

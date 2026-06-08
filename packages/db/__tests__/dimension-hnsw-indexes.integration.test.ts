@@ -20,6 +20,7 @@ import {
   ensureDimensionIndexExists,
   getDistinctDimensions,
   hnswParams,
+  MAX_HNSW_DIMENSION,
 } from '../src/migrations/dimension-index-helpers';
 
 describe('Dimension HNSW Index Helpers', () => {
@@ -27,7 +28,7 @@ describe('Dimension HNSW Index Helpers', () => {
 
   beforeAll(async () => {
     // Create a fresh database with vector extension
-    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
     const vector = vectorModule.vector;
 
     db = new PGlite({
@@ -86,6 +87,25 @@ describe('Dimension HNSW Index Helpers', () => {
       await createDimensionIndex(db, 256, params); // Second call should not throw
       expect(await dimensionIndexExists(db, 256)).toBe(true);
     });
+
+    it('builds a half-precision (halfvec) HNSW index to shrink the index and speed search', async () => {
+      await createDimensionIndex(db, 768, { m: 16, ef: 64 });
+      const def = await db.query<{ indexdef: string }>(
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_768'"
+      );
+      const indexdef = def.rows[0]?.indexdef ?? '';
+      expect(indexdef).toContain('halfvec');
+      expect(indexdef).toContain('halfvec_cosine_ops');
+      expect(indexdef).not.toContain('vector_cosine_ops');
+    });
+
+    it("supports HNSW indexes up to halfvec's 4000-dim limit (e.g. 3072-dim models)", async () => {
+      // vector HNSW caps at 2000 dims; halfvec raises it to 4000, so large models
+      // (text-embedding-3-large = 3072) get an ANN index instead of a seq scan.
+      expect(MAX_HNSW_DIMENSION).toBe(4000);
+      await createDimensionIndex(db, 3072, { m: 16, ef: 64 });
+      expect(await dimensionIndexExists(db, 3072)).toBe(true);
+    });
   });
 
   describe('dropDimensionIndex', () => {
@@ -139,7 +159,7 @@ describe('Dimension HNSW Index Query Plan', () => {
 
   beforeAll(async () => {
     // Create a fresh database with vector extension
-    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
     const vector = vectorModule.vector;
 
     db = new PGlite({
@@ -226,19 +246,19 @@ describe('Dimension HNSW Index Query Plan', () => {
     expect(Number(result.rows[0].similarity)).toBeGreaterThan(0.99);
   });
 
-  it('should use HNSW index when ORDER BY includes cast expression', async () => {
-    // This test verifies that the query uses (embedding::vector(N)) cast
-    // which matches the indexed expression in the HNSW partial index.
-    // With the cast, the query planner CAN use the HNSW index.
+  it('should use HNSW index when ORDER BY includes the halfvec cast expression', async () => {
+    // This test verifies that the query uses the (embedding::halfvec(N)) cast
+    // which matches the half-precision HNSW partial index. With the matching
+    // cast, the query planner CAN use the HNSW index.
     const queryVector = `[${new Array(768).fill(0.2).join(',')}]`;
 
     const explainResult = await db.query<{ 'QUERY PLAN': string }>(
       `EXPLAIN (FORMAT TEXT)
-       SELECT id, (1 - (((embedding::vector(768)) <=> $1::vector(768)) / 2.0)) as similarity
+       SELECT id, (1 - (((embedding::halfvec(768)) <=> $1::halfvec(768)) / 2.0)) as similarity
        FROM file_chunks
        WHERE embedding IS NOT NULL
          AND vector_dims(embedding) = 768
-       ORDER BY (embedding::vector(768)) <=> $1::vector(768)
+       ORDER BY (embedding::halfvec(768)) <=> $1::halfvec(768)
        LIMIT 10`,
       [queryVector]
     );
@@ -248,7 +268,7 @@ describe('Dimension HNSW Index Query Plan', () => {
     // Verify the query plan uses the HNSW index
     // When the cast expression matches the indexed expression, the planner uses the index
     expect(plan).toContain('Index Scan using idx_file_chunks_emb_hnsw_768');
-    // Verify the ORDER BY uses the casted expression
-    expect(plan).toContain('::vector(768)');
+    // Verify the ORDER BY uses the halfvec cast
+    expect(plan).toContain('::halfvec(768)');
   });
 });

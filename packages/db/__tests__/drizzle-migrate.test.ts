@@ -6,7 +6,7 @@
 
 import { addLogListener } from '@brainstrike/utils';
 import { PGlite } from '@electric-sql/pglite';
-import { vector } from '@electric-sql/pglite/vector';
+import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getMigrationStatus,

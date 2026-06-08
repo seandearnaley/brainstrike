@@ -9,9 +9,11 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
+  findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
 } as const;
 
 interface ModelFacingToolNames {
+  findWorkspaceSymbol: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   queryEmbeddingSpace: string | null;
@@ -41,6 +43,10 @@ function resolveModelFacingToolName(
 function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): ModelFacingToolNames {
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
+    findWorkspaceSymbol: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.findWorkspaceSymbol
+    ),
     listEmbeddingSpaces: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
@@ -101,13 +107,34 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
 
   const selectionDefaultInstruction =
     names.updateWorkspaceTapestrySelections && names.updateWorkspaceContextSelection
-      ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, not whole files. Use ${names.updateWorkspaceContextSelection} for whole-file selection only when the entire file is genuinely needed.`
+      ? `When the user asks you to select, add, or curate context, default to precise Tapestry line ranges with ${names.updateWorkspaceTapestrySelections}: select only the lines that matter, never the whole file. If the user names a specific symbol, function, type, section, or line range, you MUST select only that symbol's exact line span via ${names.updateWorkspaceTapestrySelections} and MUST NOT fall back to whole-file selection. Only use ${names.updateWorkspaceContextSelection} for whole-file selection when the user explicitly asks for the entire file or the whole file is genuinely needed. The line range you report to the user MUST exactly equal the ranges you passed to ${names.updateWorkspaceTapestrySelections} — never state a range you did not actually select.`
       : 'Precise context selection is unavailable unless the workspace selection and Tapestry selection tools are registered.';
-  const tapestryMechanicsInstruction =
-    names.queryEmbeddingSpace && names.updateWorkspaceTapestrySelections
-      ? `${names.queryEmbeddingSpace} results include 1-based source line ranges per chunk; pass those directly as ranges: [{ startLine, endLine }] (1-based, inclusive) to ${names.updateWorkspaceTapestrySelections}.`
+  const tapestryMechanicsInstruction = names.updateWorkspaceTapestrySelections
+    ? [
+        `Tapestry ranges are 1-based and inclusive; pass them as ranges: [{ startLine, endLine }] to ${names.updateWorkspaceTapestrySelections}.`,
+        names.queryEmbeddingSpace
+          ? `${names.queryEmbeddingSpace} results include per-chunk 1-based source line ranges — pass those directly.`
+          : '',
+        names.readWorkspaceFile
+          ? `When there is no embedding result for the target, ${names.readWorkspaceFile} returns the file content plus 1-based startLine/endLine/totalLines metadata (the content itself has no inline line numbers): read it and count from startLine to find the first and last line of the requested symbol, then pass those as the range.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : '';
+  const symbolLookupInstruction =
+    names.findWorkspaceSymbol && names.updateWorkspaceTapestrySelections
+      ? `When the user names a symbol/function/type, call ${names.findWorkspaceSymbol} to get its best-effort range without reading the whole file, verify the returned range covers the symbol, then pass it to ${names.updateWorkspaceTapestrySelections}.`
       : '';
-  const selectionLine = [selectionDefaultInstruction, tapestryMechanicsInstruction]
+  const colorGroupingInstruction = names.updateWorkspaceTapestrySelections
+    ? 'You may set a named color per range (red, orange, yellow, green, cyan, blue, purple, pink, gray) to group related context — reuse the same color for the same concept.'
+    : '';
+  const selectionLine = [
+    selectionDefaultInstruction,
+    tapestryMechanicsInstruction,
+    symbolLookupInstruction,
+    colorGroupingInstruction,
+  ]
     .filter(Boolean)
     .join(' ');
 

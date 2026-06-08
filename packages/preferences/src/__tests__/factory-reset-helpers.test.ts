@@ -17,6 +17,32 @@ const globalWindow = window as Window &
     caches?: CacheStorage;
   };
 
+describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
+  it('includes the PG18 engine-versioned database names so Safari/Firefox fallback wipes them', () => {
+    // The persistent browser data dirs were versioned to idb://app-pg18 / idb://web-pg18
+    // when PGlite upgraded to Postgres 18. The fallback wipe list (used when
+    // indexedDB.databases() is unavailable) must target the versioned names.
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('app-pg18');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('web-pg18');
+  });
+
+  it('retains the legacy unversioned names to clean up stale PG17 installs', () => {
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('app');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('web');
+  });
+
+  it('targets the real /pglite/-prefixed IndexedDB names PGlite actually creates', () => {
+    // PGlite's idb backend (Emscripten IDBFS) names the IndexedDB database
+    // `/pglite/<dataDir>`, NOT the bare data-dir name — so a fallback list of bare
+    // names matches nothing against pglite stores. The list must include the
+    // prefixed names for the non-enumerating (Safari/Firefox) wipe to work.
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/app-pg18');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/web-pg18');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/app');
+    expect(FALLBACK_INDEXED_DB_NAMES).toContain('/pglite/web');
+  });
+});
+
 function createDeleteDatabaseMock() {
   return vi.fn((_name: string) => {
     const request: FakeRequest = {
@@ -177,5 +203,78 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     });
 
     await expect(clearPersistentUiState({ skipIndexedDb: true })).resolves.toBeUndefined();
+  });
+});
+
+describe('clearPersistentUiState OPFS-AHP handling', () => {
+  const nav = globalThis.navigator as Navigator & {
+    storage?: { getDirectory?: () => Promise<unknown> };
+  };
+  let originalStorageDescriptor: PropertyDescriptor | undefined;
+  let originalIndexedDB: IDBFactory | undefined;
+  let originalCaches: CacheStorage | undefined;
+  let removeEntry: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    originalIndexedDB = globalWindow.indexedDB;
+    originalCaches = globalWindow.caches;
+    originalStorageDescriptor = Object.getOwnPropertyDescriptor(nav, 'storage');
+
+    // Minimal IndexedDB + CacheStorage so the sibling reset tasks complete cleanly.
+    Object.defineProperty(globalWindow, 'indexedDB', {
+      configurable: true,
+      value: { deleteDatabase: createDeleteDatabaseMock() } as unknown as IDBFactory,
+    });
+    Object.defineProperty(globalWindow, 'caches', {
+      configurable: true,
+      value: {
+        keys: vi.fn(async () => []),
+        delete: vi.fn(async () => true),
+      } as unknown as CacheStorage,
+    });
+
+    removeEntry = vi.fn(async () => undefined);
+    async function* keys(): AsyncGenerator<string> {
+      yield 'app-pg18'; // current versioned
+      yield 'app'; // legacy unversioned
+      yield 'app-pg17'; // older major
+      yield 'web-pg18';
+      yield 'some-other-lib'; // unrelated OPFS consumer → must NOT be removed
+    }
+    Object.defineProperty(nav, 'storage', {
+      configurable: true,
+      value: { getDirectory: vi.fn(async () => ({ keys, removeEntry })) },
+    });
+  });
+
+  afterEach(() => {
+    if (originalIndexedDB) {
+      Object.defineProperty(globalWindow, 'indexedDB', {
+        configurable: true,
+        value: originalIndexedDB,
+      });
+    } else {
+      Reflect.deleteProperty(globalWindow, 'indexedDB');
+    }
+    if (originalCaches) {
+      Object.defineProperty(globalWindow, 'caches', { configurable: true, value: originalCaches });
+    } else {
+      Reflect.deleteProperty(globalWindow, 'caches');
+    }
+    if (originalStorageDescriptor) {
+      Object.defineProperty(nav, 'storage', originalStorageDescriptor);
+    } else {
+      Reflect.deleteProperty(nav, 'storage');
+    }
+  });
+
+  it('removes the pglite OPFS-AHP root dirs (versioned + legacy + older majors), never unrelated entries', async () => {
+    await clearPersistentUiState();
+
+    const removed = removeEntry.mock.calls.map(([name]) => name);
+    expect(removed).toEqual(expect.arrayContaining(['app-pg18', 'app', 'app-pg17', 'web-pg18']));
+    // A non-pglite OPFS consumer's root dir must never be swept by factory reset.
+    expect(removed).not.toContain('some-other-lib');
   });
 });

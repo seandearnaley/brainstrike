@@ -335,6 +335,129 @@ export function computeOverfetchLimit(limit: number): number {
 }
 
 /**
+ * Default `hnsw.ef_search` for vector search. pgvector's own default is 40, which
+ * (per pgvector's docs) yields too few rows once a WHERE filter selects a small
+ * fraction of the table. We raise it to 100 to widen the candidate window, and
+ * pair it with iterative scans (see {@link hnswSearchTuningStatements}) so heavily
+ * filtered queries keep walking the graph until enough rows pass the filters.
+ */
+export const DEFAULT_HNSW_EF_SEARCH = 100;
+
+/** Upper bound for `hnsw.ef_search`; matches pgvector's documented max. */
+export const MAX_HNSW_EF_SEARCH = 2000;
+
+/**
+ * Resolve the effective `hnsw.ef_search` for a search: an explicit per-query
+ * override wins, then the `HNSW_EF_SEARCH` env var, then {@link DEFAULT_HNSW_EF_SEARCH}.
+ * The result is always a safe integer clamped to `[1, MAX_HNSW_EF_SEARCH]`, so it
+ * can be interpolated into SQL without injection risk.
+ */
+function readEnv(name: string): string | undefined {
+  return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
+    name
+  ];
+}
+
+/**
+ * Parse an env var as a positive numeric tuning value, or `undefined` when it's
+ * absent/empty/non-positive. `Number('0')` and `Number('')` are a finite `0`, so a
+ * naive `Number.isFinite` check would treat `FOO=0`/`FOO=''` as a real `0` (which
+ * then clamps UP to 1) — a surprising footgun. Treat anything `< 1` as "unset".
+ */
+function readPositiveEnvNumber(name: string): number | undefined {
+  const raw = readEnv(name);
+  if (raw === undefined || raw.trim() === '') {
+    return;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined;
+}
+
+export function resolveHnswEfSearch(efSearch?: number): number {
+  const fromEnv = readPositiveEnvNumber('HNSW_EF_SEARCH');
+  const candidate =
+    efSearch !== undefined && Number.isFinite(efSearch)
+      ? efSearch
+      : (fromEnv ?? DEFAULT_HNSW_EF_SEARCH);
+  const floored = Math.floor(candidate);
+  if (!Number.isSafeInteger(floored)) {
+    return DEFAULT_HNSW_EF_SEARCH;
+  }
+  return Math.max(1, Math.min(floored, MAX_HNSW_EF_SEARCH));
+}
+
+/**
+ * Conservative safety cap for `ivfflat.probes`. This is a sanity bound on an
+ * explicitly-configured value (so it can be string-interpolated into SQL without
+ * injection risk), NOT a mirror of pgvector's GUC ceiling — pgvector itself allows
+ * `ivfflat.probes` up to 32768. A real index never needs anywhere near 10k probes.
+ */
+export const MAX_IVFFLAT_PROBES = 10_000;
+
+/**
+ * Resolve `ivfflat.probes` from the `IVFFLAT_PROBES` env var, or `undefined` when
+ * unset/non-positive. IVFFLAT is opt-in (HNSW is the default index), so probes
+ * tuning is only emitted when explicitly configured. Clamped to `[1, MAX]` so it
+ * can be interpolated into SQL without injection risk.
+ */
+export function resolveIvfflatProbes(): number | undefined {
+  const fromEnv = readPositiveEnvNumber('IVFFLAT_PROBES');
+  if (fromEnv === undefined) {
+    return;
+  }
+  const floored = Math.floor(fromEnv);
+  return Number.isSafeInteger(floored)
+    ? Math.max(1, Math.min(floored, MAX_IVFFLAT_PROBES))
+    : undefined;
+}
+
+/**
+ * Transaction-scoped (`SET LOCAL`) tuning statements to run immediately before a
+ * pgvector HNSW search, inside the SAME transaction as the SELECT.
+ *
+ * - `hnsw.ef_search` widens the candidate window (see {@link resolveHnswEfSearch}).
+ * - `hnsw.iterative_scan = 'strict_order'` (pgvector 0.8+) makes the index keep
+ *   scanning when the initial window does not yield enough rows that survive the
+ *   query's WHERE filters — fixing the "filtered search returns too few results"
+ *   problem without a large client-side overfetch. We use `strict_order` (NOT
+ *   `relaxed_order`) because the search SQL does NOT re-sort the index output: it is a
+ *   single-level `... ROW_NUMBER() OVER (ORDER BY <distance>) ... ORDER BY <distance>
+ *   LIMIT n` (see `file-chunk-repository.ts`), and when an HNSW index satisfies that
+ *   `<distance>` ordering, Postgres uses the index's emission order directly — it adds
+ *   no Sort node. So whatever order the index emits is what the ranks and the final
+ *   top-n reflect. Under `relaxed_order` the index can emit rows slightly out of
+ *   distance order AND stop the iterative scan early, so with nothing re-sorting
+ *   downstream a `LIMIT n` risks BOTH mis-ordering the returned top-n AND missing a
+ *   closer row beyond the first window. `strict_order` emits in exact distance order
+ *   out of the index — so the top-n are both correctly ordered and complete — at a
+ *   real LATENCY COST: it can be materially slower than `relaxed_order` on
+ *   heavily-filtered searches (the exact case relaxed mode was added to speed up).
+ *   This is a deliberate correctness-first default for an already-approximate ANN
+ *   search; if search latency regresses on real corpora, benchmark and reconsider
+ *   relaxed mode.
+ * - `ivfflat.probes` (only when `IVFFLAT_PROBES` is set) restores IVFFLAT recall
+ *   tuning for any IVFFLAT index. Harmless when an HNSW index is used (the GUC only
+ *   affects IVFFLAT scans), and vice-versa. Kept here so it ALSO runs inside the
+ *   transaction — as an autocommit `SET LOCAL` it had the same silent-no-op bug.
+ *
+ * `SET LOCAL` only takes effect inside a transaction block; running these as
+ * autocommit statements is a silent no-op, which is why callers MUST wrap the
+ * tuning + SELECT in one transaction.
+ */
+export function hnswSearchTuningStatements(efSearch?: number): string[] {
+  const ef = resolveHnswEfSearch(efSearch);
+  const statements = [
+    `SET LOCAL hnsw.ef_search = ${ef}`,
+    `SET LOCAL hnsw.iterative_scan = 'strict_order'`,
+  ];
+  const probes = resolveIvfflatProbes();
+  if (probes !== undefined) {
+    statements.push(`SET LOCAL ivfflat.probes = ${probes}`);
+  }
+  return statements;
+}
+
+/**
  * Resolve a chunk's embedding dimension count from whichever the row carried.
  *
  * Prefers the loaded vector's length; falls back to the projected

@@ -105,6 +105,15 @@ describe('hf dev proxy', () => {
       ).toBe(false);
     });
 
+    it('rejects malformed percent-encoded paths without throwing', () => {
+      expect(() =>
+        isAllowedHfDevPath('/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/%E0%A4%A')
+      ).not.toThrow();
+      expect(isAllowedHfDevPath('/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/%E0%A4%A')).toBe(
+        false
+      );
+    });
+
     it('rejects empty path', () => {
       expect(isAllowedHfDevPath('')).toBe(false);
     });
