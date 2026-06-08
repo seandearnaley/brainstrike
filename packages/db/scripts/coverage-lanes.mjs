@@ -62,8 +62,6 @@ const lanes = {
     'migration-runner.test.ts',
     'pglite-engine-major.integration.test.ts',
     'provider-catalog-timestamps-migration.test.ts',
-    'tsvector-generated-column.integration.test.ts',
-    'uuidv7-primary-keys.integration.test.ts',
     'view-filter-presets-migration.test.ts',
   ],
   queue: [
@@ -101,6 +99,9 @@ const lanes = {
     'file-chunk-repository.test.ts',
     'file-record-model.test.ts',
     'file-record-repository.test.ts',
+    // Subdirectory test (distinct from the top-level file-record-repository.test.ts);
+    // referenced by its path relative to __tests__ now that collectUnitTests recurses.
+    'repositories/drizzle/file-record-repository.test.ts',
     'repository-clear.test.ts',
     'repository-factory.test.ts',
   ],
@@ -113,6 +114,8 @@ const lanes = {
     'search-similar-sql-path.integration.test.ts',
     'search-similar-sql-path.test.ts',
     'search-similar.behavior.test.ts',
+    'tsvector-generated-column.integration.test.ts',
+    'uuidv7-primary-keys.integration.test.ts',
     'vector-extension.integration.test.ts',
   ],
   runtime: [
@@ -122,15 +125,28 @@ const lanes = {
   ],
 };
 
-function collectUnitTests() {
-  return readdirSync(testsRoot)
-    .filter(
-      (fileName) =>
-        (fileName.endsWith('.test.ts') || fileName.endsWith('.test.tsx')) &&
-        !fileName.endsWith('.browser.test.ts') &&
-        !fileName.endsWith('.browser.test.tsx')
-    )
-    .sort();
+// Recurses into subdirectories (mirroring test-lanes.mjs `collectTests`) and returns
+// paths RELATIVE to __tests__ (POSIX-style `/`). A non-recursive readdir would let a
+// test under a subdirectory (e.g. repositories/drizzle/file-record-repository.test.ts)
+// silently escape BOTH this orphan check and every coverage lane. Relative paths also
+// avoid a basename collision: the top-level file-record-repository.test.ts and the
+// subdir one are distinct keys, so each must be assigned to a lane independently.
+function collectUnitTests(dir = testsRoot, prefix = '') {
+  const tests = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      tests.push(...collectUnitTests(path.join(dir, entry.name), relativePath));
+      continue;
+    }
+    if (
+      (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.tsx')) &&
+      !(entry.name.endsWith('.browser.test.ts') || entry.name.endsWith('.browser.test.tsx'))
+    ) {
+      tests.push(relativePath);
+    }
+  }
+  return tests.sort();
 }
 
 function validateLanes() {
