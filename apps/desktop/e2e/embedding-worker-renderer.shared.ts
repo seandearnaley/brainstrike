@@ -1542,8 +1542,8 @@ export async function createTestBackfillJob(page: Page): Promise<{
       );
 
       await api.db.query(
-        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, to_tsvector('english', $4), $8, $8)`,
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, $8, $8)`,
         [
           chunkId,
           fileRecordId,
@@ -1685,9 +1685,9 @@ export async function createLargeBackfillFixture(
       for (let index = 0; index < count; index += 1) {
         await api.db.query(
           `INSERT INTO file_chunks (
-           id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at
+           id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, to_tsvector('english', $4), $8, $8)`,
+         VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, $8, $8)`,
           [
             `${fileRecordId}-chunk-${index}`,
             fileRecordId,
@@ -1818,7 +1818,7 @@ export async function createLargeBackfillCorpusFixture(
 
         for (const row of rows) {
           values.push(
-            `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, 'text', $${nextParam + 6}, to_tsvector('english', $${nextParam + 3}), $${nextParam + 7}, $${nextParam + 7})`
+            `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, 'text', $${nextParam + 6}, $${nextParam + 7}, $${nextParam + 7})`
           );
           params.push(
             row.id,
@@ -1835,7 +1835,7 @@ export async function createLargeBackfillCorpusFixture(
 
         await query(
           `INSERT INTO file_chunks (
-             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at
+             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
            )
            VALUES ${values.join(', ')}`,
           params
@@ -2481,9 +2481,9 @@ export async function createChunkedImportFixture(
         for (const [chunkIndex, chunkContent] of file.chunks.entries()) {
           await api.db.query(
             `INSERT INTO file_chunks (
-             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at
+             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_tsvector('english', $4), $9, $9)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
             [
               `${file.id}-chunk-${chunkIndex}`,
               file.id,

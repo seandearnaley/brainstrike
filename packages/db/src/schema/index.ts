@@ -24,8 +24,9 @@ import {
 /**
  * Custom type for PostgreSQL tsvector (full-text search)
  *
- * The tsvector column is managed by a database trigger that auto-updates
- * when content changes. This type provides read-only access for queries.
+ * The `content_tsvector` column is a STORED generated column (migration 034) that
+ * Postgres computes from `content` — it is never written by the application. This
+ * type provides read-only access for queries.
  *
  * Usage in queries:
  * - WHERE content_tsvector @@ to_tsquery('english', 'search & terms')
@@ -39,7 +40,8 @@ const tsvector = customType<{
     return 'tsvector';
   },
   toDriver(value: string): string {
-    // tsvector is auto-managed by trigger, rarely set from application
+    // content_tsvector is a STORED generated column — never written from the app
+    // (and `.generatedAlwaysAs` excludes it from insert types).
     return value;
   },
   fromDriver(value: string): string {
@@ -171,9 +173,24 @@ export const fileChunks = pgTable(
     embeddingSetId: text('embedding_set_id'),
     embeddingUpdatedAt: textTimestamp('embedding_updated_at'),
     embeddingHash: text('embedding_hash'),
-    // Full-text search tsvector - populated by repository writes and backfilled by migration
-    // GIN-indexed for fast ts_query lookups
-    contentTsvector: tsvector('content_tsvector'),
+    // Full-text search tsvector — a STORED generated column (migration 034) computed
+    // by Postgres from `content`. Declared generated so the Drizzle type matches the
+    // DB: a `.values({ contentTsvector })` write is now a compile error instead of a
+    // runtime "cannot insert into generated column" failure. GIN-indexed for fast
+    // ts_query lookups.
+    //
+    // SNAPSHOT DRIFT (intentional): the committed drizzle manifest/snapshots
+    // (`src/drizzle/migrations.json`, `drizzle/meta/*_snapshot.json`) still describe
+    // this as a PLAIN tsvector column with no GIN index. The real DDL is owned by
+    // custom migration 034, which runs AFTER the manifest (see `runMigrations`) and
+    // converts it to STORED-generated + adds the GIN index. Do NOT `drizzle-kit
+    // generate` to "fix" the drift — this repo's snapshots have already diverged for
+    // other reasons (see CLAUDE.md migration-architecture note), so regenerating would
+    // emit a spurious `ALTER COLUMN ... SET GENERATED`/index migration plus unrelated
+    // churn. Schema changes go in a numbered migration + the customMigrations ledger.
+    contentTsvector: tsvector('content_tsvector').generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce(content, ''))`
+    ),
     createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
     updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
