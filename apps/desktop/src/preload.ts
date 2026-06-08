@@ -23,6 +23,7 @@ const DB_PING_CHANNEL = 'db:ping' as const;
 const DB_QUERY_CHANNEL = 'db:query' as const;
 const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
 const DB_TEST_CHANNEL = 'db:test' as const;
+const DB_TRANSACTION_CHANNEL = 'db:transaction' as const;
 const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
 const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
@@ -464,6 +465,13 @@ if (shouldExposeBridge('electronAPI')) {
         ipcRenderer.invoke(DB_QUERY_CHANNEL, sql, params, options),
       exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
         ipcRenderer.invoke(DB_EXEC_CHANNEL, sql, params, options),
+      // Atomic transaction over IPC (#1141): ships an ordered statement list to main
+      // to run inside one pglite.transaction() and return statements[resultIndex] rows.
+      runTransaction: (
+        statements: { sql: string; params?: unknown[] }[],
+        resultIndex: number,
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke(DB_TRANSACTION_CHANNEL, statements, resultIndex, options),
       test: () => ipcRenderer.invoke(DB_TEST_CHANNEL),
       clearAll: (confirmationToken?: string) =>
         ipcRenderer.invoke(DB_CLEAR_ALL_CHANNEL, confirmationToken),

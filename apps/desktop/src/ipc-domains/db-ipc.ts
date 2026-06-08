@@ -2,6 +2,8 @@ import {
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
   parseManagedCacheBatchArgs,
+  runStatementsInTransaction,
+  type TransactionStatement,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
@@ -284,7 +286,7 @@ function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
   return db as PGliteLiveQuerySurface;
 }
 
-function assertRendererSql(channel: 'db:exec' | 'db:query', sql: string): void {
+function assertRendererSql(channel: 'db:exec' | 'db:query' | 'db:transaction', sql: string): void {
   if (typeof sql !== 'string' || sql.trim().length === 0) {
     throw new Error(`${channel} SQL must be a non-empty string.`);
   }
@@ -437,6 +439,36 @@ export function registerDatabaseIpcHandlers(
           const db = await getDatabase();
           return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
         }, 'db:exec')
+      );
+    }
+  );
+
+  // Atomic transaction over IPC (#1141): run an ordered statement list inside ONE
+  // pglite.transaction() in main and return statements[resultIndex] rows. PGlite's
+  // transaction lock serializes a concurrent db:query (e.g. the FTS half of a hybrid
+  // search) so it can't interleave — the isolation/error-coupling fix that raw
+  // BEGIN/COMMIT over separate IPC calls can't provide.
+  registry.registerInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.transaction,
+    async (
+      event: IpcMainInvokeEvent,
+      statements: TransactionStatement[],
+      resultIndex: number,
+      workOptions?: DatabaseWorkOptions
+    ) => {
+      if (!Array.isArray(statements) || statements.length === 0) {
+        throw new Error('db:transaction requires a non-empty statements array.');
+      }
+      for (const statement of statements) {
+        assertRendererSql('db:transaction', statement?.sql);
+      }
+      return runScheduledDatabaseWork(event, options, workOptions, 'db:transaction', async () =>
+        withCorruptionRecovery(async () => {
+          const { getDatabase } = await import('../db-main');
+          const db = await getDatabase();
+          return runStatementsInTransaction(db, statements, resultIndex);
+        }, 'db:transaction')
       );
     }
   );

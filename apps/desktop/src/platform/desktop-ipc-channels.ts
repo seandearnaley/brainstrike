@@ -22,6 +22,7 @@ export const DESKTOP_IPC_CHANNELS = {
     resetLocal: 'db:resetLocal',
     schedulerSnapshot: 'db:scheduler:snapshot',
     test: 'db:test',
+    transaction: 'db:transaction',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',

@@ -448,6 +448,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         exec: async (sql: string) => {
           await electronExec(sql);
         },
+        // Atomic transaction primitive (#1141): lets repositories run tuning + SELECT
+        // in ONE main-process pglite.transaction() so a concurrent FTS query can't
+        // interleave. Omitted on older preloads → repos fall back to raw BEGIN/COMMIT.
+        ...(electronDB.runTransaction ? { transaction: electronDB.runTransaction } : {}),
       };
 
       // The repository doesn't need the test method, so we can pass just the db interface

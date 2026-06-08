@@ -187,6 +187,20 @@ export interface ElectronDatabaseAPI {
   resetLocal?: () => Promise<{ success: boolean; message?: string }>;
 
   /**
+   * Atomic transaction over IPC (#1141): run `statements` in order inside ONE
+   * `pglite.transaction()` in the main process and return the rows of
+   * `statements[resultIndex]`. Distinct from `transaction` above because a callback
+   * can't cross the IPC boundary — the statements are shipped as data. PGlite's
+   * transaction lock serializes a concurrent `query()` (e.g. the FTS half of a hybrid
+   * search) so it can't interleave.
+   */
+  runTransaction?: (
+    statements: { sql: string; params?: unknown[] }[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
+
+  /**
    * Snapshot of main-process foreground/background database scheduler state.
    */
   schedulerSnapshot?: () => Promise<DatabaseWorkSchedulerSnapshot>;

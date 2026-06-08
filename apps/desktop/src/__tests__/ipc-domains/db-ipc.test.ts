@@ -27,6 +27,32 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Fake main-process PGlite whose transaction() runs the callback against a tx that
+// echoes the statements, so the db:transaction success path can be exercised without
+// a real database.
+const { transactionSpy } = vi.hoisted(() => ({ transactionSpy: vi.fn() }));
+vi.mock('../../db-main', () => ({
+  getDatabase: vi.fn(async () => ({
+    transaction: async (
+      fn: (tx: {
+        query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+      }) => Promise<unknown>
+    ) => {
+      const queries: { sql: string; params?: unknown[] }[] = [];
+      const result = await fn({
+        query: async (sql: string, params?: unknown[]) => {
+          queries.push({ sql, params });
+          return { rows: [{ sql }] };
+        },
+      });
+      transactionSpy(queries);
+      return result;
+    },
+  })),
+  isCorruptionError: () => false,
+  handleRuntimeCorruption: vi.fn(),
+}));
+
 import { registerDatabaseIpcHandlers } from '../../ipc-domains/db-ipc';
 
 describe('database IPC domain', () => {
@@ -84,5 +110,49 @@ describe('database IPC domain', () => {
         'ALTER TABLE file_records DROP COLUMN path'
       )
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
+  });
+
+  it('validates the db:transaction statement list and guards each statement SQL', async () => {
+    // Empty / non-array statement list is rejected before any DB work.
+    await expect(handlers.get('db:transaction')?.({} as IpcMainInvokeEvent, [])).rejects.toThrow(
+      'db:transaction requires a non-empty statements array.'
+    );
+
+    // Every statement's SQL passes through the same assertRendererSql guard as db:query.
+    await expect(
+      handlers.get('db:transaction')?.({} as IpcMainInvokeEvent, [
+        { sql: "SET LOCAL hnsw.ef_search = '1'" },
+        { sql: 'SELECT\0 1' },
+      ])
+    ).rejects.toThrow('db:transaction SQL must not contain null bytes.');
+
+    await expect(
+      handlers.get('db:transaction')?.({} as IpcMainInvokeEvent, [
+        { sql: 'DROP TABLE file_records' },
+      ])
+    ).rejects.toThrow('db:transaction does not permit destructive schema SQL from the renderer.');
+  });
+
+  it('runs db:transaction statements through a single main-process transaction', async () => {
+    const result = await handlers.get('db:transaction')?.(
+      {} as IpcMainInvokeEvent,
+      [
+        { sql: "SET LOCAL hnsw.ef_search = '120'" },
+        { sql: 'SELECT id FROM file_chunks WHERE embedding_set_id = $1', params: ['set-1'] },
+      ],
+      1
+    );
+
+    // The handler returns the rows of statements[resultIndex] (the SELECT).
+    expect(result).toEqual({
+      rows: [{ sql: 'SELECT id FROM file_chunks WHERE embedding_set_id = $1' }],
+    });
+    // Both statements ran inside ONE transaction() call, in order.
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    const ranSql = transactionSpy.mock.calls[0]?.[0]?.map((s: { sql: string }) => s.sql);
+    expect(ranSql).toEqual([
+      "SET LOCAL hnsw.ef_search = '120'",
+      'SELECT id FROM file_chunks WHERE embedding_set_id = $1',
+    ]);
   });
 });

@@ -84,6 +84,7 @@ const lanes = {
     'queue-cli.test.ts',
   ],
   repositories: [
+    'atomic-transaction.integration.test.ts',
     'chunk-embedding-metadata.test.ts',
     'drizzle-embedding-cache-repository.test.ts',
     'drizzle-embedding-sets-repository.test.ts',

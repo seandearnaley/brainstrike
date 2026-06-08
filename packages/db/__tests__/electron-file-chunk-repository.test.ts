@@ -46,6 +46,17 @@ const createRepo = () => {
   return { repo, query, exec };
 };
 
+// Repo whose IPC db ALSO exposes the atomic `transaction(statements, resultIndex)`
+// primitive (the real desktop preload provides it; older/mocked APIs may not).
+const createRepoWithTransaction = () => {
+  const query = vi.fn<ElectronDbAPI['query']>();
+  const exec = vi.fn<ElectronDbAPI['exec']>();
+  const transaction = vi.fn<NonNullable<ElectronDbAPI['transaction']>>();
+  const db: ElectronDbAPI = { query, exec, transaction };
+  const repo = new ElectronFileChunkRepository(db);
+  return { repo, query, exec, transaction };
+};
+
 describe('ElectronFileChunkRepository smoke coverage', () => {
   let query: QueryMock;
   let repo: ElectronFileChunkRepository;
@@ -210,5 +221,106 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(query.mock.calls[0]?.[0]).toContain('UPDATE file_chunks');
     expect(query.mock.calls[0]?.[0]).toContain('collection_indexing_stats');
     expect(query.mock.calls[0]?.[1]).toEqual(['set-1']);
+  });
+
+  // #1141: desktop vector search must match the partial half-precision HNSW index
+  // `(embedding::halfvec(N)) … WHERE vector_dims(embedding) = N` (mirroring the
+  // PGlite-direct repo). A bare `embedding <=> $1::vector` (column uncast, no dims
+  // predicate) can't use that index → seq scan, which also makes the ef_search /
+  // iterative_scan tuning inert. Pin the index-matching SQL shape.
+  it('builds an index-matching halfvec search (column cast + vector_dims predicate)', async () => {
+    const dimension = 768;
+    const queryEmbedding = Array.from({ length: dimension }, () => 0.1);
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+      }
+      // BEGIN / COMMIT / SET LOCAL tuning / the SELECT all return no rows here.
+      return { rows: [] };
+    });
+
+    await repo.searchSimilar(queryEmbedding, { embeddingSetId: 'set-1', limit: 5 });
+
+    const searchSql = query.mock.calls
+      .map((call) => call[0])
+      .find((sql) => sql.includes('ROW_NUMBER() OVER'));
+    expect(searchSql).toBeDefined();
+    // Column cast to fixed-dim halfvec so the ORDER BY can use the partial index.
+    expect(searchSql).toContain(`embedding::halfvec(${dimension})`);
+    expect(searchSql).toContain(`$1::halfvec(${dimension})`);
+    // The partial-index predicate the planner needs to pick the dimension index.
+    expect(searchSql).toContain(`vector_dims(embedding) = ${dimension}`);
+    // The old uncast form must be gone.
+    expect(searchSql).not.toContain('embedding <=> $1::vector');
+  });
+
+  // #1141 part (b): when the IPC db exposes the atomic `transaction` primitive, the
+  // vector search must run its tuning + SELECT through ONE transaction() call (so
+  // pglite.transaction() in main holds the connection lock and a concurrent FTS
+  // SELECT from HybridSearchService's Promise.all can't interleave) — NOT via the
+  // raw BEGIN/COMMIT path that doesn't serialize over IPC.
+  it('runs the vector search via the atomic transaction primitive when available', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    const dimension = 4;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+      }
+      throw new Error(`Unexpected non-transaction query: ${sql}`);
+    });
+    transaction.mockResolvedValue({ rows: [] });
+
+    await repo.searchSimilar(
+      Array.from({ length: dimension }, () => 0.1),
+      {
+        embeddingSetId: 'set-1',
+        limit: 5,
+        efSearch: 120,
+      }
+    );
+
+    // No raw BEGIN/COMMIT/ROLLBACK on the IPC connection.
+    const rawTxCalls = query.mock.calls
+      .map((c) => c[0])
+      .filter((sql) => sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK');
+    expect(rawTxCalls).toEqual([]);
+
+    // One atomic transaction call carrying tuning statements + the SELECT, with the
+    // result index pointing at the final SELECT.
+    expect(transaction).toHaveBeenCalledTimes(1);
+    const [statements, resultIndex] = transaction.mock.calls[0] as [
+      { sql: string; params?: unknown[] }[],
+      number,
+    ];
+    const sqls = statements.map((s) => s.sql);
+    expect(sqls.some((s) => s.includes('SET LOCAL hnsw.ef_search'))).toBe(true);
+    expect(sqls.some((s) => s.includes("hnsw.iterative_scan = 'strict_order'"))).toBe(true);
+    expect(sqls.at(-1)).toContain('ROW_NUMBER() OVER');
+    expect(resultIndex).toBe(statements.length - 1);
+    // The SELECT statement carries the bound params (query vector + limit).
+    expect(statements.at(-1)?.params?.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to raw BEGIN/COMMIT when the IPC db has no transaction primitive', async () => {
+    const { repo, query } = createRepo();
+    const dimension = 4;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+      }
+      return { rows: [] };
+    });
+
+    await repo.searchSimilar(
+      Array.from({ length: dimension }, () => 0.1),
+      {
+        embeddingSetId: 'set-1',
+        limit: 5,
+      }
+    );
+
+    const calls = query.mock.calls.map((c) => c[0]);
+    expect(calls).toContain('BEGIN');
+    expect(calls).toContain('COMMIT');
   });
 });

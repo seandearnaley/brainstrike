@@ -349,10 +349,18 @@ export class ElectronFileChunkRepository {
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
+    const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
+      embeddingSetId,
+      queryEmbedding
+    );
+
     const vectorParam = `[${queryEmbedding.join(',')}]`;
     const params: unknown[] = [vectorParam];
     let paramIndex = 2;
-    const whereParts = ['embedding IS NOT NULL'];
+    // `vector_dims(embedding) = N` is required (with the halfvec column cast in
+    // orderExpr) for the planner to use the partial half-precision HNSW index;
+    // without it the search seq-scans and the HNSW tuning is inert (#1141).
+    const whereParts = ['embedding IS NOT NULL', `vector_dims(embedding) = ${dimension}`];
 
     paramIndex = this.appendFilterClause(
       whereParts,
@@ -372,11 +380,6 @@ export class ElectronFileChunkRepository {
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;
-
-    const { similarityExpr, orderExpr } = await this.resolveDistanceConfig(
-      embeddingSetId,
-      queryEmbedding
-    );
 
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
@@ -414,33 +417,40 @@ export class ElectronFileChunkRepository {
   /**
    * Run a pgvector ANN search with HNSW tuning applied via `SET LOCAL` inside a
    * single transaction. `SET LOCAL` only affects the current transaction, so the
-   * SELECT must run in the same transaction as the tuning statements. Read-only:
-   * committed on success, rolled back on error.
+   * SELECT must run in the same transaction as the tuning statements. Read-only.
+   *
+   * Prefers the atomic IPC `transaction(statements, resultIndex)` primitive (#1141):
+   * it runs the tuning + SELECT inside ONE `pglite.transaction()` in the main process,
+   * whose connection lock serializes a concurrent FTS `query()` from
+   * HybridSearchService's `Promise.all` — restoring isolation and breaking the
+   * error-coupling that the raw BEGIN/COMMIT path leaves open. Falls back to raw
+   * BEGIN/COMMIT only when the IPC db doesn't expose `transaction` (older/mocked APIs).
    */
   private async runVectorSearchInTransaction(
     searchSql: string,
     params: unknown[],
     efSearch?: number
   ): Promise<{ rows: Record<string, unknown>[] }> {
-    // NOTE: unlike the PGlite-direct FileChunkRepository (which uses
-    // `this.db.transaction()` to hold the connection lock), this raw BEGIN/COMMIT
-    // over IPC does NOT serialize against a concurrent query — so a parallel FTS
-    // SELECT from HybridSearchService's Promise.all can interleave into this vector
-    // transaction. The residual hazard is ISOLATION (the FTS read inherits this tx's
-    // open snapshot) and ERROR COUPLING (an FTS failure aborts this tx, so the vector
-    // SELECT then fails with "current transaction is aborted", and vice-versa). The
-    // `SET LOCAL` tuning itself still TAKES EFFECT: a GUC set with SET LOCAL persists
-    // for the whole transaction, and an interleaved plain SELECT neither resets it
-    // nor commits the block, so the vector SELECT (issued after the tuning, before
-    // the explicit COMMIT) always sees the ef_search/iterative_scan values — the
-    // search is tuned, not silently untuned. `ElectronDbAPI` exposes only `exec`/
-    // `query`, no `transaction()` primitive, so the fix needs an atomic IPC
-    // transaction (run the tuning + SELECT inside `pglite.transaction()` in the main
-    // process). Deliberately deferred — tracked in issue #1141.
+    const tuning = hnswSearchTuningStatements(efSearch).map((sql) => ({ sql }));
+    const statements = [...tuning, { sql: searchSql, params }];
+    const resultIndex = statements.length - 1;
+
+    if (this.db.transaction) {
+      const result = await this.db.transaction(statements, resultIndex);
+      return { rows: result.rows as Record<string, unknown>[] };
+    }
+
+    // Fallback for IPC implementations without an atomic transaction primitive.
+    // Unlike `pglite.transaction()`, raw BEGIN/COMMIT over separate IPC calls does
+    // NOT hold the connection lock, so a parallel FTS SELECT can interleave — the
+    // residual ISOLATION + ERROR-COUPLING hazard documented in #1141. The `SET LOCAL`
+    // tuning still takes effect (it persists for the whole tx and an interleaved plain
+    // SELECT neither resets it nor commits the block), so the search is tuned, not
+    // silently untuned.
     await this.db.query('BEGIN');
     try {
-      for (const statement of hnswSearchTuningStatements(efSearch)) {
-        await this.db.query(statement);
+      for (const statement of tuning) {
+        await this.db.query(statement.sql);
       }
       const result = await this.db.query(searchSql, params);
       await this.db.query('COMMIT');
@@ -836,7 +846,7 @@ export class ElectronFileChunkRepository {
   private async resolveDistanceConfig(
     embeddingSetId: string,
     queryEmbedding: number[]
-  ): Promise<{ similarityExpr: string; orderExpr: string }> {
+  ): Promise<{ similarityExpr: string; orderExpr: string; dimension: number }> {
     const setRes = await this.db.query(
       'SELECT distance, dimensions FROM embedding_sets WHERE id = $1',
       [embeddingSetId]
@@ -846,8 +856,12 @@ export class ElectronFileChunkRepository {
       throw new Error(`Embedding set ${embeddingSetId} not found.`);
     }
     const expectedDimension = Number(setRow.dimensions ?? Number.NaN);
-    if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
-      throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata.`);
+    // Must be a positive INTEGER: it is string-interpolated into `halfvec(N)` and
+    // `vector_dims(embedding) = N`, so a non-integer (e.g. 768.5) would emit invalid
+    // SQL rather than fail with a clear error (#1141 review). Defense-in-depth —
+    // `embedding_sets.dimensions` is an integer column.
+    if (!Number.isInteger(expectedDimension) || expectedDimension <= 0) {
+      throw new Error(`Embedding set ${embeddingSetId} has invalid dimension metadata.`);
     }
     if (queryEmbedding.length !== expectedDimension) {
       throw new Error(
@@ -856,28 +870,47 @@ export class ElectronFileChunkRepository {
     }
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
-    return this.buildDistanceExpressions(distance);
+    const expressions = this.buildDistanceExpressions(distance, expectedDimension);
+    return { ...expressions, dimension: expectedDimension };
   }
 
-  private buildDistanceExpressions(distance: 'cosine' | 'l2' | 'ip'): {
+  /**
+   * Build distance expressions for similarity search.
+   * CRITICAL (#1141): the embedding column is cast to `halfvec(dimension)` to match
+   * the half-precision partial HNSW index `(embedding::halfvec(N)) … WHERE
+   * vector_dims(embedding) = N`. Without this cast (and the `vector_dims` predicate
+   * added by the caller) the planner cannot use the dimension index and the search
+   * seq-scans — which also makes the `SET LOCAL hnsw.*` tuning inert. Mirrors the
+   * PGlite-direct `FileChunkRepository`. Both the ANN ranking (orderExpr) AND the
+   * returned similarity score are computed in fp16; the quantization error (~3 sig
+   * digits) is negligible for thresholding/display and keeps the score monotonic with
+   * the halfvec rank.
+   */
+  private buildDistanceExpressions(
+    distance: 'cosine' | 'l2' | 'ip',
+    dimension: number
+  ): {
     similarityExpr: string;
     orderExpr: string;
   } {
+    const embeddingCast = `(embedding::halfvec(${dimension}))`;
+    const paramCast = `$1::halfvec(${dimension})`;
+
     if (distance === 'l2') {
       return {
-        similarityExpr: '(1.0 / (1.0 + (embedding <-> $1::vector)))',
-        orderExpr: 'embedding <-> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
+        orderExpr: `${embeddingCast} <-> ${paramCast}`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: '(1.0 / (1.0 + exp(+(embedding <#> $1::vector))))',
-        orderExpr: 'embedding <#> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
+        orderExpr: `${embeddingCast} <#> ${paramCast}`,
       };
     }
     return {
-      similarityExpr: '(1 - ((embedding <=> $1::vector) / 2.0))',
-      orderExpr: 'embedding <=> $1::vector',
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
+      orderExpr: `${embeddingCast} <=> ${paramCast}`,
     };
   }
 
