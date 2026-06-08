@@ -31,7 +31,7 @@ vi.mock('@electric-sql/pglite', () => ({
   PGlite: pgliteConstructor,
 }));
 
-vi.mock('@electric-sql/pglite/vector', () => ({
+vi.mock('@electric-sql/pglite-pgvector', () => ({
   vector: { name: 'vector-extension' },
 }));
 

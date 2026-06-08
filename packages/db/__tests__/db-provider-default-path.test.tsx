@@ -19,7 +19,7 @@ vi.mock('@electric-sql/pglite/live', () => ({
   live: {},
 }));
 
-vi.mock('@electric-sql/pglite/vector', () => ({
+vi.mock('@electric-sql/pglite-pgvector', () => ({
   vector: {},
 }));
 
@@ -72,7 +72,7 @@ describe('DbProvider default dbPath', () => {
     });
   });
 
-  it('uses idb://app in browser environments', async () => {
+  it('uses the engine-versioned idb path in browser environments', async () => {
     await act(async () => {
       renderHook(
         () => {
@@ -86,14 +86,14 @@ describe('DbProvider default dbPath', () => {
     expect(pgliteWorkerCreate).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
-        dataDir: 'idb://app',
+        dataDir: 'idb://app-pg18',
       })
     );
   });
 
   it('getDefaultDbPath respects runtime', () => {
     const originalWindow = globalThis.window;
-    expect(getDefaultDbPath()).toBe('idb://app');
+    expect(getDefaultDbPath()).toBe('idb://app-pg18');
     // Temporarily set window to undefined to simulate Node.js environment
     Object.defineProperty(globalThis, 'window', {
       value: undefined,

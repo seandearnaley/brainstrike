@@ -6,8 +6,10 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +25,15 @@ import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  BUNDLED_PG_MAJOR,
+  ENGINE_UPGRADE_BACKUP_RETENTION_MS,
+  isEngineUpgradeBackupName,
+  isIncompatiblePgDataDir,
+  isNewerPgDataDir,
+  pruneStaleEngineUpgradeBackups,
+  readPgDataMajor,
+} from './pg-data-version';
 
 const logger = createLogger('DatabaseMain');
 
@@ -171,7 +182,7 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
 async function loadPgVectorExtension(): Promise<unknown> {
   try {
-    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
     const vector = extractExtensionExport(vectorModule, 'vector');
     if (!vector) {
       throw new Error('vector export missing from module');
@@ -565,6 +576,19 @@ function createResetBackup(appDataDir: string): string | null {
     recursive: true,
     errorOnExist: true,
     force: false,
+    // Exclude engine-upgrade moved-aside backups (`pgdata.pre-pg*.bak`): they
+    // live inside appDataDir, can't be opened by the bundled engine, and would
+    // otherwise be deep-copied into every reset snapshot taken during their
+    // retention window — re-bloating disk exactly when space is tight.
+    //
+    // CONSEQUENCE: because the `.bak` is excluded here AND the reset then
+    // `rmSync`s the whole appDataDir (see resetLocalDatabaseInternal), an
+    // engine-upgrade `.bak` does NOT survive a reset — a corruption-recovery reset
+    // landing inside the 14-day retention window destroys the moved-aside old DB
+    // with no surviving copy. This is intentional: a reset is an explicit nuke of
+    // the profile, and the old dir is unopenable anyway; the retention guarantee is
+    // "kept across normal boots", not "kept across an explicit reset".
+    filter: (source) => !isEngineUpgradeBackupName(path.basename(source)),
   });
   pruneProfileResetBackups(backupRootDir, profileName);
 
@@ -884,7 +908,7 @@ function classifyInitializationFailure(
 
   if (
     stage === 'load-extensions' ||
-    message.includes('@electric-sql/pglite/vector') ||
+    message.includes('@electric-sql/pglite-pgvector') ||
     message.includes('vector export missing') ||
     message.includes('failed to load via esm import')
   ) {
@@ -1057,6 +1081,145 @@ async function handleCorruptionError(
 }
 
 /**
+ * Greenfield engine-upgrade reconciliation for the on-disk PGlite data directory.
+ * A data dir written by a different Postgres engine major cannot be opened by the
+ * bundled engine (PGlite crashes with a non-recoverable "failed to initialize"
+ * error), so this brings the directory into a state the bundled engine can open:
+ *
+ * - NEWER major (e.g. a PG19 dir under this PG18 build, after the user rolled the
+ *   app back): leave it UNTOUCHED and throw. Downgrading the on-disk engine is
+ *   unsupported, but the newer data is still valid for a future re-upgrade, so
+ *   wiping/moving it would be silent data loss. The user should update instead.
+ *   Mirrors the browser reclaim's forward-only `< currentMajor` guard.
+ * - OLDER major (e.g. PG17 under PGlite 0.4): move it aside to a `.bak` sibling and
+ *   start fresh. A same-volume rename is instant and uses no extra disk (unlike a
+ *   multi-GB cpSync, which would freeze startup and could ENOSPC the fresh init),
+ *   while still preserving the old data for manual/forensic recovery. A rename
+ *   failure falls back to a plain wipe rather than blocking startup.
+ *
+ * USER-NOTICE (optional UX — issue #1139): the older-major path boots greenfield,
+ * so the user sees an empty app with no in-app explanation (only this `logger.warn`
+ * and a `.bak` kept ~14 days). The greenfield reset is an accepted maintainer
+ * decision (the app starts fresh and re-indexes, fine by design — even the web side
+ * accepts an outright wipe), so this is NOT a release blocker; a one-time "your
+ * local database was rebuilt for the engine upgrade" notice is just a nice-to-have
+ * tracked in #1139 for parity with web.
+ *
+ * Caller MUST hold the exclusive process lock so no other process owns the dir.
+ *
+ * Returns the path of the backup created this boot (so the caller can exclude it
+ * from the same-boot retention prune), or null when no backup was moved aside
+ * (compatible dir, or the rename failed and the dir was wiped instead).
+ */
+function reconcileIncompatiblePgDataDir(dataDir: string): string | null {
+  if (!isIncompatiblePgDataDir(dataDir)) {
+    return null;
+  }
+  const foundMajor = readPgDataMajor(dataDir);
+  if (isNewerPgDataDir(dataDir)) {
+    throw new Error(
+      `Postgres data directory at ${dataDir} was created by a newer engine major ` +
+        `(PG${foundMajor}); this build bundles PG${BUNDLED_PG_MAJOR}. Update BrainStrike ` +
+        'instead of downgrading. The data directory was left untouched.'
+    );
+  }
+
+  const backupDir = `${dataDir}.pre-pg${BUNDLED_PG_MAJOR}-from-pg${foundMajor ?? 'unknown'}.bak`;
+  const movedAside = setIncompatibleDataDirAside(dataDir, backupDir, foundMajor);
+  mkdirSync(dataDir, { recursive: true });
+  return movedAside ? backupDir : null;
+}
+
+/**
+ * Stamp a moved/copied engine-upgrade backup's mtime to now so the retention clock
+ * starts at move-time, not the old DB's last-write time. The same-boot prune also
+ * excludes the backup by path, so a failed stamp only shortens retention across
+ * LATER boots (never collapses this boot's window) — hence best-effort + warn.
+ */
+function stampEngineUpgradeBackupMtime(backupDir: string): void {
+  try {
+    const movedAt = new Date();
+    utimesSync(backupDir, movedAt, movedAt);
+  } catch (stampErr) {
+    logger.warn('Failed to stamp engine-upgrade backup mtime; retention may run short', {
+      backupDir,
+      error: getErrorDetails(stampErr),
+    });
+  }
+}
+
+/**
+ * Set an unopenable older-major data dir aside, preserving a recoverable backup
+ * wherever possible. Prefers a cheap same-volume rename; if that fails (rare —
+ * `backupDir` is a same-directory sibling so EXDEV cannot apply, leaving lock /
+ * permission / ENOTEMPTY as the realistic causes), it falls back to a copy-aside
+ * so the forensic `.bak` is still created rather than silently degrading the
+ * recovery guarantee to a permanent wipe. Only when even the copy fails does it
+ * wipe — the PG-mismatched dir is unopenable, so the app must still boot greenfield.
+ * Returns true iff a recoverable backup now exists at `backupDir`.
+ */
+function setIncompatibleDataDirAside(
+  dataDir: string,
+  backupDir: string,
+  foundMajor: string | null
+): boolean {
+  try {
+    rmSync(backupDir, { recursive: true, force: true });
+    renameSync(dataDir, backupDir);
+    stampEngineUpgradeBackupMtime(backupDir);
+    logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
+      dataDir,
+      backupDir,
+      expectedMajor: BUNDLED_PG_MAJOR,
+      foundMajor,
+    });
+    return true;
+  } catch (renameErr) {
+    logger.error('Failed to rename incompatible data dir aside; attempting copy-aside', {
+      dataDir,
+      backupDir,
+      expectedMajor: BUNDLED_PG_MAJOR,
+      foundMajor,
+      error: getErrorDetails(renameErr),
+    });
+  }
+
+  try {
+    rmSync(backupDir, { recursive: true, force: true }); // clear any partial from the failed rename
+    cpSync(dataDir, backupDir, { recursive: true });
+    stampEngineUpgradeBackupMtime(backupDir);
+    rmSync(dataDir, { recursive: true, force: true });
+    logger.warn(
+      'Incompatible Postgres data directory copied aside for engine upgrade (rename fallback)',
+      {
+        dataDir,
+        backupDir,
+        expectedMajor: BUNDLED_PG_MAJOR,
+        foundMajor,
+      }
+    );
+    return true;
+  } catch (copyErr) {
+    logger.error(
+      'Copy-aside also failed; wiping incompatible data dir (its data is unrecoverable)',
+      {
+        dataDir,
+        backupDir,
+        expectedMajor: BUNDLED_PG_MAJOR,
+        foundMajor,
+        error: getErrorDetails(copyErr),
+      }
+    );
+    // Drop the partial/unstamped backup the failed cpSync may have left behind, so
+    // it doesn't linger for the whole retention window (its dir mtime ≈ now). The
+    // copy-aside guarantee has already failed here, so there's nothing to preserve.
+    rmSync(backupDir, { recursive: true, force: true });
+    rmSync(dataDir, { recursive: true, force: true });
+    return false;
+  }
+}
+
+/**
  * Initialize the database with NodeFS
  * Creates the directory if it doesn't exist and runs migrations.
  * If corruption is detected, automatically resets and retries once.
@@ -1105,6 +1268,11 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension.
     try {
       acquireDatabaseProcessLock(appDataDir);
+
+      // Greenfield engine-upgrade guard. Runs only after the exclusive process
+      // lock is held, so we never touch a data dir another process is using.
+      const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
+
       db = await createVectorDatabase(
         loadedPGlite.PGlite,
         dataDir,
@@ -1112,6 +1280,28 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
         loadedPGlite.live
       );
       logger.debug('Database initialized with pgvector extension at:', dataDir);
+
+      // Reclaim any engine-upgrade backups past their retention window now that
+      // the new engine has booted successfully, so moved-aside old data dirs
+      // don't accumulate on disk across major bumps. Exclude a backup moved aside
+      // THIS boot: its retention clock relies on a best-effort mtime stamp that may
+      // have failed, so excluding it by path keeps the prune from deleting it
+      // immediately. Best-effort; never fatal.
+      try {
+        const pruned = pruneStaleEngineUpgradeBackups(
+          dataDir,
+          ENGINE_UPGRADE_BACKUP_RETENTION_MS,
+          Date.now(),
+          movedAsideBackup
+        );
+        if (pruned.length > 0) {
+          logger.info('Reclaimed stale engine-upgrade backups', { pruned });
+        }
+      } catch (pruneErr) {
+        logger.warn('Failed to prune stale engine-upgrade backups', {
+          error: getErrorDetails(pruneErr),
+        });
+      }
     } catch (err) {
       recordInitializationFailure('open-database', err);
       releaseInitializationLockOnce();

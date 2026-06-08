@@ -14,7 +14,7 @@
     "@brainstrike/worker-runtime": "workspace:*"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.4.4",
+    "@electric-sql/pglite": "0.5.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

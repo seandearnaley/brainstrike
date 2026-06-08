@@ -27,7 +27,7 @@ describe('Dimension HNSW Index Helpers', () => {
 
   beforeAll(async () => {
     // Create a fresh database with vector extension
-    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
     const vector = vectorModule.vector;
 
     db = new PGlite({
@@ -139,7 +139,7 @@ describe('Dimension HNSW Index Query Plan', () => {
 
   beforeAll(async () => {
     // Create a fresh database with vector extension
-    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
     const vector = vectorModule.vector;
 
     db = new PGlite({
