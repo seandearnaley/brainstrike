@@ -417,33 +417,40 @@ export class ElectronFileChunkRepository {
   /**
    * Run a pgvector ANN search with HNSW tuning applied via `SET LOCAL` inside a
    * single transaction. `SET LOCAL` only affects the current transaction, so the
-   * SELECT must run in the same transaction as the tuning statements. Read-only:
-   * committed on success, rolled back on error.
+   * SELECT must run in the same transaction as the tuning statements. Read-only.
+   *
+   * Prefers the atomic IPC `transaction(statements, resultIndex)` primitive (#1141):
+   * it runs the tuning + SELECT inside ONE `pglite.transaction()` in the main process,
+   * whose connection lock serializes a concurrent FTS `query()` from
+   * HybridSearchService's `Promise.all` — restoring isolation and breaking the
+   * error-coupling that the raw BEGIN/COMMIT path leaves open. Falls back to raw
+   * BEGIN/COMMIT only when the IPC db doesn't expose `transaction` (older/mocked APIs).
    */
   private async runVectorSearchInTransaction(
     searchSql: string,
     params: unknown[],
     efSearch?: number
   ): Promise<{ rows: Record<string, unknown>[] }> {
-    // NOTE: unlike the PGlite-direct FileChunkRepository (which uses
-    // `this.db.transaction()` to hold the connection lock), this raw BEGIN/COMMIT
-    // over IPC does NOT serialize against a concurrent query — so a parallel FTS
-    // SELECT from HybridSearchService's Promise.all can interleave into this vector
-    // transaction. The residual hazard is ISOLATION (the FTS read inherits this tx's
-    // open snapshot) and ERROR COUPLING (an FTS failure aborts this tx, so the vector
-    // SELECT then fails with "current transaction is aborted", and vice-versa). The
-    // `SET LOCAL` tuning itself still TAKES EFFECT: a GUC set with SET LOCAL persists
-    // for the whole transaction, and an interleaved plain SELECT neither resets it
-    // nor commits the block, so the vector SELECT (issued after the tuning, before
-    // the explicit COMMIT) always sees the ef_search/iterative_scan values — the
-    // search is tuned, not silently untuned. `ElectronDbAPI` exposes only `exec`/
-    // `query`, no `transaction()` primitive, so the fix needs an atomic IPC
-    // transaction (run the tuning + SELECT inside `pglite.transaction()` in the main
-    // process). Deliberately deferred — tracked in issue #1141.
+    const tuning = hnswSearchTuningStatements(efSearch).map((sql) => ({ sql }));
+    const statements = [...tuning, { sql: searchSql, params }];
+    const resultIndex = statements.length - 1;
+
+    if (this.db.transaction) {
+      const result = await this.db.transaction(statements, resultIndex);
+      return { rows: result.rows as Record<string, unknown>[] };
+    }
+
+    // Fallback for IPC implementations without an atomic transaction primitive.
+    // Unlike `pglite.transaction()`, raw BEGIN/COMMIT over separate IPC calls does
+    // NOT hold the connection lock, so a parallel FTS SELECT can interleave — the
+    // residual ISOLATION + ERROR-COUPLING hazard documented in #1141. The `SET LOCAL`
+    // tuning still takes effect (it persists for the whole tx and an interleaved plain
+    // SELECT neither resets it nor commits the block), so the search is tuned, not
+    // silently untuned.
     await this.db.query('BEGIN');
     try {
-      for (const statement of hnswSearchTuningStatements(efSearch)) {
-        await this.db.query(statement);
+      for (const statement of tuning) {
+        await this.db.query(statement.sql);
       }
       const result = await this.db.query(searchSql, params);
       await this.db.query('COMMIT');

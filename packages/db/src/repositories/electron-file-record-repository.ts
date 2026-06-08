@@ -1,12 +1,33 @@
 import { BaseFileRecordRepository } from './base-repository.js';
 import type { IDatabase } from './interfaces.js';
 
+/** One statement in an atomic IPC transaction. */
+export interface ElectronDbTransactionStatement {
+  params?: unknown[];
+  sql: string;
+}
+
 /**
  * Electron IPC API
  */
 export interface ElectronDbAPI {
   exec: (sql: string) => Promise<void>;
   query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+  /**
+   * Run an ordered list of statements inside a SINGLE `pglite.transaction()` in the
+   * MAIN process and return the rows of `statements[resultIndex]`. Atomic over IPC:
+   * because PGlite's `transaction()` holds the single-connection lock, a concurrent
+   * `query()` (e.g. the FTS half of HybridSearchService's `Promise.all`) cannot
+   * interleave into the block — fixing the isolation/error-coupling hazard that raw
+   * `BEGIN`/`COMMIT` over separate IPC calls leaves open (#1141).
+   *
+   * Optional: the real desktop preload provides it; older or mocked `ElectronDbAPI`
+   * implementations may not, in which case callers fall back to raw BEGIN/COMMIT.
+   */
+  transaction?: (
+    statements: ElectronDbTransactionStatement[],
+    resultIndex: number
+  ) => Promise<{ rows: unknown[] }>;
 }
 
 /**
