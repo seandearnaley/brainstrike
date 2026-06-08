@@ -27,6 +27,7 @@ import {
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
 } from '../_shared.js';
@@ -175,7 +176,6 @@ export class DrizzleFileChunkRepository {
         embeddingSetId: chunk.embeddingSetId ?? null,
         embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
         embeddingHash: chunk.embeddingHash ?? null,
-        contentTsvector: sql`to_tsvector('english', ${chunk.content})`,
         createdAt: new Date(chunk.createdAt),
         updatedAt: new Date(chunk.updatedAt),
       })
@@ -191,7 +191,6 @@ export class DrizzleFileChunkRepository {
           endLine: sql`excluded.end_line`,
           startOffset: sql`excluded.start_offset`,
           endOffset: sql`excluded.end_offset`,
-          contentTsvector: sql`to_tsvector('english', excluded.content)`,
           embedding: sql`excluded.embedding`,
           embeddingSetId: sql`excluded.embedding_set_id`,
           embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
@@ -230,7 +229,6 @@ export class DrizzleFileChunkRepository {
       embeddingSetId: chunk.embeddingSetId ?? null,
       embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
       embeddingHash: chunk.embeddingHash ?? null,
-      contentTsvector: sql`to_tsvector('english', ${chunk.content})`,
       createdAt: new Date(chunk.createdAt),
       updatedAt: new Date(chunk.updatedAt),
     }));
@@ -250,7 +248,6 @@ export class DrizzleFileChunkRepository {
           endLine: sql`excluded.end_line`,
           startOffset: sql`excluded.start_offset`,
           endOffset: sql`excluded.end_offset`,
-          contentTsvector: sql`to_tsvector('english', excluded.content)`,
           embedding: sql`excluded.embedding`,
           embeddingSetId: sql`excluded.embedding_set_id`,
           embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
@@ -269,9 +266,9 @@ export class DrizzleFileChunkRepository {
     };
 
     if (chunk.content !== undefined) {
+      // content_tsvector is a STORED generated column; Postgres recomputes it
+      // automatically when `content` changes, so we must not set it here.
       updateData.content = chunk.content;
-      updateData.contentTsvector =
-        sql`to_tsvector('english', ${chunk.content})` as unknown as string;
     }
     if (chunk.contentHash !== undefined) {
       updateData.contentHash = chunk.contentHash;
@@ -352,6 +349,7 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       embeddingSetId,
+      efSearch,
       filePaths,
       selectionSnapshotId,
       includeEmbedding = true,
@@ -463,7 +461,15 @@ export class DrizzleFileChunkRepository {
       LIMIT ${overfetchLimit}
     `;
 
-    const result = await this.db.execute(baseQuery);
+    // Run the ANN tuning and the search in ONE transaction so `SET LOCAL` applies
+    // to the SELECT (autocommit `SET LOCAL` is a silent no-op). Iterative scans +
+    // a wider ef_search keep heavily filtered searches from under-returning.
+    const result = await this.db.transaction(async (tx) => {
+      for (const statement of hnswSearchTuningStatements(efSearch)) {
+        await tx.execute(sql.raw(statement));
+      }
+      return await tx.execute(baseQuery);
+    });
 
     const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
       chunk: this.fromRawRow(row),
@@ -748,8 +754,12 @@ export class DrizzleFileChunkRepository {
     // Validate dimension is a safe integer (defense-in-depth)
     validateDimension(dimension, 'buildDistanceExpressions');
 
-    const embeddingCast = `(embedding::vector(${dimension}))`;
-    const paramCast = `$1::vector(${dimension})`;
+    // Cast embedding (and the query param) to fixed-dimension halfvec so the
+    // ORDER BY matches the half-precision HNSW partial index built by the
+    // dimension-index-helpers. The full-precision vector stays in the column;
+    // only the ANN ranking runs in fp16.
+    const embeddingCast = `(embedding::halfvec(${dimension}))`;
+    const paramCast = `$1::halfvec(${dimension})`;
 
     if (distance === 'l2') {
       return {

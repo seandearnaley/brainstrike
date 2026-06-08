@@ -501,8 +501,10 @@ test.describe('Embedding Host Renderer - backfill search', () => {
           );
           const chunkContent = `export function handler${i}() { return "lazy-chunk-search-fixture-${i}"; }`;
           await api.db.query(
-            `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_tsvector('english', $4), $9, $9)`,
+            // content_tsvector is a STORED generated column (migration 034) — the DB
+            // computes it from content, so seeds must NOT insert it directly.
+            `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
             [
               `${fileId}-chunk-0`,
               fileId,
