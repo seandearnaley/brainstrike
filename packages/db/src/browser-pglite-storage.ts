@@ -258,16 +258,17 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  * in-browser `pg_upgrade`, a `.bak` would just double quota pressure (the very
  * thing this function exists to relieve), and OPFS/IDB give no cheap rename-aside.
  * Consequence: a web user with an existing index loses it with no retention and no
- * pre-deletion export. Any future export/migration affordance MUST run BEFORE this
- * reclaim (and before the versioned DB opens).
+ * pre-deletion export. Any future export/migration affordance would have to run
+ * BEFORE this reclaim (and before the versioned DB opens).
  *
- * ROLLOUT GATE (tracked, GA-blocking — see issue #1139): because this deletion is
- * irreversible the moment it runs, the web GA rollout of a new engine-major build
- * MUST be gated on the one-time "your index was reset" notice (or an export
- * affordance) having actually landed — a fast-follow that slips to after GA means
- * silent data loss in the field, not just a delayed nicety. The notice is NOT
- * implemented here (deliberate, maintainer-approved deferral); issue #1139 is the
- * GA-blocking tracker so the ordering is enforced by process, not just this prose.
+ * ACCEPTED GREENFIELD WIPE (maintainer decision): the data loss here is explicitly
+ * accepted — this is a pre-1.0 greenfield app; on an engine-major change the app
+ * starts fresh and re-indexes, which is fine by design. So the reclaim runs
+ * UNCONDITIONALLY and is deliberately NOT gated behind a flag. A one-time "your
+ * index was reset" notice is a nice-to-have UX follow-up (issue #1139), NOT a
+ * release blocker. (If that ever changes — e.g. real user data worth preserving —
+ * an export affordance must run before this point and the reclaim would need a
+ * gate; today it does not.)
  */
 export async function reclaimLegacyBrowserPGliteStorage(versionedDataDir: string): Promise<void> {
   if (!isBrowserPersistentPGliteDataDir(versionedDataDir)) {
