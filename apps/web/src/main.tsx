@@ -57,6 +57,12 @@ globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ = resolveBootstrapTreeSitterLan
 // directory instead of failing to open a PG17 on-disk database.
 const DEFAULT_WEB_DB_PATH = getDefaultBrowserPGliteDataDir('web');
 const E2E_DB_PATH_SESSION_KEY = 'brainstrike.e2e.dbPath.v1';
+// Intentionally NOT engine-versioned (no `-pg18`): each Playwright session mints a
+// fresh UUID and a CI run pins a single engine, so an e2e store never has to be
+// opened across engine majors — the greenfield versioning that protects the real
+// `web-pg18` path is unnecessary here. Note the trade-off: because the base name
+// doesn't end in `-pg<N>`, `reclaimLegacyBrowserPGliteStorage` will NOT sweep
+// abandoned `web-e2e-*` stores; they're reclaimed only by factory-reset enumeration.
 const E2E_DB_PATH_PREFIX = 'idb://web-e2e-';
 
 function createE2eDbPath(): string {

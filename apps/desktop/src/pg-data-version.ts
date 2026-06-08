@@ -135,8 +135,12 @@ export function pruneStaleEngineUpgradeBackups(
     }
     const full = path.join(parent, name);
     // Never sweep the backup created this boot — its mtime may predate retention
-    // if the move-time stamp failed.
-    if (excludePath !== null && full === excludePath) {
+    // if the move-time stamp failed. Compare via path.resolve() rather than raw
+    // string equality: the caller builds excludePath by string concat while these
+    // candidates come from path.join, which are equal on POSIX but not guaranteed
+    // byte-equal across separators/normalization (e.g. Windows). Normalizing both
+    // keeps the exclusion (and thus the recovery window) robust cross-platform.
+    if (excludePath !== null && path.resolve(full) === path.resolve(excludePath)) {
       continue;
     }
     try {

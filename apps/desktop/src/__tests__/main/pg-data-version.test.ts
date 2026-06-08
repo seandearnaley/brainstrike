@@ -184,4 +184,26 @@ describe('pruneStaleEngineUpgradeBackups', () => {
     expect(existsSync(justMoved)).toBe(true);
     expect(existsSync(olderOrphan)).toBe(false);
   });
+
+  it('excludes the just-created backup by normalized path, not byte-equality', () => {
+    // The caller builds excludePath by string concat (`${dataDir}.pre-…bak`) while
+    // the prune builds candidates via path.join — equal on POSIX but not guaranteed
+    // byte-equal across separators/normalization (e.g. Windows). A non-normalized but
+    // equivalent excludePath must STILL be excluded, or the recovery-window guarantee
+    // silently regresses.
+    const justMoved = makeBackup('pgdata.pre-pg18-from-pg17.bak');
+    // Equivalent path with a redundant separator — `===` fails, `path.resolve` matches.
+    const nonNormalizedExclude = `${appDataDir}${path.sep}${path.sep}pgdata.pre-pg18-from-pg17.bak`;
+    const future = Date.now() + 365 * 24 * 60 * 60 * 1000;
+
+    const pruned = pruneStaleEngineUpgradeBackups(
+      dataDir,
+      24 * 60 * 60 * 1000,
+      future,
+      nonNormalizedExclude
+    );
+
+    expect(pruned).toEqual([]);
+    expect(existsSync(justMoved)).toBe(true);
+  });
 });
