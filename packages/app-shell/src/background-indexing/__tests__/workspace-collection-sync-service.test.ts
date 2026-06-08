@@ -903,6 +903,53 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('waits for import QoS before entering importing status', async () => {
+    const importYieldPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 1,
+      progressThrottleMs: 500,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    };
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      resolveQosPolicy: vi
+        .fn()
+        .mockResolvedValueOnce(BALANCED_QOS_POLICY)
+        .mockResolvedValueOnce(importYieldPolicy)
+        .mockResolvedValue(BALANCED_QOS_POLICY),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    const statusPatches = vi.mocked(deps.setStatus).mock.calls.map(([patch]) => patch);
+    const waitingIndex = statusPatches.findIndex((patch) => patch.state === 'waiting');
+    const importingIndex = statusPatches.findIndex((patch) => patch.state === 'importing');
+
+    expect(deps.waitForBackgroundPermit).toHaveBeenCalledWith({
+      label: 'Workspace Index import',
+    });
+    expect(waitingIndex).toBeGreaterThanOrEqual(0);
+    expect(importingIndex).toBeGreaterThan(waitingIndex);
+  });
+
   it('treats defensive backfill QoS denial as an abort instead of a sync failure', async () => {
     const backfillDeniedPolicy: WorkspaceIndexingQosPolicy = {
       ...BALANCED_QOS_POLICY,

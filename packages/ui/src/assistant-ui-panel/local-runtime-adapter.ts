@@ -884,6 +884,8 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         const localMessages = convertMessages(messages);
 
         if (localMessages.length === 0) {
+          appendRunEvent('run.finished', 'completed', 'Local assistant run completed');
+          await completeRuntimeData?.(preparedRuntimeData, 'completed');
           yield {
             content: buildAssistantContentParts(
               undefined,

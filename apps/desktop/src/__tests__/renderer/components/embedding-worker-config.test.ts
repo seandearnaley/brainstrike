@@ -40,7 +40,9 @@ vi.mock('@brainstrike/utils/logger', async () => {
 
 vi.mock('@brainstrike/utils/workspace-indexing-qos', () => {
   const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
-    const foregroundYielding = inputs.dbPressure.available && inputs.dbPressure.foregroundPressure;
+    const foregroundYielding =
+      inputs.foregroundQueryActive ||
+      (inputs.dbPressure.available && inputs.dbPressure.foregroundPressure);
     const interactive = inputs.dbPressure.available && inputs.dbPressure.normalPressure;
     const constrained = inputs.powerSource === 'battery' || inputs.thermalState === 'serious';
     return {
@@ -275,7 +277,7 @@ describe('createEmbeddingWorkerConfig', () => {
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
       vi.setSystemTime(1011);
       await expect(config.resolveClaimBatchSize?.()).rejects.toThrow('scheduler unavailable');
-      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
 
       expect(schedulerSnapshot).toHaveBeenCalledTimes(3);
     } finally {
@@ -302,7 +304,7 @@ describe('createEmbeddingWorkerConfig', () => {
     expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
   });
 
-  it('shrinks desktop claims while foreground database work is running', async () => {
+  it('pauses desktop claims while foreground database work is running', async () => {
     const { scheduledDb } = createScheduledTestDb();
     const scheduler = getDatabaseWorkScheduler(scheduledDb);
     if (!scheduler) {
@@ -323,13 +325,32 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
 
     releaseForegroundWork();
     await foregroundWork;
   });
 
-  it('shrinks desktop claims after recent high-latency foreground database work', async () => {
+  it('pauses desktop claims while a foreground query embedding is active', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const gate = {
+      begin: vi.fn(),
+      end: vi.fn(),
+      isActive: vi.fn(() => true),
+      waitUntilInactive: vi.fn(async () => {}),
+    };
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never, gate);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
+    expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        foregroundQueryActive: true,
+      })
+    );
+  });
+
+  it('pauses desktop claims after recent high-latency foreground database work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
       foregroundQuietMs: 0,
@@ -351,7 +372,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
   });
 
   it('shrinks desktop claims after recent high-latency normal database work', async () => {
@@ -379,7 +400,7 @@ describe('createEmbeddingWorkerConfig', () => {
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
   });
 
-  it('shrinks desktop claims at the foreground quiet-window boundary', async () => {
+  it('pauses desktop claims at the foreground quiet-window boundary', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
       foregroundQuietMs: 50,
@@ -398,7 +419,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
   });
 
   it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {

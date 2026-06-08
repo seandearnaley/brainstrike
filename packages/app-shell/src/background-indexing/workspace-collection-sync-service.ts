@@ -952,6 +952,11 @@ export class WorkspaceCollectionSyncService {
     const chunkingWorkerPort = await this.deps.ensureChunkingWorker();
     throwIfAborted(args.abortSignal);
 
+    const importQosPolicy = await this.resolveQosPolicyForNewWork({
+      abortSignal: args.abortSignal,
+      context: args.context,
+      phase: 'import',
+    });
     this.setImportingStatus(args.context, prepared);
     const scanSummary = this.createScanSummary(prepared);
     let sawCompleteProgress = false;
@@ -984,11 +989,7 @@ export class WorkspaceCollectionSyncService {
           )
         );
       },
-      qosPolicy: await this.resolveQosPolicyForNewWork({
-        abortSignal: args.abortSignal,
-        context: args.context,
-        phase: 'import',
-      }),
+      qosPolicy: importQosPolicy,
       setImporting: this.deps.setImporting,
       waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
     });

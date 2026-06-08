@@ -151,13 +151,12 @@ function toWorkspaceIndexingDatabasePressure(
 function resolveDesktopClaimBatchSize(
   snapshot: DatabaseWorkSchedulerSnapshot,
   idleClaimBatchSize: number,
-  powerSnapshot: WorkspaceIndexingPowerSnapshot | null
-): number {
+  powerSnapshot: WorkspaceIndexingPowerSnapshot | null,
+  foregroundQueryActive: boolean
+): number | null {
   const policy = resolveWorkspaceIndexingQosPolicy({
     dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
-    // TODO(workspace-index-qos): wire this to foreground query activity if the
-    // embedding host exposes in-flight query state to claim-size resolution.
-    foregroundQueryActive: false,
+    foregroundQueryActive,
     idleState: powerSnapshot?.idleState ?? 'active',
     idleTimeMs: powerSnapshot?.idleTimeMs ?? 0,
     manualPaused: false,
@@ -169,6 +168,9 @@ function resolveDesktopClaimBatchSize(
     thermalState: powerSnapshot?.thermalState ?? 'unknown',
     windowVisible: false,
   });
+  if (!policy.allowNewWork) {
+    return null;
+  }
   const positiveClaimBatchSize =
     policy.workerClaimBatchSize > 0
       ? policy.workerClaimBatchSize
@@ -215,7 +217,8 @@ function createDesktopPressureControls(
       return resolveDesktopClaimBatchSize(
         snapshot,
         idleClaimBatchSize,
-        readPowerSnapshot ? await readPowerSnapshot() : null
+        readPowerSnapshot ? await readPowerSnapshot() : null,
+        gate?.isActive() ?? false
       );
     },
     waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),
