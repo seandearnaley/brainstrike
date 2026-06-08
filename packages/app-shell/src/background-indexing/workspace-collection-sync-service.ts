@@ -476,6 +476,12 @@ export class WorkspaceCollectionSyncService {
     if (!qosPolicy.allowNewWork && qosPolicy.state === 'paused') {
       throw createAbortError('Workspace Index sync paused.');
     }
+    if (!qosPolicy.allowNewWork) {
+      // Invariant: production QoS only blocks new work for foreground-yielding
+      // or paused states. Guard injected/future states before scan/import/backfill
+      // helpers can surface a hard "does not permit work" error.
+      throw createAbortError('Workspace Index sync paused by QoS policy.');
+    }
     return qosPolicy;
   }
 

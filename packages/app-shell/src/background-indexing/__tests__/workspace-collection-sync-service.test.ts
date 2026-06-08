@@ -281,6 +281,39 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(log.error).not.toHaveBeenCalled();
   });
 
+  it('treats unexpected non-permitting QoS states as a graceful pause before scan work', async () => {
+    const nonPermittingPolicy: WorkspaceIndexingQosPolicy = {
+      ...BALANCED_QOS_POLICY,
+      allowNewWork: false,
+      state: 'balanced',
+    };
+    const log = {
+      error: vi.fn(),
+      warn: vi.fn(),
+    } as unknown as NonNullable<WorkspaceCollectionSyncServiceDependencies['log']>;
+    const deps = createDeps({
+      log,
+      resolveQosPolicy: vi.fn().mockResolvedValue(nonPermittingPolicy),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: 'Workspace Index QoS policy does not permit scan work.',
+      })
+    );
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
   it('resumes backfill when files are unchanged but embedding coverage is incomplete', async () => {
     const unchangedContent = 'export const value = 1;';
     const unchangedHash = await generateContentHash(unchangedContent);
