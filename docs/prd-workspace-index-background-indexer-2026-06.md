@@ -3,7 +3,7 @@
 **Status**: Draft for phased implementation
 **Owner**: Sean Dearnaley
 **Created**: 2026-06-07
-**Last revised**: 2026-06-07 v1.0
+**Last revised**: 2026-06-08 v1.4
 **Target packages**: `@brainstrike/db`, `@brainstrike/preferences`, `@brainstrike/app-shell`, `@brainstrike/vector-management`, `@brainstrike/ui`, `@brainstrike/db-explorer`, `@brainstrike/agent`, `apps/desktop`
 **Rollout posture**: Phased, stacked PRs, red/green TDD, regular commits
 **Source analysis**: `docs/background-indexer-deep-dive-2026-06-07.md`
@@ -27,6 +27,7 @@
 | 2026-06-07 | v1.1 | Added Phase 8 desktop verification coverage for fresh Workspace Index bootstrap, stale managed-id rebind, and pause/resume persistence; fixed a DB ESM import-extension runtime launch failure discovered by desktop e2e; made background-indexing preferences a renderer-global singleton so duplicate import paths cannot split pause state. | Commits `555c6b0cb`, `f71e68940` |
 | 2026-06-07 | v1.2 | Manual Agent DevTools verification found and closed a protected-UI affordance gap: shared hybrid-search controls now support a disabled state and Database Explorer passes it when the active collection is the Workspace Index. | Commit `2d9f64c5b` |
 | 2026-06-08 | v1.3 | Revised the default Workspace Index model to local `Xenova/all-MiniLM-L6-v2` (384D) to avoid automatic whole-workspace hosted embedding when users have an assistant API key; added a v4 preference migration for existing profiles and typed missing-provider-key validation reasons. | Current branch |
+| 2026-06-08 | v1.4 | Tightened desktop backfill recovery so automatic repair only revives unclaimable queued jobs; terminal failed jobs keep their retry exhaustion and are not reset on every backfill. Tracked foreground-query scan/import/backfill QoS telemetry as an explicit follow-up because current foreground coordination only gates embedding claims in the hidden host. | Current branch |
 
 ## 1. Goal
 
@@ -108,7 +109,7 @@ Future model changes require the full model-catalog migration path from `AGENTS.
 | Query coordination | Assistant query embedding drains active background batch, runs, and background indexing resumes. | Unit + desktop e2e |
 | Protected UI | Workspace index is visible but cannot be selected for normal collection hybrid search, edit, delete, or manual import. | Unit + browser/e2e |
 | Pause/resume | User pause stops new scan/enqueue/claim work and resume self-heals. | Unit + desktop e2e + manual |
-| Queue recovery | Unclaimable queued jobs and failed scoped jobs are repaired before backfill concludes no candidates exist. | Unit + integration |
+| Queue recovery | Unclaimable queued jobs are repaired before backfill candidate counting; terminal failed jobs remain visible and do not get automatic retry-budget resets on every backfill. | Unit + integration |
 | QoS | Indexer rate changes based on foreground query, user activity, visibility, DB pressure, battery/thermal state, and manual pause. | Unit + manual diagnostics |
 | Observability | Status explains `ready`, `updating`, `paused`, `yielding`, `blocked`, `recovering`, and `error`. | Unit + UI/e2e |
 | Full gate | Final implementation branch passes `pnpm lint && pnpm type-check && pnpm build && pnpm test`. | Local gate |
@@ -134,7 +135,7 @@ Future model changes require the full model-catalog migration path from `AGENTS.
 | System-aware collection selectors | Render visible but disabled/protected workspace index rows. |
 | Workspace index inspector | Read-only coverage, queue, model, provider, pause/resume, and last-error surface. |
 | Assistant workspace retrieval router | Default workspace/codebase queries to the workspace index when available. |
-| Desktop backfill recovery | Repair scoped unclaimable queued and failed jobs before candidate counting. |
+| Desktop backfill recovery | Repair scoped unclaimable queued jobs before candidate counting while preserving terminal failed jobs. |
 | Adaptive QoS controller | Convert user/system/DB/query pressure into batch, delay, and concurrency settings. |
 
 ## 8. Data and State Ownership
@@ -398,7 +399,7 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 ### Phase 5: Desktop Backfill Self-Healing and Long-Running Drain
 
-**Goal**: Make background backfill repair blocked queue state and avoid foreground-style drain failure for long background jobs.
+**Goal**: Make background backfill repair blocked queued state, preserve terminal retry exhaustion, and avoid foreground-style drain failure for long background jobs.
 
 **Likely files**
 
@@ -410,8 +411,10 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 **Red/green TDD sequence**
 
-- RED: desktop backfill with unclaimable queued scoped job repairs and requeues before candidate counting.
-- GREEN: call scoped `repairUnclaimableQueued`/`requeueFailed` or a shared recovery helper.
+- RED: desktop backfill with unclaimable queued scoped job repairs before candidate counting.
+- GREEN: call scoped `repairUnclaimableQueued` or a shared queued-job recovery helper.
+- RED: terminal failed jobs are not reset to a fresh retry budget on every background backfill.
+- GREEN: leave `failed` jobs terminal unless a deliberate/manual recovery path requeues them.
 - RED: background source uses background-specific drain policy or decoupled durable-enqueue completion.
 - GREEN: implement background drain behavior.
 - RED: failed jobs remain visible and throw/report explicit failure after retry policy is exhausted.
@@ -426,6 +429,7 @@ Each phase should land as a separate PR unless implementation evidence shows two
 **Exit criteria**
 
 - Background index cannot get stuck behind unclaimable queued jobs.
+- Terminal poison-pill failures do not get re-embedded forever by automatic backfill repair.
 - Large workspace backfills do not fail solely because the background drain exceeds a foreground timeout.
 
 ### Phase 6: Assistant Workspace Retrieval Default
@@ -549,6 +553,7 @@ Each phase should land as a separate PR unless implementation evidence shows two
 - App-shell now resolves policy before scanning, importing, and enqueueing managed backfill. `allowNewWork: false` fails fast for scan/import/enqueue paths instead of silently continuing.
 - The visible renderer currently supplies manual pause, recent user input, document visibility, queue depth, DB pressure, and desktop platform power snapshots when the Electron bridge is available.
 - The desktop embedding worker now derives claim size from the same QoS policy using DB pressure plus the desktop power snapshot. Foreground DB pressure maps to one-at-a-time claims because `EmbeddingWorkerOptions.resolveClaimBatchSize` requires a positive integer; foreground query embeddings still use the existing foreground gate as the hard stop for new background claims.
+- Foreground query activity is not yet surfaced from the hidden embedding host to the app-shell scan/import/backfill QoS resolver. Until that bridge exists, foreground query coordination prevents background embedding GPU claims but does not stop newly-started scan, chunking, or DB import work from app-shell. Track this as a Phase 7 follow-up before claiming full foreground-query QoS coverage.
 - The existing `EmbeddingHostManager` power-save blocker remains active-work-driven with an idle grace period. It is not yet driven by the QoS `allowPowerSaveBlocker` flag.
 
 ### Phase 8: Desktop E2E and Manual Verification Hardening

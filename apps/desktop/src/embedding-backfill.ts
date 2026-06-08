@@ -69,7 +69,7 @@ interface QueueBacklogSnapshot {
 
 type EmbeddingBackfillJobQueue = Pick<
   JobQueue,
-  'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
+  'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued'
 >;
 
 const logger = createLogger('DesktopEmbeddingBackfill');
@@ -600,7 +600,7 @@ function createDrainProgressObserver(
 }
 
 async function repairScopedEmbeddingBackfillQueue(
-  jobQueue: Pick<EmbeddingBackfillJobQueue, 'repairUnclaimableQueued' | 'requeueFailed'>,
+  jobQueue: Pick<EmbeddingBackfillJobQueue, 'repairUnclaimableQueued'>,
   embeddingSetId: string
 ): Promise<void> {
   const repairedQueued = await jobQueue.repairUnclaimableQueued(
@@ -608,20 +608,14 @@ async function repairScopedEmbeddingBackfillQueue(
     EMBEDDING_BACKFILL_QUEUE_REPAIR_LIMIT,
     { embeddingSetId }
   );
-  const requeuedFailed = await jobQueue.requeueFailed(
-    EMBEDDINGS_QUEUE,
-    EMBEDDING_BACKFILL_QUEUE_REPAIR_LIMIT,
-    { embeddingSetId }
-  );
 
-  if (repairedQueued === 0 && requeuedFailed === 0) {
+  if (repairedQueued === 0) {
     return;
   }
 
   logger.warn('Backfill recovered blocked embedding jobs before candidate counting', {
     embeddingSetId,
     repairedQueued,
-    requeuedFailed,
   });
 }
 

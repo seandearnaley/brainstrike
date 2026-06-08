@@ -215,10 +215,9 @@ describe('embedding-backfill', () => {
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 96 });
   });
 
-  it('repairs scoped queued and failed jobs before counting backfill candidates', async () => {
+  it('repairs scoped queued jobs before counting candidates without requeueing terminal failures', async () => {
     let repairedBeforeCandidateCount = false;
     let queuedRepaired = false;
-    let failedRequeued = false;
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
@@ -227,7 +226,7 @@ describe('embedding-backfill', () => {
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
-          repairedBeforeCandidateCount = queuedRepaired && failedRequeued;
+          repairedBeforeCandidateCount = queuedRepaired;
           return { rows: [{ count: 0 }] };
         }
         if (sql.includes("payload->>'embeddingSetId'")) {
@@ -254,10 +253,7 @@ describe('embedding-backfill', () => {
         queuedRepaired = true;
         return 1;
       }),
-      requeueFailed: vi.fn(async () => {
-        failedRequeued = true;
-        return 2;
-      }),
+      requeueFailed: vi.fn(async () => 2),
     };
 
     await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
@@ -268,9 +264,7 @@ describe('embedding-backfill', () => {
     expect(jobQueue.repairUnclaimableQueued).toHaveBeenCalledWith('embeddings', 1000, {
       embeddingSetId: 'set-123',
     });
-    expect(jobQueue.requeueFailed).toHaveBeenCalledWith('embeddings', 1000, {
-      embeddingSetId: 'set-123',
-    });
+    expect(jobQueue.requeueFailed).not.toHaveBeenCalled();
     expect(repairedBeforeCandidateCount).toBe(true);
   });
 
