@@ -207,7 +207,7 @@ describe('createRetrievalTool', () => {
     expect(deps.resolveEmbeddingSet).not.toHaveBeenCalled();
   });
 
-  it('keeps the active runtime embeddingSetId ahead of tool input for contextual retrieval', async () => {
+  it('lets retrieveContext input override active runtime context', async () => {
     const deps = createMockDependencies();
     const runtime: RuntimeData = { embeddingSetId: 'runtime-set' };
     const tool = createRetrievalTool(runtime, deps);
@@ -215,8 +215,8 @@ describe('createRetrievalTool', () => {
     const result = await runTool(tool, { query: 'test', embeddingSetId: 'input-set' });
 
     const r = result as { embeddingSetId: string };
-    expect(r.embeddingSetId).toBe('runtime-set');
-    expect(deps.resolveEmbeddingSet).toHaveBeenCalledWith('runtime-set');
+    expect(r.embeddingSetId).toBe('input-set');
+    expect(deps.resolveEmbeddingSet).toHaveBeenCalledWith('input-set');
   });
 
   it('input embeddingSetId takes precedence over workspace index default', async () => {

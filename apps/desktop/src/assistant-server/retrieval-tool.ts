@@ -11,7 +11,7 @@ import {
   ContextPacker,
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
-  normalizeWorkspaceIndexText,
+  normalizeOptionalText,
   QueryEmbeddingSpaceInputSchema,
   RetrievalContextInputSchema,
   resolveWorkspaceIndexEmbeddingSetId,
@@ -232,7 +232,7 @@ async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<
 async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
   const secrets = getSecretsService();
   const fromSecrets = await secrets.getKey(provider);
-  const normalized = normalizeWorkspaceIndexText(fromSecrets ?? undefined);
+  const normalized = normalizeOptionalText(fromSecrets ?? undefined);
   if (normalized) {
     return normalized;
   }
@@ -357,8 +357,8 @@ function resolveRuntimeEmbeddingSetId(
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
   return (
-    normalizeWorkspaceIndexText(runtime?.embeddingSetId) ??
-    normalizeWorkspaceIndexText(inputEmbeddingSetId) ??
+    normalizeOptionalText(inputEmbeddingSetId) ??
+    normalizeOptionalText(runtime?.embeddingSetId) ??
     resolveWorkspaceIndexEmbeddingSetId(runtime)
   );
 }
@@ -368,8 +368,8 @@ function resolveSelectionFilters(
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
 ): { filePaths?: string[]; snapshotId?: string } {
-  const runtimeSnapshotId = normalizeWorkspaceIndexText(runtime?.selectionSnapshotId);
-  const snapshotId = runtimeSnapshotId ?? normalizeWorkspaceIndexText(inputSnapshotId);
+  const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
+  const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
   if (snapshotId) {
@@ -742,7 +742,7 @@ export async function runQueryEmbeddingSpace(
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies = {}
 ): Promise<RetrievalToolExecutionResult> {
-  const hasExplicitEmbeddingSet = Boolean(normalizeWorkspaceIndexText(input.embeddingSetId));
+  const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
   if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
     throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
   }

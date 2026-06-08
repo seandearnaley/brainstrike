@@ -70,6 +70,7 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
   priority: 'background',
 } as const;
 const BACKGROUND_PRESSURE_POLL_MS = 50;
+const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 
 function createClearedProgressPatch(): Pick<
@@ -186,7 +187,43 @@ function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapsho
   if (typeof getSnapshot !== 'function') {
     return null;
   }
-  return async () => assertValidWorkspaceIndexingPowerSnapshot(await getSnapshot());
+  return createCachedSnapshotReader(
+    async () => assertValidWorkspaceIndexingPowerSnapshot(await getSnapshot()),
+    BACKGROUND_POWER_SNAPSHOT_CACHE_MS
+  );
+}
+
+function createCachedSnapshotReader<TSnapshot>(
+  readSnapshot: () => TSnapshot | Promise<TSnapshot>,
+  cacheMs: number,
+  now: () => number = () => Date.now()
+): () => Promise<TSnapshot> {
+  let cachedSnapshot: TSnapshot | null = null;
+  let cachedAt = 0;
+  let pendingSnapshot: Promise<TSnapshot> | null = null;
+  return async () => {
+    const readAt = now();
+    if (cachedSnapshot && readAt - cachedAt <= cacheMs) {
+      return cachedSnapshot;
+    }
+    if (pendingSnapshot) {
+      return pendingSnapshot;
+    }
+    cachedSnapshot = null;
+    cachedAt = 0;
+    pendingSnapshot = Promise.resolve()
+      .then(readSnapshot)
+      .then((snapshot) => {
+        cachedSnapshot = snapshot;
+        cachedAt = now();
+        return snapshot;
+      });
+    try {
+      return await pendingSnapshot;
+    } finally {
+      pendingSnapshot = null;
+    }
+  };
 }
 
 function useDocumentVisibility(): boolean {

@@ -4,16 +4,16 @@ import {
   createWorkspaceIndexRetrievalStatus,
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
-  normalizeWorkspaceIndexText,
+  normalizeOptionalText,
   resolveWorkspaceIndexEmbeddingSetId,
 } from '../tools/workspace-index-retrieval';
 
 describe('workspace-index retrieval helpers', () => {
-  it('normalizes optional workspace-index text fields', () => {
-    expect(normalizeWorkspaceIndexText(undefined)).toBeUndefined();
-    expect(normalizeWorkspaceIndexText(null)).toBeUndefined();
-    expect(normalizeWorkspaceIndexText('   ')).toBeUndefined();
-    expect(normalizeWorkspaceIndexText(' workspace-index-set ')).toBe('workspace-index-set');
+  it('normalizes optional text fields', () => {
+    expect(normalizeOptionalText(undefined)).toBeUndefined();
+    expect(normalizeOptionalText(null)).toBeUndefined();
+    expect(normalizeOptionalText('   ')).toBeUndefined();
+    expect(normalizeOptionalText(' workspace-index-set ')).toBe('workspace-index-set');
   });
 
   it('detects workspace-index runtime status without requiring an embedding set id', () => {

@@ -517,6 +517,69 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('caches desktop power snapshots across QoS retry loops', async () => {
+    const getSnapshotMock = vi.fn(async () => ({
+      idleState: 'idle',
+      idleTimeMs: 90_000,
+      powerSource: 'battery',
+      sampledAt: Date.now(),
+      thermalState: 'nominal',
+    }));
+    const foregroundYieldingPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 1,
+      progressThrottleMs: 1,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    };
+    const balancedPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: true,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 128,
+      contentReadBatchSize: 32,
+      contentReadConcurrency: 2,
+      importBatchSize: 25,
+      interBatchDelayMs: 75,
+      progressThrottleMs: 250,
+      reason: 'balanced',
+      scanBatchSize: 250,
+      state: 'balanced',
+      workerClaimBatchSize: 1,
+    };
+    resolveWorkspaceIndexingQosPolicyMock
+      .mockReturnValueOnce(foregroundYieldingPolicy)
+      .mockReturnValue(balancedPolicy);
+    Object.assign(window, {
+      power: {
+        getSnapshot: getSnapshotMock,
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+      );
+
+      expect(getSnapshotMock).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
+  });
+
   it('creates and syncs the default workspace index when fresh preferences have no managed collection', async () => {
     const workspaceIndex: EmbeddingSet = {
       id: '00000000-0000-0000-0000-000000000202',

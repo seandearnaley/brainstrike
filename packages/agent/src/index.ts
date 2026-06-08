@@ -377,6 +377,7 @@ export {
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
+  normalizeOptionalText,
   normalizeWorkspaceIndexText,
   type RetrievalUnavailableResult,
   resolveWorkspaceIndexEmbeddingSetId,

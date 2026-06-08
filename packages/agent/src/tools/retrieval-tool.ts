@@ -20,7 +20,7 @@ import { RetrievalContextInputSchema } from './schemas';
 import type { ToolContext } from './types';
 import {
   createWorkspaceIndexUnavailableResult,
-  normalizeWorkspaceIndexText,
+  normalizeOptionalText,
   type RetrievalUnavailableResult,
   resolveWorkspaceIndexEmbeddingSetId,
 } from './workspace-index-retrieval';
@@ -249,15 +249,15 @@ function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] 
 
 /**
  * Resolves embedding set ID from input or runtime data.
- * Runtime context takes precedence for contextual retrieval.
+ * Explicit tool input takes precedence because it represents tool-call intent.
  */
 function resolveRuntimeEmbeddingSetId(
   runtime: RuntimeData | undefined,
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
   return (
-    normalizeWorkspaceIndexText(runtime?.embeddingSetId) ??
-    normalizeWorkspaceIndexText(inputEmbeddingSetId) ??
+    normalizeOptionalText(inputEmbeddingSetId) ??
+    normalizeOptionalText(runtime?.embeddingSetId) ??
     resolveWorkspaceIndexEmbeddingSetId(runtime)
   );
 }
@@ -270,8 +270,8 @@ function resolveSelectionFilters(
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
 ): { filePaths?: string[]; snapshotId?: string } {
-  const runtimeSnapshotId = normalizeWorkspaceIndexText(runtime?.selectionSnapshotId);
-  const snapshotId = runtimeSnapshotId ?? normalizeWorkspaceIndexText(inputSnapshotId);
+  const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
+  const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
   if (snapshotId) {

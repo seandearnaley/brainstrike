@@ -70,6 +70,7 @@ vi.mock('@brainstrike/agent', async () => {
     ContextPacker: MockContextPacker,
     createWorkspaceIndexUnavailableResult: actual.createWorkspaceIndexUnavailableResult,
     hasWorkspaceIndexRuntimeStatus: actual.hasWorkspaceIndexRuntimeStatus,
+    normalizeOptionalText: actual.normalizeOptionalText,
     normalizeWorkspaceIndexText: actual.normalizeWorkspaceIndexText,
     resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
     QueryEmbeddingSpaceInputSchema: {
@@ -293,7 +294,7 @@ describe('retrieval-tool', () => {
     });
   });
 
-  it('keeps the active runtime embedding set ahead of tool input for contextual retrieval', async () => {
+  it('lets retrieveContext input override active runtime context', async () => {
     const tool = createRetrievalTool({
       embeddingSetId: 'active-set',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
@@ -308,14 +309,14 @@ describe('retrieval-tool', () => {
       },
     });
 
-    expect(result.embeddingSetId).toBe('active-set');
+    expect(result.embeddingSetId).toBe('model-supplied-set');
     expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
-      'active-set',
+      'model-supplied-set',
     ]);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
       limit: 20,
       threshold: 0.3,
-      embeddingSetId: 'active-set',
+      embeddingSetId: 'model-supplied-set',
     });
   });
 

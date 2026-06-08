@@ -18,13 +18,15 @@ export interface RetrievalUnavailableResult {
   workspaceIndex: WorkspaceIndexRetrievalStatus;
 }
 
-export function normalizeWorkspaceIndexText(value: string | null | undefined): string | undefined {
+export function normalizeOptionalText(value: string | null | undefined): string | undefined {
   if (!value) {
     return;
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
+
+export const normalizeWorkspaceIndexText = normalizeOptionalText;
 
 export function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefined): boolean {
   if (runtime?.workspaceIndexingEnabled !== true) {
@@ -54,7 +56,7 @@ export function createWorkspaceIndexRetrievalStatus(
 ): WorkspaceIndexRetrievalStatus {
   return {
     blockedReason: runtime.workspaceIndexBlockedReason ?? null,
-    embeddingSetId: normalizeWorkspaceIndexText(runtime.workspaceIndexEmbeddingSetId) ?? null,
+    embeddingSetId: normalizeOptionalText(runtime.workspaceIndexEmbeddingSetId) ?? null,
     enabled: runtime.workspaceIndexingEnabled === true,
     lastError: runtime.workspaceIndexLastError ?? null,
     paused: runtime.workspaceIndexingPaused === true,
@@ -89,6 +91,6 @@ export function resolveWorkspaceIndexEmbeddingSetId(
   runtime: RuntimeData | undefined
 ): string | undefined {
   return isWorkspaceIndexRetrievalAvailable(runtime)
-    ? normalizeWorkspaceIndexText(runtime?.workspaceIndexEmbeddingSetId)
+    ? normalizeOptionalText(runtime?.workspaceIndexEmbeddingSetId)
     : undefined;
 }
