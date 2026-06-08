@@ -1624,6 +1624,7 @@ describe('mastra streaming integration', () => {
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
+    expect(instructions).toContain('without embeddingSetId so it uses the Workspace Index');
     expect(instructions).toContain('semantic chunks with persisted source line ranges');
     expect(instructions).toContain('surrounding lines are needed');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');

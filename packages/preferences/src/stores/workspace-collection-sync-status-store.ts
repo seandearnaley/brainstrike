@@ -1,6 +1,7 @@
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type WorkspaceCollectionSyncState =
+  | 'blocked'
   | 'disabled'
   | 'idle'
   | 'paused'
@@ -11,6 +12,8 @@ export type WorkspaceCollectionSyncState =
   | 'chunking'
   | 'embedding'
   | 'error';
+
+export type WorkspaceCollectionSyncBlockedReason = 'missing-provider-key';
 
 export interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;
@@ -59,6 +62,7 @@ export interface WorkspaceCollectionSyncQueueProgress {
 export interface WorkspaceCollectionSyncStatusData {
   activeRootPath: string | null;
   backfillRequestId: string | null;
+  blockedReason: WorkspaceCollectionSyncBlockedReason | null;
   chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
   currentFilePath: string | null;
   embeddingProgress: WorkspaceCollectionSyncEmbeddingProgress | null;
@@ -89,6 +93,7 @@ const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
   managedCollectionId: null,
   managedCollectionName: null,
   backfillRequestId: null,
+  blockedReason: null,
   currentFilePath: null,
   scanSummary: null,
   importProgress: null,

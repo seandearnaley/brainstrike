@@ -17,10 +17,15 @@ import {
   encodeFileSelection,
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
+import type {
+  WorkspaceIndexingQosInputs,
+  WorkspaceIndexingQosPolicy,
+} from '@brainstrike/utils/workspace-indexing-qos';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
+import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
 
 const {
   runEnhancedImportMock,
@@ -31,6 +36,7 @@ const {
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
+  getOrCreateWorkspaceIndexSetMock,
   createPriorityDbHandleMock,
   validateApiKeyForSetMock,
   ensureChunkingWorkerMock,
@@ -41,6 +47,8 @@ const {
   vectorQueueServiceState,
   fileSystemState,
   fileTreeContextState,
+  idleSchedulerSnapshot,
+  resolveWorkspaceIndexingQosPolicyMock,
 } = vi.hoisted(() => ({
   runEnhancedImportMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
@@ -58,6 +66,7 @@ const {
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
+  getOrCreateWorkspaceIndexSetMock: vi.fn(),
   createPriorityDbHandleMock: vi.fn(
     (
       db: {
@@ -105,6 +114,7 @@ const {
   ensureEmbeddingRuntimeStartedMock: vi.fn(),
   enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
   cancelBackfillMock: vi.fn(async () => {}),
+  resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
   dbState: {
     current: {
       query: vi.fn(async () => ({ rows: [] })),
@@ -152,9 +162,86 @@ const {
       restorationProgress: null;
     } | null,
   },
+  idleSchedulerSnapshot: {
+    backgroundWaiting: false,
+    backgroundWaitingSince: null,
+    backgroundYieldCount: 0,
+    currentBackgroundWaitMs: 0,
+    foregroundQuietMs: 75,
+    lastBackgroundYieldAt: null,
+    lastCompletedAt: null,
+    lastForegroundAt: null,
+    lastNormalAt: null,
+    lastStartedAt: null,
+    priorityStats: {
+      foreground: {
+        completed: 0,
+        lastCompletedLabel: null,
+        lastStartedLabel: null,
+        longestWaitMs: 0,
+        queued: 0,
+        serviceP50Ms: 0,
+        serviceP95Ms: 0,
+        started: 0,
+        totalServiceMs: 0,
+        totalWaitMs: 0,
+        waitP50Ms: 0,
+        waitP95Ms: 0,
+      },
+      normal: {
+        completed: 0,
+        lastCompletedLabel: null,
+        lastStartedLabel: null,
+        longestWaitMs: 0,
+        queued: 0,
+        serviceP50Ms: 0,
+        serviceP95Ms: 0,
+        started: 0,
+        totalServiceMs: 0,
+        totalWaitMs: 0,
+        waitP50Ms: 0,
+        waitP95Ms: 0,
+      },
+      background: {
+        completed: 0,
+        lastCompletedLabel: null,
+        lastStartedLabel: null,
+        longestWaitMs: 0,
+        queued: 0,
+        serviceP50Ms: 0,
+        serviceP95Ms: 0,
+        started: 0,
+        totalServiceMs: 0,
+        totalWaitMs: 0,
+        waitP50Ms: 0,
+        waitP95Ms: 0,
+      },
+    },
+    queued: {
+      foreground: 0,
+      normal: 0,
+      background: 0,
+    },
+    runningLabel: null,
+    runningPriority: null,
+    snapshotAt: 1000,
+  },
 }));
 
+vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+  resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
+    (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy =>
+      actual.resolveWorkspaceIndexingQosPolicy(inputs)
+  );
+  return {
+    ...actual,
+    resolveWorkspaceIndexingQosPolicy: resolveWorkspaceIndexingQosPolicyMock,
+  };
+});
+
 vi.mock('@brainstrike/db', () => ({
+  WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
   JobQueue: vi.fn(function MockJobQueue() {
     return {
       enqueueBatch: vi.fn(),
@@ -168,14 +255,16 @@ vi.mock('@brainstrike/db', () => ({
     waitForBackgroundPermit: vi.fn(async () => undefined),
   })),
   createPriorityDbHandle: createPriorityDbHandleMock,
+  getDatabasePressureWaitingReason: vi.fn(() => null),
   getDatabaseWorkScheduler: vi.fn(() => ({
-    getSnapshot: vi.fn(),
+    getSnapshot: vi.fn(() => idleSchedulerSnapshot),
     run: vi.fn(),
     subscribe: vi.fn(() => () => {}),
   })),
   ElectronEmbeddingSetsRepository: vi.fn(function MockElectronEmbeddingSetsRepository() {
     return {
       getById: getByIdMock,
+      getOrCreateWorkspaceIndexSet: getOrCreateWorkspaceIndexSetMock,
     };
   }),
   ElectronFileChunkRepository: vi.fn(function MockElectronFileChunkRepository() {
@@ -320,9 +409,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       dimensions: 1536,
       distance: 'cosine',
       createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
     };
 
     getByIdMock.mockResolvedValue(collection);
+    getOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
     ensureChunkingWorkerMock.mockResolvedValue({
       isReady: () => true,
@@ -388,6 +479,254 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('uses the desktop power snapshot for QoS policy inputs when available', async () => {
+    Object.assign(window, {
+      power: {
+        getSnapshot: vi.fn(async () => ({
+          idleState: 'idle',
+          idleTimeMs: 90_000,
+          powerSource: 'battery',
+          sampledAt: 1234,
+          thermalState: 'serious',
+        })),
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            idleState: 'idle',
+            idleTimeMs: 90_000,
+            powerSource: 'battery',
+            thermalState: 'serious',
+          })
+        )
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
+  });
+
+  it('caches desktop power snapshots across QoS retry loops', async () => {
+    const getSnapshotMock = vi.fn(async () => ({
+      idleState: 'idle',
+      idleTimeMs: 90_000,
+      powerSource: 'battery',
+      sampledAt: Date.now(),
+      thermalState: 'nominal',
+    }));
+    const foregroundYieldingPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 1,
+      progressThrottleMs: 1,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    };
+    const balancedPolicy: WorkspaceIndexingQosPolicy = {
+      allowNewWork: true,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 128,
+      contentReadBatchSize: 32,
+      contentReadConcurrency: 2,
+      importBatchSize: 25,
+      interBatchDelayMs: 75,
+      progressThrottleMs: 250,
+      reason: 'balanced',
+      scanBatchSize: 250,
+      state: 'balanced',
+      workerClaimBatchSize: 1,
+    };
+    resolveWorkspaceIndexingQosPolicyMock
+      .mockReturnValueOnce(foregroundYieldingPolicy)
+      .mockReturnValue(balancedPolicy);
+    Object.assign(window, {
+      power: {
+        getSnapshot: getSnapshotMock,
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+      );
+
+      expect(getSnapshotMock).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
+  });
+
+  it('creates and syncs the default workspace index when fresh preferences have no managed collection', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000202',
+      name: 'Workspace Index',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    getOrCreateWorkspaceIndexSetMock.mockResolvedValueOnce(workspaceIndex);
+    getByIdMock.mockResolvedValue(workspaceIndex);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        workspaceIndex.id
+      )
+    );
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+
+    expect(validateApiKeyForSetMock).toHaveBeenCalledWith(workspaceIndex.id);
+    await waitFor(() =>
+      expect(enqueueBackfillMock).toHaveBeenCalledWith(
+        workspaceIndex.id,
+        expect.objectContaining({
+          source: 'background-indexing',
+        })
+      )
+    );
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+      expect.objectContaining({
+        managedCollectionId: workspaceIndex.id,
+        managedCollectionName: 'Workspace Index',
+      })
+    );
+  });
+
+  it('dedupes workspace index bootstrap while collection creation is in flight', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000202',
+      name: 'Workspace Index',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    let resolveBootstrap: (collection: EmbeddingSet) => void;
+    const bootstrapPromise = new Promise<EmbeddingSet>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    getOrCreateWorkspaceIndexSetMock.mockReturnValue(bootstrapPromise);
+    getByIdMock.mockResolvedValue(workspaceIndex);
+
+    let releasePause: (() => void) | undefined;
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        releasePause = await acquireBackgroundWorkPauseReason('local-llm');
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveBootstrap(workspaceIndex);
+        await bootstrapPromise;
+      });
+      await waitFor(() =>
+        expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+          workspaceIndex.id
+        )
+      );
+    } finally {
+      releasePause?.();
+    }
+  });
+
+  it('preserves manual pause while bootstrapping fresh workspace index preferences', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: true,
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        '00000000-0000-0000-0000-000000000101'
+      )
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'paused',
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          pauseReasons: ['Paused manually'],
+        })
+      )
+    );
+
+    expect(validateApiKeyForSetMock).not.toHaveBeenCalled();
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
   });
 
   it('does not raise the foreground isImporting pause flag during background indexing', async () => {
@@ -555,7 +894,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
-  it('clears a stale managed collection id when the collection no longer exists', async () => {
+  it('rebinds a stale managed collection id to the workspace index', async () => {
     getByIdMock.mockResolvedValueOnce(null);
 
     render(
@@ -565,16 +904,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
 
     await waitFor(() =>
-      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull()
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        '00000000-0000-0000-0000-000000000101'
+      )
     );
+    await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
       expect.objectContaining({
-        state: 'error',
-        managedCollectionId: null,
-        lastError: 'No managed collection selected.',
+        managedCollectionId: '00000000-0000-0000-0000-000000000101',
+        managedCollectionName: 'Managed Cache',
       })
     );
-    expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
   it('passes the balanced indexing policy into the background sync request', async () => {
@@ -945,6 +1286,29 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(2));
   });
 
+  it('keeps the sync service mounted when recent user input changes QoS inputs', async () => {
+    const cancelSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'cancel');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown'));
+      });
+
+      expect(cancelSpy).not.toHaveBeenCalled();
+      expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    } finally {
+      cancelSpy.mockRestore();
+    }
+  });
+
   it('surfaces cancel failures from provider cleanup', async () => {
     const cancelSpy = vi
       .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
@@ -995,10 +1359,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
-  it('fails visibly when the managed collection API key is invalid', async () => {
+  it('blocks workspace indexing when provider validation reports a missing key', async () => {
+    const missingKeyMessage =
+      'OpenAI API key not configured. Please add your API key (OPENAI_API_KEY) in Settings → Secrets or set the environment variable.';
     validateApiKeyForSetMock.mockResolvedValueOnce({
       valid: false,
-      message: 'Managed collection API key is missing.',
+      reason: 'missing-provider-key',
+      message: missingKeyMessage,
     });
 
     render(
@@ -1010,11 +1377,127 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'error',
-          lastError: 'Managed collection API key is missing.',
+          state: 'blocked',
+          blockedReason: 'missing-provider-key',
+          lastError: missingKeyMessage,
         })
       )
     );
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('clears stale progress when bootstrap reports blocked indexing', async () => {
+    const missingKeyMessage = 'OpenAI API key not configured.';
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    getOrCreateWorkspaceIndexSetMock.mockRejectedValueOnce(
+      new WorkspaceIndexBlockedError('missing-provider-key', missingKeyMessage)
+    );
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'importing',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      managedCollectionName: 'Managed Cache',
+      activeRootPath: '/workspace/root',
+      backfillRequestId: 'background-indexing-backfill:stale',
+      currentFilePath: 'src/stale.ts',
+      queuedFiles: 12,
+      processedFiles: 4,
+      scanSummary: {
+        changedFiles: 8,
+        discoveredFiles: 20,
+        excludedEntries: 2,
+        unchangedFiles: 10,
+      },
+      importProgress: {
+        completed: 4,
+        current: 'src/stale.ts',
+        errorCount: 0,
+        total: 8,
+      },
+      chunkingProgress: {
+        chunksCreated: 14,
+        currentFile: 'src/stale.ts',
+        filesProcessed: 3,
+        strategyUsed: 'markdown',
+        totalFiles: 8,
+      },
+      embeddingProgress: {
+        chunksProcessed: 2,
+        currentChunk: 'stale chunk',
+        modelName: 'text-embedding-3-small',
+        totalChunks: 14,
+      },
+      queueProgress: {
+        failed: 0,
+        lastError: null,
+        lastEvent: null,
+        pending: 12,
+        processed: 2,
+        totalQueued: 14,
+      },
+      pauseReasons: ['Paused manually'],
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'blocked',
+          blockedReason: 'missing-provider-key',
+          lastError: missingKeyMessage,
+          backfillRequestId: null,
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 0,
+          scanSummary: null,
+          importProgress: null,
+          chunkingProgress: null,
+          embeddingProgress: null,
+          queueProgress: null,
+          pauseReasons: [],
+        })
+      )
+    );
+  });
+
+  it('uses the typed missing-provider-key reason instead of parsing validation prose', async () => {
+    validateApiKeyForSetMock.mockResolvedValueOnce({
+      valid: false,
+      reason: 'missing-provider-key',
+      message: 'Provider credentials unavailable.',
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'blocked',
+          blockedReason: 'missing-provider-key',
+          lastError: 'Provider credentials unavailable.',
+        })
+      )
+    );
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
   });
 
   it('fails visibly when the shared embedding runtime cannot start', async () => {

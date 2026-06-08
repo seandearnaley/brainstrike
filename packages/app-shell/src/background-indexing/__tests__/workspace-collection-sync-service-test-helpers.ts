@@ -1,9 +1,27 @@
 import type { EmbeddingSet } from '@brainstrike/db';
+import { resolveWorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { vi } from 'vitest';
 import type { WorkspaceCollectionSyncServiceDependencies } from '../workspace-collection-sync-service';
 
 export const ROOT_PATH = '/workspace/root';
 export const FILE_PATH = 'src/index.ts';
+
+export const BALANCED_QOS_POLICY = resolveWorkspaceIndexingQosPolicy({
+  dbPressure: {
+    available: true,
+    foregroundPressure: false,
+    normalPressure: false,
+  },
+  foregroundQueryActive: false,
+  idleState: 'active',
+  idleTimeMs: 0,
+  manualPaused: false,
+  powerSource: 'ac',
+  providerRateLimited: false,
+  recentUserInputMs: null,
+  thermalState: 'nominal',
+  windowVisible: true,
+});
 
 export function createCollection(overrides: Partial<EmbeddingSet> = {}): EmbeddingSet {
   return {
@@ -65,6 +83,7 @@ export function createDeps(
     })),
     ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     onManagedCollectionMissing: vi.fn(),
+    resolveQosPolicy: vi.fn(async () => BALANCED_QOS_POLICY),
     setImporting: vi.fn(),
     setStatus: vi.fn(),
     subscribeToBackfillProgress: vi.fn(() => () => {}),

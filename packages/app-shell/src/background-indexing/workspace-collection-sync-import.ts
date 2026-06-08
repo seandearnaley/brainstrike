@@ -26,6 +26,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { buildRootFolderCacheIdentityKey } from './root-folder-cache-reconciliation';
 import {
   buildBatchImportErrors,
@@ -33,9 +34,16 @@ import {
   throwIfAborted,
 } from './workspace-collection-sync-progress';
 
-const FILE_CONTENT_BATCH_SIZE = 24;
-const IMPORT_BATCH_SIZE = 24;
-const PROCESSOR_CONCURRENCY = 4;
+type WorkspaceIndexingImportQosPolicy = Pick<
+  WorkspaceIndexingQosPolicy,
+  'allowNewWork' | 'contentReadBatchSize' | 'contentReadConcurrency' | 'importBatchSize'
+>;
+
+function assertPositiveQosCapacity(value: number, label: string): void {
+  if (!(Number.isInteger(value) && value > 0)) {
+    throw new Error(`Workspace Index QoS ${label} must be a positive integer.`);
+  }
+}
 
 interface RootFolderCacheMutableRecord {
   content: string;
@@ -412,6 +420,7 @@ export async function collectPreparedChangesInBatches(args: {
   fileNodes: readonly IFileNode[];
   fileSystemAdapter: FileSystemAdapter;
   onCurrentFile: (path: string | null) => void;
+  qosPolicy: WorkspaceIndexingImportQosPolicy;
   rootPath: string;
 }): Promise<PreparedChangesSummary> {
   const {
@@ -421,12 +430,18 @@ export async function collectPreparedChangesInBatches(args: {
     fileNodes,
     fileSystemAdapter,
     onCurrentFile,
+    qosPolicy,
     rootPath,
   } = args;
+  if (!qosPolicy.allowNewWork) {
+    throw new Error('Workspace Index QoS policy does not permit scan work.');
+  }
+  assertPositiveQosCapacity(qosPolicy.contentReadBatchSize, 'contentReadBatchSize');
+  assertPositiveQosCapacity(qosPolicy.contentReadConcurrency, 'contentReadConcurrency');
   const processor =
     fileContentProcessor ??
     createFileContentProcessor(fileSystemAdapter, {
-      concurrency: PROCESSOR_CONCURRENCY,
+      concurrency: qosPolicy.contentReadConcurrency,
     });
   const preparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
   const existingByIdentity = new Map(
@@ -438,9 +453,9 @@ export async function collectPreparedChangesInBatches(args: {
   const changes: PreparedCacheChange[] = [];
   let unchangedCount = 0;
 
-  for (let index = 0; index < preparations.length; index += FILE_CONTENT_BATCH_SIZE) {
+  for (let index = 0; index < preparations.length; index += qosPolicy.contentReadBatchSize) {
     throwIfAborted(abortSignal);
-    const batch = preparations.slice(index, index + FILE_CONTENT_BATCH_SIZE);
+    const batch = preparations.slice(index, index + qosPolicy.contentReadBatchSize);
     const metadataByKey = new Map(
       batch.map((entry) => [entry.request.compositeKey, entry] as const)
     );
@@ -488,6 +503,7 @@ export async function runRootFolderCacheImport(args: {
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: FileImportFileRecordRepository;
   onProgress: (progress: EnhancedImportProgress) => void;
+  qosPolicy: WorkspaceIndexingImportQosPolicy;
   setImporting: (importing: boolean) => void;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<void> {
@@ -502,6 +518,7 @@ export async function runRootFolderCacheImport(args: {
     fileContentProcessor,
     fileRecordRepository,
     onProgress,
+    qosPolicy,
     setImporting,
     waitForBackgroundPermit,
   } = args;
@@ -509,6 +526,11 @@ export async function runRootFolderCacheImport(args: {
   if (changes.length === 0) {
     return;
   }
+  if (!qosPolicy.allowNewWork) {
+    throw new Error('Workspace Index QoS policy does not permit import work.');
+  }
+  assertPositiveQosCapacity(qosPolicy.contentReadConcurrency, 'contentReadConcurrency');
+  assertPositiveQosCapacity(qosPolicy.importBatchSize, 'importBatchSize');
 
   throwIfAborted(abortSignal, 'Background cache import was cancelled.');
   const firstChange = changes[0];
@@ -524,7 +546,7 @@ export async function runRootFolderCacheImport(args: {
   const processor =
     fileContentProcessor ??
     createFileContentProcessor(firstChange.request.fileSystemAdapter, {
-      concurrency: PROCESSOR_CONCURRENCY,
+      concurrency: qosPolicy.contentReadConcurrency,
     });
   let cumulativeCompleted = 0;
   let cumulativeErrorCount = 0;
@@ -535,9 +557,9 @@ export async function runRootFolderCacheImport(args: {
 
   setImporting(true);
   try {
-    for (let index = 0; index < changes.length; index += IMPORT_BATCH_SIZE) {
+    for (let index = 0; index < changes.length; index += qosPolicy.importBatchSize) {
       throwIfAborted(abortSignal, 'Background cache import was cancelled.');
-      const batch = changes.slice(index, index + IMPORT_BATCH_SIZE);
+      const batch = changes.slice(index, index + qosPolicy.importBatchSize);
       const batchMetadataByKey = new Map(
         batch.map(
           (change) =>

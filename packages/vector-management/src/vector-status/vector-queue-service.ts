@@ -1,5 +1,8 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
-import { checkApiKeyAvailability } from '@brainstrike/embeddings';
+import {
+  type ApiKeyValidationUnavailableReason,
+  checkApiKeyAvailability,
+} from '@brainstrike/embeddings';
 import { canonicalizeEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -241,7 +244,10 @@ export async function withTransaction(
 /**
  * Result of API key validation for an embedding set
  */
-export type ApiKeyValidation = { valid: true } | { valid: false; message: string };
+export type ApiKeyValidationFailureReason = ApiKeyValidationUnavailableReason | 'validation-error';
+export type ApiKeyValidation =
+  | { valid: true }
+  | { valid: false; reason: ApiKeyValidationFailureReason; message: string };
 
 /**
  * Result of a re-embed operation
@@ -379,10 +385,10 @@ export function createVectorQueueService(
         if (validation.available) {
           return { valid: true };
         }
-        return { valid: false, message: validation.message };
+        return { valid: false, reason: validation.reason, message: validation.message };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to validate API key';
-        return { valid: false, message };
+        return { valid: false, reason: 'validation-error', message };
       }
     },
 

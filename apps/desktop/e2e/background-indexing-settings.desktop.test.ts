@@ -17,6 +17,15 @@ interface ElectronHarnessLike {
   getUserDataDir: () => string;
 }
 
+interface WorkspaceIndexRow {
+  readonly dimensions: number;
+  readonly id: string;
+  readonly model_id: string;
+  readonly model_key: string;
+  readonly name: string;
+  readonly system_role: 'workspace-index';
+}
+
 async function seedBackgroundIndexingPreferences(args: {
   electronHarness: ElectronHarnessLike;
   preferences: PersistedBackgroundIndexingPreferences;
@@ -51,8 +60,37 @@ async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page
   });
 }
 
-test.describe('Background indexing settings (desktop)', () => {
-  test('clears a stale managed collection after the DB is wiped instead of surfacing invalid metadata', async ({
+async function readWorkspaceIndexRows(page: Page): Promise<WorkspaceIndexRow[]> {
+  return await page.evaluate(async () => {
+    const api = (
+      window as Window & {
+        electronAPI?: {
+          db?: {
+            query?: (
+              sql: string,
+              params?: unknown[]
+            ) => Promise<{ rows: Record<string, unknown>[] }>;
+          };
+        };
+      }
+    ).electronAPI;
+    if (!api?.db?.query) {
+      throw new Error('Desktop DB query bridge is unavailable.');
+    }
+
+    const result = await api.db.query(
+      `SELECT id, name, model_id, model_key, dimensions, system_role
+       FROM embedding_sets
+       WHERE system_role = $1
+       ORDER BY created_at ASC`,
+      ['workspace-index']
+    );
+    return result.rows as WorkspaceIndexRow[];
+  });
+}
+
+test.describe('Workspace Index settings (desktop)', () => {
+  test('rebinds a stale managed collection to the protected workspace index', async ({
     electron,
   }) => {
     await seedBackgroundIndexingPreferences({
@@ -70,10 +108,13 @@ test.describe('Background indexing settings (desktop)', () => {
     await openSearchIndexingSettings({ homePage, page: window });
 
     const managedCollectionTrigger = window.locator('#managed-cache-collection');
-    await expect(window.getByRole('switch', { name: /background indexing/i })).toBeChecked({
+    await expect(window.getByRole('switch', { name: 'Workspace Index' })).toBeChecked({
       timeout: 15_000,
     });
-    await expect(managedCollectionTrigger).toContainText('No managed collection', {
+    await expect(managedCollectionTrigger).toContainText('Workspace Index', {
+      timeout: 15_000,
+    });
+    await expect(window.getByText(/Current managed collection:\s*Workspace Index/)).toBeVisible({
       timeout: 15_000,
     });
 
@@ -89,5 +130,20 @@ test.describe('Background indexing settings (desktop)', () => {
         }
       )
       .toBe(0);
+
+    await expect
+      .poll(async () => await readWorkspaceIndexRows(window), {
+        timeout: 15_000,
+        message: 'Expected exactly one protected Workspace Index embedding set.',
+      })
+      .toMatchObject([
+        {
+          dimensions: 384,
+          model_id: 'Xenova/all-MiniLM-L6-v2',
+          model_key: 'local::Xenova/all-MiniLM-L6-v2',
+          name: 'Workspace Index',
+          system_role: 'workspace-index',
+        },
+      ]);
   });
 });

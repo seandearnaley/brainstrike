@@ -203,6 +203,10 @@ function getQueueErrorMessage(queue: IndexingQueueSnapshot): string {
   return `${queue.failed} embedding job${queue.failed === 1 ? '' : 's'} failed`;
 }
 
+function isWorkerAvailabilitySignal(worker: IndexingWorkerSnapshot | null): boolean {
+  return worker !== null && worker.state !== 'stopped' && worker.state !== 'unknown';
+}
+
 function buildSnapshot(
   args: IndexingActivitySnapshotInput,
   outcome: Pick<IndexingActivitySnapshot, 'lastError' | 'phase' | 'status'>
@@ -241,7 +245,7 @@ function deriveErrorSnapshot(args: IndexingActivitySnapshotInput): IndexingActiv
     });
   }
 
-  if (args.background.state === 'error') {
+  if (args.background.state === 'blocked' || args.background.state === 'error') {
     return buildSnapshot(args, {
       lastError: args.background.lastError ?? 'Background indexing failed',
       phase: 'background-indexing',
@@ -333,7 +337,7 @@ function deriveSnapshot(args: IndexingActivitySnapshotInput): IndexingActivitySn
     args.queue !== null ||
     args.databaseWork !== null ||
     !isBackgroundUnavailable(args.background) ||
-    args.worker !== null
+    isWorkerAvailabilitySignal(args.worker)
   ) {
     return buildSnapshot(args, {
       lastError: null,

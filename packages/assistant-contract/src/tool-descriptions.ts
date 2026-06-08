@@ -14,7 +14,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.updateWorkspaceTapestrySelections':
     'Create, update, or clear token-aware Tapestry line ranges for selected workspace context files',
   'brainstrike.listEmbeddingSpaces':
-    'List available embedding spaces and identify the recommended workspace index for semantic retrieval',
+    'List available embedding spaces, workspace-index status, and optional coverage statistics',
   'brainstrike.queryEmbeddingSpace':
-    'Query a specific embedding space by explicit embeddingSetId and return packed source text plus metadata-only line ranges',
+    'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
 };

@@ -23,6 +23,7 @@ import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-reg
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -715,15 +716,31 @@ export function AssistantUiPanelWrapper({
   const workspaceIndexingEnabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const workspaceIndexingMode = useBackgroundIndexingPreferencesStore((state) => state.mode);
   const workspaceIndexingPaused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const workspaceIndexStatusState = useWorkspaceCollectionSyncStatusStore((state) => state.state);
+  const workspaceIndexBlockedReason = useWorkspaceCollectionSyncStatusStore(
+    (state) => state.blockedReason
+  );
+  const workspaceIndexLastError = useWorkspaceCollectionSyncStatusStore((state) => state.lastError);
+  const workspaceIndexQueueProgress = useWorkspaceCollectionSyncStatusStore(
+    (state) => state.queueProgress
+  );
   const workspaceIndex = useMemo(
     () => ({
+      blockedReason: workspaceIndexBlockedReason,
       enabled: workspaceIndexingEnabled,
       embeddingSetId: workspaceIndexEmbeddingSetId,
+      lastError: workspaceIndexLastError,
       mode: workspaceIndexingMode,
       paused: workspaceIndexingPaused,
+      queueProgress: workspaceIndexQueueProgress,
+      statusState: workspaceIndexStatusState,
     }),
     [
+      workspaceIndexBlockedReason,
       workspaceIndexEmbeddingSetId,
+      workspaceIndexLastError,
+      workspaceIndexQueueProgress,
+      workspaceIndexStatusState,
       workspaceIndexingEnabled,
       workspaceIndexingMode,
       workspaceIndexingPaused,

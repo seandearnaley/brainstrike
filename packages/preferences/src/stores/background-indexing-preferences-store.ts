@@ -26,6 +26,7 @@ export type BackgroundIndexingPreferencesStore = BackgroundIndexingPreferencesDa
   BackgroundIndexingPreferencesActions;
 
 const STORE_NAME = 'background-indexing-preferences.v1' as const;
+const STORE_VERSION = 4 as const;
 
 interface ElectronStorageBridge {
   readonly getItem: (key: string) => Promise<string | null>;
@@ -69,7 +70,7 @@ function createBackgroundIndexingPreferencesStorage() {
 const storage = createJSONStorage(() => createBackgroundIndexingPreferencesStorage());
 
 const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
-  enabled: false,
+  enabled: true,
   hasHydrated: false,
   indexingPolicyPreset: 'balanced',
   managedCollectionId: null,
@@ -77,62 +78,102 @@ const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
   paused: false,
 };
 
-export const useBackgroundIndexingPreferencesStore = create<BackgroundIndexingPreferencesStore>()(
-  persist(
-    (set) => ({
-      ...DEFAULT_STATE,
-      setEnabled: (enabled: boolean) => set({ enabled }),
-      setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) =>
-        set({ indexingPolicyPreset }),
-      setManagedCollectionId: (managedCollectionId: string | null) => set({ managedCollectionId }),
-      setPaused: (paused: boolean) => set({ paused }),
-      reset: () =>
-        set({
-          enabled: DEFAULT_STATE.enabled,
-          indexingPolicyPreset: DEFAULT_STATE.indexingPolicyPreset,
-          managedCollectionId: DEFAULT_STATE.managedCollectionId,
-          mode: DEFAULT_STATE.mode,
-          paused: DEFAULT_STATE.paused,
-          hasHydrated: true,
-        }),
-    }),
-    {
-      name: STORE_NAME,
-      version: 3,
-      storage,
-      partialize: (state: BackgroundIndexingPreferencesStore) => ({
-        enabled: state.enabled,
-        indexingPolicyPreset: state.indexingPolicyPreset,
-        managedCollectionId: state.managedCollectionId,
-        mode: state.mode,
-        paused: state.paused,
-      }),
-      migrate: (persistedState: unknown) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return {
-            ...DEFAULT_STATE,
-          };
-        }
+type BoundBackgroundIndexingPreferencesStore = ReturnType<
+  ReturnType<typeof create<BackgroundIndexingPreferencesStore>>
+>;
 
-        const candidate = persistedState as Partial<BackgroundIndexingPreferencesData>;
-        return {
-          enabled: candidate.enabled ?? DEFAULT_STATE.enabled,
-          hasHydrated: false,
-          indexingPolicyPreset:
-            candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,
-          managedCollectionId: candidate.managedCollectionId ?? DEFAULT_STATE.managedCollectionId,
-          mode: candidate.mode ?? DEFAULT_STATE.mode,
-          paused: candidate.paused ?? DEFAULT_STATE.paused,
-        } satisfies BackgroundIndexingPreferencesData;
-      },
-      onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
-          useBackgroundIndexingPreferencesStore.setState({ hasHydrated: true });
-        }
-      },
-    }
-  )
-);
+const GLOBAL_KEY = '__brainstrike_background_indexing_preferences_store__' as const;
+const BRAND = '__brainstrike_store_brand__';
+const BRAND_VERSION = 1 as const;
+
+function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPreferencesStore {
+  const store = create<BackgroundIndexingPreferencesStore>()(
+    persist(
+      (set) => ({
+        ...DEFAULT_STATE,
+        setEnabled: (enabled: boolean) => set({ enabled }),
+        setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) =>
+          set({ indexingPolicyPreset }),
+        setManagedCollectionId: (managedCollectionId: string | null) =>
+          set({ managedCollectionId }),
+        setPaused: (paused: boolean) => set({ paused }),
+        reset: () =>
+          set({
+            enabled: DEFAULT_STATE.enabled,
+            indexingPolicyPreset: DEFAULT_STATE.indexingPolicyPreset,
+            managedCollectionId: DEFAULT_STATE.managedCollectionId,
+            mode: DEFAULT_STATE.mode,
+            paused: DEFAULT_STATE.paused,
+            hasHydrated: true,
+          }),
+      }),
+      {
+        name: STORE_NAME,
+        version: STORE_VERSION,
+        storage,
+        partialize: (state: BackgroundIndexingPreferencesStore) => ({
+          enabled: state.enabled,
+          indexingPolicyPreset: state.indexingPolicyPreset,
+          managedCollectionId: state.managedCollectionId,
+          mode: state.mode,
+          paused: state.paused,
+        }),
+        migrate: (persistedState: unknown) => {
+          if (!(persistedState && typeof persistedState === 'object')) {
+            return {
+              ...DEFAULT_STATE,
+            };
+          }
+
+          const candidate = persistedState as Partial<BackgroundIndexingPreferencesData>;
+          return {
+            enabled: candidate.enabled ?? DEFAULT_STATE.enabled,
+            hasHydrated: false,
+            indexingPolicyPreset:
+              candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,
+            managedCollectionId: candidate.managedCollectionId ?? DEFAULT_STATE.managedCollectionId,
+            mode: candidate.mode ?? DEFAULT_STATE.mode,
+            paused: candidate.paused ?? DEFAULT_STATE.paused,
+          } satisfies BackgroundIndexingPreferencesData;
+        },
+        onRehydrateStorage: () => (_state, error) => {
+          if (!error) {
+            useBackgroundIndexingPreferencesStore.setState({ hasHydrated: true });
+          }
+        },
+      }
+    )
+  );
+  (store as unknown as Record<string, unknown>)[BRAND] = BRAND_VERSION;
+  return store;
+}
+
+function isValidStore(
+  candidate: unknown
+): candidate is BoundBackgroundIndexingPreferencesStore & Record<string, unknown> {
+  if (!candidate || typeof candidate !== 'function') {
+    return false;
+  }
+  const fn = candidate as {
+    getState?: unknown;
+    setState?: unknown;
+    [BRAND]?: unknown;
+  };
+  return (
+    typeof fn.getState === 'function' &&
+    typeof fn.setState === 'function' &&
+    fn[BRAND] === BRAND_VERSION
+  );
+}
+
+const globalStoreRegistry = globalThis as unknown as Record<string, unknown>;
+const existingStore = globalStoreRegistry[GLOBAL_KEY];
+
+export const useBackgroundIndexingPreferencesStore = isValidStore(existingStore)
+  ? existingStore
+  : createBackgroundIndexingPreferencesStore();
+
+globalStoreRegistry[GLOBAL_KEY] = useBackgroundIndexingPreferencesStore;
 
 export function __resetBackgroundIndexingPreferencesStoreForTests(): void {
   try {

@@ -20,6 +20,7 @@ const mockCollectionRows = [
     fileCount: '10',
     chunkCount: '100',
     embeddingCount: '50',
+    systemRole: null,
   },
 ];
 
@@ -133,6 +134,16 @@ describe('useCollections', () => {
       );
     });
 
+    it('selects durable system role metadata with collection rows', () => {
+      renderHook(() => useCollections(mockDb as any));
+
+      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.stringContaining('s.system_role AS "systemRole"'),
+        })
+      );
+    });
+
     it('should disable live query when schema is not verified', () => {
       mockStoreState.schemaVerified = false;
 
@@ -191,6 +202,17 @@ describe('useCollections', () => {
       expect(collections.at(0)?.fileCount).toBe(10);
       expect(collections.at(0)?.chunkCount).toBe(100);
       expect(collections.at(0)?.embeddingCount).toBe(50);
+    });
+
+    it('preserves workspace index system role metadata from live rows', () => {
+      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+        ...mockLiveQueryResult,
+        rows: [{ ...mockCollectionRows[0], systemRole: 'workspace-index' }],
+      });
+
+      const { result } = renderHook(() => useCollections(mockDb as any));
+
+      expect(result.current.collections.at(0)?.systemRole).toBe('workspace-index');
     });
 
     it('should return cached collections when live query is disabled', () => {

@@ -37,6 +37,8 @@ export default defineConfig({
     'path-ancestors': 'src/path-ancestors.ts',
     'path-utils': 'src/path-utils.ts',
     'relative-file-path': 'src/relative-file-path.ts',
+    'workspace-indexing-power-snapshot': 'src/workspace-indexing-power-snapshot.ts',
+    'workspace-indexing-qos': 'src/workspace-indexing-qos.ts',
     crypto: 'src/crypto.ts',
   },
   format: ['cjs', 'esm'],

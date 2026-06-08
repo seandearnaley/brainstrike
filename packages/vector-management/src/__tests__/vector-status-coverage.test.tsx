@@ -579,6 +579,7 @@ describe('VectorStatusWithDb', () => {
       const user = userEvent.setup();
       mockQueueState.validateApiKey.mockResolvedValueOnce({
         valid: false,
+        reason: 'missing-provider-key',
         message: 'API key not configured',
       });
       // need pending chunks to enable the backfill button

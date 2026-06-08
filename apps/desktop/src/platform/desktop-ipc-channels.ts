@@ -58,6 +58,7 @@ export const DESKTOP_IPC_CHANNELS = {
   runtime: {
     listModels: 'runtime:listModels',
     noteReloadIntent: 'app:lifecycle:note-reload-intent',
+    powerSnapshot: 'app:power-snapshot',
     powerState: 'app:power-state',
     probe: 'runtime:probe',
     resolveOllamaCapabilities: 'runtime:resolveOllamaCapabilities',

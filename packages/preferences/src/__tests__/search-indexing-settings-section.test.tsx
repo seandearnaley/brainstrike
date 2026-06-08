@@ -69,6 +69,29 @@ describe('SearchIndexingSettingsSection', () => {
     });
   });
 
+  it('renders Workspace Index product copy instead of the old background-indexing label', async () => {
+    render(<SearchIndexingSettingsSection />);
+
+    expect((await screen.findAllByText('Workspace Index')).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/workspace index/i)).not.toBeNull();
+    expect(screen.queryByText(/^Background indexing$/i)).toBeNull();
+    expect(screen.queryByLabelText(/^Background indexing$/i)).toBeNull();
+  });
+
+  it('shows missing OpenAI key as a blocked Workspace Index setup state', async () => {
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'blocked',
+      blockedReason: 'missing-provider-key',
+      managedCollectionName: 'Workspace Index',
+      lastError: 'OpenAI API key not configured.',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    expect(await screen.findByText('Waiting for OpenAI key')).not.toBeNull();
+    expect(screen.getByText('OpenAI API key not configured.')).not.toBeNull();
+  });
+
   it('shows recovering status when reattaching to an in-flight background backfill', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
       state: 'recovering',
@@ -90,7 +113,7 @@ describe('SearchIndexingSettingsSection', () => {
     render(<SearchIndexingSettingsSection />);
 
     const pauseButton = await screen.findByRole('button', {
-      name: /pause background indexing/i,
+      name: /pause workspace index/i,
     });
     fireEvent.click(pauseButton);
 
@@ -100,7 +123,7 @@ describe('SearchIndexingSettingsSection', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: /resume background indexing/i,
+        name: /resume workspace index/i,
       })
     );
 
@@ -109,8 +132,9 @@ describe('SearchIndexingSettingsSection', () => {
     });
   });
 
-  it('hides the manual pause control when background indexing is idle', async () => {
+  it('shows the manual pause control when Workspace Index is idle and enabled', async () => {
     useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
       managedCollectionId: 'set-1',
     });
     useWorkspaceCollectionSyncStatusStore.setState({
@@ -121,16 +145,43 @@ describe('SearchIndexingSettingsSection', () => {
     render(<SearchIndexingSettingsSection />);
 
     await screen.findByRole('combobox', { name: /managed collection/i });
-    expect(
-      screen.queryByRole('button', {
-        name: /pause background indexing/i,
-      })
-    ).toBeNull();
-    expect(
-      screen.queryByRole('button', {
-        name: /resume background indexing/i,
-      })
-    ).toBeNull();
+    expect(screen.getByRole('button', { name: /pause workspace index/i })).not.toBeNull();
+  });
+
+  it('keeps the resume control visible when Workspace Index is paused after a sync error', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'set-1',
+      paused: true,
+    });
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'error',
+      managedCollectionName: 'Workspace Index',
+      lastError: 'Root folder not selected.',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    await screen.findByRole('combobox', { name: /managed collection/i });
+    expect(screen.getByRole('button', { name: /resume workspace index/i })).not.toBeNull();
+  });
+
+  it('keeps the pause control visible when a bound Workspace Index has a sync error', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'set-1',
+      paused: false,
+    });
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'error',
+      managedCollectionName: 'Workspace Index',
+      lastError: 'Root folder not selected.',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    await screen.findByRole('combobox', { name: /managed collection/i });
+    expect(screen.getByRole('button', { name: /pause workspace index/i })).not.toBeNull();
   });
 
   it('preserves the managed collection through a transient empty collection list', async () => {

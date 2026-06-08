@@ -4,12 +4,17 @@ import type {
   PackedContextChunk,
   QueryEmbeddingSpaceInput,
   RetrievalContextInput,
+  RetrievalUnavailableResult,
   RuntimeData,
 } from '@brainstrike/agent';
 import {
   ContextPacker,
+  createWorkspaceIndexUnavailableResult,
+  hasWorkspaceIndexRuntimeStatus,
+  normalizeOptionalText,
   QueryEmbeddingSpaceInputSchema,
   RetrievalContextInputSchema,
+  resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
@@ -57,7 +62,7 @@ const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
-  missingExplicitEmbeddingSet: 'queryEmbeddingSpace requires an explicit embeddingSetId.',
+  missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
@@ -75,7 +80,7 @@ const ERROR_MESSAGES = {
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
-  ERROR_MESSAGES.missingExplicitEmbeddingSet,
+  ERROR_MESSAGES.missingQueryEmbeddingSpace,
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
@@ -155,13 +160,7 @@ interface RetrievalToolResult {
   totalTokens: number;
 }
 
-function normalizeText(value: string | null | undefined): string | undefined {
-  if (!value) {
-    return;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
 
 function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] | undefined {
   if (!filePaths || filePaths.length === 0) {
@@ -233,7 +232,7 @@ async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<
 async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
   const secrets = getSecretsService();
   const fromSecrets = await secrets.getKey(provider);
-  const normalized = normalizeText(fromSecrets ?? undefined);
+  const normalized = normalizeOptionalText(fromSecrets ?? undefined);
   if (normalized) {
     return normalized;
   }
@@ -357,7 +356,11 @@ function resolveRuntimeEmbeddingSetId(
   runtime: RuntimeData | undefined,
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
-  return normalizeText(runtime?.embeddingSetId) ?? normalizeText(inputEmbeddingSetId);
+  return (
+    normalizeOptionalText(inputEmbeddingSetId) ??
+    normalizeOptionalText(runtime?.embeddingSetId) ??
+    resolveWorkspaceIndexEmbeddingSetId(runtime)
+  );
 }
 
 function resolveSelectionFilters(
@@ -365,8 +368,8 @@ function resolveSelectionFilters(
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
 ): { filePaths?: string[]; snapshotId?: string } {
-  const runtimeSnapshotId = normalizeText(runtime?.selectionSnapshotId);
-  const snapshotId = runtimeSnapshotId ?? normalizeText(inputSnapshotId);
+  const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
+  const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
   if (snapshotId) {
@@ -656,10 +659,14 @@ async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies = {}
-): Promise<RetrievalToolResult> {
+): Promise<RetrievalToolExecutionResult> {
   const query = normalizeQuery(input.query);
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
   if (!embeddingSetId) {
+    const unavailable = createWorkspaceIndexUnavailableResult(runtimeData, query);
+    if (unavailable) {
+      return unavailable;
+    }
     throw new Error(ERROR_MESSAGES.missingEmbeddingSet);
   }
 
@@ -734,9 +741,10 @@ export async function runQueryEmbeddingSpace(
   input: QueryEmbeddingSpaceInput,
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies = {}
-): Promise<RetrievalToolResult> {
-  if (!normalizeText(input.embeddingSetId)) {
-    throw new Error(ERROR_MESSAGES.missingExplicitEmbeddingSet);
+): Promise<RetrievalToolExecutionResult> {
+  const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
+  if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
+    throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
   }
   const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
   return await runRetrieval(input, explicitRuntimeData, dependencies);
@@ -765,7 +773,7 @@ export function createQueryEmbeddingSpaceTool(
   return {
     id: QUERY_EMBEDDING_SPACE_TOOL_ID,
     description:
-      'Query a specific embedding space by explicit embeddingSetId. Use listEmbeddingSpaces first when the ID is unknown. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+      'Query semantic workspace context. Omit embeddingSetId for Workspace Index codebase searches; provide embeddingSetId only for a specific non-default embedding space. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
     inputSchema: QueryEmbeddingSpaceInputSchema,
     execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
       const input = QueryEmbeddingSpaceInputSchema.parse(context.context);

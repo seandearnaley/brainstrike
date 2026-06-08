@@ -3,7 +3,7 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
+import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set.js';
 import type {
   FileImportRequest,
   FileImportResult,
@@ -27,6 +27,7 @@ export interface IEmbeddingSetsRepository {
     distance: EmbeddingDistance,
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet>;
+  getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet>;
   updateMetadata(
     id: string,
     metadata: { name?: string; description?: string; tags?: string; category?: string }

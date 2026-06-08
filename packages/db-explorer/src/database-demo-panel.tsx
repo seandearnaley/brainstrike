@@ -194,19 +194,24 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
-  const activeCollectionName = useMemo(() => {
+  const activeCollection = useMemo(() => {
     if (!activeCollectionId) {
-      return;
+      return null;
     }
-    const match = cachedCollections.find((collection) => collection.id === activeCollectionId);
-    return match?.name ?? match?.modelKey ?? undefined;
+    return cachedCollections.find((collection) => collection.id === activeCollectionId) ?? null;
   }, [activeCollectionId, cachedCollections]);
+  const activeCollectionName = useMemo(
+    () => activeCollection?.name ?? activeCollection?.modelKey ?? undefined,
+    [activeCollection]
+  );
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
   const isManagedCollection = Boolean(
-    activeCollectionId && activeCollectionId === managedCollectionId
+    activeCollectionId &&
+      (activeCollection?.systemRole === 'workspace-index' ||
+        (activeCollection === null && activeCollectionId === managedCollectionId))
   );
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
@@ -467,10 +472,16 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Collection management handlers
   const handleCollectionChange = useCallback(
     (collectionId: string | null) => {
+      const nextCollection = collectionId
+        ? cachedCollections.find((collection) => collection.id === collectionId)
+        : null;
+      if (nextCollection?.systemRole === 'workspace-index') {
+        return;
+      }
       logger.info('Collection changed', { collectionId });
       setActiveCollectionId(collectionId);
     },
-    [setActiveCollectionId]
+    [cachedCollections, setActiveCollectionId]
   );
 
   const handleManualRefresh = useCallback(() => {
@@ -711,6 +722,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               <CollectionBrowserView
                 activeCollectionId={activeCollectionId}
                 {...(activeCollectionName ? { activeCollectionName } : {})}
+                activeCollectionSystemRole={activeCollection?.systemRole ?? null}
                 chunks={chunks}
                 height="100%"
                 isLoading={refreshing}

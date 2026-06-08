@@ -857,6 +857,7 @@ describe('useVectorQueueState', () => {
   it('delegates API key validation to the queue service for the active set', async () => {
     const validateApiKeyForSet = vi.fn(async () => ({
       valid: false as const,
+      reason: 'missing-provider-key' as const,
       message: 'Missing API key',
     }));
     const service = createMockService({ validateApiKeyForSet });
@@ -872,6 +873,7 @@ describe('useVectorQueueState', () => {
 
     await expect(result.current.validateApiKey()).resolves.toEqual({
       valid: false,
+      reason: 'missing-provider-key',
       message: 'Missing API key',
     });
     expect(validateApiKeyForSet).toHaveBeenCalledWith('set-1');

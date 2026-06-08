@@ -7,6 +7,10 @@ export { CollectionPickerHeader } from './collection-picker-header';
 export { CollectionPickerItem } from './collection-picker-item';
 // Hooks
 export { type ResolvedTheme, useResolvedTheme } from './hooks/use-resolved-theme';
+export {
+  type CollectionPickerProtection,
+  getCollectionPickerProtection,
+} from './protection';
 // Types
 export type {
   CollectionPickerCollection,

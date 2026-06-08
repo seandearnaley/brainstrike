@@ -97,6 +97,7 @@ describe('Drizzle + PGlite Spike', () => {
         "description" text,
         "tags" text,
         "category" text,
+        "system_role" text,
         "allow_duplicates" boolean DEFAULT false
       )
     `);
@@ -384,6 +385,7 @@ describe('Drizzle + PGlite Spike', () => {
       expect(sets).toHaveLength(1);
       expect(sets[0]?.dimensions).toBe(1536);
       expect(sets[0]?.distance).toBe('cosine');
+      expect(sets[0]?.systemRole).toBeNull();
     });
   });
 

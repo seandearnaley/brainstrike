@@ -12,6 +12,14 @@ import type {
 } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  assertValidWorkspaceIndexingPowerSnapshot,
+  type WorkspaceIndexingPowerSnapshot,
+} from '@brainstrike/utils/workspace-indexing-power-snapshot';
+import {
+  resolveWorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingDatabasePressure,
+} from '@brainstrike/utils/workspace-indexing-qos';
 
 const logger = createLogger('EmbeddingWorkerConfig');
 // Desktop local embedding runs in a hidden renderer backed by the DB scheduler.
@@ -22,9 +30,14 @@ const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
 const DESKTOP_PRESSURE_POLL_MS = 50;
 const DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS = 10;
+const DESKTOP_POWER_SNAPSHOT_CACHE_MS = 1000;
 const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
+
+interface WorkspaceIndexingPowerBridge {
+  getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
+}
 
 function parsePositiveIntegerEnv(
   name:
@@ -58,20 +71,36 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
   }
 
   return {
-    getSnapshot: createCachedSchedulerSnapshotReader(schedulerSnapshot),
+    getSnapshot: createCachedSnapshotReader(schedulerSnapshot, DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS),
   };
 }
 
-function createCachedSchedulerSnapshotReader(
-  readSnapshot: () => DatabaseWorkSchedulerSnapshot | Promise<DatabaseWorkSchedulerSnapshot>,
+function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapshot>) | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const bridge = (window as Window & { power?: WorkspaceIndexingPowerBridge }).power;
+  const getSnapshot = bridge?.getSnapshot;
+  if (typeof getSnapshot !== 'function') {
+    return null;
+  }
+  return createCachedSnapshotReader(
+    async () => assertValidWorkspaceIndexingPowerSnapshot(await getSnapshot()),
+    DESKTOP_POWER_SNAPSHOT_CACHE_MS
+  );
+}
+
+function createCachedSnapshotReader<TSnapshot>(
+  readSnapshot: () => TSnapshot | Promise<TSnapshot>,
+  cacheMs: number,
   now: () => number = () => Date.now()
-): () => Promise<DatabaseWorkSchedulerSnapshot> {
-  let cachedSnapshot: DatabaseWorkSchedulerSnapshot | null = null;
+): () => Promise<TSnapshot> {
+  let cachedSnapshot: TSnapshot | null = null;
   let cachedAt = 0;
-  let pendingSnapshot: Promise<DatabaseWorkSchedulerSnapshot> | null = null;
+  let pendingSnapshot: Promise<TSnapshot> | null = null;
   return async () => {
     const readAt = now();
-    if (cachedSnapshot && readAt - cachedAt <= DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS) {
+    if (cachedSnapshot && readAt - cachedAt <= cacheMs) {
       return cachedSnapshot;
     }
     if (pendingSnapshot) {
@@ -95,18 +124,56 @@ function createCachedSchedulerSnapshotReader(
   };
 }
 
-function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
+function getDesktopDatabasePressureReason(snapshot: DatabaseWorkSchedulerSnapshot): string | null {
   // The stats window is intentionally evaluated after the scheduler quiet
   // window: recent foreground work always wins, even if latency samples are low.
   // If the scheduler quiet window is tuned longer than this desktop stats
   // window, the quiet-window branch deliberately owns that full period.
-  return (
-    getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
-      foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
-      foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
-      foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
-    }) !== null
-  );
+  return getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
+    foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
+    foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
+    foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
+  });
+}
+
+function toWorkspaceIndexingDatabasePressure(
+  snapshot: DatabaseWorkSchedulerSnapshot
+): WorkspaceIndexingDatabasePressure {
+  const reason = getDesktopDatabasePressureReason(snapshot);
+  const normalPressure = reason?.startsWith('normal-') === true;
+  return {
+    available: true,
+    foregroundPressure: reason !== null && !normalPressure,
+    normalPressure,
+  };
+}
+
+function resolveDesktopClaimBatchSize(
+  snapshot: DatabaseWorkSchedulerSnapshot,
+  idleClaimBatchSize: number,
+  powerSnapshot: WorkspaceIndexingPowerSnapshot | null
+): number {
+  const policy = resolveWorkspaceIndexingQosPolicy({
+    dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
+    // TODO(workspace-index-qos): wire this to foreground query activity if the
+    // embedding host exposes in-flight query state to claim-size resolution.
+    foregroundQueryActive: false,
+    idleState: powerSnapshot?.idleState ?? 'active',
+    idleTimeMs: powerSnapshot?.idleTimeMs ?? 0,
+    manualPaused: false,
+    powerSource: powerSnapshot?.powerSource ?? 'unknown',
+    // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry once
+    // the embedding queue records provider throttling independently of failures.
+    providerRateLimited: false,
+    recentUserInputMs: null,
+    thermalState: powerSnapshot?.thermalState ?? 'unknown',
+    windowVisible: false,
+  });
+  const positiveClaimBatchSize =
+    policy.workerClaimBatchSize > 0
+      ? policy.workerClaimBatchSize
+      : DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE;
+  return Math.min(positiveClaimBatchSize, idleClaimBatchSize);
 }
 
 type BackgroundPermit = NonNullable<EmbeddingWorkerOptions['waitForBackgroundPermit']>;
@@ -137,6 +204,7 @@ function createDesktopPressureControls(
   gate: ForegroundEmbeddingGate | undefined
 ): Pick<EmbeddingWorkerOptions, 'resolveClaimBatchSize' | 'waitForBackgroundPermit'> {
   const snapshotSource = createPressureSnapshotSource(db);
+  const readPowerSnapshot = createReadPowerSnapshot();
   const pressureController = createDatabasePressureController({
     pollMs: DESKTOP_PRESSURE_POLL_MS,
     snapshotSource,
@@ -144,10 +212,11 @@ function createDesktopPressureControls(
   return {
     resolveClaimBatchSize: async () => {
       const snapshot = await snapshotSource.getSnapshot();
-      if (hasForegroundDatabasePressure(snapshot)) {
-        return DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE;
-      }
-      return idleClaimBatchSize;
+      return resolveDesktopClaimBatchSize(
+        snapshot,
+        idleClaimBatchSize,
+        readPowerSnapshot ? await readPowerSnapshot() : null
+      );
     },
     waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),
   };

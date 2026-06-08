@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
 import { CollectionPicker } from '../collection-picker';
+import { getCollectionPickerProtection } from '../protection';
 import type { CollectionPickerCollection } from '../types';
 
 // Mock useTheme
@@ -55,6 +56,23 @@ const mockCollections: CollectionPickerCollection[] = [
   },
 ];
 
+const workspaceIndexCollection: CollectionPickerCollection = {
+  id: 'workspace-index',
+  modelKey: 'openai::text-embedding-3-small',
+  modelId: 'text-embedding-3-small',
+  dimensions: 1536,
+  distance: 'cosine',
+  createdAt: new Date().toISOString(),
+  name: 'Workspace Index',
+  description: 'System-managed workspace index for assistant retrieval.',
+  tags: null,
+  category: null,
+  fileCount: 42,
+  chunkCount: 420,
+  embeddingCount: 300,
+  systemRole: 'workspace-index',
+};
+
 describe('CollectionPicker', () => {
   const defaultProps = {
     collections: mockCollections,
@@ -67,6 +85,10 @@ describe('CollectionPicker', () => {
 
   const renderWithProvider = (ui: React.ReactElement) =>
     render(<TooltipProvider>{ui}</TooltipProvider>);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('renders collections correctly', () => {
     renderWithProvider(<CollectionPicker {...defaultProps} />);
@@ -160,5 +182,64 @@ describe('CollectionPicker', () => {
 
     expect(embeddedLabel.closest('button')).toBeNull();
     expect(embeddedLabel.parentElement).not.toHaveAttribute('tabindex');
+  });
+
+  it('renders the workspace index as visible but protected', () => {
+    renderWithProvider(
+      <CollectionPicker
+        {...defaultProps}
+        collections={[workspaceIndexCollection, ...mockCollections]}
+      />
+    );
+
+    const workspaceOption = screen.getByRole('option', { name: /Workspace Index/ });
+    expect(workspaceOption).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('Workspace Index')).toBeInTheDocument();
+    expect(screen.getByText('Workspace index')).toBeInTheDocument();
+    expect(screen.getByText('Managed by Brainstrike for assistant retrieval')).toBeInTheDocument();
+
+    fireEvent.click(workspaceOption);
+
+    expect(defaultProps.onSelect).not.toHaveBeenCalled();
+    expect(within(workspaceOption).queryByRole('button', { name: 'Edit collection' })).toBeNull();
+    expect(within(workspaceOption).queryByRole('button', { name: 'Delete collection' })).toBeNull();
+  });
+
+  it('does not select the workspace index with Enter or Space', () => {
+    renderWithProvider(
+      <CollectionPicker
+        {...defaultProps}
+        collections={[workspaceIndexCollection, ...mockCollections]}
+      />
+    );
+
+    const listbox = screen.getByRole('listbox');
+    listbox.focus();
+
+    fireEvent.keyDown(listbox, { key: 'Enter' });
+    fireEvent.keyDown(listbox, { key: ' ' });
+
+    expect(defaultProps.onSelect).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    fireEvent.keyDown(listbox, { key: 'Enter' });
+
+    expect(defaultProps.onSelect).toHaveBeenCalledWith('1');
+  });
+});
+
+describe('getCollectionPickerProtection', () => {
+  it('provides a disabled reason for non-selectable collections', () => {
+    const baseCollection = mockCollections[0];
+    if (!baseCollection) {
+      throw new Error('Expected at least one mock collection');
+    }
+
+    expect(
+      getCollectionPickerProtection({
+        ...baseCollection,
+        canNormalSearchSelect: false,
+      }).disabledReason
+    ).toBe('Selection is disabled for this collection');
   });
 });

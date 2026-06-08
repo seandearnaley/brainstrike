@@ -25,6 +25,7 @@ import { migration032FileChunkSourceRanges } from '../migrations/032-file-chunk-
 import { migration033UpdateProviderModels2026Frontier } from '../migrations/033-update-provider-models-2026-frontier.js';
 import { migration034TsvectorGeneratedColumn } from '../migrations/034-tsvector-generated-column.js';
 import { migration035Uuidv7PrimaryKeys } from '../migrations/035-uuidv7-primary-keys.js';
+import { migration036WorkspaceIndexSystemRole } from '../migrations/036-workspace-index-system-role.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -152,6 +153,7 @@ const customMigrations: Migration[] = [
   ),
   customMigration('custom-034-tsvector-generated-column', migration034TsvectorGeneratedColumn),
   customMigration('custom-035-uuidv7-primary-keys', migration035Uuidv7PrimaryKeys),
+  customMigration('custom-036-workspace-index-system-role', migration036WorkspaceIndexSystemRole),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

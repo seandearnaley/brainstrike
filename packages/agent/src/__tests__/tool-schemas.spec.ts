@@ -61,11 +61,11 @@ describe('tool schemas', () => {
     expect(ok.ok).toBe(false);
   });
 
-  it('requires an explicit embedding set for embedding-space queries', () => {
+  it('allows embedding-space queries to omit an explicit id for workspace-index defaulting', () => {
     const ok = validateToolInput('brainstrike.queryEmbeddingSpace', {
       query: 'where is context assembled?',
     });
-    expect(ok.ok).toBe(false);
+    expect(ok.ok).toBe(true);
   });
 
   it('validates workspace-index embedding-space listing input', () => {
@@ -76,10 +76,10 @@ describe('tool schemas', () => {
     expect(ok.ok).toBe(true);
   });
 
-  it('marks embedding set id as required in query display metadata', () => {
+  it('marks embedding set id as optional in query display metadata', () => {
     const schema = getToolSchemaDisplay('brainstrike.queryEmbeddingSpace');
     const embeddingSetParam = schema?.parameters.find((param) => param.name === 'embeddingSetId');
-    expect(embeddingSetParam?.required).toBe(true);
+    expect(embeddingSetParam?.required).toBe(false);
   });
 
   it('documents workspace-index filtering for embedding-space listing', () => {

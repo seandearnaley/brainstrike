@@ -1316,9 +1316,6 @@ function resolveQueryEmbeddingSpaceInput(
     QueryEmbeddingSpaceInputSchema,
     input
   ) as Partial<QueryEmbeddingSpaceInput>;
-  if (!(typeof raw.embeddingSetId === 'string' && raw.embeddingSetId.trim().length > 0)) {
-    throw new Error('Select an embedding space before querying semantic context.');
-  }
   return QueryEmbeddingSpaceInputSchema.parse(raw);
 }
 
@@ -1444,7 +1441,7 @@ export function buildDesktopAssistantTools(
     [LIST_EMBEDDING_SPACES_TOOL_ID]: {
       id: LIST_EMBEDDING_SPACES_TOOL_ID,
       description:
-        'List available embedding spaces and identify the configured workspace index. For codebase questions, call this first and prefer the space marked recommendedForWorkspaceSearch, then pass its explicit id to queryEmbeddingSpace.',
+        'List available embedding spaces, identify the configured Workspace Index, and optionally include coverage stats. Use this when you need to inspect non-default embedding spaces or index coverage.',
       inputSchema: ListEmbeddingSetsInputSchema,
       execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
         const resolvedInput = parseToolExecuteInput(ListEmbeddingSetsInputSchema, input);
@@ -1459,7 +1456,7 @@ export function buildDesktopAssistantTools(
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
       id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       description:
-        'Query a specific embedding space by explicit embeddingSetId and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, use listEmbeddingSpaces first and prefer its recommended workspace index. Provide tokenBudget, limit, threshold, and optional filePaths; read files afterward only when surrounding context is needed.',
+        'Query semantic workspace context and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, omit embeddingSetId to use the Workspace Index. Provide embeddingSetId only for a specific non-default embedding space; use tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
       inputSchema: QueryEmbeddingSpaceInputSchema,
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);

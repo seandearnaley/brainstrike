@@ -162,6 +162,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/db/src/index.ts'),
       },
       {
+        find: '@brainstrike/utils/workspace-indexing-qos',
+        replacement: path.resolve(__dirname, '../../packages/utils/src/workspace-indexing-qos.ts'),
+      },
+      {
+        find: /^@brainstrike\/utils$/,
+        replacement: path.resolve(__dirname, '../../packages/utils/src/index.ts'),
+      },
+      {
         find: '@brainstrike/utils',
         replacement: path.resolve(__dirname, '../../packages/utils/src'),
       },
@@ -353,6 +361,7 @@ export default defineConfig({
       '@brainstrike/hooks',
       '@brainstrike/ui',
       '@brainstrike/utils',
+      '@brainstrike/utils/workspace-indexing-qos',
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
       '@brainstrike/file-explorer-ui',

@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
@@ -256,6 +256,95 @@ describe('EmbeddingSetsRepository', () => {
     ]);
     expect(statements).toHaveLength(1);
     expect(statements[0]).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
+  });
+
+  it('creates one protected workspace index set with the default local embedding model', async () => {
+    const first = await repo.getOrCreateWorkspaceIndexSet();
+    const second = await repo.getOrCreateWorkspaceIndexSet();
+
+    expect(second.id).toBe(first.id);
+    expect(first).toMatchObject({
+      name: 'Workspace Index',
+      description: 'System-managed workspace index for assistant retrieval.',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+      distance: 'cosine',
+      systemRole: 'workspace-index',
+    });
+
+    const stats = await db.query<{ embedding_set_id: string }>(
+      'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = $1',
+      [first.id]
+    );
+    expect(stats.rows).toHaveLength(1);
+  });
+
+  it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+    const trackedDb = {
+      exec: vi.fn(async (sql: string): Promise<void> => {
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          throw new Error('transient index creation failure');
+        }
+        await db.exec(sql);
+      }),
+      query: db.query.bind(db),
+    };
+    const trackedRepo = new EmbeddingSetsRepository(trackedDb);
+
+    const created = await trackedRepo.getOrCreateWorkspaceIndexSet();
+
+    expect(created.systemRole).toBe('workspace-index');
+    await expect(repo.getById(created.id)).resolves.toEqual(
+      expect.objectContaining({ id: created.id })
+    );
+    expect(trackedDb.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
+    );
+  });
+
+  it('keeps regular user-created sets user-owned', async () => {
+    const set = await repo.getOrCreateSet(
+      'openai::text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine',
+      { name: 'User Search Collection' }
+    );
+
+    expect(set.systemRole).toBeUndefined();
+
+    const fetched = await repo.getById(set.id);
+    expect(fetched?.systemRole).toBeUndefined();
+  });
+
+  it('enforces a single workspace index system role at the database level', async () => {
+    await repo.getOrCreateWorkspaceIndexSet();
+
+    await expect(
+      db.query(
+        `INSERT INTO embedding_sets (
+          id,
+          model_key,
+          model_id,
+          dimensions,
+          distance,
+          created_at,
+          name,
+          system_role
+        )
+        VALUES (
+          'duplicate-workspace-index',
+          'openai::text-embedding-3-small',
+          'text-embedding-3-small',
+          1536,
+          'cosine',
+          CURRENT_TIMESTAMP,
+          'Duplicate Workspace Index',
+          'workspace-index'
+        )`
+      )
+    ).rejects.toThrow();
   });
 
   it('rejects invalid numeric values when listing embedding spaces', async () => {

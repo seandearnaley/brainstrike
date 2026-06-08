@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import type { DesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 
 interface ReloadIntent {
   readonly reason: string;
@@ -9,6 +10,7 @@ interface ReloadIntent {
 
 interface MainPlatformIpcDependencies {
   readonly getAssistantUrl: () => string;
+  readonly getPowerSnapshot: () => DesktopPowerSnapshot;
   readonly noteNextWindowReload: (window: BrowserWindow, intent: ReloadIntent) => void;
 }
 
@@ -33,12 +35,17 @@ function normalizeReloadIntentReason(reason: unknown): string {
 
 export function registerMainPlatformIpcHandlers({
   getAssistantUrl,
+  getPowerSnapshot,
   noteNextWindowReload,
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registry.registerInvoke('agent', DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl, () =>
     getAssistantUrl()
+  );
+
+  registry.registerInvoke('runtime', DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot, () =>
+    getPowerSnapshot()
   );
 
   registry.registerInvoke(

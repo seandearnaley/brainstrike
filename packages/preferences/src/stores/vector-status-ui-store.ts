@@ -41,6 +41,7 @@ export interface CachedCollection {
   modelId: string;
   modelKey: string;
   name: string | null;
+  systemRole?: 'workspace-index' | null;
   tags: string | null;
 }
 

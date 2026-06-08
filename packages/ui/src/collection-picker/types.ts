@@ -4,7 +4,17 @@
  * This type is compatible with CollectionWithDocCount from @brainstrike/vector-management
  * to allow easy integration without type mapping.
  */
+export type CollectionPickerSystemRole = 'workspace-index';
+
 export interface CollectionPickerCollection {
+  /** Whether normal users may delete this collection. Defaults to false for system collections. */
+  canDelete?: boolean;
+  /** Whether normal users may edit this collection. Defaults to false for system collections. */
+  canEdit?: boolean;
+  /** Whether manual imports may target this collection. Defaults to false for system collections. */
+  canManualImport?: boolean;
+  /** Whether normal search collection selectors may select this collection. */
+  canNormalSearchSelect?: boolean;
   /** Collection category (optional) */
   category: string | null;
   /** Number of chunks */
@@ -15,6 +25,8 @@ export interface CollectionPickerCollection {
   description: string | null;
   /** Embedding dimensions (e.g., 1536) */
   dimensions: number;
+  /** Human-readable reason when selection is disabled. */
+  disabledReason?: string | null;
   /** Distance metric for similarity search */
   distance: 'cosine' | 'l2' | 'ip';
   /** Number of embeddings generated */
@@ -29,6 +41,10 @@ export interface CollectionPickerCollection {
   modelKey: string;
   /** User-friendly name (optional) */
   name: string | null;
+  /** Whether this row is managed by Brainstrike rather than the user. */
+  systemManaged?: boolean;
+  /** Durable system role for protected Brainstrike-owned collections. */
+  systemRole?: CollectionPickerSystemRole | null;
   /** Comma-separated tags (optional) */
   tags: string | null;
 }

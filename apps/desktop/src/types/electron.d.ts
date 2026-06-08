@@ -21,6 +21,11 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type {
+  WorkspaceIndexingIdleState,
+  WorkspaceIndexingPowerSource,
+  WorkspaceIndexingThermalState,
+} from '@brainstrike/utils/workspace-indexing-qos';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type {
   EmbeddingHostBackfillRequest,
@@ -241,6 +246,13 @@ declare global {
       ) => () => void;
     };
     power: {
+      getSnapshot: () => Promise<{
+        idleState: WorkspaceIndexingIdleState;
+        idleTimeMs: number;
+        powerSource: WorkspaceIndexingPowerSource;
+        sampledAt: number;
+        thermalState: WorkspaceIndexingThermalState;
+      }>;
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
     secrets: {

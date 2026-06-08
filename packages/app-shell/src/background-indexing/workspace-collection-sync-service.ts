@@ -34,6 +34,7 @@ import {
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
   collectPreparedChangesInBatches,
@@ -42,6 +43,7 @@ import {
   runRootFolderCacheImport,
 } from './workspace-collection-sync-import';
 import {
+  createAbortError,
   createScanningStatusReporter,
   dispatchQueueDrainedEvent,
   getBackfillDrainPollDelayMs,
@@ -53,10 +55,18 @@ import {
   toWorkspaceCollectionSyncImportProgress,
   waitForAbortableDelay,
 } from './workspace-collection-sync-progress';
+import { isWorkspaceIndexBlockedError } from './workspace-index-blocked-error';
 
 const logger = createLogger('WorkspaceCollectionSyncService');
 
 const DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS = 10 * 60 * 1000;
+const QOS_RETRY_LABELS = {
+  backfill: 'Workspace Index backfill',
+  import: 'Workspace Index import',
+  scan: 'Workspace Index scan',
+} as const;
+
+type WorkspaceIndexingQosPhase = keyof typeof QOS_RETRY_LABELS;
 
 interface RootDirectoryHandle {
   _internal?: unknown;
@@ -97,6 +107,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   >;
   log?: typeof logger;
   onManagedCollectionMissing?: (managedCollectionId: string) => void;
+  resolveQosPolicy: () => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
   subscribeToBackfillProgress: (
@@ -151,6 +162,7 @@ export class WorkspaceCollectionSyncService {
 
   private createClearedProgressState(): Pick<
     WorkspaceCollectionSyncStatusPatch,
+    | 'blockedReason'
     | 'backfillRequestId'
     | 'chunkingProgress'
     | 'currentFilePath'
@@ -165,6 +177,7 @@ export class WorkspaceCollectionSyncService {
   > {
     return {
       backfillRequestId: null,
+      blockedReason: null,
       currentFilePath: null,
       scanSummary: null,
       importProgress: null,
@@ -233,6 +246,7 @@ export class WorkspaceCollectionSyncService {
   }): void {
     this.deps.setStatus({
       state: 'error',
+      blockedReason: null,
       managedCollectionId: args.managedCollectionId,
       managedCollectionName: args.managedCollectionName,
       activeRootPath: args.activeRootPath,
@@ -403,10 +417,14 @@ export class WorkspaceCollectionSyncService {
   }
 
   private async ensureCollectionAccess(context: ResolvedSyncContext): Promise<void> {
+    await this.ensureProviderAccess(context);
+    await this.deps.ensureEmbeddingRuntimeStarted();
+  }
+
+  private async ensureProviderAccess(context: ResolvedSyncContext): Promise<void> {
     if (!isLocalProviderType(context.provider)) {
       await this.deps.validateHostedProviderAccess(context.collection.id);
     }
-    await this.deps.ensureEmbeddingRuntimeStarted();
   }
 
   private setScanningStatus(
@@ -426,12 +444,54 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  private setQosWaitingStatus(context: ResolvedSyncContext): void {
+    this.deps.setStatus({
+      state: 'waiting',
+      managedCollectionId: context.collection.id,
+      managedCollectionName: context.collection.name ?? null,
+      activeRootPath: context.rootPath,
+      currentFilePath: null,
+      lastError: null,
+      pauseReasons: [],
+    });
+  }
+
+  private async resolveQosPolicyForNewWork(args: {
+    abortSignal: AbortSignal;
+    context: ResolvedSyncContext;
+    phase: WorkspaceIndexingQosPhase;
+  }): Promise<WorkspaceIndexingQosPolicy> {
+    let qosPolicy = await this.deps.resolveQosPolicy();
+    while (!qosPolicy.allowNewWork && qosPolicy.state === 'foreground-yielding') {
+      throwIfAborted(args.abortSignal);
+      this.setQosWaitingStatus(args.context);
+      await this.deps.waitForBackgroundPermit({
+        label: QOS_RETRY_LABELS[args.phase],
+      });
+      throwIfAborted(args.abortSignal);
+      await waitForAbortableDelay(Math.max(1, qosPolicy.interBatchDelayMs), args.abortSignal);
+      throwIfAborted(args.abortSignal);
+      qosPolicy = await this.deps.resolveQosPolicy();
+    }
+    if (!qosPolicy.allowNewWork && qosPolicy.state === 'paused') {
+      throw createAbortError('Workspace Index sync paused.');
+    }
+    if (!qosPolicy.allowNewWork) {
+      // Invariant: production QoS only blocks new work for foreground-yielding
+      // or paused states. Guard injected/future states before scan/import/backfill
+      // helpers can surface a hard "does not permit work" error.
+      throw createAbortError('Workspace Index sync paused by QoS policy.');
+    }
+    return qosPolicy;
+  }
+
   private async collectPreparedChanges(args: {
     request: WorkspaceCollectionSyncRequest;
     context: ResolvedSyncContext;
     abortSignal: AbortSignal;
+    qosPolicy: WorkspaceIndexingQosPolicy;
   }): Promise<PreparedChangesSummary> {
-    const { request, context, abortSignal } = args;
+    const { request, context, abortSignal, qosPolicy } = args;
     const entryPolicy = createBackgroundIndexingEntryPolicy({
       preset: request.indexingPolicyPreset,
     });
@@ -472,6 +532,7 @@ export class WorkspaceCollectionSyncService {
         onCurrentFile: (path) => {
           statusReporter.report(path);
         },
+        qosPolicy,
         rootPath: context.activeRootPath,
         ...(this.deps.fileContentProcessor
           ? { fileContentProcessor: this.deps.fileContentProcessor }
@@ -572,12 +633,16 @@ export class WorkspaceCollectionSyncService {
     abortSignal: AbortSignal;
     chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
     collection: EmbeddingSet;
+    qosPolicy: WorkspaceIndexingQosPolicy;
     rootPath: string;
     summary: Pick<
       PreparedChangesSummary,
       'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
     >;
   }): Promise<void> {
+    if (!args.qosPolicy.allowNewWork) {
+      throw createAbortError('Workspace Index QoS policy does not permit backfill enqueue work.');
+    }
     const pendingRequestId = `pending:${args.collection.id}:${Date.now()}`;
     let resolvedRequestId = pendingRequestId;
     let unsubscribeBackfillProgress: (() => void) | null = null;
@@ -690,6 +755,19 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
   }): void {
     const message = args.error instanceof Error ? args.error.message : String(args.error);
+    if (isWorkspaceIndexBlockedError(args.error)) {
+      this.deps.setStatus({
+        state: 'blocked',
+        managedCollectionId: args.collection.id,
+        managedCollectionName: args.collection.name ?? null,
+        activeRootPath: args.rootPath,
+        ...this.createClearedProgressState(),
+        blockedReason: args.error.blockedReason,
+        lastError: message,
+      });
+      return;
+    }
+
     this.deps.log?.error('Workspace collection sync failed', {
       error: message,
       managedCollectionId: args.collection.id,
@@ -827,10 +905,16 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
     runId: number;
   }): Promise<void> {
+    const scanQosPolicy = await this.resolveQosPolicyForNewWork({
+      abortSignal: args.abortSignal,
+      context: args.context,
+      phase: 'scan',
+    });
     const prepared = await this.collectPreparedChanges({
       request: args.request,
       context: args.context,
       abortSignal: args.abortSignal,
+      qosPolicy: scanQosPolicy,
     });
     this.setScanSummary(args.context, prepared);
 
@@ -842,6 +926,11 @@ export class WorkspaceCollectionSyncService {
           abortSignal: args.abortSignal,
           chunkingProgress: null,
           collection: args.context.collection,
+          qosPolicy: await this.resolveQosPolicyForNewWork({
+            abortSignal: args.abortSignal,
+            context: args.context,
+            phase: 'backfill',
+          }),
           rootPath: args.context.rootPath,
           summary: prepared,
         });
@@ -895,6 +984,11 @@ export class WorkspaceCollectionSyncService {
           )
         );
       },
+      qosPolicy: await this.resolveQosPolicyForNewWork({
+        abortSignal: args.abortSignal,
+        context: args.context,
+        phase: 'import',
+      }),
       setImporting: this.deps.setImporting,
       waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
     });
@@ -907,6 +1001,11 @@ export class WorkspaceCollectionSyncService {
       abortSignal: args.abortSignal,
       chunkingProgress,
       collection: args.context.collection,
+      qosPolicy: await this.resolveQosPolicyForNewWork({
+        abortSignal: args.abortSignal,
+        context: args.context,
+        phase: 'backfill',
+      }),
       rootPath: args.context.rootPath,
       summary: prepared,
     });
@@ -942,6 +1041,23 @@ export class WorkspaceCollectionSyncService {
       request,
     });
     if (!context) {
+      return;
+    }
+
+    try {
+      await this.ensureProviderAccess(context);
+    } catch (error) {
+      if (this.isCancelled(currentRunId) || isAbortError(error)) {
+        return;
+      }
+      this.handleSyncFailure({
+        collection: context.collection,
+        error,
+        rootPath: context.rootPath,
+      });
+      return;
+    }
+    if (this.isCancelled(currentRunId)) {
       return;
     }
 

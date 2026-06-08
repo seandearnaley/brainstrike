@@ -9,7 +9,12 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { eq } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { ensureDimensionIndexExists } from '../../migrations/dimension-index-helpers.js';
-import type { EmbeddingDistance, EmbeddingSet } from '../../models/embedding-set.js';
+import {
+  type EmbeddingDistance,
+  type EmbeddingSet,
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
+  WORKSPACE_INDEX_SYSTEM_ROLE,
+} from '../../models/embedding-set.js';
 import { collectionIndexingStats, embeddingSets } from '../../schema/index.js';
 import {
   normalizeEmbeddingSetInputMetadata,
@@ -23,6 +28,73 @@ export class DrizzleEmbeddingSetsRepository {
   private readonly logger = createLogger('DrizzleEmbeddingSetsRepository');
 
   constructor(private readonly db: DrizzleDb) {}
+
+  async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
+    const dbAdapter = this.createQueryAdapter();
+    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(dbAdapter, {
+      modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
+      modelId: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelId,
+    });
+    const now = new Date();
+
+    const row = await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(embeddingSets)
+        .where(eq(embeddingSets.systemRole, WORKSPACE_INDEX_SYSTEM_ROLE))
+        .limit(1);
+
+      if (existing) {
+        await tx
+          .insert(collectionIndexingStats)
+          .values({ embeddingSetId: existing.id })
+          .onConflictDoNothing();
+        return existing;
+      }
+
+      const id = generateUUID();
+      const [inserted] = await tx
+        .insert(embeddingSets)
+        .values({
+          id,
+          modelKey: normalizedMetadata.modelKey,
+          modelId: normalizedMetadata.modelId,
+          dimensions: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions,
+          distance: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.distance,
+          createdAt: now,
+          name: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.name,
+          description: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.description,
+          tags: null,
+          category: null,
+          systemRole: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.systemRole,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      const [selected] =
+        inserted === undefined
+          ? await tx
+              .select()
+              .from(embeddingSets)
+              .where(eq(embeddingSets.systemRole, WORKSPACE_INDEX_SYSTEM_ROLE))
+              .limit(1)
+          : [inserted];
+
+      if (!selected) {
+        throw new Error('Failed to create or load the workspace index embedding set.');
+      }
+
+      await tx
+        .insert(collectionIndexingStats)
+        .values({ embeddingSetId: selected.id })
+        .onConflictDoNothing();
+      return selected;
+    });
+
+    await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+
+    return this.readEmbeddingSet(row);
+  }
 
   async getOrCreateSet(
     modelKey: string,
@@ -71,16 +143,7 @@ export class DrizzleEmbeddingSetsRepository {
       );
     }
 
-    // Ensure HNSW index exists for this dimension (idempotent, best-effort)
-    try {
-      // Note: This still uses raw SQL as index creation isn't supported by Drizzle query builder
-      await ensureDimensionIndexExists(dbAdapter, dimensions);
-    } catch (error) {
-      this.logger.warn('Failed to ensure dimension index exists', {
-        dimensions,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.ensureDimensionIndexBestEffort(dimensions);
 
     this.logger.info('Created new embedding set', {
       id,
@@ -182,6 +245,9 @@ export class DrizzleEmbeddingSetsRepository {
     if (row.category !== null) {
       base.category = row.category;
     }
+    if (row.systemRole === WORKSPACE_INDEX_SYSTEM_ROLE) {
+      base.systemRole = WORKSPACE_INDEX_SYSTEM_ROLE;
+    }
 
     return base;
   }
@@ -231,5 +297,16 @@ export class DrizzleEmbeddingSetsRepository {
       modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
     };
+  }
+
+  private async ensureDimensionIndexBestEffort(dimensions: number): Promise<void> {
+    try {
+      await ensureDimensionIndexExists(this.createQueryAdapter(), dimensions);
+    } catch (error) {
+      this.logger.warn('Failed to ensure dimension index exists', {
+        dimensions,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }

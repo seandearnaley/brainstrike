@@ -28,6 +28,7 @@ const logger = createLogger('DesktopEmbeddingBackfillIpc');
 const EMBEDDING_BACKFILL_DATABASE_PRIORITY: DatabaseWorkPriority = 'background';
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
+const BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
 // Automatic embedding-host reclaim remains opt-in. The real 12k-chunk desktop
 // backfill path is stable without it, while automatic reclaim still introduces
@@ -305,6 +306,7 @@ export async function runDesktopEmbeddingBackfill(params: {
         progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
         ...(source === 'background-indexing'
           ? {
+              drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
               queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
             }
           : {}),

@@ -1,9 +1,43 @@
+import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 
-test.describe('Background indexing pause controls', { tag: '@smoke' }, () => {
-  test('hide manual pause controls while background indexing is inactive', async ({
-    window,
+const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
+
+interface PersistedBackgroundIndexingPreferences {
+  readonly paused: boolean;
+}
+
+async function readBackgroundIndexingPreferences(
+  page: Page
+): Promise<PersistedBackgroundIndexingPreferences | null> {
+  const raw = await page.evaluate(async (key) => {
+    const api = (
+      window as Window & {
+        electronAPI?: {
+          storage?: {
+            getItem?: (storageKey: string) => Promise<string | null>;
+          };
+        };
+      }
+    ).electronAPI;
+    if (!api?.storage?.getItem) {
+      throw new Error('Desktop storage bridge is unavailable.');
+    }
+    return await api.storage.getItem(key);
+  }, BACKGROUND_INDEXING_PREFERENCES_KEY);
+  if (!raw) {
+    return null;
+  }
+  const parsed = JSON.parse(raw) as { state?: Partial<PersistedBackgroundIndexingPreferences> };
+  return {
+    paused: parsed.state?.paused === true,
+  };
+}
+
+test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
+  test('pause and resume the bootstrapped workspace index from settings', async ({
     homePage,
+    window,
   }) => {
     await homePage.openSettings();
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
@@ -13,11 +47,42 @@ test.describe('Background indexing pause controls', { tag: '@smoke' }, () => {
       .getByRole('button', { name: /Search & Indexing/i })
       .click();
 
-    await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible();
+    const settingsPanel = window.getByTestId('settings-category-search-indexing');
+    await expect(settingsPanel).toBeVisible();
+    await expect(window.getByRole('switch', { name: 'Workspace Index' })).toBeChecked({
+      timeout: 15_000,
+    });
+    await expect(window.locator('#managed-cache-collection')).toContainText('Workspace Index', {
+      timeout: 15_000,
+    });
 
-    await expect(window.getByRole('button', { name: /pause background indexing/i })).toHaveCount(0);
-    await expect(window.getByRole('button', { name: /resume background indexing/i })).toHaveCount(
-      0
-    );
+    const pauseButton = settingsPanel.getByRole('button', { name: 'Pause workspace index' });
+    await expect(pauseButton).toBeVisible({ timeout: 15_000 });
+    await pauseButton.focus();
+    await window.keyboard.press('Enter');
+
+    const resumeButton = settingsPanel.getByRole('button', { name: 'Resume workspace index' });
+    await expect(resumeButton).toBeVisible({ timeout: 15_000 });
+
+    await expect
+      .poll(async () => await readBackgroundIndexingPreferences(window), {
+        timeout: 15_000,
+        message: 'Expected activating Pause workspace index to persist paused=true.',
+      })
+      .toMatchObject({ paused: true });
+
+    await resumeButton.focus();
+    await window.keyboard.press('Enter');
+
+    await expect
+      .poll(async () => await readBackgroundIndexingPreferences(window), {
+        timeout: 15_000,
+        message: 'Expected activating Resume workspace index to persist paused=false.',
+      })
+      .toMatchObject({ paused: false });
+
+    await expect(settingsPanel.getByRole('button', { name: 'Pause workspace index' })).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

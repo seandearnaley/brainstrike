@@ -15,6 +15,7 @@ export type PersistApi<T> = T & {
         setItem: (name: string, value: string) => void;
         removeItem: (name: string) => void;
       };
+      version?: number;
     };
     clearStorage?: () => void;
   };

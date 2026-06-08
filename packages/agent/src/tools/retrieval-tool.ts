@@ -18,6 +18,12 @@ import type { RuntimeData } from '../types';
 import type { RetrievalContextInput } from './schemas';
 import { RetrievalContextInputSchema } from './schemas';
 import type { ToolContext } from './types';
+import {
+  createWorkspaceIndexUnavailableResult,
+  normalizeOptionalText,
+  type RetrievalUnavailableResult,
+  resolveWorkspaceIndexEmbeddingSetId,
+} from './workspace-index-retrieval';
 
 /** Tool identifier used in the Mastra tools registry */
 export const RETRIEVAL_TOOL_ID = 'brainstrike.retrieveContext' as const;
@@ -133,6 +139,8 @@ export interface RetrievalToolResult {
   totalTokens: number;
 }
 
+export type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
+
 /**
  * Dependencies required by the retrieval tool.
  * Platform-specific implementations provide these callbacks.
@@ -223,17 +231,6 @@ function isDevelopmentMode(): boolean {
 }
 
 /**
- * Normalizes text by trimming and returning undefined for empty strings.
- */
-function normalizeText(value: string | null | undefined): string | undefined {
-  if (!value) {
-    return;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
  * Normalizes and deduplicates file paths.
  */
 function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] | undefined {
@@ -252,13 +249,17 @@ function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] 
 
 /**
  * Resolves embedding set ID from input or runtime data.
- * Input takes precedence as it represents explicit tool call intent.
+ * Explicit tool input takes precedence because it represents tool-call intent.
  */
 function resolveRuntimeEmbeddingSetId(
   runtime: RuntimeData | undefined,
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
-  return normalizeText(inputEmbeddingSetId) ?? normalizeText(runtime?.embeddingSetId);
+  return (
+    normalizeOptionalText(inputEmbeddingSetId) ??
+    normalizeOptionalText(runtime?.embeddingSetId) ??
+    resolveWorkspaceIndexEmbeddingSetId(runtime)
+  );
 }
 
 /**
@@ -269,8 +270,8 @@ function resolveSelectionFilters(
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
 ): { filePaths?: string[]; snapshotId?: string } {
-  const runtimeSnapshotId = normalizeText(runtime?.selectionSnapshotId);
-  const snapshotId = runtimeSnapshotId ?? normalizeText(inputSnapshotId);
+  const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
+  const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
   if (snapshotId) {
@@ -442,7 +443,7 @@ async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
   deps: RetrievalToolDependencies
-): Promise<RetrievalToolResult> {
+): Promise<RetrievalToolExecutionResult> {
   const query = input.query.trim();
   if (!query) {
     throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);
@@ -450,6 +451,10 @@ async function runRetrieval(
 
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
   if (!embeddingSetId) {
+    const unavailable = createWorkspaceIndexUnavailableResult(runtimeData, query);
+    if (unavailable) {
+      return unavailable;
+    }
     throw new Error(RETRIEVAL_ERROR_MESSAGES.missingEmbeddingSet);
   }
 

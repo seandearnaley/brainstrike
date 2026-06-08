@@ -3,15 +3,22 @@ import {
   createScheduledDbHandle,
   getDatabaseWorkScheduler,
 } from '@brainstrike/db';
+import type {
+  WorkspaceIndexingQosInputs,
+  WorkspaceIndexingQosPolicy,
+} from '@brainstrike/utils/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { loggerInfoMock, registryStoreState } = vi.hoisted(() => ({
-  loggerInfoMock: vi.fn(),
-  registryStoreState: {
-    setDownloadProgress: vi.fn(),
-    setDownloading: vi.fn(),
-  },
-}));
+const { loggerInfoMock, registryStoreState, resolveWorkspaceIndexingQosPolicyMock } = vi.hoisted(
+  () => ({
+    loggerInfoMock: vi.fn(),
+    resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
+    registryStoreState: {
+      setDownloadProgress: vi.fn(),
+      setDownloading: vi.fn(),
+    },
+  })
+);
 
 vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
   useModelRegistryStore: {
@@ -28,6 +35,48 @@ vi.mock('@brainstrike/utils/logger', async () => {
     createLogger: () => ({
       info: loggerInfoMock,
     }),
+  };
+});
+
+vi.mock('@brainstrike/utils/workspace-indexing-qos', () => {
+  const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
+    const foregroundYielding = inputs.dbPressure.available && inputs.dbPressure.foregroundPressure;
+    const interactive = inputs.dbPressure.available && inputs.dbPressure.normalPressure;
+    const constrained = inputs.powerSource === 'battery' || inputs.thermalState === 'serious';
+    return {
+      allowNewWork: !foregroundYielding,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: foregroundYielding ? 0 : 24,
+      contentReadConcurrency: foregroundYielding ? 0 : 1,
+      importBatchSize: foregroundYielding ? 0 : 24,
+      interBatchDelayMs: foregroundYielding ? 250 : 75,
+      progressThrottleMs: 500,
+      reason: foregroundYielding
+        ? 'foreground-db-pressure'
+        : interactive
+          ? 'normal-db-pressure'
+          : constrained
+            ? inputs.powerSource === 'battery'
+              ? 'battery'
+              : 'thermal-serious'
+            : 'balanced',
+      scanBatchSize: foregroundYielding ? 0 : 48,
+      state: foregroundYielding
+        ? 'foreground-yielding'
+        : interactive
+          ? 'interactive'
+          : constrained
+            ? 'system-constrained'
+            : 'balanced',
+      workerClaimBatchSize: foregroundYielding ? 0 : interactive || constrained ? 1 : 16,
+    };
+  };
+  resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
+    (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => createMockQosPolicy(inputs)
+  );
+  return {
+    resolveWorkspaceIndexingQosPolicy: resolveWorkspaceIndexingQosPolicyMock,
   };
 });
 
@@ -79,6 +128,97 @@ describe('createEmbeddingWorkerConfig', () => {
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+  });
+
+  it('derives desktop claim size from the shared workspace index QoS policy', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+    expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dbPressure: {
+          available: true,
+          foregroundPressure: false,
+          normalPressure: false,
+        },
+        foregroundQueryActive: false,
+        idleState: 'active',
+        manualPaused: false,
+        powerSource: 'unknown',
+        providerRateLimited: false,
+        thermalState: 'unknown',
+        windowVisible: false,
+      })
+    );
+  });
+
+  it('constrains desktop claim size from the power snapshot', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    Object.assign(window, {
+      power: {
+        getSnapshot: vi.fn(async () => ({
+          idleState: 'active',
+          idleTimeMs: 0,
+          powerSource: 'battery',
+          sampledAt: 1234,
+          thermalState: 'nominal',
+        })),
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          powerSource: 'battery',
+          thermalState: 'nominal',
+        })
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
+  });
+
+  it('reuses a cached desktop power snapshot across immediate claim-size reads', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const getSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce({
+        idleState: 'active',
+        idleTimeMs: 0,
+        powerSource: 'battery',
+        sampledAt: 1234,
+        thermalState: 'nominal',
+      })
+      .mockResolvedValueOnce({
+        idleState: 'active',
+        idleTimeMs: 0,
+        powerSource: 'ac',
+        sampledAt: 1235,
+        thermalState: 'nominal',
+      });
+    Object.assign(window, {
+      power: {
+        getSnapshot,
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+
+      expect(getSnapshot).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
   });
 
   it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {

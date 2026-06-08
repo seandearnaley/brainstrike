@@ -5,6 +5,7 @@ import {
   useAssistantPreferencesStore,
   usePanelLayoutStore,
 } from '@brainstrike/preferences';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -951,6 +952,19 @@ describe('AssistantUiPanelWrapper', () => {
   });
 
   test('keeps selected files as tool hints without sending hidden context controls', async () => {
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'blocked',
+      blockedReason: 'missing-provider-key',
+      lastError: 'OpenAI key is required for Workspace Index.',
+      queueProgress: {
+        failed: 1,
+        lastError: 'provider key unavailable',
+        lastEvent: null,
+        pending: 3,
+        processed: 7,
+        totalQueued: 11,
+      },
+    });
     fileExplorerMocks.effectiveSelection = new Set<string>([
       encodeFileSelection('test-folder', '/alpha.ts'),
       encodeFileSelection('test-folder', '/beta.ts'),
@@ -1011,6 +1025,18 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['workspaceIndexingEnabled']).toBe(true);
         expect(requestData['workspaceIndexingMode']).toBe('root-folder-cache');
         expect(requestData['workspaceIndexingPaused']).toBe(false);
+        expect(requestData['workspaceIndexStatusState']).toBe('blocked');
+        expect(requestData['workspaceIndexBlockedReason']).toBe('missing-provider-key');
+        expect(requestData['workspaceIndexLastError']).toBe(
+          'OpenAI key is required for Workspace Index.'
+        );
+        expect(requestData['workspaceIndexQueueProgress']).toEqual({
+          failed: 1,
+          pending: 3,
+          processed: 7,
+          totalQueued: 11,
+          lastError: 'provider key unavailable',
+        });
         expect(requestData['workspaceContext']).toEqual(fileExplorerMocks.workspaceContextSnapshot);
         expect(requestData['embeddingSetId']).toBeUndefined();
         expect(requestData['tokenBudget']).toBeUndefined();

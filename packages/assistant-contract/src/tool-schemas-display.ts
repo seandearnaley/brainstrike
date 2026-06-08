@@ -320,7 +320,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.listEmbeddingSpaces': {
     toolId: 'brainstrike.listEmbeddingSpaces',
     description:
-      'List available embedding spaces and identify the configured workspace index. Use this before semantic retrieval because queryEmbeddingSpace requires an explicit embeddingSetId.',
+      'List available embedding spaces and identify the configured workspace index. Use this when you need to inspect non-default embedding spaces or coverage.',
     parameters: [
       {
         name: 'includeStats',
@@ -344,14 +344,14 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.queryEmbeddingSpace': {
     toolId: 'brainstrike.queryEmbeddingSpace',
     description:
-      'Query a specific embedding space by explicit embeddingSetId and return packed source text plus metadata-only semantic chunks with persisted line ranges. For codebase searches, prefer the workspace index returned by listEmbeddingSpaces.',
+      'Query semantic workspace context. Omit embeddingSetId for codebase searches to use the Workspace Index; provide embeddingSetId only to query a specific non-default embedding space.',
     parameters: [
       {
         name: 'embeddingSetId',
         type: 'string',
         description:
-          'Embedding space ID returned by listEmbeddingSpaces; prefer the recommended workspace index for codebase searches',
-        required: true,
+          'Optional embedding space ID returned by listEmbeddingSpaces; omit for Workspace Index codebase searches',
+        required: false,
         minLength: 1,
       },
       {

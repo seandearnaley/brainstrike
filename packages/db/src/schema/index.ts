@@ -248,6 +248,7 @@ export const embeddingSets = pgTable('embedding_sets', {
   description: text('description'),
   tags: text('tags'),
   category: text('category'),
+  systemRole: text('system_role').$type<'workspace-index'>(),
   allowDuplicates: boolean('allow_duplicates').default(false),
 });
 

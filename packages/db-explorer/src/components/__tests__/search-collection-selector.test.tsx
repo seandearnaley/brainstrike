@@ -21,7 +21,14 @@ vi.mock('@brainstrike/ui', async () => {
       onSelect,
       selectedId,
     }: {
-      collections: Array<{ id: string; name: string | null }>;
+      collections: Array<{
+        canDelete?: boolean;
+        canEdit?: boolean;
+        canNormalSearchSelect?: boolean;
+        id: string;
+        name: string | null;
+        systemRole?: 'workspace-index' | null;
+      }>;
       loading: boolean;
       onCreate: () => void;
       onDelete: (collection: { id: string; name: string | null }) => void;
@@ -130,6 +137,106 @@ describe('SearchCollectionSelector', () => {
     expect(onCollectionChange).toHaveBeenCalledWith('set-1');
     expect(onEditCollection).toHaveBeenCalledWith(expect.objectContaining({ id: 'set-1' }));
     expect(onDeleteCollection).toHaveBeenCalledWith(expect.objectContaining({ id: 'set-1' }));
+  });
+
+  it('refuses workspace index selection and collection mutations', async () => {
+    const user = userEvent.setup();
+    const onCollectionChange = vi.fn();
+    const onDeleteCollection = vi.fn();
+    const onEditCollection = vi.fn();
+    mockUseCollections.mockReturnValue({
+      collections: [
+        {
+          id: 'workspace-index',
+          name: 'Workspace Index',
+          modelKey: 'openai::text-embedding-3-small',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2026-06-07T00:00:00Z',
+          description: null,
+          tags: null,
+          category: null,
+          fileCount: 0,
+          chunkCount: 0,
+          embeddingCount: 0,
+          systemRole: 'workspace-index',
+        },
+      ],
+      loading: false,
+      error: null,
+    });
+
+    render(
+      <SearchCollectionSelector
+        activeCollectionId="workspace-index"
+        db={{} as never}
+        onCollectionChange={onCollectionChange}
+        onCreateCollection={vi.fn()}
+        onDeleteCollection={onDeleteCollection}
+        onEditCollection={onEditCollection}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Workspace Index' }));
+    await user.click(screen.getByRole('button', { name: 'edit-workspace-index' }));
+    await user.click(screen.getByRole('button', { name: 'delete-workspace-index' }));
+
+    expect(screen.queryByTestId('selected-id')).toBeNull();
+    expect(onCollectionChange).not.toHaveBeenCalled();
+    expect(onEditCollection).not.toHaveBeenCalled();
+    expect(onDeleteCollection).not.toHaveBeenCalled();
+  });
+
+  it('keeps edit and delete actions available when only search selection is disabled', async () => {
+    const user = userEvent.setup();
+    const onCollectionChange = vi.fn();
+    const onDeleteCollection = vi.fn();
+    const onEditCollection = vi.fn();
+    mockUseCollections.mockReturnValue({
+      collections: [
+        {
+          id: 'curated-set',
+          name: 'Curated Set',
+          modelKey: 'openai::text-embedding-3-small',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2026-06-07T00:00:00Z',
+          description: null,
+          tags: null,
+          category: null,
+          fileCount: 0,
+          chunkCount: 0,
+          embeddingCount: 0,
+          canNormalSearchSelect: false,
+          canEdit: true,
+          canDelete: true,
+        },
+      ],
+      loading: false,
+      error: null,
+    });
+
+    render(
+      <SearchCollectionSelector
+        activeCollectionId="curated-set"
+        db={{} as never}
+        onCollectionChange={onCollectionChange}
+        onCreateCollection={vi.fn()}
+        onDeleteCollection={onDeleteCollection}
+        onEditCollection={onEditCollection}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Curated Set' }));
+    await user.click(screen.getByRole('button', { name: 'edit-curated-set' }));
+    await user.click(screen.getByRole('button', { name: 'delete-curated-set' }));
+
+    expect(screen.queryByTestId('selected-id')).toBeNull();
+    expect(onCollectionChange).not.toHaveBeenCalled();
+    expect(onEditCollection).toHaveBeenCalledWith(expect.objectContaining({ id: 'curated-set' }));
+    expect(onDeleteCollection).toHaveBeenCalledWith(expect.objectContaining({ id: 'curated-set' }));
   });
 
   it('surfaces collection-loading state without dropping existing collections', () => {

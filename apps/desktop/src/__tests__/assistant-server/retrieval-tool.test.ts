@@ -22,7 +22,10 @@ const {
   searchSimilarMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/agent', () => {
+vi.mock('@brainstrike/agent', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../../../packages/agent/src/tools/workspace-index-retrieval')
+  >('../../../../../packages/agent/src/tools/workspace-index-retrieval');
   class MockContextPacker {
     private readonly budgetTokens: number;
 
@@ -65,6 +68,14 @@ vi.mock('@brainstrike/agent', () => {
 
   return {
     ContextPacker: MockContextPacker,
+    createWorkspaceIndexUnavailableResult: actual.createWorkspaceIndexUnavailableResult,
+    hasWorkspaceIndexRuntimeStatus: actual.hasWorkspaceIndexRuntimeStatus,
+    normalizeOptionalText: actual.normalizeOptionalText,
+    normalizeWorkspaceIndexText: actual.normalizeWorkspaceIndexText,
+    resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
+    QueryEmbeddingSpaceInputSchema: {
+      parse: (input: unknown) => input,
+    },
     RetrievalContextInputSchema: {
       parse: (input: unknown) => input,
     },
@@ -155,7 +166,11 @@ vi.mock('../../secrets', () => ({
   }),
 }));
 
-import { createRetrievalTool } from '../../assistant-server/retrieval-tool';
+import {
+  createQueryEmbeddingSpaceTool,
+  createRetrievalTool,
+  runQueryEmbeddingSpace,
+} from '../../assistant-server/retrieval-tool';
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
@@ -253,6 +268,153 @@ describe('retrieval-tool', () => {
       filePaths: ['/repo/file.ts'],
     });
     expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
+  });
+
+  it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {
+    const tool = createRetrievalTool({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+      },
+    });
+
+    expect(result.embeddingSetId).toBe('workspace-index-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'workspace-index-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'workspace-index-set',
+    });
+  });
+
+  it('lets retrieveContext input override active runtime context', async () => {
+    const tool = createRetrievalTool({
+      embeddingSetId: 'active-set',
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'model-supplied-set',
+      },
+    });
+
+    expect(result.embeddingSetId).toBe('model-supplied-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'model-supplied-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'model-supplied-set',
+    });
+  });
+
+  it('lets an explicit embedding set override the workspace index default', async () => {
+    const tool = createRetrievalTool({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexStatusState: 'idle',
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+      },
+    });
+
+    expect(result.embeddingSetId).toBe('explicit-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'explicit-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+    });
+  });
+
+  it('lets queryEmbeddingSpace input override active runtime context', async () => {
+    const result = await runQueryEmbeddingSpace(
+      {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+      },
+      {
+        embeddingSetId: 'active-set',
+        workspaceIndexEmbeddingSetId: 'workspace-index-set',
+        workspaceIndexingEnabled: true,
+        workspaceIndexStatusState: 'idle',
+      }
+    );
+
+    expect(result.embeddingSetId).toBe('explicit-set');
+    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
+      'explicit-set',
+    ]);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+    });
+  });
+
+  it('returns structured workspace index status when the default workspace index is blocked', async () => {
+    const tool = createRetrievalTool({
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingPaused: false,
+      workspaceIndexStatusState: 'blocked',
+      workspaceIndexBlockedReason: 'missing-provider-key',
+      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
+      workspaceIndexQueueProgress: {
+        failed: 1,
+        pending: 3,
+        processed: 7,
+        totalQueued: 11,
+        lastError: 'provider key unavailable',
+      },
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Where is assistant retrieval wired?',
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'unavailable',
+      reason: 'workspace-index-blocked',
+      message: 'Workspace Index is blocked: missing-provider-key.',
+      query: 'Where is assistant retrieval wired?',
+      workspaceIndex: {
+        blockedReason: 'missing-provider-key',
+        embeddingSetId: 'workspace-index-set',
+        enabled: true,
+        lastError: 'OpenAI key is required for Workspace Index.',
+        paused: false,
+        queueProgress: {
+          failed: 1,
+          lastError: 'provider key unavailable',
+          pending: 3,
+          processed: 7,
+          totalQueued: 11,
+        },
+        statusState: 'blocked',
+      },
+    });
+    expect(dbQueryMock).not.toHaveBeenCalled();
   });
 
   it('does not require API keys for local runtime embedding providers', async () => {
@@ -601,6 +763,16 @@ describe('retrieval-tool', () => {
         context: { query: 'hello' },
       })
     ).rejects.toThrow('Select an active embedding set to enable retrieval.');
+  });
+
+  it('surfaces safe query-embedding-space selection guidance from the tool factory', async () => {
+    const tool = createQueryEmbeddingSpaceTool(undefined);
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello' },
+      })
+    ).rejects.toThrow('Select an embedding space before querying semantic context.');
   });
 
   it('sanitizes unexpected retrieval errors', async () => {

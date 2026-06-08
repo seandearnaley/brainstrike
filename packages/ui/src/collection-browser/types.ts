@@ -318,6 +318,10 @@ export interface SearchModeBarProps {
   advancedOptionsOpen?: boolean;
   /** Custom class name */
   className?: string;
+  /** Whether the hybrid search controls are disabled. */
+  disabled?: boolean;
+  /** Tooltip text for the disabled state. */
+  disabledReason?: string | undefined;
   /** Whether semantic search has been executed */
   hasSearched?: boolean;
   /** Whether the hybrid search panel is expanded */

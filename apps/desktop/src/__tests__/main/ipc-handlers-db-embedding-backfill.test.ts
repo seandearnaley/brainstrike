@@ -177,6 +177,7 @@ describe('database IPC embedding backfill handlers', () => {
       'set-123',
       expect.any(Function),
       expect.objectContaining({
+        drainTimeoutMs: 86_400_000,
         queueCapacityTimeoutMs: 600_000,
       })
     );

@@ -7,7 +7,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleEmbeddingSetsRepository } from '../src/repositories/drizzle/embedding-sets-repository.js';
 import * as schema from '../src/schema/index.js';
@@ -117,6 +117,109 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       );
 
       expect(first.id).not.toBe(second.id);
+    });
+
+    it('should create one protected workspace index set', async () => {
+      const first = await repository.getOrCreateWorkspaceIndexSet();
+      const second = await repository.getOrCreateWorkspaceIndexSet();
+
+      expect(second.id).toBe(first.id);
+      expect(first).toMatchObject({
+        name: 'Workspace Index',
+        description: 'System-managed workspace index for assistant retrieval.',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        dimensions: 384,
+        distance: 'cosine',
+        systemRole: 'workspace-index',
+      });
+    });
+
+    it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+      const originalExec = client.exec.bind(client);
+      const exec = vi.spyOn(client, 'exec').mockImplementation(async (sql: string) => {
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          throw new Error('transient index creation failure');
+        }
+        return await originalExec(sql);
+      });
+
+      const created = await repository.getOrCreateWorkspaceIndexSet();
+
+      expect(created.systemRole).toBe('workspace-index');
+      await expect(repository.getById(created.id)).resolves.toEqual(
+        expect.objectContaining({ id: created.id })
+      );
+      expect(exec).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
+      );
+      exec.mockRestore();
+    });
+
+    it('falls back to the protected workspace index row when insert loses a unique-index race', async () => {
+      type EmbeddingSetRow = typeof schema.embeddingSets.$inferSelect;
+      const workspaceIndexRow: EmbeddingSetRow = {
+        id: 'workspace-index-set',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        dimensions: 384,
+        distance: 'cosine',
+        createdAt: new Date('2026-06-07T00:00:00.000Z'),
+        name: 'Workspace Index',
+        description: 'System-managed workspace index for assistant retrieval.',
+        tags: null,
+        category: null,
+        systemRole: 'workspace-index',
+      };
+      let selectCalls = 0;
+      const selectLimit = vi.fn(async () => {
+        selectCalls += 1;
+        return selectCalls === 1 ? [] : [workspaceIndexRow];
+      });
+      const select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: selectLimit,
+          })),
+        })),
+      }));
+      const embeddingInsertReturning = vi.fn(async () => []);
+      const embeddingInsertValues = vi.fn(() => ({
+        onConflictDoNothing: vi.fn(() => ({
+          returning: embeddingInsertReturning,
+        })),
+      }));
+      const statsOnConflictDoNothing = vi.fn(async () => undefined);
+      const statsInsertValues = vi.fn(() => ({
+        onConflictDoNothing: statsOnConflictDoNothing,
+      }));
+      const tx = {
+        insert: vi.fn((table: unknown) =>
+          table === schema.embeddingSets
+            ? { values: embeddingInsertValues }
+            : { values: statsInsertValues }
+        ),
+        select,
+      };
+      const dbWithRacingInsert = {
+        $client: {
+          exec: vi.fn(async () => undefined),
+          query: vi.fn(async () => ({ rows: [] })),
+        },
+        execute: vi.fn(async () => ({ rows: [] })),
+        transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) =>
+          callback(tx)
+        ),
+      };
+      const racingRepository = new DrizzleEmbeddingSetsRepository(dbWithRacingInsert as never);
+
+      const result = await racingRepository.getOrCreateWorkspaceIndexSet();
+
+      expect(result.id).toBe('workspace-index-set');
+      expect(result.systemRole).toBe('workspace-index');
+      expect(embeddingInsertReturning).toHaveBeenCalled();
+      expect(selectLimit).toHaveBeenCalledTimes(2);
+      expect(statsInsertValues).toHaveBeenCalledWith({ embeddingSetId: 'workspace-index-set' });
     });
   });
 

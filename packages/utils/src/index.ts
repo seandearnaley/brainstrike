@@ -42,5 +42,7 @@ export * from './token-counting-heuristics';
 export * from './tree-generator';
 export * from './tree-operations';
 export * from './url-utils';
+export * from './workspace-indexing-power-snapshot';
+export * from './workspace-indexing-qos';
 
 export type { ColorScheme, FolderColors };

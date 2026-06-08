@@ -9,6 +9,7 @@ import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
 import { dispatchQueueDrainedEvent } from './queue-events';
 import {
+  type ApiKeyValidation,
   calculateLatency,
   EMBEDDINGS_QUEUE,
   type QueueCounts,
@@ -40,7 +41,7 @@ export interface TelemetryTrendPoint {
 /**
  * Result of API key validation before backfill
  */
-export type ApiKeyValidationResult = { valid: true } | { valid: false; message: string };
+export type ApiKeyValidationResult = ApiKeyValidation;
 
 export interface UseVectorQueueStateResult {
   activeSetBackfilling: boolean;

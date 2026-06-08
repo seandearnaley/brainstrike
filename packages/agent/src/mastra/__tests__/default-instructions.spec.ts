@@ -25,7 +25,7 @@ describe('default assistant instructions', () => {
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
-    expect(instructions).toContain('recommendedForWorkspaceSearch');
+    expect(instructions).toContain('without embeddingSetId so it uses the Workspace Index');
     expect(instructions).toContain('semantic chunks with persisted source line ranges');
     expect(instructions).toContain('Only run state-changing tools after the user confirms.');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
