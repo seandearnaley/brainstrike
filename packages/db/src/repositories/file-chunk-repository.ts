@@ -444,20 +444,20 @@ export class FileChunkRepository {
     params: unknown[],
     efSearch?: number
   ): Promise<{ rows: Record<string, unknown>[] }> {
-    await this.db.query('BEGIN');
-    try {
+    // Use PGlite's transaction() rather than raw BEGIN/COMMIT via separate query()
+    // calls: transaction() holds PGlite's transaction lock, so the SET LOCAL tuning
+    // + SELECT run atomically. A CONCURRENT query on the single shared connection
+    // (e.g. HybridSearchService runs this vector search and a plain FTS SELECT via
+    // Promise.all) therefore cannot interleave INTO this transaction — which with
+    // raw BEGIN/COMMIT would pull the FTS read inside this tx, inheriting its
+    // snapshot and coupling their abort states.
+    return await this.db.transaction(async (tx) => {
       for (const statement of hnswSearchTuningStatements(efSearch)) {
-        await this.db.query(statement);
+        await tx.query(statement);
       }
-      const result = await this.db.query<Record<string, unknown>>(searchSql, params);
-      await this.db.query('COMMIT');
+      const result = await tx.query<Record<string, unknown>>(searchSql, params);
       return { rows: result.rows };
-    } catch (err) {
-      await this.db.query('ROLLBACK').catch(() => {
-        // Surface the original failure, not a secondary rollback error.
-      });
-      throw err;
-    }
+    });
   }
 
   /**

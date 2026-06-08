@@ -294,18 +294,48 @@ describe('resolveHnswEfSearch', () => {
     vi.stubEnv('HNSW_EF_SEARCH', 'not-a-number');
     expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
   });
+
+  it('treats a non-positive or empty HNSW_EF_SEARCH env as unset (default, not 1)', () => {
+    // `Number('0')`/`Number('')` are finite 0, which would otherwise clamp UP to 1.
+    // A 0/empty env meaning "ef_search=1" is a surprising footgun — fall back to default.
+    vi.stubEnv('HNSW_EF_SEARCH', '0');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+    vi.stubEnv('HNSW_EF_SEARCH', '');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+    vi.stubEnv('HNSW_EF_SEARCH', '-10');
+    expect(resolveHnswEfSearch()).toBe(DEFAULT_HNSW_EF_SEARCH);
+  });
 });
 
 describe('hnswSearchTuningStatements', () => {
-  it('emits transaction-scoped ef_search and iterative_scan settings', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('emits transaction-scoped ef_search and STRICT-order iterative_scan settings', () => {
+    vi.stubEnv('IVFFLAT_PROBES', undefined);
+    // strict_order (not relaxed_order): relaxed can return rows slightly out of
+    // exact distance order, which the ROW_NUMBER()/slice ranking trusts.
     expect(hnswSearchTuningStatements(120)).toEqual([
       'SET LOCAL hnsw.ef_search = 120',
-      "SET LOCAL hnsw.iterative_scan = 'relaxed_order'",
+      "SET LOCAL hnsw.iterative_scan = 'strict_order'",
     ]);
   });
 
   it('uses the resolved (clamped) ef_search so interpolation is always a safe integer', () => {
     const [efStmt] = hnswSearchTuningStatements(9_999_999);
     expect(efStmt).toBe(`SET LOCAL hnsw.ef_search = ${MAX_HNSW_EF_SEARCH}`);
+  });
+
+  it('appends ivfflat.probes when IVFFLAT_PROBES is set (restores IVFFLAT recall tuning)', () => {
+    vi.stubEnv('IVFFLAT_PROBES', '12');
+    expect(hnswSearchTuningStatements(120)).toContain('SET LOCAL ivfflat.probes = 12');
+  });
+
+  it('omits ivfflat.probes when IVFFLAT_PROBES is unset / non-positive', () => {
+    vi.stubEnv('IVFFLAT_PROBES', undefined);
+    expect(hnswSearchTuningStatements(120).some((s) => s.includes('ivfflat.probes'))).toBe(false);
+    vi.stubEnv('IVFFLAT_PROBES', '0');
+    expect(hnswSearchTuningStatements(120).some((s) => s.includes('ivfflat.probes'))).toBe(false);
   });
 });

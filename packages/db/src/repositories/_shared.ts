@@ -352,18 +352,33 @@ export const MAX_HNSW_EF_SEARCH = 2000;
  * The result is always a safe integer clamped to `[1, MAX_HNSW_EF_SEARCH]`, so it
  * can be interpolated into SQL without injection risk.
  */
+function readEnv(name: string): string | undefined {
+  return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
+    name
+  ];
+}
+
+/**
+ * Parse an env var as a positive numeric tuning value, or `undefined` when it's
+ * absent/empty/non-positive. `Number('0')` and `Number('')` are a finite `0`, so a
+ * naive `Number.isFinite` check would treat `FOO=0`/`FOO=''` as a real `0` (which
+ * then clamps UP to 1) — a surprising footgun. Treat anything `< 1` as "unset".
+ */
+function readPositiveEnvNumber(name: string): number | undefined {
+  const raw = readEnv(name);
+  if (raw === undefined || raw.trim() === '') {
+    return;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined;
+}
+
 export function resolveHnswEfSearch(efSearch?: number): number {
-  const fromEnv = Number(
-    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
-      'HNSW_EF_SEARCH'
-    ] ?? Number.NaN
-  );
+  const fromEnv = readPositiveEnvNumber('HNSW_EF_SEARCH');
   const candidate =
     efSearch !== undefined && Number.isFinite(efSearch)
       ? efSearch
-      : Number.isFinite(fromEnv)
-        ? fromEnv
-        : DEFAULT_HNSW_EF_SEARCH;
+      : (fromEnv ?? DEFAULT_HNSW_EF_SEARCH);
   const floored = Math.floor(candidate);
   if (!Number.isSafeInteger(floored)) {
     return DEFAULT_HNSW_EF_SEARCH;
@@ -371,15 +386,44 @@ export function resolveHnswEfSearch(efSearch?: number): number {
   return Math.max(1, Math.min(floored, MAX_HNSW_EF_SEARCH));
 }
 
+/** Upper bound for `ivfflat.probes`; matches pgvector's documented max (lists). */
+export const MAX_IVFFLAT_PROBES = 10_000;
+
+/**
+ * Resolve `ivfflat.probes` from the `IVFFLAT_PROBES` env var, or `undefined` when
+ * unset/non-positive. IVFFLAT is opt-in (HNSW is the default index), so probes
+ * tuning is only emitted when explicitly configured. Clamped to `[1, MAX]` so it
+ * can be interpolated into SQL without injection risk.
+ */
+export function resolveIvfflatProbes(): number | undefined {
+  const fromEnv = readPositiveEnvNumber('IVFFLAT_PROBES');
+  if (fromEnv === undefined) {
+    return;
+  }
+  const floored = Math.floor(fromEnv);
+  return Number.isSafeInteger(floored)
+    ? Math.max(1, Math.min(floored, MAX_IVFFLAT_PROBES))
+    : undefined;
+}
+
 /**
  * Transaction-scoped (`SET LOCAL`) tuning statements to run immediately before a
  * pgvector HNSW search, inside the SAME transaction as the SELECT.
  *
  * - `hnsw.ef_search` widens the candidate window (see {@link resolveHnswEfSearch}).
- * - `hnsw.iterative_scan = 'relaxed_order'` (pgvector 0.8+) makes the index keep
+ * - `hnsw.iterative_scan = 'strict_order'` (pgvector 0.8+) makes the index keep
  *   scanning when the initial window does not yield enough rows that survive the
  *   query's WHERE filters — fixing the "filtered search returns too few results"
- *   problem without a large client-side overfetch.
+ *   problem without a large client-side overfetch. We use `strict_order` (NOT
+ *   `relaxed_order`): relaxed mode can emit rows slightly out of exact distance
+ *   order, but the callers rank with `ROW_NUMBER() OVER (ORDER BY distance)` and
+ *   then `slice(0, limit)`, which trusts the returned order — so a relaxed scan
+ *   could rank a lower-similarity chunk ahead of a closer one. strict_order keeps
+ *   the iterative-scan benefit while guaranteeing exact ordering.
+ * - `ivfflat.probes` (only when `IVFFLAT_PROBES` is set) restores IVFFLAT recall
+ *   tuning for any IVFFLAT index. Harmless when an HNSW index is used (the GUC only
+ *   affects IVFFLAT scans), and vice-versa. Kept here so it ALSO runs inside the
+ *   transaction — as an autocommit `SET LOCAL` it had the same silent-no-op bug.
  *
  * `SET LOCAL` only takes effect inside a transaction block; running these as
  * autocommit statements is a silent no-op, which is why callers MUST wrap the
@@ -387,7 +431,15 @@ export function resolveHnswEfSearch(efSearch?: number): number {
  */
 export function hnswSearchTuningStatements(efSearch?: number): string[] {
   const ef = resolveHnswEfSearch(efSearch);
-  return [`SET LOCAL hnsw.ef_search = ${ef}`, `SET LOCAL hnsw.iterative_scan = 'relaxed_order'`];
+  const statements = [
+    `SET LOCAL hnsw.ef_search = ${ef}`,
+    `SET LOCAL hnsw.iterative_scan = 'strict_order'`,
+  ];
+  const probes = resolveIvfflatProbes();
+  if (probes !== undefined) {
+    statements.push(`SET LOCAL ivfflat.probes = ${probes}`);
+  }
+  return statements;
 }
 
 /**

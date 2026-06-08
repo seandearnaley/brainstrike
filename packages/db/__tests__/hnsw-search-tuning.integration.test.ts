@@ -44,7 +44,8 @@ describe('HNSW search tuning (pgvector integration)', () => {
 
     const inTxRow = inTx.rows[0] as { ef: string; iter: string };
     expect(inTxRow.ef).toBe('137');
-    expect(inTxRow.iter).toBe('relaxed_order');
+    // strict_order (not relaxed_order): exact distance ordering for the rank/slice.
+    expect(inTxRow.iter).toBe('strict_order');
 
     // After COMMIT, the SET LOCAL values are gone — proving why the search must
     // run the tuning in the same transaction as the SELECT.
