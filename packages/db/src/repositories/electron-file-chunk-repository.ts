@@ -856,8 +856,12 @@ export class ElectronFileChunkRepository {
       throw new Error(`Embedding set ${embeddingSetId} not found.`);
     }
     const expectedDimension = Number(setRow.dimensions ?? Number.NaN);
-    if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
-      throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata.`);
+    // Must be a positive INTEGER: it is string-interpolated into `halfvec(N)` and
+    // `vector_dims(embedding) = N`, so a non-integer (e.g. 768.5) would emit invalid
+    // SQL rather than fail with a clear error (#1141 review). Defense-in-depth —
+    // `embedding_sets.dimensions` is an integer column.
+    if (!Number.isInteger(expectedDimension) || expectedDimension <= 0) {
+      throw new Error(`Embedding set ${embeddingSetId} has invalid dimension metadata.`);
     }
     if (queryEmbedding.length !== expectedDimension) {
       throw new Error(
