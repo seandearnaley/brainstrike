@@ -38,6 +38,7 @@ const lanes = {
     'use-live-query.test.tsx',
   ],
   chunking: [
+    'active-collection-live-counts.test.ts',
     'collection-indexing-stats.test.ts',
     'file-import-embedding-set.test.ts',
     'managed-cache-batch.test.ts',
@@ -53,11 +54,13 @@ const lanes = {
     'drizzle-database.test.ts',
     'drizzle-migrate.test.ts',
     'drizzle-pglite-spike.test.ts',
+    'frontier-models-migration.test.ts',
     'gemma-local-llm-migration.test.ts',
     'migration-authority-guard.test.ts',
     'migration-integration.test.ts',
     'migration-runner-types.test.ts',
     'migration-runner.test.ts',
+    'pglite-engine-major.integration.test.ts',
     'provider-catalog-timestamps-migration.test.ts',
     'view-filter-presets-migration.test.ts',
   ],
@@ -96,16 +99,23 @@ const lanes = {
     'file-chunk-repository.test.ts',
     'file-record-model.test.ts',
     'file-record-repository.test.ts',
+    // Subdirectory test (distinct from the top-level file-record-repository.test.ts);
+    // referenced by its path relative to __tests__ now that collectUnitTests recurses.
+    'repositories/drizzle/file-record-repository.test.ts',
     'repository-clear.test.ts',
     'repository-factory.test.ts',
   ],
   search: [
+    'hnsw-search-tuning.integration.test.ts',
     'hybrid-search-service.test.ts',
+    'retrieval-eval-runner.test.ts',
     'retrieval-harness.test.ts',
     'rrf.test.ts',
     'search-similar-sql-path.integration.test.ts',
     'search-similar-sql-path.test.ts',
     'search-similar.behavior.test.ts',
+    'tsvector-generated-column.integration.test.ts',
+    'uuidv7-primary-keys.integration.test.ts',
     'vector-extension.integration.test.ts',
   ],
   runtime: [
@@ -115,15 +125,28 @@ const lanes = {
   ],
 };
 
-function collectUnitTests() {
-  return readdirSync(testsRoot)
-    .filter(
-      (fileName) =>
-        (fileName.endsWith('.test.ts') || fileName.endsWith('.test.tsx')) &&
-        !fileName.endsWith('.browser.test.ts') &&
-        !fileName.endsWith('.browser.test.tsx')
-    )
-    .sort();
+// Recurses into subdirectories (mirroring test-lanes.mjs `collectTests`) and returns
+// paths RELATIVE to __tests__ (POSIX-style `/`). A non-recursive readdir would let a
+// test under a subdirectory (e.g. repositories/drizzle/file-record-repository.test.ts)
+// silently escape BOTH this orphan check and every coverage lane. Relative paths also
+// avoid a basename collision: the top-level file-record-repository.test.ts and the
+// subdir one are distinct keys, so each must be assigned to a lane independently.
+function collectUnitTests(dir = testsRoot, prefix = '') {
+  const tests = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      tests.push(...collectUnitTests(path.join(dir, entry.name), relativePath));
+      continue;
+    }
+    if (
+      (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.tsx')) &&
+      !(entry.name.endsWith('.browser.test.ts') || entry.name.endsWith('.browser.test.tsx'))
+    ) {
+      tests.push(relativePath);
+    }
+  }
+  return tests.sort();
 }
 
 function validateLanes() {

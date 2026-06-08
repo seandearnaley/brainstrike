@@ -256,7 +256,7 @@ When changing the model catalog:
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
    - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
-5. Register any new `packages/db/__tests__/*.test.ts` in scripts/test-lanes.mjs (CI errors on an unassigned test file); verify with `node scripts/test-lanes.mjs check`.
+5. Register any new `packages/db/__tests__/*.test.ts` in BOTH `packages/db/scripts/test-lanes.mjs` AND `packages/db/scripts/coverage-lanes.mjs` — they are two separate lane registries (unit lanes vs nightly coverage lanes) and each errors on an unassigned test file. Registering only `test-lanes.mjs` passes every PR check but silently breaks the **Nightly Coverage** job (the historical cause of issue #1101). Verify both: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR).
 
 ---
 
