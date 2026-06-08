@@ -1661,15 +1661,19 @@ describe('AssistantUiPanelWrapper', () => {
     vi.useFakeTimers();
 
     try {
-      const release = acquireAssistantForegroundActivity();
+      const onExpired = vi.fn();
+      const release = acquireAssistantForegroundActivity({ onExpired });
 
+      expect(ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS).toBeGreaterThan(10 * 120_000);
       expect(getAssistantForegroundActivitySnapshot()).toBe(true);
       act(() => {
         vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS);
       });
       expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+      expect(onExpired).toHaveBeenCalledTimes(1);
 
       release();
+      expect(onExpired).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

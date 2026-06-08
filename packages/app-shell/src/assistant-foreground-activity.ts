@@ -1,6 +1,10 @@
 import { createLogger } from '@brainstrike/utils/logger';
 
-export const ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS = 120_000;
+export const ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS = 30 * 60 * 1000;
+
+export interface AssistantForegroundActivityOptions {
+  readonly onExpired?: () => void;
+}
 
 const logger = createLogger('AssistantForegroundActivity');
 const activeLeaseTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -10,7 +14,9 @@ export function getAssistantForegroundActivitySnapshot(): boolean {
   return activeCount > 0;
 }
 
-export function acquireAssistantForegroundActivity(): () => void {
+export function acquireAssistantForegroundActivity(
+  options: AssistantForegroundActivityOptions = {}
+): () => void {
   let released = false;
   let timeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -30,12 +36,13 @@ export function acquireAssistantForegroundActivity(): () => void {
   activeCount += 1;
   timeout = setTimeout(() => {
     logger.warn(
-      'Assistant foreground activity lease expired; releasing Workspace Index QoS hint.',
+      'Assistant foreground activity leak fuse expired; releasing Workspace Index QoS hint.',
       {
         leaseMs: ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS,
       }
     );
     release();
+    options.onExpired?.();
   }, ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS);
   activeLeaseTimers.add(timeout);
 

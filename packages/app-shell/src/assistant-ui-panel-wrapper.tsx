@@ -858,7 +858,11 @@ export function AssistantUiPanelWrapper({
       assistantForegroundActivityReleaseByRunIdRef.current.get(runId)?.();
       assistantForegroundActivityReleaseByRunIdRef.current.set(
         runId,
-        acquireAssistantForegroundActivity()
+        acquireAssistantForegroundActivity({
+          onExpired: () => {
+            assistantForegroundActivityReleaseByRunIdRef.current.delete(runId);
+          },
+        })
       );
     }
 
