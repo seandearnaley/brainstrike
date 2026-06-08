@@ -46,6 +46,13 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
     });
   });
 
+  it('returns a fresh paused policy object on each resolve', () => {
+    const firstPolicy = resolve({ manualPaused: true });
+    const secondPolicy = resolve({ manualPaused: true });
+
+    expect(firstPolicy).not.toBe(secondPolicy);
+  });
+
   it('blocks new background claims while a foreground query is active', () => {
     const policy = resolve({ foregroundQueryActive: true });
 

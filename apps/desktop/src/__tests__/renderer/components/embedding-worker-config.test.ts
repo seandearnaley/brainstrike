@@ -184,6 +184,43 @@ describe('createEmbeddingWorkerConfig', () => {
     }
   });
 
+  it('reuses a cached desktop power snapshot across immediate claim-size reads', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const getSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce({
+        idleState: 'active',
+        idleTimeMs: 0,
+        powerSource: 'battery',
+        sampledAt: 1234,
+        thermalState: 'nominal',
+      })
+      .mockResolvedValueOnce({
+        idleState: 'active',
+        idleTimeMs: 0,
+        powerSource: 'ac',
+        sampledAt: 1235,
+        thermalState: 'nominal',
+      });
+    Object.assign(window, {
+      power: {
+        getSnapshot,
+        onPowerState: vi.fn(() => () => {}),
+      },
+    });
+
+    try {
+      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+
+      expect(getSnapshot).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(window, 'power');
+    }
+  });
+
   it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {
     const { scheduledDb } = createScheduledTestDb();
     const snapshot = getDatabaseWorkScheduler(scheduledDb)?.getSnapshot();

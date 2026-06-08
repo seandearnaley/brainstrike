@@ -193,7 +193,7 @@ export function resolveWorkspaceIndexingQosPolicy(
     throw new Error('Workspace Index QoS requires a database pressure snapshot.');
   }
   if (inputs.manualPaused) {
-    return PAUSED_POLICY;
+    return { ...PAUSED_POLICY };
   }
   if (inputs.foregroundQueryActive) {
     return createForegroundYieldingPolicy('foreground-query');

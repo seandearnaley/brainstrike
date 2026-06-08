@@ -29,6 +29,7 @@ const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
 const DESKTOP_PRESSURE_POLL_MS = 50;
 const DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS = 10;
+const DESKTOP_POWER_SNAPSHOT_CACHE_MS = 1000;
 const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
@@ -90,7 +91,7 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
   }
 
   return {
-    getSnapshot: createCachedSchedulerSnapshotReader(schedulerSnapshot),
+    getSnapshot: createCachedSnapshotReader(schedulerSnapshot, DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS),
   };
 }
 
@@ -129,19 +130,23 @@ function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapsho
   if (typeof getSnapshot !== 'function') {
     return null;
   }
-  return async () => assertValidPowerSnapshot(await getSnapshot());
+  return createCachedSnapshotReader(
+    async () => assertValidPowerSnapshot(await getSnapshot()),
+    DESKTOP_POWER_SNAPSHOT_CACHE_MS
+  );
 }
 
-function createCachedSchedulerSnapshotReader(
-  readSnapshot: () => DatabaseWorkSchedulerSnapshot | Promise<DatabaseWorkSchedulerSnapshot>,
+function createCachedSnapshotReader<TSnapshot>(
+  readSnapshot: () => TSnapshot | Promise<TSnapshot>,
+  cacheMs: number,
   now: () => number = () => Date.now()
-): () => Promise<DatabaseWorkSchedulerSnapshot> {
-  let cachedSnapshot: DatabaseWorkSchedulerSnapshot | null = null;
+): () => Promise<TSnapshot> {
+  let cachedSnapshot: TSnapshot | null = null;
   let cachedAt = 0;
-  let pendingSnapshot: Promise<DatabaseWorkSchedulerSnapshot> | null = null;
+  let pendingSnapshot: Promise<TSnapshot> | null = null;
   return async () => {
     const readAt = now();
-    if (cachedSnapshot && readAt - cachedAt <= DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS) {
+    if (cachedSnapshot && readAt - cachedAt <= cacheMs) {
       return cachedSnapshot;
     }
     if (pendingSnapshot) {
