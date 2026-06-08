@@ -211,4 +211,35 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(query.mock.calls[0]?.[0]).toContain('collection_indexing_stats');
     expect(query.mock.calls[0]?.[1]).toEqual(['set-1']);
   });
+
+  // #1141: desktop vector search must match the partial half-precision HNSW index
+  // `(embedding::halfvec(N)) … WHERE vector_dims(embedding) = N` (mirroring the
+  // PGlite-direct repo). A bare `embedding <=> $1::vector` (column uncast, no dims
+  // predicate) can't use that index → seq scan, which also makes the ef_search /
+  // iterative_scan tuning inert. Pin the index-matching SQL shape.
+  it('builds an index-matching halfvec search (column cast + vector_dims predicate)', async () => {
+    const dimension = 768;
+    const queryEmbedding = Array.from({ length: dimension }, () => 0.1);
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+      }
+      // BEGIN / COMMIT / SET LOCAL tuning / the SELECT all return no rows here.
+      return { rows: [] };
+    });
+
+    await repo.searchSimilar(queryEmbedding, { embeddingSetId: 'set-1', limit: 5 });
+
+    const searchSql = query.mock.calls
+      .map((call) => call[0])
+      .find((sql) => sql.includes('ROW_NUMBER() OVER'));
+    expect(searchSql).toBeDefined();
+    // Column cast to fixed-dim halfvec so the ORDER BY can use the partial index.
+    expect(searchSql).toContain(`embedding::halfvec(${dimension})`);
+    expect(searchSql).toContain(`$1::halfvec(${dimension})`);
+    // The partial-index predicate the planner needs to pick the dimension index.
+    expect(searchSql).toContain(`vector_dims(embedding) = ${dimension}`);
+    // The old uncast form must be gone.
+    expect(searchSql).not.toContain('embedding <=> $1::vector');
+  });
 });

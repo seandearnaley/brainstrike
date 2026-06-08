@@ -349,10 +349,18 @@ export class ElectronFileChunkRepository {
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
+    const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
+      embeddingSetId,
+      queryEmbedding
+    );
+
     const vectorParam = `[${queryEmbedding.join(',')}]`;
     const params: unknown[] = [vectorParam];
     let paramIndex = 2;
-    const whereParts = ['embedding IS NOT NULL'];
+    // `vector_dims(embedding) = N` is required (with the halfvec column cast in
+    // orderExpr) for the planner to use the partial half-precision HNSW index;
+    // without it the search seq-scans and the HNSW tuning is inert (#1141).
+    const whereParts = ['embedding IS NOT NULL', `vector_dims(embedding) = ${dimension}`];
 
     paramIndex = this.appendFilterClause(
       whereParts,
@@ -372,11 +380,6 @@ export class ElectronFileChunkRepository {
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;
-
-    const { similarityExpr, orderExpr } = await this.resolveDistanceConfig(
-      embeddingSetId,
-      queryEmbedding
-    );
 
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
@@ -836,7 +839,7 @@ export class ElectronFileChunkRepository {
   private async resolveDistanceConfig(
     embeddingSetId: string,
     queryEmbedding: number[]
-  ): Promise<{ similarityExpr: string; orderExpr: string }> {
+  ): Promise<{ similarityExpr: string; orderExpr: string; dimension: number }> {
     const setRes = await this.db.query(
       'SELECT distance, dimensions FROM embedding_sets WHERE id = $1',
       [embeddingSetId]
@@ -856,28 +859,47 @@ export class ElectronFileChunkRepository {
     }
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
-    return this.buildDistanceExpressions(distance);
+    const expressions = this.buildDistanceExpressions(distance, expectedDimension);
+    return { ...expressions, dimension: expectedDimension };
   }
 
-  private buildDistanceExpressions(distance: 'cosine' | 'l2' | 'ip'): {
+  /**
+   * Build distance expressions for similarity search.
+   * CRITICAL (#1141): the embedding column is cast to `halfvec(dimension)` to match
+   * the half-precision partial HNSW index `(embedding::halfvec(N)) … WHERE
+   * vector_dims(embedding) = N`. Without this cast (and the `vector_dims` predicate
+   * added by the caller) the planner cannot use the dimension index and the search
+   * seq-scans — which also makes the `SET LOCAL hnsw.*` tuning inert. Mirrors the
+   * PGlite-direct `FileChunkRepository`. Both the ANN ranking (orderExpr) AND the
+   * returned similarity score are computed in fp16; the quantization error (~3 sig
+   * digits) is negligible for thresholding/display and keeps the score monotonic with
+   * the halfvec rank.
+   */
+  private buildDistanceExpressions(
+    distance: 'cosine' | 'l2' | 'ip',
+    dimension: number
+  ): {
     similarityExpr: string;
     orderExpr: string;
   } {
+    const embeddingCast = `(embedding::halfvec(${dimension}))`;
+    const paramCast = `$1::halfvec(${dimension})`;
+
     if (distance === 'l2') {
       return {
-        similarityExpr: '(1.0 / (1.0 + (embedding <-> $1::vector)))',
-        orderExpr: 'embedding <-> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
+        orderExpr: `${embeddingCast} <-> ${paramCast}`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: '(1.0 / (1.0 + exp(+(embedding <#> $1::vector))))',
-        orderExpr: 'embedding <#> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
+        orderExpr: `${embeddingCast} <#> ${paramCast}`,
       };
     }
     return {
-      similarityExpr: '(1 - ((embedding <=> $1::vector) / 2.0))',
-      orderExpr: 'embedding <=> $1::vector',
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
+      orderExpr: `${embeddingCast} <=> ${paramCast}`,
     };
   }
 
