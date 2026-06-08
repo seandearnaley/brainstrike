@@ -22,7 +22,10 @@ const {
   searchSimilarMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/agent', () => {
+vi.mock('@brainstrike/agent', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../../../packages/agent/src/tools/workspace-index-retrieval')
+  >('../../../../../packages/agent/src/tools/workspace-index-retrieval');
   class MockContextPacker {
     private readonly budgetTokens: number;
 
@@ -65,6 +68,10 @@ vi.mock('@brainstrike/agent', () => {
 
   return {
     ContextPacker: MockContextPacker,
+    createWorkspaceIndexUnavailableResult: actual.createWorkspaceIndexUnavailableResult,
+    hasWorkspaceIndexRuntimeStatus: actual.hasWorkspaceIndexRuntimeStatus,
+    normalizeWorkspaceIndexText: actual.normalizeWorkspaceIndexText,
+    resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
     QueryEmbeddingSpaceInputSchema: {
       parse: (input: unknown) => input,
     },

@@ -13,11 +13,12 @@ import type {
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
+  assertValidWorkspaceIndexingPowerSnapshot,
+  type WorkspaceIndexingPowerSnapshot,
+} from '@brainstrike/utils/workspace-indexing-power-snapshot';
+import {
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
-  type WorkspaceIndexingIdleState,
-  type WorkspaceIndexingPowerSource,
-  type WorkspaceIndexingThermalState,
 } from '@brainstrike/utils/workspace-indexing-qos';
 
 const logger = createLogger('EmbeddingWorkerConfig');
@@ -33,27 +34,6 @@ const DESKTOP_POWER_SNAPSHOT_CACHE_MS = 1000;
 const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
-const VALID_IDLE_STATES = new Set<WorkspaceIndexingIdleState>([
-  'active',
-  'idle',
-  'locked',
-  'unknown',
-]);
-const VALID_POWER_SOURCES = new Set<WorkspaceIndexingPowerSource>(['ac', 'battery', 'unknown']);
-const VALID_THERMAL_STATES = new Set<WorkspaceIndexingThermalState>([
-  'critical',
-  'fair',
-  'nominal',
-  'serious',
-  'unknown',
-]);
-
-interface WorkspaceIndexingPowerSnapshot {
-  idleState: WorkspaceIndexingIdleState;
-  idleTimeMs: number;
-  powerSource: WorkspaceIndexingPowerSource;
-  thermalState: WorkspaceIndexingThermalState;
-}
 
 interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
@@ -95,32 +75,6 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
   };
 }
 
-function assertValidPowerSnapshot(
-  snapshot: WorkspaceIndexingPowerSnapshot
-): WorkspaceIndexingPowerSnapshot {
-  if (!VALID_IDLE_STATES.has(snapshot.idleState)) {
-    throw new Error(
-      `Workspace Index QoS power snapshot has invalid idleState: ${snapshot.idleState}`
-    );
-  }
-  if (!(Number.isFinite(snapshot.idleTimeMs) && snapshot.idleTimeMs >= 0)) {
-    throw new Error(
-      `Workspace Index QoS power snapshot has invalid idleTimeMs: ${snapshot.idleTimeMs}`
-    );
-  }
-  if (!VALID_POWER_SOURCES.has(snapshot.powerSource)) {
-    throw new Error(
-      `Workspace Index QoS power snapshot has invalid powerSource: ${snapshot.powerSource}`
-    );
-  }
-  if (!VALID_THERMAL_STATES.has(snapshot.thermalState)) {
-    throw new Error(
-      `Workspace Index QoS power snapshot has invalid thermalState: ${snapshot.thermalState}`
-    );
-  }
-  return snapshot;
-}
-
 function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapshot>) | null {
   if (typeof window === 'undefined') {
     return null;
@@ -131,7 +85,7 @@ function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapsho
     return null;
   }
   return createCachedSnapshotReader(
-    async () => assertValidPowerSnapshot(await getSnapshot()),
+    async () => assertValidWorkspaceIndexingPowerSnapshot(await getSnapshot()),
     DESKTOP_POWER_SNAPSHOT_CACHE_MS
   );
 }

@@ -203,6 +203,11 @@
       "import": "./dist/workspace-indexing-qos.mjs",
       "require": "./dist/workspace-indexing-qos.js"
     },
+    "./workspace-indexing-power-snapshot": {
+      "types": "./dist/workspace-indexing-power-snapshot.d.ts",
+      "import": "./dist/workspace-indexing-power-snapshot.mjs",
+      "require": "./dist/workspace-indexing-power-snapshot.js"
+    },
     "./crypto": {
       "types": "./dist/crypto.d.ts",
       "import": "./dist/crypto.mjs",

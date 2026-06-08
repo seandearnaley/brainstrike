@@ -85,6 +85,10 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/embeddings/src/worker-entry.ts'
       ),
+      '@brainstrike/utils/workspace-indexing-power-snapshot': path.resolve(
+        import.meta.dirname,
+        '../../packages/utils/src/workspace-indexing-power-snapshot.ts'
+      ),
       '@brainstrike/queue/browser': path.resolve(
         import.meta.dirname,
         '../../packages/queue/src/browser.ts'

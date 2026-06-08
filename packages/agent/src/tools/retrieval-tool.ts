@@ -18,6 +18,12 @@ import type { RuntimeData } from '../types';
 import type { RetrievalContextInput } from './schemas';
 import { RetrievalContextInputSchema } from './schemas';
 import type { ToolContext } from './types';
+import {
+  createWorkspaceIndexUnavailableResult,
+  normalizeWorkspaceIndexText,
+  type RetrievalUnavailableResult,
+  resolveWorkspaceIndexEmbeddingSetId,
+} from './workspace-index-retrieval';
 
 /** Tool identifier used in the Mastra tools registry */
 export const RETRIEVAL_TOOL_ID = 'brainstrike.retrieveContext' as const;
@@ -133,24 +139,6 @@ export interface RetrievalToolResult {
   totalTokens: number;
 }
 
-export interface WorkspaceIndexRetrievalStatus {
-  blockedReason: string | null;
-  embeddingSetId: string | null;
-  enabled: boolean;
-  lastError: string | null;
-  paused: boolean;
-  queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
-  statusState: RuntimeData['workspaceIndexStatusState'] | null;
-}
-
-export interface RetrievalUnavailableResult {
-  message: string;
-  query: string;
-  reason: 'workspace-index-blocked' | 'workspace-index-unavailable';
-  status: 'unavailable';
-  workspaceIndex: WorkspaceIndexRetrievalStatus;
-}
-
 export type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
 
 /**
@@ -243,17 +231,6 @@ function isDevelopmentMode(): boolean {
 }
 
 /**
- * Normalizes text by trimming and returning undefined for empty strings.
- */
-function normalizeText(value: string | null | undefined): string | undefined {
-  if (!value) {
-    return;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
  * Normalizes and deduplicates file paths.
  */
 function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] | undefined {
@@ -270,61 +247,6 @@ function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] 
   return unique.size > 0 ? Array.from(unique) : undefined;
 }
 
-function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefined): boolean {
-  if (runtime?.workspaceIndexingEnabled !== true) {
-    return false;
-  }
-  const state = runtime.workspaceIndexStatusState;
-  return !(state === 'blocked' || state === 'disabled' || state === 'error');
-}
-
-function hasWorkspaceIndexRuntimeStatus(runtime: RuntimeData | undefined): runtime is RuntimeData {
-  return Boolean(
-    runtime &&
-      (runtime.workspaceIndexEmbeddingSetId ||
-        runtime.workspaceIndexingEnabled !== undefined ||
-        runtime.workspaceIndexingPaused !== undefined ||
-        runtime.workspaceIndexStatusState ||
-        runtime.workspaceIndexBlockedReason ||
-        runtime.workspaceIndexLastError ||
-        runtime.workspaceIndexQueueProgress)
-  );
-}
-
-function createWorkspaceIndexRetrievalStatus(runtime: RuntimeData): WorkspaceIndexRetrievalStatus {
-  return {
-    blockedReason: runtime.workspaceIndexBlockedReason ?? null,
-    embeddingSetId: normalizeText(runtime.workspaceIndexEmbeddingSetId) ?? null,
-    enabled: runtime.workspaceIndexingEnabled === true,
-    lastError: runtime.workspaceIndexLastError ?? null,
-    paused: runtime.workspaceIndexingPaused === true,
-    queueProgress: runtime.workspaceIndexQueueProgress ?? null,
-    statusState: runtime.workspaceIndexStatusState ?? null,
-  };
-}
-
-function createWorkspaceIndexUnavailableResult(
-  runtime: RuntimeData | undefined,
-  query: string
-): RetrievalUnavailableResult | null {
-  if (!hasWorkspaceIndexRuntimeStatus(runtime)) {
-    return null;
-  }
-  const status = createWorkspaceIndexRetrievalStatus(runtime);
-  const isBlocked = status.statusState === 'blocked';
-  const reason = isBlocked ? 'workspace-index-blocked' : 'workspace-index-unavailable';
-  const message = isBlocked
-    ? `Workspace Index is blocked: ${status.blockedReason ?? 'unknown'}.`
-    : 'Workspace Index is unavailable for retrieval.';
-  return {
-    status: 'unavailable',
-    reason,
-    message,
-    query,
-    workspaceIndex: status,
-  };
-}
-
 /**
  * Resolves embedding set ID from input or runtime data.
  * Runtime context takes precedence for contextual retrieval.
@@ -334,11 +256,9 @@ function resolveRuntimeEmbeddingSetId(
   inputEmbeddingSetId: string | undefined
 ): string | undefined {
   return (
-    normalizeText(runtime?.embeddingSetId) ??
-    normalizeText(inputEmbeddingSetId) ??
-    (isWorkspaceIndexRetrievalAvailable(runtime)
-      ? normalizeText(runtime?.workspaceIndexEmbeddingSetId)
-      : undefined)
+    normalizeWorkspaceIndexText(runtime?.embeddingSetId) ??
+    normalizeWorkspaceIndexText(inputEmbeddingSetId) ??
+    resolveWorkspaceIndexEmbeddingSetId(runtime)
   );
 }
 
@@ -350,8 +270,8 @@ function resolveSelectionFilters(
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
 ): { filePaths?: string[]; snapshotId?: string } {
-  const runtimeSnapshotId = normalizeText(runtime?.selectionSnapshotId);
-  const snapshotId = runtimeSnapshotId ?? normalizeText(inputSnapshotId);
+  const runtimeSnapshotId = normalizeWorkspaceIndexText(runtime?.selectionSnapshotId);
+  const snapshotId = runtimeSnapshotId ?? normalizeWorkspaceIndexText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
   if (snapshotId) {
