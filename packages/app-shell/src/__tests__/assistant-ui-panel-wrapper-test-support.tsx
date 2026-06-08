@@ -9,6 +9,7 @@ import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
@@ -872,6 +873,7 @@ function resetTestEnabledModels() {
 beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
+  __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
@@ -930,6 +932,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetAssistantPreferencesStoreForTests();
+  __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');

@@ -47,6 +47,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
   isWorkspaceIndexBlockedError,
@@ -399,9 +400,7 @@ export function WorkspaceCollectionSyncProvider({
     const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
     return resolveWorkspaceIndexingQosPolicy({
       dbPressure: await readDatabasePressure(),
-      // TODO(workspace-index-qos): wire this to the foreground embedding gate once
-      // query activity is exposed to the app-shell background sync provider.
-      foregroundQueryActive: false,
+      foregroundQueryActive: getAssistantForegroundActivitySnapshot(),
       idleState: powerSnapshot?.idleState ?? 'unknown',
       idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
       manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,

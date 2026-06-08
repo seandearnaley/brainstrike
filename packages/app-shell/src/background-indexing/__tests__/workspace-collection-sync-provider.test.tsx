@@ -23,6 +23,10 @@ import type {
 } from '@brainstrike/utils/workspace-indexing-qos';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetAssistantForegroundActivityForTests,
+  acquireAssistantForegroundActivity,
+} from '../../assistant-foreground-activity';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
 import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
@@ -382,6 +386,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       restorationProgress: null,
     };
     __resetBackgroundIndexingPreferencesStoreForTests();
+    __resetAssistantForegroundActivityForTests();
     __resetBackgroundWorkArbiterForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     dbState.current = {
@@ -514,6 +519,28 @@ describe('WorkspaceCollectionSyncProvider', () => {
       );
     } finally {
       Reflect.deleteProperty(window, 'power');
+    }
+  });
+
+  it('passes foreground assistant activity into Workspace Index QoS inputs', async () => {
+    const releaseForegroundActivity = acquireAssistantForegroundActivity();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            foregroundQueryActive: true,
+          })
+        )
+      );
+    } finally {
+      releaseForegroundActivity();
     }
   });
 

@@ -10,6 +10,7 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
+import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import {
@@ -1598,6 +1599,57 @@ describe('AssistantUiPanelWrapper', () => {
     expect(updateCalls[1]?.[1]).toEqual(
       expect.arrayContaining(['run-00000000-0000-4000-8000-000000000012', 'failed', 'model failed'])
     );
+    uuidSpy.mockRestore();
+  });
+
+  test('marks assistant foreground activity while a prepared request is running', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-000000000013');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      await user.click(screen.getByTestId('complete-prepared-request-success'));
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+    });
+
+    uuidSpy.mockRestore();
+  });
+
+  test('releases assistant foreground activity when unmounted mid-request', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-000000000014');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    const renderResult = await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+    });
+
+    renderResult.unmount();
+    expect(getAssistantForegroundActivitySnapshot()).toBe(false);
     uuidSpy.mockRestore();
   });
 

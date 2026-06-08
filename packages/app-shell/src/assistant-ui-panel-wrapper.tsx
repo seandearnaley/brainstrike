@@ -41,6 +41,7 @@ import {
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { acquireAssistantForegroundActivity } from './assistant-foreground-activity';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -828,6 +829,17 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
+  const assistantForegroundActivityReleaseByRunIdRef = useRef(new Map<string, () => void>());
+  useEffect(
+    () => () => {
+      for (const release of assistantForegroundActivityReleaseByRunIdRef.current.values()) {
+        release();
+      }
+      assistantForegroundActivityReleaseByRunIdRef.current.clear();
+    },
+    []
+  );
+
   const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
     const runId = await createAssistantThreadRunPromise({
       assistantThreadRepository,
@@ -841,6 +853,13 @@ export function AssistantUiPanelWrapper({
     const memoryContext = requestData['memory'];
     if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
       throw new Error('Assistant request preparation requires Mastra memory context.');
+    }
+    if (runId) {
+      assistantForegroundActivityReleaseByRunIdRef.current.get(runId)?.();
+      assistantForegroundActivityReleaseByRunIdRef.current.set(
+        runId,
+        acquireAssistantForegroundActivity()
+      );
     }
 
     return {
@@ -874,10 +893,15 @@ export function AssistantUiPanelWrapper({
       if (!assistantThreadRepository) {
         throw new Error('Assistant run completion requires an active thread repository.');
       }
-      await assistantThreadRepository.completeThreadRun(runId, {
-        status,
-        ...(error ? { error } : {}),
-      });
+      try {
+        await assistantThreadRepository.completeThreadRun(runId, {
+          status,
+          ...(error ? { error } : {}),
+        });
+      } finally {
+        assistantForegroundActivityReleaseByRunIdRef.current.get(runId)?.();
+        assistantForegroundActivityReleaseByRunIdRef.current.delete(runId);
+      }
     },
     [assistantThreadRepository]
   );
