@@ -26,6 +26,7 @@
 | 2026-06-07 | v1.0 | Wired desktop platform QoS inputs: Electron `powerMonitor` snapshots flow through a typed preload `power.getSnapshot()` bridge into app-shell scan/import/backfill policy and hidden embedding worker claim sizing. | Commit `8ab97dc65` |
 | 2026-06-07 | v1.1 | Added Phase 8 desktop verification coverage for fresh Workspace Index bootstrap, stale managed-id rebind, and pause/resume persistence; fixed a DB ESM import-extension runtime launch failure discovered by desktop e2e; made background-indexing preferences a renderer-global singleton so duplicate import paths cannot split pause state. | Commits `555c6b0cb`, `f71e68940` |
 | 2026-06-07 | v1.2 | Manual Agent DevTools verification found and closed a protected-UI affordance gap: shared hybrid-search controls now support a disabled state and Database Explorer passes it when the active collection is the Workspace Index. | Commit `2d9f64c5b` |
+| 2026-06-08 | v1.3 | Revised the default Workspace Index model to local `Xenova/all-MiniLM-L6-v2` (384D) to avoid automatic whole-workspace hosted embedding when users have an assistant API key; added a v4 preference migration for existing profiles and typed missing-provider-key validation reasons. | Current branch |
 
 ## 1. Goal
 
@@ -54,19 +55,19 @@ Initial workspace index default:
 
 | Field | Value |
 |---|---|
-| Provider/model key | `openai::text-embedding-3-small` |
-| Model id | `text-embedding-3-small` |
-| Dimensions | `1536` |
+| Provider/model key | `local::Xenova/all-MiniLM-L6-v2` |
+| Model id | `Xenova/all-MiniLM-L6-v2` |
+| Dimensions | `384` |
 | Distance | `cosine` |
 | Collection name | `Workspace Index` |
 | System role | `workspace-index` |
 
 Rationale:
 
-- This model is already in Brainstrike's registry as a default hosted embedding model.
-- It avoids adding a model-catalog migration to this project.
-- The first implementation should not chase unregistered provider models.
-- If no OpenAI key is configured, the workspace index is created or recognized but enters `blocked:missing-provider-key`. It must not fall back to local or another hosted provider.
+- This model is already in Brainstrike's DB-backed local embedding catalog and is enabled by the existing default-local-model migration.
+- It keeps the default Workspace Index local-first: an assistant API key must not silently authorize uploading the entire workspace to a hosted embedding provider.
+- The hidden renderer embedding host can execute this model without moving embedding work into Electron main.
+- If a user later changes the Workspace Index to a hosted provider, missing credentials enter `blocked:missing-provider-key` through a typed validation reason. It must not fall back to another provider.
 
 Future model changes require the full model-catalog migration path from `AGENTS.md`.
 
@@ -102,7 +103,7 @@ Future model changes require the full model-catalog migration path from `AGENTS.
 | Area | Success criterion | Verification |
 |---|---|---|
 | First run | Fresh profile creates or binds exactly one protected workspace index. | Unit + desktop e2e |
-| No fallback | Missing OpenAI key shows blocked state and no embedding jobs call another provider. | Unit + integration + manual |
+| No fallback | Missing hosted provider key shows blocked state and no embedding jobs call another provider. | Unit + integration + manual |
 | Embedding completion | Changed files progress from scan to chunk to durable `embed_chunk` jobs to persisted embeddings. | Integration + desktop e2e |
 | Query coordination | Assistant query embedding drains active background batch, runs, and background indexing resumes. | Unit + desktop e2e |
 | Protected UI | Workspace index is visible but cannot be selected for normal collection hybrid search, edit, delete, or manual import. | Unit + browser/e2e |
@@ -191,8 +192,8 @@ Status should be derived from durable state plus live runtime signals:
 1. User opens desktop app with a fresh profile.
 2. Workspace root is selected/restored.
 3. App creates or binds `Workspace Index`.
-4. If OpenAI key exists, indexing starts when root access is available.
-5. If OpenAI key is missing, status shows "Waiting for OpenAI key" and links to settings.
+4. With the default local model, indexing starts when root access and the hidden embedding host are available.
+5. If the Workspace Index is reconfigured to a hosted model and its provider key is missing, status shows the specific missing-key blocked state and links to settings.
 6. No provider fallback occurs.
 
 ### Normal Operation
@@ -297,11 +298,11 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 **Red/green TDD sequence**
 
-- RED: fresh DB plus no managed preference creates the default `Workspace Index` with OpenAI small 1536D cosine.
+- RED: fresh DB plus no managed preference creates the default `Workspace Index` with local MiniLM 384D cosine.
 - GREEN: implement bootstrap creation.
 - RED: stale `managedCollectionId` pointing to a missing collection rebinds to existing system collection.
 - GREEN: implement self-heal rebind.
-- RED: no OpenAI key produces `blocked:missing-provider-key` and does not call provider fallback.
+- RED: hosted provider validation with a missing key produces `blocked:missing-provider-key` and does not call provider fallback.
 - GREEN: wire provider-key validation into status.
 - RED: user pause persists across bootstrap and prevents new sync work.
 - GREEN: preserve pause during bootstrap.
@@ -565,8 +566,8 @@ Each phase should land as a separate PR unless implementation evidence shows two
 
 **E2E scenarios**
 
-- Fresh profile with provider key: workspace index appears, starts, chunks, enqueues, embeds.
-- Fresh profile without provider key: blocked state appears, no fallback.
+- Fresh profile with the default local model: workspace index appears, starts, chunks, enqueues, embeds.
+- Fresh profile reconfigured to a hosted model without its provider key: blocked state appears, no fallback.
 - Pause/resume: pause stops new work; resume self-heals.
 - Foreground assistant query during active embedding: query completes and background resumes.
 - Collection browser: workspace index is visible but not selectable/editable/deletable/searchable through normal selector.
@@ -606,7 +607,7 @@ Do not add `--remote-debugging-port` to default desktop E2E.
 
 **Implementation note v1.1**
 
-- `workspace-index-bootstrap.desktop.test.ts` verifies a fresh desktop profile creates exactly one protected `Workspace Index` row with `system_role = 'workspace-index'`, `openai::text-embedding-3-small`, and 1536 dimensions, then binds it in settings.
+- `workspace-index-bootstrap.desktop.test.ts` verifies a fresh desktop profile creates exactly one protected `Workspace Index` row with `system_role = 'workspace-index'`, `local::Xenova/all-MiniLM-L6-v2`, and 384 dimensions, then binds it in settings.
 - `background-indexing-settings.desktop.test.ts` now verifies stale managed collection preferences rebind to the protected Workspace Index instead of surfacing stale metadata.
 - `background-indexing-pause.desktop.test.ts` verifies the settings pause/resume control persists `paused=true/false` through the Electron storage bridge after the Workspace Index is bootstrapped. It uses keyboard activation to exercise the accessible control deterministically in the Electron e2e harness.
 - Desktop e2e command syntax is `pnpm --dir apps/desktop test:e2e e2e/<file>.desktop.test.ts`; do not insert an extra `--` before file arguments because the script already delegates through `run-env`.
@@ -616,7 +617,7 @@ Do not add `--remote-debugging-port` to default desktop E2E.
 - Command: `pnpm --filter @brainstrike/desktop dev:agent-debug`.
 - Environment: macOS desktop dev build, Electron 41.2.1, Node 24.14.1, isolated Agent DevTools profile, commit `2d9f64c5b`.
 - Chrome DevTools/CDP target: visible renderer at `http://localhost:38181/`.
-- Observed: fresh isolated profile showed a single `Workspace Index` collection row with OpenAI small, 1536 dimensions, cosine distance, and zero-file/zero-chunk coverage.
+- Observed: fresh isolated profile showed a single `Workspace Index` collection row with the OpenAI small default before v1.3. Re-verify against the local MiniLM 384D default before merge.
 - Observed: `window.embeddingHost.getStatus()` returned `state: 'stopped'`, `active: false`, `lastError: null` in the no-key profile; no background embedding work started.
 - Observed: `window.power.getSnapshot()` returned idle/AC/nominal platform inputs, proving the visible renderer can read the desktop QoS power bridge.
 - Observed: the Workspace Index collection row rendered as `role="option"` with `aria-disabled="true"`, and clicking it did not change `brainstrike.activeEmbeddingSetId`.
@@ -700,7 +701,7 @@ Manual checklist:
 - Fresh profile boot.
 - Existing profile with stale managed collection ID.
 - Existing profile with a user-created collection named similarly to Workspace Index.
-- Missing OpenAI key.
+- Missing hosted-provider key after a user reconfigures the Workspace Index away from the local default.
 - Key added after blocked state.
 - Pause while scanning.
 - Pause while embedding.
@@ -725,7 +726,7 @@ Record:
 | Risk | Likelihood | Impact | Mitigation |
 |---|---:|---:|---|
 | Bootstrap creates duplicate workspace index collections | Medium | High | DB-level uniqueness on system role or transactional find/create. |
-| Missing provider key accidentally triggers fallback | Medium | High | Unit tests assert exact blocked state and no alternate provider call. |
+| Missing provider key accidentally triggers fallback | Medium | High | Unit tests assert typed blocked reason and no alternate provider call. |
 | Protected collection blocks legitimate advanced search | Medium | Medium | Add dedicated read-only workspace index inspector/search path. |
 | Assistant still uses selected user collection | Medium | High | Retrieval resolver tests for default workspace path. |
 | Queue recovery hides real failures | Medium | High | Bounded retry policy, visible failed counts, explicit terminal error. |
@@ -741,7 +742,7 @@ Record:
 | D2 | Whether workspace index can be directly searched by advanced users | Provide a dedicated inspector/search path, not normal collection selector. | Product/Engineering | Proposed |
 | D3 | Background backfill completion semantics | Decouple durable enqueue from full drain for background source, or make drain policy adaptive. | Engineering | Proposed |
 | D4 | Assistant retrieval default path | Workspace/codebase retrieval defaults to Workspace Index when ready; coverage stats stay on `listEmbeddingSpaces`. | Engineering | Implemented |
-| D5 | Default hosted model | `openai::text-embedding-3-small`, 1536D, cosine. | Product/Engineering | Implemented |
+| D5 | Default Workspace Index model | Use local `Xenova/all-MiniLM-L6-v2`, 384D, cosine by default; hosted models require explicit later reconfiguration and typed missing-key blocking. | Product/Engineering | Implemented |
 
 ## 16. PRD Maintenance Rules
 

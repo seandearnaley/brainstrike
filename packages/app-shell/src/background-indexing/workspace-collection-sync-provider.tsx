@@ -46,7 +46,6 @@ import {
 } from 'react';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
-  isMissingProviderKeyMessage,
   isWorkspaceIndexBlockedError,
   WorkspaceIndexBlockedError,
 } from './workspace-index-blocked-error';
@@ -306,7 +305,7 @@ export function WorkspaceCollectionSyncProvider({
       }
       const validation = await vectorQueueService.validateApiKeyForSet(embeddingSetId);
       if (!validation.valid) {
-        if (isMissingProviderKeyMessage(validation.message)) {
+        if (validation.reason === 'missing-provider-key') {
           throw new WorkspaceIndexBlockedError('missing-provider-key', validation.message);
         }
         throw new Error(validation.message);

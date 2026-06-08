@@ -5,6 +5,7 @@ export { POWER_BROADCAST_CHANNEL } from '@brainstrike/embedding-worker';
 // Export API key validation utilities
 export {
   type ApiKeyValidationResult,
+  type ApiKeyValidationUnavailableReason,
   checkApiKeyAvailability,
   getApiKeyConfigInstructions,
   requiresApiKey,

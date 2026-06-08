@@ -67,6 +67,7 @@ describe('api-key-validation', () => {
       expect(result.available).toBe(false);
       if (!result.available) {
         expect(result.provider).toBe('openai');
+        expect(result.reason).toBe('missing-provider-key');
         expect(result.message).toContain('OpenAI');
         expect(result.message).toContain('API key');
       }

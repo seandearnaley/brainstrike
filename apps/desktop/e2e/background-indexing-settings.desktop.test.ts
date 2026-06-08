@@ -138,9 +138,9 @@ test.describe('Workspace Index settings (desktop)', () => {
       })
       .toMatchObject([
         {
-          dimensions: 1536,
-          model_id: 'text-embedding-3-small',
-          model_key: 'openai::text-embedding-3-small',
+          dimensions: 384,
+          model_id: 'Xenova/all-MiniLM-L6-v2',
+          model_key: 'local::Xenova/all-MiniLM-L6-v2',
           name: 'Workspace Index',
           system_role: 'workspace-index',
         },

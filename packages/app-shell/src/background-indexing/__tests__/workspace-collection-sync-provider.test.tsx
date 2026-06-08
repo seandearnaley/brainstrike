@@ -1236,11 +1236,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
-  it('blocks workspace indexing when the default hosted provider key is missing', async () => {
+  it('blocks workspace indexing when provider validation reports a missing key', async () => {
     const missingKeyMessage =
       'OpenAI API key not configured. Please add your API key (OPENAI_API_KEY) in Settings → Secrets or set the environment variable.';
     validateApiKeyForSetMock.mockResolvedValueOnce({
       valid: false,
+      reason: 'missing-provider-key',
       message: missingKeyMessage,
     });
 
@@ -1256,6 +1257,33 @@ describe('WorkspaceCollectionSyncProvider', () => {
           state: 'blocked',
           blockedReason: 'missing-provider-key',
           lastError: missingKeyMessage,
+        })
+      )
+    );
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(enqueueBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the typed missing-provider-key reason instead of parsing validation prose', async () => {
+    validateApiKeyForSetMock.mockResolvedValueOnce({
+      valid: false,
+      reason: 'missing-provider-key',
+      message: 'Provider credentials unavailable.',
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'blocked',
+          blockedReason: 'missing-provider-key',
+          lastError: 'Provider credentials unavailable.',
         })
       )
     );

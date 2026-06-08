@@ -655,6 +655,7 @@ describe('useEmbeddingControls', () => {
       const validateApiKey = vi.fn(
         async (): Promise<ApiKeyValidationResult> => ({
           valid: false,
+          reason: 'missing-provider-key',
           message: 'Invalid API key',
         })
       );

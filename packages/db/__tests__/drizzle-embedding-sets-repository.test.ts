@@ -127,9 +127,9 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(first).toMatchObject({
         name: 'Workspace Index',
         description: 'System-managed workspace index for assistant retrieval.',
-        modelKey: 'openai::text-embedding-3-small',
-        modelId: 'text-embedding-3-small',
-        dimensions: 1536,
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        dimensions: 384,
         distance: 'cosine',
         systemRole: 'workspace-index',
       });
@@ -139,9 +139,9 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       type EmbeddingSetRow = typeof schema.embeddingSets.$inferSelect;
       const workspaceIndexRow: EmbeddingSetRow = {
         id: 'workspace-index-set',
-        modelKey: 'openai::text-embedding-3-small',
-        modelId: 'text-embedding-3-small',
-        dimensions: 1536,
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        dimensions: 384,
         distance: 'cosine',
         createdAt: new Date('2026-06-07T00:00:00.000Z'),
         name: 'Workspace Index',

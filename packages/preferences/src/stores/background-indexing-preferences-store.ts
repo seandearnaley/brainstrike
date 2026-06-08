@@ -26,6 +26,7 @@ export type BackgroundIndexingPreferencesStore = BackgroundIndexingPreferencesDa
   BackgroundIndexingPreferencesActions;
 
 const STORE_NAME = 'background-indexing-preferences.v1' as const;
+const STORE_VERSION = 4 as const;
 
 interface ElectronStorageBridge {
   readonly getItem: (key: string) => Promise<string | null>;
@@ -108,7 +109,7 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
       }),
       {
         name: STORE_NAME,
-        version: 3,
+        version: STORE_VERSION,
         storage,
         partialize: (state: BackgroundIndexingPreferencesStore) => ({
           enabled: state.enabled,
@@ -117,7 +118,7 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           mode: state.mode,
           paused: state.paused,
         }),
-        migrate: (persistedState: unknown) => {
+        migrate: (persistedState: unknown, version: number) => {
           if (!(persistedState && typeof persistedState === 'object')) {
             return {
               ...DEFAULT_STATE,
@@ -125,8 +126,11 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           }
 
           const candidate = persistedState as Partial<BackgroundIndexingPreferencesData>;
+          const shouldEnableWorkspaceIndexByDefault = version < STORE_VERSION;
           return {
-            enabled: candidate.enabled ?? DEFAULT_STATE.enabled,
+            enabled: shouldEnableWorkspaceIndexByDefault
+              ? DEFAULT_STATE.enabled
+              : (candidate.enabled ?? DEFAULT_STATE.enabled),
             hasHydrated: false,
             indexingPolicyPreset:
               candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,

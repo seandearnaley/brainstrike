@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
+  type BackgroundIndexingPreferencesStore,
   useBackgroundIndexingPreferencesStore,
 } from '../stores/background-indexing-preferences-store';
+import type { PersistApi } from './persist-api-test-helper';
 
 describe('background-indexing-preferences-store', () => {
   beforeEach(() => {
@@ -25,6 +27,34 @@ describe('background-indexing-preferences-store', () => {
     expect(state.mode).toBe('root-folder-cache');
     expect(state.paused).toBe(false);
     expect(state.hasHydrated).toBe(false);
+  });
+
+  it('migrates pre-workspace-index preferences to the default enabled state', () => {
+    const options = (
+      useBackgroundIndexingPreferencesStore as PersistApi<
+        typeof useBackgroundIndexingPreferencesStore
+      >
+    ).persist?.getOptions?.();
+    if (!(options?.migrate && options.version !== undefined)) {
+      throw new Error('persist options unavailable for background indexing preferences test');
+    }
+
+    expect(options.version).toBe(4);
+
+    const migrated = options.migrate(
+      {
+        enabled: false,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: null,
+        mode: 'root-folder-cache',
+        paused: false,
+      },
+      3
+    ) as BackgroundIndexingPreferencesStore;
+
+    expect(migrated.enabled).toBe(true);
+    expect(migrated.indexingPolicyPreset).toBe('full-root');
+    expect(migrated.paused).toBe(false);
   });
 
   it('updates enablement, policy, managed collection, and pause independently', () => {

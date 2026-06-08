@@ -3,12 +3,15 @@ export const WORKSPACE_INDEX_SYSTEM_ROLE = 'workspace-index' as const;
 
 export type EmbeddingSetSystemRole = typeof WORKSPACE_INDEX_SYSTEM_ROLE;
 
+const WORKSPACE_INDEX_DEFAULT_MODEL_ID = 'Xenova/all-MiniLM-L6-v2' as const;
+const WORKSPACE_INDEX_DEFAULT_DIMENSIONS = 384 as const;
+
 export const WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS = {
   description: 'System-managed workspace index for assistant retrieval.',
-  dimensions: 1536,
+  dimensions: WORKSPACE_INDEX_DEFAULT_DIMENSIONS,
   distance: 'cosine',
-  modelId: 'text-embedding-3-small',
-  modelKey: 'openai::text-embedding-3-small',
+  modelId: WORKSPACE_INDEX_DEFAULT_MODEL_ID,
+  modelKey: `local::${WORKSPACE_INDEX_DEFAULT_MODEL_ID}`,
   name: 'Workspace Index',
   systemRole: WORKSPACE_INDEX_SYSTEM_ROLE,
 } as const satisfies {

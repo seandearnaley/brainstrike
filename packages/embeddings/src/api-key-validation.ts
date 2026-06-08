@@ -10,9 +10,16 @@ import { resolveHostedProviderApiKey } from './providers/hosted/api-key-resolver
 /**
  * Result of API key validation check
  */
+export type ApiKeyValidationUnavailableReason = 'missing-provider-key';
+
 export type ApiKeyValidationResult =
   | { available: true }
-  | { available: false; provider: HostedProviderType; message: string };
+  | {
+      available: false;
+      provider: HostedProviderType;
+      reason: ApiKeyValidationUnavailableReason;
+      message: string;
+    };
 
 /**
  * Environment variable names for each hosted provider
@@ -93,6 +100,7 @@ export async function checkApiKeyAvailability(
   return {
     available: false,
     provider,
+    reason: 'missing-provider-key',
     message: `${displayName} API key not configured. Please add your API key${envHintText} in Settings → Secrets or set the environment variable.`,
   };
 }

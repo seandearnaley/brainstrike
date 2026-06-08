@@ -258,7 +258,7 @@ describe('EmbeddingSetsRepository', () => {
     expect(statements[0]).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
   });
 
-  it('creates one protected workspace index set with the default hosted embedding model', async () => {
+  it('creates one protected workspace index set with the default local embedding model', async () => {
     const first = await repo.getOrCreateWorkspaceIndexSet();
     const second = await repo.getOrCreateWorkspaceIndexSet();
 
@@ -266,9 +266,9 @@ describe('EmbeddingSetsRepository', () => {
     expect(first).toMatchObject({
       name: 'Workspace Index',
       description: 'System-managed workspace index for assistant retrieval.',
-      modelKey: 'openai::text-embedding-3-small',
-      modelId: 'text-embedding-3-small',
-      dimensions: 1536,
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
       distance: 'cosine',
       systemRole: 'workspace-index',
     });
