@@ -13,6 +13,7 @@ import {
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
@@ -330,6 +331,7 @@ export class ElectronFileChunkRepository {
       fileRecordId,
       chunkType,
       embeddingSetId,
+      efSearch,
       filePaths,
       selectionSnapshotId,
       includeEmbedding = true,
@@ -379,51 +381,28 @@ export class ElectronFileChunkRepository {
       queryEmbedding
     );
 
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
-      const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
-      await this.db.query(`SET LOCAL hnsw.ef_search = ${ef}`);
-    } catch {
-      // best-effort tuning only
-    }
-
-    try {
-      const envObj = (
-        globalThis as unknown as {
-          process?: { env?: Record<string, string | undefined> };
-        }
-      ).process?.env;
-      const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
-      if (Number.isFinite(rawProbes) && rawProbes > 0) {
-        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
-        await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
-      }
-    } catch {
-      // best-effort tuning only
-    }
-
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
     // Large fan-out reads can project the heavy embedding vector away (keeping
     // only its dimension count) — the distance math still runs in SQL.
     const selectColumns = includeEmbedding ? '*' : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY;
-    const result = await this.db.query(
-      `SELECT ${selectColumns},
+    const searchSql = `SELECT ${selectColumns},
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
-      LIMIT $${paramIndex}`,
-      [...params, overfetchLimit]
+      LIMIT $${paramIndex}`;
+    // Run the ANN tuning and the search in ONE transaction so `SET LOCAL` applies
+    // to the SELECT (autocommit `SET LOCAL` is a silent no-op). Iterative scans +
+    // a wider ef_search keep heavily filtered searches from under-returning.
+    const result = await this.runVectorSearchInTransaction(
+      searchSql,
+      [...params, overfetchLimit],
+      efSearch
     );
 
-    const filtered = (result.rows as FileChunkSearchRow[]).filter((row) => {
+    const filtered = (result.rows as unknown as FileChunkSearchRow[]).filter((row) => {
       const similarity = Number(row.similarity);
       return Number.isFinite(similarity) && similarity >= threshold;
     });
@@ -433,6 +412,33 @@ export class ElectronFileChunkRepository {
       similarity: Number(row.similarity),
       rank: Number(row.rank),
     }));
+  }
+
+  /**
+   * Run a pgvector ANN search with HNSW tuning applied via `SET LOCAL` inside a
+   * single transaction. `SET LOCAL` only affects the current transaction, so the
+   * SELECT must run in the same transaction as the tuning statements. Read-only:
+   * committed on success, rolled back on error.
+   */
+  private async runVectorSearchInTransaction(
+    searchSql: string,
+    params: unknown[],
+    efSearch?: number
+  ): Promise<{ rows: Record<string, unknown>[] }> {
+    await this.db.query('BEGIN');
+    try {
+      for (const statement of hnswSearchTuningStatements(efSearch)) {
+        await this.db.query(statement);
+      }
+      const result = await this.db.query(searchSql, params);
+      await this.db.query('COMMIT');
+      return { rows: result.rows as Record<string, unknown>[] };
+    } catch (err) {
+      await this.db.query('ROLLBACK').catch(() => {
+        // Surface the original failure, not a secondary rollback error.
+      });
+      throw err;
+    }
   }
 
   /**

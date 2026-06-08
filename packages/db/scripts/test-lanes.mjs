@@ -62,6 +62,7 @@ const laneDefinitions = [
   {
     name: 'search',
     matches: [
+      /^hnsw-search-tuning\.integration\.test\.ts$/,
       /^hybrid-search-service\.test\.ts$/,
       /^retrieval-eval-runner\.test\.ts$/,
       /^retrieval-harness\.test\.ts$/,

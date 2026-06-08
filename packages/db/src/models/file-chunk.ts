@@ -73,6 +73,12 @@ export interface ChunkSearchResult {
 
 export interface ChunkSearchOptions {
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
+  /**
+   * Per-query `hnsw.ef_search` override (widens the ANN candidate window).
+   * Falls back to the `HNSW_EF_SEARCH` env var, then the shared default.
+   * Clamped to a safe range before use.
+   */
+  efSearch?: number;
   embeddingSetId?: string;
   /** Optional allowlist of file paths to scope results (relative to project root). */
   filePaths?: readonly string[];
