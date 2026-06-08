@@ -33,6 +33,7 @@ import { migration031ProviderCatalogTimestamps } from './031-provider-catalog-ti
 import { migration032FileChunkSourceRanges } from './032-file-chunk-source-ranges.js';
 import { migration033UpdateProviderModels2026Frontier } from './033-update-provider-models-2026-frontier.js';
 import { migration034TsvectorGeneratedColumn } from './034-tsvector-generated-column.js';
+import { migration035Uuidv7PrimaryKeys } from './035-uuidv7-primary-keys.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -72,6 +73,7 @@ export const migrations: Migration[] = [
   migration032FileChunkSourceRanges,
   migration033UpdateProviderModels2026Frontier,
   migration034TsvectorGeneratedColumn,
+  migration035Uuidv7PrimaryKeys,
 ];
 
 // Export base migrations (without chunks table) for test environments

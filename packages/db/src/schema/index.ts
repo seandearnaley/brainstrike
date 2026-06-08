@@ -210,7 +210,8 @@ export const fileChunks = pgTable(
 export const selectionSnapshots = pgTable(
   'selection_snapshots',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
@@ -305,7 +306,8 @@ export const jobQueue = pgTable(
 export const tokenCache = pgTable(
   'token_cache',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
     filePath: text('file_path').notNull(),
     contentHash: text('content_hash').notNull(),
     tokenCount: integer('token_count').notNull(),
@@ -403,7 +405,8 @@ export const fileRelationships = pgTable(
 export const embeddingCache = pgTable(
   'embedding_cache',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
     /** SHA-256 hash of the content */
     contentHash: text('content_hash').notNull(),
     /** Composite model key (e.g., "local::all-MiniLM-L6-v2" or "openai::text-embedding-3-small") */
@@ -485,7 +488,8 @@ export const models = pgTable(
 export const viewFilterPresets = pgTable(
   'view_filter_presets',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
     name: text('name').notNull(),
     description: text('description'),
     /** Lucide icon name (e.g., 'file-code', 'settings', 'folder-open') */
