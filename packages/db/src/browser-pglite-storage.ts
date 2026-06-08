@@ -250,6 +250,14 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
  * deleting absent storage is a no-op and any failure is swallowed so reclamation
  * can't break startup.
  *
+ * SAME-BASE ONLY (not redundant with the factory-reset list): this reclaims only
+ * variants of the CURRENT base name (e.g. `web` → `/pglite/web`, `/pglite/web-pg17`,
+ * …). A legacy install under a DIFFERENT base — e.g. an old `idb://brainstrike-web`
+ * store (real DB `/pglite/brainstrike-web`) — is never reached here and leaks
+ * against origin quota until a factory reset. Such cross-base orphans are covered
+ * by `FALLBACK_INDEXED_DB_NAMES` + factory-reset enumeration, which is exactly why
+ * that list is the secondary cleanup path rather than dead weight.
+ *
  * INTENTIONAL ASYMMETRY vs desktop (do NOT "fix" by adding a retention window):
  * desktop's `reconcileIncompatiblePgDataDir` MOVES an unopenable older-major dir
  * aside to a `.bak` sibling kept for a 14-day forensic window; the browser here
