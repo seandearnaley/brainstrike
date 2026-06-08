@@ -223,8 +223,7 @@ function useDocumentVisibility(): boolean {
   return visible;
 }
 
-function useRecentUserInputMs(): number | null {
-  const [lastInputAt, setLastInputAt] = useState<number | null>(null);
+function useRecentUserInputMsReader(): () => number | null {
   const lastInputRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -232,9 +231,7 @@ function useRecentUserInputMs(): number | null {
       return;
     }
     const recordInput = (): void => {
-      const now = Date.now();
-      lastInputRef.current = now;
-      setLastInputAt(now);
+      lastInputRef.current = Date.now();
     };
     const inputEvents = ['keydown', 'pointerdown', 'wheel'] as const;
     for (const eventName of inputEvents) {
@@ -247,21 +244,14 @@ function useRecentUserInputMs(): number | null {
     };
   }, []);
 
-  useEffect(() => {
+  return useCallback((): number | null => {
+    const lastInputAt = lastInputRef.current;
     if (lastInputAt === null) {
-      return;
+      return null;
     }
-    const timeout = setTimeout(() => {
-      if (lastInputRef.current === lastInputAt) {
-        setLastInputAt(null);
-      }
-    }, RECENT_USER_INPUT_WINDOW_MS);
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [lastInputAt]);
-
-  return lastInputAt === null ? null : Math.max(0, Date.now() - lastInputAt);
+    const inputAgeMs = Math.max(0, Date.now() - lastInputAt);
+    return inputAgeMs > RECENT_USER_INPUT_WINDOW_MS ? null : inputAgeMs;
+  }, []);
 }
 
 export function WorkspaceCollectionSyncProvider({
@@ -310,7 +300,9 @@ export function WorkspaceCollectionSyncProvider({
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
   const windowVisible = useDocumentVisibility();
-  const recentUserInputMs = useRecentUserInputMs();
+  const readRecentUserInputMs = useRecentUserInputMsReader();
+  const windowVisibleRef = useRef(windowVisible);
+  windowVisibleRef.current = windowVisible;
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -394,11 +386,11 @@ export function WorkspaceCollectionSyncProvider({
       // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
       // backfill exposes provider throttling as durable state.
       providerRateLimited: false,
-      recentUserInputMs,
+      recentUserInputMs: readRecentUserInputMs(),
       thermalState: powerSnapshot?.thermalState ?? 'unknown',
-      windowVisible,
+      windowVisible: windowVisibleRef.current,
     });
-  }, [readDatabasePressure, readPowerSnapshot, recentUserInputMs, windowVisible]);
+  }, [readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
 
   const service = useMemo(() => {
     if (

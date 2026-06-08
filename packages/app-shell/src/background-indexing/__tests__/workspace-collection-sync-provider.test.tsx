@@ -1161,6 +1161,29 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(2));
   });
 
+  it('keeps the sync service mounted when recent user input changes QoS inputs', async () => {
+    const cancelSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'cancel');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown'));
+      });
+
+      expect(cancelSpy).not.toHaveBeenCalled();
+      expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    } finally {
+      cancelSpy.mockRestore();
+    }
+  });
+
   it('surfaces cancel failures from provider cleanup', async () => {
     const cancelSpy = vi
       .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
