@@ -74,6 +74,9 @@
       ],
       "@brainstrike/utils/workspace-indexing-qos": [
         "../../packages/utils/dist/workspace-indexing-qos.d.ts"
+      ],
+      "@brainstrike/utils/workspace-indexing-power-snapshot": [
+        "../../packages/utils/dist/workspace-indexing-power-snapshot.d.ts"
       ]
     },
     "strictNullChecks": true

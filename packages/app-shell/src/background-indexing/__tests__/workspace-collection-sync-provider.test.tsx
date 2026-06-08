@@ -553,11 +553,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
 
     expect(validateApiKeyForSetMock).toHaveBeenCalledWith(workspaceIndex.id);
-    expect(enqueueBackfillMock).toHaveBeenCalledWith(
-      workspaceIndex.id,
-      expect.objectContaining({
-        source: 'background-indexing',
-      })
+    await waitFor(() =>
+      expect(enqueueBackfillMock).toHaveBeenCalledWith(
+        workspaceIndex.id,
+        expect.objectContaining({
+          source: 'background-indexing',
+        })
+      )
     );
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
       expect.objectContaining({

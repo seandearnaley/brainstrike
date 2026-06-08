@@ -1,30 +1,14 @@
-import type {
-  WorkspaceIndexingIdleState,
-  WorkspaceIndexingPowerSource,
-  WorkspaceIndexingThermalState,
-} from '@brainstrike/utils/workspace-indexing-qos';
+import {
+  normalizeWorkspaceIndexingIdleState,
+  normalizeWorkspaceIndexingThermalState,
+  type WorkspaceIndexingPowerSnapshot,
+} from '@brainstrike/utils/workspace-indexing-power-snapshot';
+import type { WorkspaceIndexingPowerSource } from '@brainstrike/utils/workspace-indexing-qos';
 
 const IDLE_THRESHOLD_SECONDS = 60;
-const VALID_IDLE_STATES = new Set<WorkspaceIndexingIdleState>([
-  'active',
-  'idle',
-  'locked',
-  'unknown',
-]);
-const VALID_THERMAL_STATES = new Set<WorkspaceIndexingThermalState>([
-  'critical',
-  'fair',
-  'nominal',
-  'serious',
-  'unknown',
-]);
 
-export interface DesktopPowerSnapshot {
-  readonly idleState: WorkspaceIndexingIdleState;
-  readonly idleTimeMs: number;
-  readonly powerSource: WorkspaceIndexingPowerSource;
+export interface DesktopPowerSnapshot extends WorkspaceIndexingPowerSnapshot {
   readonly sampledAt: number;
-  readonly thermalState: WorkspaceIndexingThermalState;
 }
 
 interface DesktopPowerMonitor {
@@ -33,20 +17,6 @@ interface DesktopPowerMonitor {
   readonly getSystemIdleTime: () => number;
   readonly isOnBatteryPower?: () => boolean;
   readonly onBatteryPower?: boolean;
-}
-
-function normalizeIdleState(value: string): WorkspaceIndexingIdleState {
-  if (VALID_IDLE_STATES.has(value as WorkspaceIndexingIdleState)) {
-    return value as WorkspaceIndexingIdleState;
-  }
-  throw new Error(`Electron powerMonitor returned invalid idle state: ${value}`);
-}
-
-function normalizeThermalState(value: string): WorkspaceIndexingThermalState {
-  if (VALID_THERMAL_STATES.has(value as WorkspaceIndexingThermalState)) {
-    return value as WorkspaceIndexingThermalState;
-  }
-  throw new Error(`Electron powerMonitor returned invalid thermal state: ${value}`);
 }
 
 function resolvePowerSource(powerMonitor: DesktopPowerMonitor): WorkspaceIndexingPowerSource {
@@ -59,11 +29,16 @@ function resolvePowerSource(powerMonitor: DesktopPowerMonitor): WorkspaceIndexin
   return 'unknown';
 }
 
-function resolveThermalState(powerMonitor: DesktopPowerMonitor): WorkspaceIndexingThermalState {
+function resolveThermalState(
+  powerMonitor: DesktopPowerMonitor
+): DesktopPowerSnapshot['thermalState'] {
   if (typeof powerMonitor.getCurrentThermalState !== 'function') {
     return 'unknown';
   }
-  return normalizeThermalState(powerMonitor.getCurrentThermalState());
+  return normalizeWorkspaceIndexingThermalState(
+    powerMonitor.getCurrentThermalState(),
+    'Electron powerMonitor'
+  );
 }
 
 function resolveIdleTimeMs(powerMonitor: DesktopPowerMonitor): number {
@@ -79,7 +54,10 @@ export function readDesktopPowerSnapshot(
   now: () => number = () => Date.now()
 ): DesktopPowerSnapshot {
   return {
-    idleState: normalizeIdleState(powerMonitor.getSystemIdleState(IDLE_THRESHOLD_SECONDS)),
+    idleState: normalizeWorkspaceIndexingIdleState(
+      powerMonitor.getSystemIdleState(IDLE_THRESHOLD_SECONDS),
+      'Electron powerMonitor'
+    ),
     idleTimeMs: resolveIdleTimeMs(powerMonitor),
     powerSource: resolvePowerSource(powerMonitor),
     sampledAt: now(),

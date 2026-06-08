@@ -372,6 +372,14 @@ export {
   UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
 } from './tools/schemas';
+export {
+  createWorkspaceIndexUnavailableResult,
+  hasWorkspaceIndexRuntimeStatus,
+  normalizeWorkspaceIndexText,
+  type RetrievalUnavailableResult,
+  resolveWorkspaceIndexEmbeddingSetId,
+  type WorkspaceIndexRetrievalStatus,
+} from './tools/workspace-index-retrieval';
 export type {
   AgentMessage,
   AgentMessagePart,
