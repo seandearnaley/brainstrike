@@ -96,6 +96,15 @@ function escapeRegExp(value: string): string {
  * across repeated bumps, while the `< current` gate means an older build never
  * background-deletes a NEWER build's `-pg<N+>` data (which a later re-upgrade
  * could still reopen) — reclaim only ever moves forward.
+ *
+ * DOWNGRADE COROLLARY (accepted permanent leak): because the gate is forward-only,
+ * a browser rolled back from a future `-pg19` build to a `-pg18` build never reaps
+ * the newer `/pglite/web-pg19` store — it just boots a fresh `web-pg18` and leaves
+ * the newer orphan against origin quota. Unlike desktop (which hard-throws on a
+ * newer on-disk major), web leaks it silently until a manual factory reset, and on
+ * an enumeration-incapable browser (Safari/Firefox) even factory reset can't clear
+ * it, since `FALLBACK_INDEXED_DB_NAMES` lists only current/older names. This is the
+ * intended trade-off: never destroy newer-major data a re-upgrade could reopen.
  */
 function isReclaimableLegacyName(name: string, baseName: string, currentMajor: number): boolean {
   const match = name.match(new RegExp(`^${escapeRegExp(baseName)}(?:-pg(\\d+))?$`));
