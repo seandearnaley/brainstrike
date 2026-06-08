@@ -10,7 +10,11 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
-import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
+import {
+  ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS,
+  acquireAssistantForegroundActivity,
+  getAssistantForegroundActivitySnapshot,
+} from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import {
@@ -1651,6 +1655,24 @@ describe('AssistantUiPanelWrapper', () => {
     renderResult.unmount();
     expect(getAssistantForegroundActivitySnapshot()).toBe(false);
     uuidSpy.mockRestore();
+  });
+
+  test('expires assistant foreground activity when a completion callback is lost', () => {
+    vi.useFakeTimers();
+
+    try {
+      const release = acquireAssistantForegroundActivity();
+
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS);
+      });
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+
+      release();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('creates a fresh run record for each prepared request', async () => {

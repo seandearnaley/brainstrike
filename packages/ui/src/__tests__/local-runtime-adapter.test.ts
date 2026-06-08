@@ -189,6 +189,34 @@ describe('createLocalModelAdapter', () => {
     });
   });
 
+  it('completes prepared runtime data when a local run has no message content', async () => {
+    const completeRuntimeData = vi.fn();
+    const preparedRuntimeData = { memory: { runId: 'run-empty' } };
+    const prepareRuntimeData = vi.fn(async () => preparedRuntimeData);
+    const adapter = createLocalModelAdapter({
+      completeRuntimeData,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      prepareRuntimeData,
+    });
+
+    const updates = await collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        messages: [],
+      })
+    );
+
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        {
+          type: 'text',
+          text: 'No message content to process.',
+        },
+      ]),
+    });
+    expect(completeRuntimeData).toHaveBeenCalledWith(preparedRuntimeData, 'completed');
+  });
+
   it('does not re-warm an already warmed desktop model', async () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockResolvedValue(undefined);
