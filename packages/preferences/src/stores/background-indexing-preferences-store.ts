@@ -118,7 +118,7 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           mode: state.mode,
           paused: state.paused,
         }),
-        migrate: (persistedState: unknown, version: number) => {
+        migrate: (persistedState: unknown) => {
           if (!(persistedState && typeof persistedState === 'object')) {
             return {
               ...DEFAULT_STATE,
@@ -126,11 +126,8 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           }
 
           const candidate = persistedState as Partial<BackgroundIndexingPreferencesData>;
-          const shouldEnableWorkspaceIndexByDefault = version < STORE_VERSION;
           return {
-            enabled: shouldEnableWorkspaceIndexByDefault
-              ? DEFAULT_STATE.enabled
-              : (candidate.enabled ?? DEFAULT_STATE.enabled),
+            enabled: candidate.enabled ?? DEFAULT_STATE.enabled,
             hasHydrated: false,
             indexingPolicyPreset:
               candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,

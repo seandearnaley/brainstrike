@@ -29,7 +29,7 @@ describe('background-indexing-preferences-store', () => {
     expect(state.hasHydrated).toBe(false);
   });
 
-  it('migrates pre-workspace-index preferences to the default enabled state', () => {
+  it('migrates pre-workspace-index preferences without overriding an explicit disabled state', () => {
     const options = (
       useBackgroundIndexingPreferencesStore as PersistApi<
         typeof useBackgroundIndexingPreferencesStore
@@ -52,9 +52,34 @@ describe('background-indexing-preferences-store', () => {
       3
     ) as BackgroundIndexingPreferencesStore;
 
-    expect(migrated.enabled).toBe(true);
+    expect(migrated.enabled).toBe(false);
     expect(migrated.indexingPolicyPreset).toBe('full-root');
     expect(migrated.paused).toBe(false);
+  });
+
+  it('migrates incomplete pre-workspace-index preferences to the default enabled state', () => {
+    const options = (
+      useBackgroundIndexingPreferencesStore as PersistApi<
+        typeof useBackgroundIndexingPreferencesStore
+      >
+    ).persist?.getOptions?.();
+    if (!(options?.migrate && options.version !== undefined)) {
+      throw new Error('persist options unavailable for background indexing preferences test');
+    }
+
+    expect(options.version).toBe(4);
+
+    const migrated = options.migrate(
+      {
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: null,
+        mode: 'root-folder-cache',
+        paused: false,
+      },
+      3
+    ) as BackgroundIndexingPreferencesStore;
+
+    expect(migrated.enabled).toBe(true);
   });
 
   it('updates enablement, policy, managed collection, and pause independently', () => {
