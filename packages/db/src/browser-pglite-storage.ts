@@ -211,6 +211,15 @@ async function reclaimLegacyOpfsDirs(baseName: string, currentMajor: number): Pr
   const root = (await navigator.storage.getDirectory()) as FileSystemDirectoryHandle & {
     keys?: () => AsyncIterable<string>;
   };
+  // OWNERSHIP INVARIANT: unlike the IndexedDB path — which guards on the
+  // `/pglite/` prefix so it can't touch non-PGlite stores like `brainstrike-desktop`
+  // — OPFS-AHP has no prefix (PGlite stores under the BARE name at the root), so a
+  // top-level entry named `app`/`web`/`app-pg17` is removed unconditionally. This is
+  // safe ONLY because PGlite owns every OPFS root dir matching the base-name pattern
+  // today. If a future feature writes an OPFS root directory whose name collides with
+  // a reclaimable base / older-major pattern, this background sweep WOULD delete it —
+  // namespace such a consumer (or add a prefix guard here) before that happens.
+  //
   // Enumerate root entries when supported; otherwise fall back to the deterministic
   // older-candidate set (base + every prior versioned major) so a prior versioned
   // orphan isn't leaked on engines without `keys()`. removeEntry on an absent name
