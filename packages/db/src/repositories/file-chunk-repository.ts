@@ -877,9 +877,9 @@ export class FileChunkRepository {
 
   /**
    * Build distance expressions for similarity search.
-   * CRITICAL: The embedding column is cast to vector(dimension) to match the
-   * partial HNSW index expression `(embedding::vector(N))`. Without this cast,
-   * the query planner cannot use the dimension-specific indexes.
+   * CRITICAL: The embedding column is cast to halfvec(dimension) to match the
+   * half-precision partial HNSW index expression `(embedding::halfvec(N))`.
+   * Without this cast, the query planner cannot use the dimension-specific indexes.
    */
   private buildDistanceExpressions(
     distance: 'cosine' | 'l2' | 'ip',
@@ -888,9 +888,12 @@ export class FileChunkRepository {
     similarityExpr: string;
     orderExpr: string;
   } {
-    // Cast embedding to fixed-dimension vector to enable HNSW index usage
-    const embeddingCast = `(embedding::vector(${dimension}))`;
-    const paramCast = `$1::vector(${dimension})`;
+    // Cast embedding (and the query param) to fixed-dimension halfvec so the
+    // ORDER BY matches the half-precision HNSW partial index built by the
+    // dimension-index-helpers. The full-precision vector stays in the column;
+    // only the ANN ranking runs in fp16.
+    const embeddingCast = `(embedding::halfvec(${dimension}))`;
+    const paramCast = `$1::halfvec(${dimension})`;
 
     if (distance === 'l2') {
       return {

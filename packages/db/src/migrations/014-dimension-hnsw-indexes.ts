@@ -27,7 +27,7 @@ const COMMON_DIMENSIONS = [768, 1024, 1536] as const;
  * Example index created:
  * ```sql
  * CREATE INDEX idx_file_chunks_emb_hnsw_1024 ON file_chunks
- *   USING hnsw ((embedding::vector(1024)) vector_cosine_ops)
+ *   USING hnsw ((embedding::halfvec(1024)) halfvec_cosine_ops)
  *   WITH (m=16, ef_construction=64)
  *   WHERE vector_dims(embedding) = 1024;
  * ```

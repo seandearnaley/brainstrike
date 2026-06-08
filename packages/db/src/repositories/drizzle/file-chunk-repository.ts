@@ -758,8 +758,12 @@ export class DrizzleFileChunkRepository {
     // Validate dimension is a safe integer (defense-in-depth)
     validateDimension(dimension, 'buildDistanceExpressions');
 
-    const embeddingCast = `(embedding::vector(${dimension}))`;
-    const paramCast = `$1::vector(${dimension})`;
+    // Cast embedding (and the query param) to fixed-dimension halfvec so the
+    // ORDER BY matches the half-precision HNSW partial index built by the
+    // dimension-index-helpers. The full-precision vector stays in the column;
+    // only the ANN ranking runs in fp16.
+    const embeddingCast = `(embedding::halfvec(${dimension}))`;
+    const paramCast = `$1::halfvec(${dimension})`;
 
     if (distance === 'l2') {
       return {
