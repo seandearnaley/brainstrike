@@ -63,6 +63,17 @@ jobs:
       - name: Script tests
         run: pnpm test:scripts
 
+      - name: Check DB test + coverage lane assignments
+        # Both the unit `test-lanes` and the nightly `coverage-lanes` registries
+        # error on any unassigned `packages/db/__tests__/*.test.ts`. The unit one
+        # is validated implicitly when the Unit job runs `test`, but the coverage
+        # one was only validated in the nightly job — so a new test could pass every
+        # PR check and silently break Nightly Coverage. Validate BOTH here (fast,
+        # ~1s) so drift is caught on the PR, not at 2am.
+        run: |
+          pnpm --filter @brainstrike/db test:db:check-lanes
+          pnpm --filter @brainstrike/db test:coverage:db:check-lanes
+
       - name: Lint
         run: pnpm run lint:ci
 
