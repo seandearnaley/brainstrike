@@ -57,6 +57,7 @@ const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
+  missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
@@ -74,6 +75,7 @@ const ERROR_MESSAGES = {
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
+  ERROR_MESSAGES.missingQueryEmbeddingSpace,
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
@@ -820,7 +822,7 @@ export async function runQueryEmbeddingSpace(
 ): Promise<RetrievalToolExecutionResult> {
   const hasExplicitEmbeddingSet = Boolean(normalizeText(input.embeddingSetId));
   if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
-    throw new Error('Select an embedding space before querying semantic context.');
+    throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
   }
   const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
   return await runRetrieval(input, explicitRuntimeData, dependencies);

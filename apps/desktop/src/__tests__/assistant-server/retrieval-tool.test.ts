@@ -65,6 +65,9 @@ vi.mock('@brainstrike/agent', () => {
 
   return {
     ContextPacker: MockContextPacker,
+    QueryEmbeddingSpaceInputSchema: {
+      parse: (input: unknown) => input,
+    },
     RetrievalContextInputSchema: {
       parse: (input: unknown) => input,
     },
@@ -155,7 +158,11 @@ vi.mock('../../secrets', () => ({
   }),
 }));
 
-import { createRetrievalTool, runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
+import {
+  createQueryEmbeddingSpaceTool,
+  createRetrievalTool,
+  runQueryEmbeddingSpace,
+} from '../../assistant-server/retrieval-tool';
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
@@ -748,6 +755,16 @@ describe('retrieval-tool', () => {
         context: { query: 'hello' },
       })
     ).rejects.toThrow('Select an active embedding set to enable retrieval.');
+  });
+
+  it('surfaces safe query-embedding-space selection guidance from the tool factory', async () => {
+    const tool = createQueryEmbeddingSpaceTool(undefined);
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello' },
+      })
+    ).rejects.toThrow('Select an embedding space before querying semantic context.');
   });
 
   it('sanitizes unexpected retrieval errors', async () => {
