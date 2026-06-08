@@ -256,6 +256,7 @@ export function WorkspaceCollectionSyncProvider({
   const readRecentUserInputMs = useRecentUserInputMsReader();
   const windowVisibleRef = useRef(windowVisible);
   windowVisibleRef.current = windowVisible;
+  const workspaceIndexBootstrapInFlightRef = useRef(false);
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -422,6 +423,9 @@ export function WorkspaceCollectionSyncProvider({
     if (!(enabled && managedCollectionId === null)) {
       return false;
     }
+    if (workspaceIndexBootstrapInFlightRef.current) {
+      return true;
+    }
 
     const embeddingSetsRepository = backgroundRepositories?.embeddingSetsRepository;
     if (!embeddingSetsRepository) {
@@ -432,6 +436,7 @@ export function WorkspaceCollectionSyncProvider({
       return true;
     }
 
+    workspaceIndexBootstrapInFlightRef.current = true;
     void bootstrapWorkspaceIndexCollection(
       { enabled, managedCollectionId },
       {
@@ -477,6 +482,9 @@ export function WorkspaceCollectionSyncProvider({
       })
       .catch((error) => {
         reportAsyncError('bootstrap', error);
+      })
+      .finally(() => {
+        workspaceIndexBootstrapInFlightRef.current = false;
       });
     return true;
   }, [

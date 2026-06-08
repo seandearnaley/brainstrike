@@ -569,6 +569,65 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
+  it('dedupes workspace index bootstrap while collection creation is in flight', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000202',
+      name: 'Workspace Index',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    let resolveBootstrap: (collection: EmbeddingSet) => void;
+    const bootstrapPromise = new Promise<EmbeddingSet>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    getOrCreateWorkspaceIndexSetMock.mockReturnValue(bootstrapPromise);
+    getByIdMock.mockResolvedValue(workspaceIndex);
+
+    let releasePause: (() => void) | undefined;
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        releasePause = await acquireBackgroundWorkPauseReason('local-llm');
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveBootstrap(workspaceIndex);
+        await bootstrapPromise;
+      });
+      await waitFor(() =>
+        expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+          workspaceIndex.id
+        )
+      );
+    } finally {
+      releasePause?.();
+    }
+  });
+
   it('preserves manual pause while bootstrapping fresh workspace index preferences', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
