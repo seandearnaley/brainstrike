@@ -57,7 +57,7 @@ import {
   resolveTargetSetId,
 } from './embedding-worker-job-payload';
 import {
-  CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS,
+  CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS,
   DEFAULT_CLAIM_BATCH_SIZE,
   resolveIdlePollBackoffOptions,
   resolvePositiveIntegerOption,
@@ -1379,7 +1379,7 @@ export async function startEmbeddingWorker(
       await waitForBackgroundPermit('embedding claim');
       const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
       if (effectiveClaimBatchSize === null) {
-        await sleep(CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS);
+        await sleep(CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS);
         return;
       }
       // Claim a batch of jobs
