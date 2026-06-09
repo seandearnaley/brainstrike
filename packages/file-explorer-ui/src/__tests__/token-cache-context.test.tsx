@@ -1,7 +1,9 @@
+import type { TokenCacheEntry, TokenCountingMode } from '@brainstrike/token-cache/cache-runtime';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetTokenCacheWorkerInitErrorsForTests,
+  type TokenCacheContextValue,
   TokenCacheProvider,
   useOptionalTokenCacheContext,
   useTokenCacheContext,
@@ -47,6 +49,52 @@ vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
 vi.mock('../indexing/resolve-token-cache-worker-url', () => ({
   resolveTokenCacheWorkerUrlHref: vi.fn(() => 'file:///mock-worker.js'),
 }));
+
+interface TokenCacheStoreHarness {
+  clearAll: () => Promise<number>;
+  clearFolder: (folderId: string) => Promise<number>;
+  delete: (folderId: string, filePath: string) => Promise<boolean>;
+  findByCountingMode: (
+    folderId: string,
+    mode: TokenCountingMode,
+    limit?: number
+  ) => Promise<TokenCacheEntry[]>;
+  get: (folderId: string, filePath: string) => Promise<TokenCacheEntry | null>;
+  getAllForFolder: (folderId: string) => Promise<TokenCacheEntry[]>;
+  getBatch: (folderId: string, filePaths: string[]) => Promise<Map<string, TokenCacheEntry>>;
+  getStats: (folderId?: string) => Promise<{
+    accurateCount: number;
+    entryCount: number;
+    heuristicCount: number;
+    totalTokens: number;
+  }>;
+  getTotalTokens: (folderId: string, filePaths: string[]) => Promise<number>;
+  set: (entry: TokenCacheEntry) => Promise<void>;
+  setBatch: (entries: TokenCacheEntry[]) => Promise<void>;
+  vacuum: () => Promise<void>;
+}
+
+function asMemoryStore(store: TokenCacheContextValue['store']): TokenCacheStoreHarness {
+  return store as unknown as TokenCacheStoreHarness;
+}
+
+function createTokenCacheEntry(
+  overrides: Partial<TokenCacheEntry> & Pick<TokenCacheEntry, 'filePath' | 'folderId'>
+): TokenCacheEntry {
+  const { filePath, folderId, ...entryOverrides } = overrides;
+  return {
+    contentHash: `hash:${folderId}:${filePath}`,
+    countingMode: 'heuristic',
+    filePath,
+    fileSize: 128,
+    folderId,
+    modelEncoding: null,
+    mtimeMs: null,
+    tokenCount: 10,
+    updatedAt: '2026-06-09T00:00:00.000Z',
+    ...entryOverrides,
+  };
+}
 
 describe('TokenCacheContext', () => {
   afterEach(() => {
@@ -121,6 +169,101 @@ describe('TokenCacheContext', () => {
     const store = result.current.store as any;
     expect(store.set).toBeDefined();
     expect(store.get).toBeDefined();
+  });
+
+  it('stores and retrieves memory-mode token entries by folder and path', async () => {
+    const { result } = renderHook(() => useTokenCacheContext(), {
+      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+    });
+    const store = asMemoryStore(result.current.store);
+    const entry = createTokenCacheEntry({
+      filePath: 'src/app.ts',
+      folderId: 'workspace-1',
+      tokenCount: 42,
+    });
+
+    await store.set(entry);
+
+    await expect(store.get('workspace-1', 'src/app.ts')).resolves.toEqual(entry);
+    await expect(store.get('workspace-1', 'missing.ts')).resolves.toBeNull();
+  });
+
+  it('supports memory-mode batch reads, totals, stats, and counting-mode filters', async () => {
+    const { result } = renderHook(() => useTokenCacheContext(), {
+      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+    });
+    const store = asMemoryStore(result.current.store);
+    const entries = [
+      createTokenCacheEntry({
+        countingMode: 'accurate',
+        filePath: 'src/a.ts',
+        folderId: 'workspace-1',
+        tokenCount: 7,
+      }),
+      createTokenCacheEntry({
+        countingMode: 'heuristic',
+        filePath: 'src/b.ts',
+        folderId: 'workspace-1',
+        tokenCount: 11,
+      }),
+      createTokenCacheEntry({
+        countingMode: 'accurate',
+        filePath: 'src/c.ts',
+        folderId: 'workspace-2',
+        tokenCount: 13,
+      }),
+    ];
+
+    await store.setBatch(entries);
+
+    const batch = await store.getBatch('workspace-1', ['src/a.ts', 'missing.ts', 'src/b.ts']);
+    expect([...batch.keys()]).toEqual(['src/a.ts', 'src/b.ts']);
+    await expect(store.getAllForFolder('workspace-1')).resolves.toEqual([entries[0], entries[1]]);
+    await expect(store.getTotalTokens('workspace-1', ['src/a.ts', 'src/b.ts'])).resolves.toBe(18);
+    await expect(store.getStats()).resolves.toEqual({
+      accurateCount: 2,
+      entryCount: 3,
+      heuristicCount: 1,
+      totalTokens: 31,
+    });
+    await expect(store.getStats('workspace-1')).resolves.toEqual({
+      accurateCount: 1,
+      entryCount: 2,
+      heuristicCount: 1,
+      totalTokens: 18,
+    });
+    await expect(store.findByCountingMode('workspace-1', 'accurate')).resolves.toEqual([
+      entries[0],
+    ]);
+    await expect(store.findByCountingMode('workspace-1', 'heuristic', 1)).resolves.toEqual([
+      entries[1],
+    ]);
+  });
+
+  it('deletes and clears memory-mode token entries without touching other folders', async () => {
+    const { result } = renderHook(() => useTokenCacheContext(), {
+      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+    });
+    const store = asMemoryStore(result.current.store);
+    await store.setBatch([
+      createTokenCacheEntry({ filePath: 'src/a.ts', folderId: 'workspace-1' }),
+      createTokenCacheEntry({ filePath: 'src/b.ts', folderId: 'workspace-1' }),
+      createTokenCacheEntry({ filePath: 'src/c.ts', folderId: 'workspace-2' }),
+    ]);
+
+    await expect(store.delete('workspace-1', 'src/a.ts')).resolves.toBe(true);
+    await expect(store.delete('workspace-1', 'src/a.ts')).resolves.toBe(false);
+    await expect(store.clearFolder('workspace-1')).resolves.toBe(1);
+    await expect(store.getAllForFolder('workspace-1')).resolves.toEqual([]);
+    await expect(store.getAllForFolder('workspace-2')).resolves.toHaveLength(1);
+    await expect(store.clearAll()).resolves.toBe(1);
+    await expect(store.getStats()).resolves.toEqual({
+      accurateCount: 0,
+      entryCount: 0,
+      heuristicCount: 0,
+      totalTokens: 0,
+    });
+    await expect(store.vacuum()).resolves.toBeUndefined();
   });
 
   it('reuses the persistent store when the db wrapper object changes but query stays the same', async () => {
