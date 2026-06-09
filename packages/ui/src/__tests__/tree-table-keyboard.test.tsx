@@ -205,6 +205,52 @@ describe('useTreeKeyboard — arrow navigation', () => {
     });
     expect(result.current.state.focusedId).toBe('c');
   });
+
+  it('public move actions choose edge rows when focus is not set', () => {
+    const opts = defaultOptions();
+    const { result } = renderHook(() => useTreeKeyboard(opts));
+
+    act(() => {
+      result.current.actions.moveDown();
+    });
+    expect(result.current.state.focusedId).toBe('a');
+
+    act(() => {
+      result.current.actions.reset();
+    });
+
+    act(() => {
+      result.current.actions.moveUp();
+    });
+    expect(result.current.state.focusedId).toBe('c');
+  });
+
+  it('moves to the first row when the current focused id is stale', () => {
+    const opts = defaultOptions();
+    const { result } = renderHook(() => useTreeKeyboard(opts));
+
+    act(() => {
+      result.current.actions.setFocus('missing');
+      result.current.actions.moveDown();
+    });
+
+    expect(result.current.state.focusedId).toBe('a');
+  });
+
+  it('does not move when there are no visible rows', () => {
+    const opts = defaultOptions({
+      rows: [],
+      rowIndexById: new Map(),
+    });
+    const { result } = renderHook(() => useTreeKeyboard(opts));
+
+    act(() => {
+      result.current.actions.moveDown();
+      result.current.actions.moveUp();
+    });
+
+    expect(result.current.state.focusedId).toBeNull();
+  });
 });
 
 describe('useTreeKeyboard — Home and End', () => {
@@ -335,6 +381,27 @@ describe('useTreeKeyboard — expand/collapse', () => {
     });
 
     expect(result.current.state.focusedId).toBe('parent');
+  });
+
+  it('ignores expand and collapse requests when focus is missing or stale', () => {
+    const onToggleExpand = vi.fn();
+    const onScrollToNode = vi.fn();
+    const opts = defaultOptions({ onScrollToNode, onToggleExpand });
+    const { result } = renderHook(() => useTreeKeyboard(opts));
+
+    act(() => {
+      result.current.actions.expandOrMoveRight();
+      result.current.actions.collapseOrMoveLeft();
+    });
+
+    act(() => {
+      result.current.actions.setFocus('missing');
+      result.current.actions.expandOrMoveRight();
+      result.current.actions.collapseOrMoveLeft();
+    });
+
+    expect(onToggleExpand).not.toHaveBeenCalled();
+    expect(onScrollToNode).not.toHaveBeenCalled();
   });
 });
 
@@ -531,6 +598,48 @@ describe('useTreeKeyboard — focus management', () => {
     // Lose focus
     rerender({ ...opts, isTableFocused: false });
     expect(result.current.state.isActive).toBe(false);
+  });
+
+  it('clears active focus when all visible rows disappear', () => {
+    const opts = defaultOptions();
+    const { result, rerender } = renderHook(
+      (props: UseTreeKeyboardOptions<TestData>) => useTreeKeyboard(props),
+      { initialProps: opts }
+    );
+
+    act(() => {
+      result.current.actions.setFocus('a');
+    });
+
+    rerender({
+      ...opts,
+      rows: [],
+      rowIndexById: new Map(),
+    });
+
+    expect(result.current.state.focusedId).toBeNull();
+  });
+
+  it('does not immediately auto-focus a replacement row after the focused row is filtered out', () => {
+    const opts = defaultOptions();
+    const replacementRows = opts.rows.filter((row) => row.node.id !== 'b');
+    const replacementIndexById = new Map(replacementRows.map((row, index) => [row.node.id, index]));
+    const { result, rerender } = renderHook(
+      (props: UseTreeKeyboardOptions<TestData>) => useTreeKeyboard(props),
+      { initialProps: opts }
+    );
+
+    act(() => {
+      result.current.actions.setFocus('b');
+    });
+
+    rerender({
+      ...opts,
+      rows: replacementRows,
+      rowIndexById: replacementIndexById,
+    });
+
+    expect(result.current.state.focusedId).toBeNull();
   });
 
   it('scrolls to node when navigating', () => {
