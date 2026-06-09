@@ -199,6 +199,59 @@ describe('useBackgroundTokenIndexer', () => {
     expect(String(worker.url)).toBe('http://localhost/custom-background-indexer.worker.js');
   });
 
+  it('does not start the worker for an empty indexing request', async () => {
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        autoStart: false,
+        store: null,
+        mode: 'heuristic',
+      })
+    );
+
+    await act(async () => {
+      await result.current.indexFiles([]);
+    });
+
+    expect(mockWorkers).toHaveLength(0);
+    expect(result.current.isIndexing).toBe(false);
+    expect(result.current.progress).toBeNull();
+  });
+
+  it('routes non-terminal worker logs to the matching logger levels', async () => {
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+      })
+    );
+
+    await markWorkerReady();
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      for (const level of ['error', 'warn', 'info', 'debug'] as const) {
+        worker.emitEvent('message', {
+          data: {
+            type: 'log',
+            level,
+            message: `${level} message`,
+            data: { source: level },
+          },
+        } as MessageEvent);
+      }
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledWith('Worker log: error message', {
+      source: 'error',
+    });
+    expect(mockLogger.warn).toHaveBeenCalledWith('Worker log: warn message', { source: 'warn' });
+    expect(mockLogger.info).toHaveBeenCalledWith('Worker log: info message', { source: 'info' });
+    expect(mockLogger.debug).toHaveBeenCalledWith('Worker log: debug message', {
+      source: 'debug',
+    });
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+  });
+
   it('invokes onFileError when worker reports an error', async () => {
     const onFileError = vi.fn();
 
@@ -1153,6 +1206,256 @@ describe('useBackgroundTokenIndexer', () => {
       '__worker__',
       expect.stringContaining('Pending files dropped: 2')
     );
+  });
+
+  it('detects terminal tokenizer errors from worker log error and cause fields', async () => {
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await markWorkerReady();
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'log',
+          level: 'error',
+          message: 'encoder init failed',
+          data: {
+            error: 'Error: tiktoken encoder failed to initialize',
+            cause: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
+          },
+        },
+      } as MessageEvent);
+    });
+
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining(
+        '(worker.log.terminal-tokenizer.encoder init failed): Error: tiktoken encoder failed to initialize'
+      )
+    );
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.log.terminal-tokenizer.encoder init failed',
+        error: 'Error: tiktoken encoder failed to initialize',
+      })
+    );
+  });
+
+  it('logs messageerror reasons from addEventListener details', async () => {
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('messageerror', {
+        type: 'messageerror',
+        reason: { kind: 'clone-error', field: 'fileHandle' },
+      } as unknown as Event);
+    });
+
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Background token indexer restarting after recoverable worker failure',
+      expect.objectContaining({
+        context: 'worker.onmessageerror',
+        error: 'Worker message channel error (onmessageerror)',
+        reason: '{"kind":"clone-error","field":"fileHandle"}',
+        type: 'messageerror',
+      })
+    );
+  });
+
+  it('tracks progress and cancels pending batch promises explicitly', async () => {
+    const onProgress = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onProgress,
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
+        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+      ]);
+    });
+    void indexPromise.catch(() => {});
+
+    await waitFor(() => expect(mockWorkers[0]!.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'progress',
+          completed: 1,
+          total: 2,
+          currentId: 'folder|@|b.ts',
+        },
+      } as MessageEvent);
+    });
+
+    expect(result.current.progress).toEqual({
+      completed: 1,
+      total: 2,
+      currentFile: 'folder|@|b.ts',
+    });
+    expect(onProgress).toHaveBeenCalledWith({
+      completed: 1,
+      total: 2,
+      currentFile: 'folder|@|b.ts',
+    });
+    expect(mockEmitIndexingBacklog).toHaveBeenCalledWith({
+      inFlight: 2,
+      batchTotal: 2,
+      batchCompleted: 1,
+    });
+
+    act(() => {
+      result.current.cancelIndexing();
+    });
+
+    await expect(indexPromise).rejects.toThrow('Background token indexer indexing canceled');
+    expect(result.current.isIndexing).toBe(false);
+    expect(result.current.progress).toBeNull();
+  });
+
+  it('keeps a batch pending until every file result settles', async () => {
+    const onFileIndexed = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'heuristic',
+        onFileIndexed,
+      })
+    );
+
+    await markWorkerReady();
+
+    let settled = false;
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current
+        .indexFiles([
+          { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
+          { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+        ])
+        .then(() => {
+          settled = true;
+        });
+    });
+
+    await waitFor(() => expect(mockWorkers[0]!.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: false,
+          compositeKey: 'folder|@|a.ts',
+          folderId: 'folder',
+          filePath: 'a.ts',
+          contentHash: 'hash-a',
+          fileSize: 100,
+          mode: 'heuristic',
+          tokenCount: 10,
+        },
+      } as MessageEvent);
+      await Promise.resolve();
+    });
+
+    expect(settled).toBe(false);
+    expect(result.current.isIndexing).toBe(true);
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: false,
+          compositeKey: 'folder|@|b.ts',
+          folderId: 'folder',
+          filePath: 'b.ts',
+          contentHash: 'hash-b',
+          fileSize: 200,
+          mode: 'heuristic',
+          tokenCount: 20,
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(settled).toBe(true);
+    expect(onFileIndexed).toHaveBeenCalledWith('folder|@|a.ts', 10, 100);
+    expect(onFileIndexed).toHaveBeenCalledWith('folder|@|b.ts', 20, 200);
+    expect(result.current.isIndexing).toBe(false);
+  });
+
+  it('does not notify indexed callback when skipped cache entry is missing', async () => {
+    const onFileIndexed = vi.fn();
+    const store = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store,
+        mode: 'heuristic',
+        onFileIndexed,
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|missing.txt', folderId: 'folder', filePath: 'missing.txt' },
+      ]);
+    });
+
+    await waitFor(() => expect(mockWorkers[0]!.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: true,
+          compositeKey: 'folder|@|missing.txt',
+          folderId: 'folder',
+          filePath: 'missing.txt',
+          contentHash: 'hash',
+          fileSize: 128,
+          mode: 'heuristic',
+          tokenCount: 42,
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(onFileIndexed).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
   });
 
   it('starts the worker on first indexFiles request when autoStart is disabled', async () => {

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { LogLevel, type LogRecord } from '@brainstrike/utils';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogViewer } from '../log-viewer';
 
 // Mock ResizeObserver
@@ -45,6 +45,16 @@ const createMockLogRecord = (overrides: Partial<LogRecord> = {}): LogRecord => (
 });
 
 describe('LogViewer', () => {
+  beforeEach(() => {
+    mockToast.mockClear();
+  });
+
+  it('renders nothing without a log source', () => {
+    const { container } = render(<LogViewer logSource={undefined} toast={mockToast} />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('renders empty state when no logs', async () => {
     const logSource = {
       getInitialRecords: async () => [],
@@ -57,6 +67,82 @@ describe('LogViewer', () => {
     await waitFor(() => {
       expect(screen.getByText('No logs recorded for the current session.')).toBeInTheDocument();
     });
+  });
+
+  it('surfaces initial log load failures through toast', async () => {
+    const logSource = {
+      getInitialRecords: vi.fn().mockRejectedValue(new Error('initial logs failed')),
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'initial logs failed',
+        title: 'Failed to load logs',
+        variant: 'destructive',
+      });
+    });
+  });
+
+  it('surfaces refresh failures through toast', async () => {
+    const getInitialRecords = vi
+      .fn()
+      .mockResolvedValueOnce([
+        createMockLogRecord({
+          message: 'Initial log',
+          timestamp: 1000,
+        }),
+      ])
+      .mockRejectedValueOnce(new Error('refresh failed'));
+    const logSource = {
+      getInitialRecords,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Initial log')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Logs' }));
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'refresh failed',
+        title: 'Failed to refresh logs',
+        variant: 'destructive',
+      });
+    });
+  });
+
+  it('renders subscribed log updates and unsubscribes on unmount', async () => {
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    const unsubscribe = vi.fn();
+    const logSource = {
+      getInitialRecords: async () => [],
+      subscribe: vi.fn((handler: (records: readonly LogRecord[]) => void) => {
+        subscribedHandler = handler;
+        return unsubscribe;
+      }),
+    };
+
+    const { unmount } = render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(logSource.subscribe).toHaveBeenCalledTimes(1));
+    act(() => {
+      subscribedHandler?.([
+        createMockLogRecord({
+          message: 'Subscribed log',
+          scope: 'live',
+          timestamp: 2000,
+        }),
+      ]);
+    });
+
+    await waitFor(() => expect(screen.getByText('Subscribed log')).toBeInTheDocument());
+    unmount();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('renders logs from source', async () => {

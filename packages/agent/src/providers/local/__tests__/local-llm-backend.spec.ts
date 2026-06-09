@@ -1,6 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalLlmBackend, verifyModelIntegrity } from '../local-llm-backend';
+import {
+  addAllowedModels,
+  getAllowedModels,
+  isModelAllowed,
+  LocalLlmBackend,
+  setModelChecksums,
+  verifyModelIntegrity,
+} from '../local-llm-backend';
 import { GEMMA4_E2B_MODEL_ID } from '../local-model-specs';
+
+const { mockArtifactDownload, mockHasRequiredArtifacts } = vi.hoisted(() => ({
+  mockArtifactDownload: vi.fn(),
+  mockHasRequiredArtifacts: vi.fn(),
+}));
 
 const mockProcessorApplyChatTemplate = vi.fn();
 const mockProcessorCall = vi.fn();
@@ -59,6 +71,13 @@ vi.mock('@huggingface/transformers', () => ({
   TextStreamer: mockTextStreamerCtor,
 }));
 
+vi.mock('../local-artifact-store', () => ({
+  createLocalArtifactStore: () => ({
+    download: mockArtifactDownload,
+    hasRequiredArtifacts: mockHasRequiredArtifacts,
+  }),
+}));
+
 function installNavigatorWebGpu(hasGpu: boolean): void {
   vi.stubGlobal(
     'navigator',
@@ -101,6 +120,8 @@ describe('LocalLlmBackend', () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     installNavigatorWebGpu(true);
+    mockArtifactDownload.mockResolvedValue(undefined);
+    mockHasRequiredArtifacts.mockResolvedValue(true);
 
     mockProcessorApplyChatTemplate.mockImplementation(function (
       this: unknown,
@@ -203,6 +224,22 @@ describe('LocalLlmBackend', () => {
     ).rejects.toThrow('unsupported built-in local model');
   });
 
+  it('reports allowed built-in local model ids without accepting unknown ids', () => {
+    expect(getAllowedModels()).toEqual([GEMMA4_E2B_MODEL_ID]);
+    expect(isModelAllowed(GEMMA4_E2B_MODEL_ID)).toBe(true);
+    expect(isModelAllowed('unknown/local-model')).toBe(false);
+    expect(addAllowedModels([GEMMA4_E2B_MODEL_ID, 'unknown/local-model'])).toEqual({
+      added: [GEMMA4_E2B_MODEL_ID],
+      rejected: ['unknown/local-model'],
+    });
+
+    expect(() =>
+      setModelChecksums(GEMMA4_E2B_MODEL_ID, {
+        onnxSha256: 'deprecated',
+      })
+    ).not.toThrow();
+  });
+
   it('requires WebGPU for Gemma instead of silently falling back to wasm', async () => {
     installNavigatorWebGpu(false);
     const backend = new LocalLlmBackend();
@@ -212,6 +249,17 @@ describe('LocalLlmBackend', () => {
         modelId: GEMMA4_E2B_MODEL_ID,
       })
     ).rejects.toThrow('webgpu_unavailable');
+  });
+
+  it('rejects explicit wasm requests instead of silently falling back', async () => {
+    const backend = new LocalLlmBackend();
+
+    await expect(
+      backend.initialize({
+        device: 'wasm',
+        modelId: GEMMA4_E2B_MODEL_ID,
+      })
+    ).rejects.toThrow('does not support wasm');
   });
 
   it('maps transformers progress callbacks onto loading percentages', async () => {
@@ -251,6 +299,185 @@ describe('LocalLlmBackend', () => {
       stage: 'ready',
       progress: 100,
     });
+  });
+
+  it('purges stale HTML responses from the Transformers cache before loading', async () => {
+    const staleRequest = new Request('https://cdn.example.test/model/config.json');
+    const modelRequest = new Request('https://cdn.example.test/model/model.onnx');
+    const deleteCachedRequest = vi.fn().mockResolvedValue(true);
+    const cache = {
+      delete: deleteCachedRequest,
+      keys: vi.fn().mockResolvedValue([staleRequest, modelRequest]),
+      match: vi.fn().mockImplementation(async (request: Request) => {
+        if (request === staleRequest) {
+          return new Response('<html>not a model</html>', {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+            },
+          });
+        }
+        return new Response('model-bytes', {
+          headers: {
+            'content-type': 'application/octet-stream',
+          },
+        });
+      }),
+    } satisfies Partial<Cache>;
+    const openCache = vi.fn().mockResolvedValue(cache);
+    vi.stubGlobal('caches', {
+      open: openCache,
+    });
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    expect(openCache).toHaveBeenCalledWith('transformers-cache');
+    expect(deleteCachedRequest).toHaveBeenCalledExactlyOnceWith(staleRequest);
+  });
+
+  it('tracks ready and uninitialized status across repeated initialize and dispose calls', async () => {
+    const backend = new LocalLlmBackend();
+
+    expect(backend.isReady()).toBe(false);
+    expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
+    await expect(backend.generate([])).rejects.toThrow('Model not initialized');
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    expect(mockFromPretrainedProcessor).toHaveBeenCalledTimes(1);
+    expect(backend.isReady()).toBe(true);
+    expect(backend.getStatus()).toEqual({ state: 'ready', device: 'webgpu' });
+
+    await backend.dispose();
+
+    expect(backend.isReady()).toBe(false);
+    expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
+  });
+
+  it('disposes loaded Gemma models when the backend is disposed', async () => {
+    const disposeModel = vi.fn().mockResolvedValue(undefined);
+    mockFromPretrainedModel.mockResolvedValueOnce({
+      dispose: disposeModel,
+      generate: mockModelGenerate,
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+    await backend.dispose();
+
+    expect(disposeModel).toHaveBeenCalledOnce();
+    expect(backend.isReady()).toBe(false);
+  });
+
+  it('uses explicit progress percentages and done status from Transformers progress callbacks', async () => {
+    const progressUpdates: Array<{ file?: string; progress: number; stage: string }> = [];
+    mockFromPretrainedProcessor.mockImplementationOnce(async function (
+      this: typeof mockAutoProcessor,
+      _modelId: string,
+      options: {
+        progress_callback?: (progress: {
+          file?: string;
+          progress?: number;
+          status?: string;
+        }) => void;
+      }
+    ) {
+      if (this !== mockAutoProcessor) {
+        throw new TypeError('this is not a constructor');
+      }
+      options.progress_callback?.({
+        file: 'processor.json',
+        progress: 42,
+      });
+      options.progress_callback?.({
+        status: 'done',
+      });
+      return callableProcessor;
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+      onProgress: (progress) => {
+        progressUpdates.push(progress);
+      },
+    });
+
+    expect(progressUpdates).toContainEqual({
+      file: 'processor.json',
+      stage: 'loading',
+      progress: 42,
+      message: 'Loading processor.json',
+    });
+    expect(progressUpdates).toContainEqual({
+      stage: 'loading',
+      progress: 100,
+      message: `Loading ${GEMMA4_E2B_MODEL_ID}`,
+    });
+  });
+
+  it('reports device availability and WebGPU adapter metadata', async () => {
+    expect(LocalLlmBackend.isDeviceAvailable('wasm')).toBe(true);
+    expect(LocalLlmBackend.isDeviceAvailable('webgpu')).toBe(true);
+    expect(LocalLlmBackend.getBestDevice()).toBe('webgpu');
+
+    await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toEqual({
+      vendor: 'test-vendor',
+      architecture: 'test-arch',
+      device: 'test-device',
+      description: 'test-description',
+      maxBufferSize: 8_000_000_000,
+      maxStorageBufferBindingSize: 8_000_000_000,
+    });
+
+    installNavigatorWebGpu(false);
+    await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toBeNull();
+
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: vi.fn().mockResolvedValue(null),
+      },
+    });
+    await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toBeNull();
+  });
+
+  it('delegates model download and downloaded checks to the browser artifact store', async () => {
+    const abortController = new AbortController();
+    const onProgress = vi.fn();
+
+    await LocalLlmBackend.downloadModel(GEMMA4_E2B_MODEL_ID, {
+      cacheDir: '/tmp/ignored',
+      onProgress,
+      signal: abortController.signal,
+    });
+
+    expect(mockArtifactDownload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: GEMMA4_E2B_MODEL_ID,
+      }),
+      onProgress,
+      abortController.signal
+    );
+    await expect(LocalLlmBackend.downloadModel('unknown/local-model')).rejects.toThrow(
+      'unsupported built-in local model'
+    );
+    await expect(LocalLlmBackend.hasDownloadedModel('unknown/local-model')).resolves.toBe(false);
+    await expect(LocalLlmBackend.hasDownloadedModel(GEMMA4_E2B_MODEL_ID)).resolves.toBe(true);
+    expect(mockHasRequiredArtifacts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: GEMMA4_E2B_MODEL_ID,
+      })
+    );
   });
 
   it('strips Gemma thought traces from generated text', async () => {
@@ -547,6 +774,94 @@ Because they make up everything!<turn|>`,
     });
   });
 
+  it('normalizes camelCase processor input ids before model generation', async () => {
+    mockProcessorCall.mockResolvedValueOnce({
+      inputIds: {
+        dims: [1, 7],
+      },
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Use camelCase tensors' }])
+    ).resolves.toMatchObject({
+      finishReason: 'stop',
+      text: 'Final answer',
+    });
+
+    expect(mockModelGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputIds: {
+          dims: [1, 7],
+        },
+      })
+    );
+  });
+
+  it('rejects processor outputs without tensor input ids', async () => {
+    mockProcessorCall.mockResolvedValueOnce({
+      input_ids: {
+        shape: [1, 4],
+      },
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(backend.generate([{ role: 'user', content: 'Bad tensor' }])).rejects.toThrow(
+      'Gemma processor inputs are missing input_ids'
+    );
+  });
+
+  it('passes explicit generation options to Transformers with snake_case keys', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await backend.generate([{ role: 'user', content: 'Tune generation' }], {
+      doSample: true,
+      maxNewTokens: 12,
+      temperature: 0.25,
+      topK: 8,
+      topP: 0.5,
+    });
+
+    expect(mockModelGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        do_sample: true,
+        max_new_tokens: 12,
+        temperature: 0.25,
+        top_k: 8,
+        top_p: 0.5,
+      })
+    );
+  });
+
+  it('aborts generation before running the processor when the signal is already aborted', async () => {
+    const abortController = new AbortController();
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+    abortController.abort();
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Stop' }], {
+        signal: abortController.signal,
+      })
+    ).rejects.toThrow('The operation was aborted');
+    expect(mockProcessorCall).not.toHaveBeenCalled();
+  });
+
   it('parses Gemma tool calls into local tool results', async () => {
     mockBatchDecode.mockReturnValue([
       '<|tool_call|>call:tell_joke{topic: <|"|>penguins<|"|>}<tool_call|>',
@@ -583,6 +898,38 @@ Because they make up everything!<turn|>`,
     expect(result.toolCalls?.[0]?.function).toEqual({
       name: 'tell_joke',
       arguments: JSON.stringify({ topic: 'penguins' }),
+    });
+  });
+
+  it('parses wrapped JSON tool calls with omitted arguments as empty objects', async () => {
+    mockBatchDecode.mockReturnValue(['<tool_call>{"name":"refresh_index"}</tool_call>']);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Refresh the index' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'refresh_index',
+            description: 'Refresh the current index',
+            parameters: {
+              type: 'object',
+              properties: {},
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.finishReason).toBe('tool_calls');
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      name: 'refresh_index',
+      arguments: JSON.stringify({}),
     });
   });
 

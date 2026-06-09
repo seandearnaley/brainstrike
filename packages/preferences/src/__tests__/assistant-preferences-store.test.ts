@@ -119,6 +119,51 @@ describe('assistant-preferences-store', () => {
     expect(after.getEnabledModels('openai')).toEqual([]);
   });
 
+  it('batch-enables models and uses the first requested model when provider memory is empty', () => {
+    const store = useAssistantPreferencesStore.getState();
+    const allGoogleModels = PROVIDER_MODELS.google as string[];
+    const [firstModel, secondModel] = allGoogleModels;
+    if (!(firstModel && secondModel)) {
+      throw new Error('Expected at least two Google models for batch enable test');
+    }
+
+    for (const model of store.getEnabledModels('google')) {
+      store.setModelEnabled('google', model, false);
+    }
+
+    const withoutGoogleModels = useAssistantPreferencesStore.getState();
+    expect(withoutGoogleModels.getEnabledModels('google')).toEqual([]);
+    expect(withoutGoogleModels.modelsByProvider.google).toBeUndefined();
+
+    withoutGoogleModels.setProviderModelsEnabled('google', [secondModel, firstModel], true);
+
+    const updated = useAssistantPreferencesStore.getState();
+    expect(updated.getEnabledModels('google')).toEqual([firstModel, secondModel]);
+    expect(updated.modelsByProvider.google).toBe(secondModel);
+  });
+
+  it('batch-disables the current model once and ignores empty batches', () => {
+    const store = useAssistantPreferencesStore.getState();
+    const [firstModel, secondModel] = store.getEnabledModels('openai');
+    if (!(firstModel && secondModel)) {
+      throw new Error('Expected at least two OpenAI models for batch disable test');
+    }
+
+    const compositeKey = `openai::${firstModel}`;
+    store.setModel(compositeKey);
+
+    const beforeEmptyBatch = useAssistantPreferencesStore.getState();
+    beforeEmptyBatch.setProviderModelsEnabled('openai', [], false);
+    expect(useAssistantPreferencesStore.getState().selectedModel).toBe(compositeKey);
+
+    beforeEmptyBatch.setProviderModelsEnabled('openai', [firstModel, 'not-enabled-model'], false);
+
+    const updated = useAssistantPreferencesStore.getState();
+    expect(updated.selectedModel).toBeNull();
+    expect(updated.getEnabledModels('openai')).not.toContain(firstModel);
+    expect(updated.getEnabledModels('openai')).toContain(secondModel);
+  });
+
   it('setModel accepts any model since validation happens at UI layer against DB', () => {
     const store = useAssistantPreferencesStore.getState();
 
@@ -880,6 +925,37 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['google']).toContain('gemini-2.5-flash');
     expect(store.enabledModelsByProvider['google']).toContain('gemini-3.5-flash');
     expect(store.enabledModelsByProvider['google']).not.toContain('gemini-3-flash-preview');
+  });
+
+  it('migrates legacy selectedProvider snapshots to composite selectedModel', async () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const legacyProviderState: StorageValue<unknown> = {
+      version: 1,
+      state: {
+        selectedProvider: 'google',
+        modelsByProvider: {
+          google: 'gemini-3-flash-preview',
+        },
+        enabledModelsByProvider: {
+          google: ['gemini-3-flash-preview'],
+        },
+        providerSettings: {},
+      },
+    };
+
+    options.storage.setItem(options.name, legacyProviderState);
+    await persistApi.rehydrate?.();
+
+    const store = useAssistantPreferencesStore.getState();
+    expect(store.modelsByProvider.google).toBe('gemini-3.5-flash');
+    expect(store.selectedModel).toBe('google::gemini-3.5-flash');
+    expect(store.enabledModelsByProvider.google).toContain('gemini-3.5-flash');
+    expect(store.enabledModelsByProvider.google).not.toContain('gemini-3-flash-preview');
   });
 
   it('switches between providers using composite keys', () => {

@@ -1143,6 +1143,54 @@ describe('AssistantUiPanel model picker', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { maxOutputTokens: undefined });
   });
 
+  it('clamps provider numeric controls and clears invalid memory edits', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        providerId="OpenRouter"
+        settings={{
+          agentInputTokenLimit: 32_000,
+          agentMaxSteps: 8,
+          maxOutputTokens: 1024,
+          memoryLastMessages: 40,
+        }}
+      />
+    );
+
+    expect(screen.getByText('OpenAI reasoning')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Max agent steps' }), {
+      target: { value: '999' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { agentMaxSteps: 100 });
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Input token limit' }), {
+      target: { value: '1' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
+      agentInputTokenLimit: 4096,
+    });
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory messages' }), {
+      target: { value: '' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
+      memoryLastMessages: undefined,
+    });
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Max output tokens' }), {
+      target: { value: '999999' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', { maxOutputTokens: 8192 });
+  });
+
+  it('returns nothing when no provider is selected', () => {
+    const { container } = render(<ProviderSettingsPanel settings={{}} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('returns nothing for unsupported provider settings panels', () => {
     const { container } = render(<ProviderSettingsPanel providerId="unsupported" settings={{}} />);
     expect(container).toBeEmptyDOMElement();

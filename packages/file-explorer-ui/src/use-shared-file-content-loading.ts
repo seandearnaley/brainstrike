@@ -185,6 +185,11 @@ interface CachedHandleLookup {
   getFileHandle?: (folderId: string, relativePath: string) => Promise<FileSystemFileHandle | null>;
 }
 
+type CachedFileRequestResult =
+  | { status: 'blocked' }
+  | { status: 'miss' }
+  | { request: FileReadRequest; status: 'request' };
+
 function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
   const adapterWithCache = fileSystemAdapter as {
     getHandleCache?: () => CachedHandleLookup;
@@ -276,7 +281,7 @@ async function buildCachedFileRequest(args: {
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.RefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
-}): Promise<FileReadRequest | null> {
+}): Promise<CachedFileRequestResult> {
   const {
     handleCache,
     folderId,
@@ -287,19 +292,19 @@ async function buildCachedFileRequest(args: {
     setLoadingFiles,
   } = args;
   if (!handleCache?.getFileHandle) {
-    return null;
+    return { status: 'miss' };
   }
 
   const cachedHandle = await handleCache.getFileHandle(folderId, path);
   if (!cachedHandle) {
-    return null;
+    return { status: 'miss' };
   }
 
   if (typeof cachedHandle.queryPermission === 'function') {
     const permission = await cachedHandle.queryPermission({ mode: 'read' });
     if (permission !== 'granted') {
       setFileContent(compositeKey, buildInaccessibleContent(`permission required: ${path}`));
-      return null;
+      return { status: 'blocked' };
     }
   }
 
@@ -313,7 +318,7 @@ async function buildCachedFileRequest(args: {
     rootFolderId: folderId,
     _internal: cachedHandle,
   };
-  return { compositeKey, handle: fileHandle, path };
+  return { request: { compositeKey, handle: fileHandle, path }, status: 'request' };
 }
 
 function deferFileLoadsUntilTreeReady(args: {
@@ -449,8 +454,12 @@ async function handleMissingFileNode(args: {
     loadingPathsRef,
     setLoadingFiles,
   });
-  if (cachedRequest) {
-    return cachedRequest;
+  if (cachedRequest.status === 'request') {
+    return cachedRequest.request;
+  }
+  if (cachedRequest.status === 'blocked') {
+    clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
+    return null;
   }
 
   const folderCache = nodeCacheRef.current.get(folderId);
@@ -516,9 +525,13 @@ async function handleInvalidFileNode(args: {
       loadingPathsRef,
       setLoadingFiles,
     });
-    if (cachedRequest) {
+    if (cachedRequest.status === 'request') {
       clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
-      return cachedRequest;
+      return cachedRequest.request;
+    }
+    if (cachedRequest.status === 'blocked') {
+      clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
+      return null;
     }
     clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
     logger.warn('File has no handle', { path, folderId, nodeType: fileNode.type });

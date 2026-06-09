@@ -4,6 +4,11 @@ import { TooltipProvider } from '../../tooltip';
 import { CollectionPicker } from '../collection-picker';
 import { getCollectionPickerProtection } from '../protection';
 import type { CollectionPickerCollection } from '../types';
+import {
+  extractProviderId,
+  formatProviderLabel,
+  getCollectionColor,
+} from '../utils/collection-colors';
 
 // Mock useTheme
 vi.mock('../../theme-provider', () => ({
@@ -139,6 +144,27 @@ describe('CollectionPicker', () => {
     expect(screen.getByText('Collection 1').closest('[role="option"]')).toHaveClass('ring-2');
   });
 
+  it('handles Home, End, blur, and pointer focus transitions', () => {
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
+
+    const listbox = screen.getByRole('listbox');
+
+    fireEvent.keyDown(listbox, { key: 'End' });
+    expect(screen.getByText('bge-m3').closest('[role="option"]')).toHaveClass('ring-2');
+
+    fireEvent.keyDown(listbox, { key: 'Home' });
+    expect(screen.getByText('Collection 1').closest('[role="option"]')).toHaveClass('ring-2');
+
+    fireEvent.blur(listbox);
+    expect(screen.getByText('Collection 1').closest('[role="option"]')).not.toHaveClass('ring-2');
+
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
+    expect(screen.getByText('bge-m3').closest('[role="option"]')).toHaveClass('ring-2');
+
+    fireEvent.pointerDown(listbox);
+    expect(screen.getByText('bge-m3').closest('[role="option"]')).not.toHaveClass('ring-2');
+  });
+
   it('handles keyboard selection (Enter/Space)', () => {
     renderWithProvider(<CollectionPicker {...defaultProps} />);
 
@@ -164,6 +190,77 @@ describe('CollectionPicker', () => {
       'data-size',
       'icon-xs'
     );
+  });
+
+  it('routes edit and delete actions without selecting the collection', () => {
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
+
+    const firstOption = screen.getByRole('option', { name: /Collection 1/ });
+
+    fireEvent.click(within(firstOption).getByRole('button', { name: 'Edit collection' }));
+    fireEvent.click(within(firstOption).getByRole('button', { name: 'Delete collection' }));
+
+    expect(defaultProps.onEdit).toHaveBeenCalledWith(mockCollections[0]);
+    expect(defaultProps.onDelete).toHaveBeenCalledWith(mockCollections[0]);
+    expect(defaultProps.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('uses selected styling, singular metadata labels, and a custom scroll height without a visible header', () => {
+    const baseCollection = mockCollections[0];
+    if (!baseCollection) {
+      throw new Error('Expected at least one mock collection');
+    }
+    const singularCollection: CollectionPickerCollection = {
+      ...baseCollection,
+      id: 'single',
+      chunkCount: 1,
+      embeddingCount: 0,
+      fileCount: 1,
+      name: 'Single file collection',
+    };
+
+    renderWithProvider(
+      <CollectionPicker
+        {...defaultProps}
+        collections={[singularCollection]}
+        headerLabel="Memory Set"
+        maxHeight="144px"
+        selectedId="single"
+        showHeader={false}
+      />
+    );
+
+    const listbox = screen.getByRole('listbox', { name: 'Memory Set' });
+    const option = screen.getByRole('option', {
+      name: /Single file collection, Openai, 1536 dimensions, cosine, 1 file, 1 chunk, 0 of 1 chunks embedded/,
+    });
+
+    expect(listbox).not.toHaveAttribute('aria-labelledby');
+    expect(option).toHaveAttribute('aria-selected', 'true');
+    expect(option).toHaveStyle({
+      backgroundColor: getCollectionColor('single', 'light').background,
+      borderLeftColor: getCollectionColor('single', 'light').primary,
+    });
+    expect(screen.queryByText('Memory Set')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scroll-area')).toHaveStyle({ maxHeight: '144px' });
+  });
+
+  it('renders a custom empty state and invokes the header create action', () => {
+    renderWithProvider(
+      <CollectionPicker
+        {...defaultProps}
+        collections={[]}
+        emptyState={<p>No matching collections</p>}
+        headerLabel="Custom Collections"
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(screen.getByText('Custom Collections')).toBeInTheDocument();
+    expect(screen.getByText('No matching collections')).toBeInTheDocument();
+    expect(screen.queryByText(/No collections yet/i)).not.toBeInTheDocument();
+    expect(defaultProps.onCreate).toHaveBeenCalledTimes(1);
   });
 
   it('includes embedding progress in the option label without nesting an extra tab stop', () => {
@@ -241,5 +338,51 @@ describe('getCollectionPickerProtection', () => {
         canNormalSearchSelect: false,
       }).disabledReason
     ).toBe('Selection is disabled for this collection');
+  });
+
+  it('preserves explicit collection permissions and disabled reasons', () => {
+    const baseCollection = mockCollections[0];
+    if (!baseCollection) {
+      throw new Error('Expected at least one mock collection');
+    }
+
+    expect(
+      getCollectionPickerProtection({
+        ...baseCollection,
+        canDelete: false,
+        canEdit: false,
+        canNormalSearchSelect: false,
+        disabledReason: 'Temporarily unavailable',
+      })
+    ).toEqual(
+      expect.objectContaining({
+        badgeLabel: null,
+        canDelete: false,
+        canEdit: false,
+        disabledReason: 'Temporarily unavailable',
+        isDisabled: true,
+        isWorkspaceIndex: false,
+      })
+    );
+  });
+});
+
+describe('collection color helpers', () => {
+  it('formats provider labels and falls back to Local for provider-less model keys', () => {
+    expect(extractProviderId('anthropic::embedding-model')).toBe('anthropic');
+    expect(extractProviderId('bare-model')).toBeNull();
+    expect(formatProviderLabel('anthropic::embedding-model')).toBe('Anthropic');
+    expect(formatProviderLabel('bare-model')).toBe('Local');
+  });
+
+  it('returns deterministic light and dark theme colors', () => {
+    expect(getCollectionColor('', 'light')).toEqual({
+      primary: 'hsl(0, 55%, 40%)',
+      background: 'hsl(0, 55%, 97%)',
+    });
+    expect(getCollectionColor('', 'dark')).toEqual({
+      primary: 'hsl(0, 55%, 55%)',
+      background: 'hsl(0, 55%, 15%)',
+    });
   });
 });

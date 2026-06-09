@@ -165,6 +165,204 @@ describe('useRestoreAccess', () => {
     expect(result.current.showDeniedBanner).toBe(true);
   });
 
+  it('restores a pending handle when stored permission is already granted', async () => {
+    const mockRawHandle = {
+      name: 'Root',
+      kind: 'directory',
+      requestPermission: vi.fn(),
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([
+        {
+          folderId: 'root',
+          name: 'Root',
+          lastAccessedAt: 1,
+        },
+      ]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'root',
+        handle: mockRawHandle,
+        name: 'Root',
+        permissionState: 'granted',
+      }),
+      markHandleRestored: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    let restored: Awaited<ReturnType<typeof result.current.beginRestore>> = null;
+    await act(async () => {
+      restored = await result.current.beginRestore();
+    });
+
+    expect(restored).toMatchObject({
+      path: 'Root',
+      name: 'Root',
+      kind: 'directory',
+      platform: 'web',
+      _internal: mockRawHandle,
+    });
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('Root');
+    expect(mockRawHandle.requestPermission).not.toHaveBeenCalled();
+    expect(result.current.pendingRestore).toBeNull();
+  });
+
+  it('cleans up stale folder ids before restoring a granted pending handle', async () => {
+    const mockRawHandle = {
+      name: 'Actual Root',
+      kind: 'directory',
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'stale-root',
+        handle: mockRawHandle,
+        name: 'Actual Root',
+        permissionState: 'granted',
+      }),
+      markHandleRestored: vi.fn().mockResolvedValue(undefined),
+      removeRootHandle: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    await act(async () => {
+      await result.current.beginRestore();
+    });
+
+    expect(handleCache.removeRootHandle).toHaveBeenCalledWith('stale-root');
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('Actual Root');
+  });
+
+  it('requests permission for prompt handles and marks denied or stale states', async () => {
+    const mockRawHandle = {
+      name: 'Prompt Root',
+      kind: 'directory',
+      requestPermission: vi.fn().mockResolvedValueOnce('denied').mockResolvedValueOnce('prompt'),
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'Prompt Root',
+        handle: mockRawHandle,
+        name: 'Prompt Root',
+        permissionState: 'prompt',
+      }),
+      markHandleRestored: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    await act(async () => {
+      await result.current.beginRestore();
+    });
+
+    expect(result.current.showDeniedBanner).toBe(true);
+    expect(result.current.showStaleBanner).toBe(false);
+    expect(mockRawHandle.requestPermission).toHaveBeenCalledWith({ mode: 'read' });
+
+    await act(async () => {
+      await result.current.beginRestore();
+    });
+
+    expect(result.current.showDeniedBanner).toBe(false);
+    expect(result.current.showStaleBanner).toBe(true);
+  });
+
+  it('removes not-found pending handles and treats them as stale', async () => {
+    const notFoundError = new Error('missing folder');
+    notFoundError.name = 'NotFoundError';
+    const mockRawHandle = {
+      name: 'Missing Root',
+      kind: 'directory',
+      requestPermission: vi.fn().mockRejectedValue(notFoundError),
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'Missing Root',
+        handle: mockRawHandle,
+        name: 'Missing Root',
+        permissionState: 'unknown',
+      }),
+      removeRootHandle: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    await act(async () => {
+      await result.current.beginRestore();
+    });
+
+    expect(handleCache.removeRootHandle).toHaveBeenCalledWith('Missing Root');
+    expect(result.current.pendingRestore).toBeNull();
+    expect(result.current.showStaleBanner).toBe(true);
+  });
+
+  it('does not show banners when the user cancels a permission dialog', async () => {
+    const abortError = new Error('cancelled');
+    abortError.name = 'AbortError';
+    const mockRawHandle = {
+      name: 'Root',
+      kind: 'directory',
+      requestPermission: vi.fn().mockRejectedValue(abortError),
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'Root',
+        handle: mockRawHandle,
+        name: 'Root',
+        permissionState: 'unknown',
+      }),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    await act(async () => {
+      await result.current.beginRestore();
+    });
+
+    expect(result.current.showDeniedBanner).toBe(false);
+    expect(result.current.showStaleBanner).toBe(false);
+    expect(result.current.pendingRestore?.folderId).toBe('Root');
+  });
+
   it('marks stale when restore returns null and no handles remain', async () => {
     const handleCache = {
       getAllRootHandles: vi.fn().mockResolvedValue([]),
@@ -193,6 +391,106 @@ describe('useRestoreAccess', () => {
     });
 
     expect(result.current.showStaleBanner).toBe(true);
+  });
+
+  it('uses legacy restore results and refreshes stored folders', async () => {
+    const restoredHandle = {
+      name: 'Restored Root',
+      kind: 'directory',
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([
+        {
+          folderId: 'restored',
+          name: 'Restored Root',
+          lastAccessedAt: 2,
+        },
+      ]),
+      restoreLastRootHandle: vi.fn().mockResolvedValue({ handle: restoredHandle }),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    let restored: Awaited<ReturnType<typeof result.current.beginRestore>> = null;
+    await act(async () => {
+      restored = await result.current.beginRestore();
+    });
+
+    expect(restored).toMatchObject({
+      path: 'Restored Root',
+      name: 'Restored Root',
+      kind: 'directory',
+      platform: 'web',
+      _internal: restoredHandle,
+    });
+    expect(result.current.storedFolders).toEqual([{ folderId: 'restored', name: 'Restored Root' }]);
+  });
+
+  it('dismisses restore state and opens a different folder through the adapter', async () => {
+    const selectedDirectory = {
+      path: 'Selected',
+      name: 'Selected',
+      kind: 'directory',
+      platform: 'web',
+    } as const;
+    const requestDirectoryAccess = vi.fn().mockResolvedValue(selectedDirectory);
+    const mockRawHandle = {
+      name: 'Root',
+      kind: 'directory',
+      requestPermission: vi.fn().mockResolvedValue('denied'),
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'Root',
+        handle: mockRawHandle,
+        name: 'Root',
+        permissionState: 'denied',
+      }),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = {
+      requestDirectoryAccess,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+      getHandleCache: () => handleCache,
+    } as unknown as FileSystemAdapter;
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(adapter),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    await act(async () => {
+      await result.current.beginRestore();
+    });
+
+    expect(result.current.showDeniedBanner).toBe(true);
+
+    act(() => {
+      result.current.dismissRestore();
+    });
+
+    expect(result.current.pendingRestore).toBeNull();
+    expect(result.current.showDeniedBanner).toBe(false);
+
+    let selected: Awaited<ReturnType<typeof result.current.chooseDifferentFolder>> = null;
+    await act(async () => {
+      selected = await result.current.chooseDifferentFolder();
+    });
+
+    expect(selected).toBe(selectedDirectory);
+    expect(requestDirectoryAccess).toHaveBeenCalledOnce();
   });
 
   it('clears stored handles via clearStoredHandles', async () => {

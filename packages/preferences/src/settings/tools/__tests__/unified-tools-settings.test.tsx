@@ -32,9 +32,24 @@ vi.mock('../token-budget-summary', () => ({
 }));
 
 vi.mock('../mcp-config-alert', () => ({
-  McpConfigAlert: ({ onDismiss }: { onDismiss?: () => void }) => (
+  McpConfigAlert: ({
+    onCreateSample,
+    onDismiss,
+  }: {
+    onCreateSample?: () => Promise<void>;
+    onDismiss?: () => void;
+  }) => (
     <div data-testid="mcp-config-alert">
       MCP Config Alert
+      {onCreateSample && (
+        <button
+          data-testid="create-sample-config"
+          onClick={() => void onCreateSample()}
+          type="button"
+        >
+          Create Sample
+        </button>
+      )}
       {onDismiss && (
         <button data-testid="dismiss-alert" onClick={onDismiss} type="button">
           Dismiss
@@ -79,6 +94,7 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
     children,
     connectionStatus,
     onRefreshConnection,
+    onOpenConfigFile,
   }: {
     id: string;
     label: string;
@@ -89,6 +105,7 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
     children: React.ReactNode;
     connectionStatus?: string;
     onRefreshConnection?: () => void;
+    onOpenConfigFile?: () => void;
   }) => (
     <div data-testid={`tool-group-${id}`}>
       <div data-testid={`group-header-${id}`}>
@@ -106,6 +123,11 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
             type="button"
           >
             Refresh
+          </button>
+        )}
+        {onOpenConfigFile && (
+          <button data-testid={`open-config-${id}`} onClick={onOpenConfigFile} type="button">
+            Open Config
           </button>
         )}
         <button data-testid={`enable-all-${id}`} onClick={onEnableAll} type="button">
@@ -516,6 +538,30 @@ describe('UnifiedToolsSettings', () => {
         expect(screen.getByTestId('tool-row-mcp__github__search_code')).toBeInTheDocument();
       });
     });
+
+    it('resets the search filter from the filter bar', async () => {
+      const operations = createMockOperations();
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'github' } });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('tool-row-brainstrike.hybridSearch')).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('reset-button'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.vectorSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-mcp__github__search_code')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('toggle functionality', () => {
@@ -569,6 +615,25 @@ describe('UnifiedToolsSettings', () => {
       await waitFor(() => {
         expect(onToolsChanged).toHaveBeenCalled();
       });
+    });
+
+    it('shows toggle errors without reporting a successful tools change', async () => {
+      const operations = createMockOperations();
+      operations.disableTools = vi.fn().mockRejectedValue(new Error('Disable failed'));
+      const onToolsChanged = vi.fn();
+
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('toggle-brainstrike.hybridSearch'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Disable failed')).toBeInTheDocument();
+      });
+      expect(onToolsChanged).not.toHaveBeenCalled();
     });
   });
 
@@ -807,6 +872,29 @@ describe('UnifiedToolsSettings', () => {
       });
     });
 
+    it('shows sample config creation errors from the missing-config alert', async () => {
+      const operations = createMockOperations();
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
+      operations.createSampleConfig = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'template write failed',
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('create-sample-config')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('create-sample-config'));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Failed to create sample config: template write failed')
+        ).toBeInTheDocument();
+      });
+    });
+
     it('hides MCP config alert when dismissed', async () => {
       const operations = createMockOperations();
       operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
@@ -834,6 +922,26 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('connection-status-mcp-github')).toHaveTextContent('connected');
+      });
+    });
+
+    it('opens the MCP config from an MCP group header action', async () => {
+      const operations = createMockOperations();
+      operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockResolvedValue([{ name: 'github', status: 'disconnected', toolCount: 1 }]);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('open-config-mcp-github')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('open-config-mcp-github'));
+
+      await waitFor(() => {
+        expect(operations.openMcpConfig).toHaveBeenCalledTimes(1);
       });
     });
 

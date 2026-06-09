@@ -114,6 +114,20 @@ vi.mock('@brainstrike/file-import/enhanced-import', () => ({
   runEnhancedImport: runEnhancedImportMock,
 }));
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -396,6 +410,127 @@ describe('useEnhancedFileImportService', () => {
 
       expect(onComplete).toHaveBeenCalledTimes(1);
       expect(completionSawBulkActive).toBe(false);
+    });
+
+    it('accepts embedding-set resolution callbacks from the enhanced import runner', async () => {
+      const onComplete = vi.fn();
+      runEnhancedImportMock.mockImplementationOnce(async (params) => {
+        params.embedding.onResolvedTargetSetId('resolved-set');
+        return [{ id: 'file1', imported: true, existed: false, chunksCreated: 1 }];
+      });
+
+      const { result } = renderHook(() => useEnhancedFileImportService({ onComplete }));
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(onComplete).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: 'file1',
+        }),
+      ]);
+    });
+
+    it('skips the enhanced import runner when aborted during worker startup', async () => {
+      const externalAbort = new AbortController();
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      ensureStartedMock.mockImplementationOnce(async () => {
+        externalAbort.abort();
+        return {
+          transportKind: 'local-worker' as const,
+          chunkFile: vi.fn(),
+          chunkBatch: vi.fn(),
+          isReady: vi.fn(() => true),
+          terminate: vi.fn(),
+        };
+      });
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({ enableChunking: true, onComplete, onError })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(
+          new Set(['test-folder:/test/path']),
+          [],
+          {
+            'test-folder:/test/path': 'test content',
+          },
+          externalAbort.signal
+        );
+      });
+
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('skips backfill and completion when cancelled after enhanced import resolves', async () => {
+      const externalAbort = new AbortController();
+      const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
+      mockUsePGliteDatabase.mockReturnValue({ query: dbQuery } as never);
+      const onComplete = vi.fn();
+      runEnhancedImportMock.mockImplementationOnce(async () => {
+        externalAbort.abort();
+        return [{ id: 'file1', imported: true, existed: false, chunksCreated: 1 }];
+      });
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onComplete,
+          resolveTargetEmbeddingSetId: () => 'set-after-abort',
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(
+          new Set(['test-folder:/test/path']),
+          [],
+          {
+            'test-folder:/test/path': 'test content',
+          },
+          externalAbort.signal
+        );
+      });
+
+      expect(dbQuery).not.toHaveBeenCalled();
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it('cancels an in-flight import through the service controller', async () => {
+      const importResult =
+        createDeferred<
+          Array<{ id: string; imported: boolean; existed: boolean; chunksCreated: number }>
+        >();
+      const onComplete = vi.fn();
+      runEnhancedImportMock.mockReturnValueOnce(importResult.promise);
+
+      const { result } = renderHook(() => useEnhancedFileImportService({ onComplete }));
+
+      let importPromise: Promise<void> | null = null;
+      await act(async () => {
+        importPromise = result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+        await Promise.resolve();
+      });
+
+      act(() => {
+        result.current.cancelImport();
+      });
+
+      importResult.resolve([{ id: 'file1', imported: true, existed: false, chunksCreated: 1 }]);
+
+      await act(async () => {
+        await importPromise;
+      });
+
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(result.current.isImporting).toBe(false);
     });
   });
 

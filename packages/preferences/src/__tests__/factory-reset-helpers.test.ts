@@ -158,6 +158,39 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     expect(deleteDatabaseMock).not.toHaveBeenCalled();
   });
 
+  it('clears browser storage and Electron renderer stores during reset', async () => {
+    const localStorageClear = vi.spyOn(Storage.prototype, 'clear');
+    const rendererStorageClear = vi.fn(async () => undefined);
+    const secretsClearAll = vi.fn(async () => ({ success: true }));
+    const settingsClearAll = vi.fn(async () => undefined);
+
+    Object.defineProperty(globalWindow, 'electronAPI', {
+      configurable: true,
+      value: { storage: { clear: rendererStorageClear } },
+    });
+    Object.defineProperty(globalWindow, 'secrets', {
+      configurable: true,
+      value: { clearAll: secretsClearAll },
+    });
+    Object.defineProperty(globalWindow, 'settings', {
+      configurable: true,
+      value: { clearAll: settingsClearAll },
+    });
+
+    try {
+      await clearPersistentUiState({ skipIndexedDb: true });
+    } finally {
+      Reflect.deleteProperty(globalWindow, 'electronAPI');
+      Reflect.deleteProperty(globalWindow, 'secrets');
+      Reflect.deleteProperty(globalWindow, 'settings');
+    }
+
+    expect(localStorageClear).toHaveBeenCalledTimes(2);
+    expect(rendererStorageClear).toHaveBeenCalledTimes(1);
+    expect(secretsClearAll).toHaveBeenCalledWith('CONFIRM_CLEAR_SECRETS');
+    expect(settingsClearAll).toHaveBeenCalledTimes(1);
+  });
+
   it('deletes every CacheStorage entry and verifies the reset', async () => {
     const keysMock = vi
       .fn<() => Promise<string[]>>()

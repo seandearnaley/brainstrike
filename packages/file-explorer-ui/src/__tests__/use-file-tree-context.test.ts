@@ -359,6 +359,33 @@ describe('useFileTree (lazy loading version)', () => {
       expect(result.current.error?.message).toBe('String error');
       expect(result.current.fileTree).toEqual([]);
     });
+
+    it('reports an error when streaming root loading never emits a final batch', async () => {
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementationOnce(
+        async (_directoryHandle, onBatch) => {
+          onBatch([], { done: false, total: 0 });
+        }
+      );
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() =>
+        expect(result.current.error?.message).toBe(
+          `Root load completed without a final batch for ${handle.path}`
+        )
+      );
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual([]);
+    });
   });
 
   describe('Directory handling', () => {
@@ -685,6 +712,45 @@ describe('useFileTree (lazy loading version)', () => {
       expect(reloadedParent?.children?.some((child) => child.name === 'child')).toBe(true);
     });
 
+    it('loads root and child directories through non-streaming adapters', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const readDirectorySpy = vi.spyOn(mockAdapter, 'readDirectory');
+      const nonStreamingAdapter = {
+        readDirectory: mockAdapter.readDirectory.bind(mockAdapter),
+      } as unknown as MockFileSystemAdapter;
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: nonStreamingAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory before non-streaming child load');
+      }
+
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+
+      expect(readDirectorySpy).toHaveBeenCalledTimes(2);
+
+      const reloadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
+      expect(reloadedParent?.type).toBe('directory');
+      expect(reloadedParent?.loadState).toBe('loaded');
+      expect(reloadedParent?.children?.some((child) => child.name === 'child')).toBe(true);
+    });
+
     it('uses the worker batch loader when restoring multiple paths', async () => {
       const nestedFS = createNestedMockFileSystem();
       mockAdapter.setMockFileSystem(nestedFS);
@@ -706,6 +772,85 @@ describe('useFileTree (lazy loading version)', () => {
 
       expect(mockWorkerPort.loadPaths).toHaveBeenCalledTimes(1);
       expect(mockWorkerPort.loadPaths).toHaveBeenCalledWith(['parent', 'parent/child']);
+    });
+
+    it('skips restoration requests while expand-all is in progress', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const expandAllDeferred = createDeferred<{
+        expandedPaths: string[];
+        loadedCount: number;
+        patches: AccumulatedFileTreePatchMessage[];
+      }>();
+      mockWorkerPort.expandAll.mockReturnValueOnce(expandAllDeferred.promise);
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let expandedPaths = new Set<string>();
+      const expandPromise = result.current.expandAllProgressively((updater) => {
+        expandedPaths = updater(expandedPaths);
+      });
+
+      await waitFor(() => expect(result.current.isExpandingAll).toBe(true));
+
+      const progress = vi.fn();
+      await act(async () => {
+        await result.current.loadSpecificPaths(['mock-root/alpha', 'mock-root/beta'], progress);
+      });
+
+      expect(mockWorkerPort.loadPaths).not.toHaveBeenCalled();
+      expect(progress).not.toHaveBeenCalled();
+
+      await act(async () => {
+        expandAllDeferred.resolve({
+          expandedPaths: ['mock-root/alpha'],
+          loadedCount: 1,
+          patches: [
+            {
+              type: 'childrenLoaded',
+              payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
+            },
+          ],
+        });
+        await expandPromise;
+      });
+
+      expect(expandedPaths).toEqual(
+        new Set(['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'])
+      );
+    });
+
+    it('ignores empty restoration requests before selecting a worker or serial loader', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const progress = vi.fn();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.loadSpecificPaths([], progress);
+      });
+
+      expect(mockWorkerPort.loadPaths).not.toHaveBeenCalled();
+      expect(progress).not.toHaveBeenCalled();
     });
 
     it('restores multiple paths serially when the worker is unavailable', async () => {
@@ -765,6 +910,50 @@ describe('useFileTree (lazy loading version)', () => {
         }
         expect(childDir.loadState).toBe('loaded');
         expect(childDir.children?.some((child) => child.name === 'nested-file.txt')).toBe(true);
+      } finally {
+        vi.stubGlobal('Worker', originalWorker);
+      }
+    });
+
+    it('skips blank entries during serial restoration progress', async () => {
+      const originalWorker = globalThis.Worker;
+      vi.stubGlobal(
+        'Worker',
+        vi.fn(() => {
+          throw new Error('Worker unavailable');
+        })
+      );
+
+      try {
+        const nestedFS = createNestedMockFileSystem();
+        mockAdapter.setMockFileSystem(nestedFS);
+
+        const handle = await mockAdapter.requestDirectoryAccess();
+        const progress = vi.fn();
+
+        const TestWrapper = ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+        const { result } = renderHook(() => useFileTree(handle), {
+          wrapper: TestWrapper,
+        });
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        const parentDir = result.current.fileTree.find(
+          (node) => node.type === 'directory' && node.name === 'parent'
+        );
+        expect(parentDir?.type).toBe('directory');
+        if (!parentDir || parentDir.type !== 'directory') {
+          throw new Error('Expected parent directory to be restored');
+        }
+
+        await act(async () => {
+          await result.current.loadSpecificPaths(['', parentDir.path], progress);
+        });
+
+        expect(progress).toHaveBeenNthCalledWith(1, 1, 2, parentDir.path);
+        expect(progress).toHaveBeenNthCalledWith(2, 2, 2, parentDir.path);
       } finally {
         vi.stubGlobal('Worker', originalWorker);
       }
@@ -995,6 +1184,294 @@ describe('useFileTree (lazy loading version)', () => {
       expect(progress).toHaveBeenNthCalledWith(2, 1, 1, parentDir?.path ?? 'parent');
     });
 
+    it('marks a directory error when child loading fails', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory before loading children');
+      }
+
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce(
+        new Error('Permission denied')
+      );
+
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+
+      const erroredParent = result.current.fileTree.find((node) => node.path === parentDir.path);
+      expect(erroredParent?.type).toBe('directory');
+      expect(erroredParent?.loadState).toBe('error');
+      expect(erroredParent?.loadError).toBe('Permission denied');
+      expect(result.current.loadingPaths.has(parentDir.path)).toBe(false);
+    });
+
+    it('refreshes a loaded directory with the latest adapter children', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory before refreshing children');
+      }
+
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+
+      mockAdapter.setMockFileSystem({
+        parent: {
+          name: 'parent',
+          type: 'directory' as const,
+          children: {
+            child: {
+              name: 'child',
+              type: 'directory' as const,
+              children: {},
+            },
+            'fresh-file.md': {
+              name: 'fresh-file.md',
+              type: 'file' as const,
+              content: 'new content',
+            },
+          },
+        },
+      });
+
+      await act(async () => {
+        await result.current.refreshDirectory(parentDir.path);
+      });
+
+      const refreshedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
+      expect(refreshedParent?.type).toBe('directory');
+      if (!refreshedParent || refreshedParent.type !== 'directory') {
+        throw new Error('Expected parent directory after refresh');
+      }
+      expect(refreshedParent.loadState).toBe('loaded');
+      expect(refreshedParent.children?.map((child) => child.name)).toEqual([
+        'child',
+        'fresh-file.md',
+      ]);
+    });
+
+    it('reports worker restoration progress and indexes rehydrated patch nodes', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const onNodesIndexed = vi.fn();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle, { onNodesIndexed }), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory before restoration');
+      }
+
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+
+      const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
+      expect(loadedParent?.type).toBe('directory');
+      if (!loadedParent || loadedParent.type !== 'directory') {
+        throw new Error('Expected loaded parent directory before worker patch');
+      }
+      const childDir = loadedParent.children?.find((node) => node.name === 'child');
+      expect(childDir?.type).toBe('directory');
+      if (!childDir || childDir.type !== 'directory') {
+        throw new Error('Expected child directory handle before worker patch');
+      }
+
+      const progress = vi.fn();
+      mockWorkerPort.loadPaths.mockResolvedValueOnce({
+        expandedPaths: [parentDir.path],
+        loadedCount: 1,
+        patches: [
+          {
+            type: 'childrenLoaded',
+            payload: {
+              children: [
+                {
+                  depth: childDir.depth,
+                  loadState: 'loaded',
+                  name: childDir.name,
+                  path: childDir.path,
+                  rootFolderId: childDir.rootFolderId,
+                  type: 'directory',
+                },
+              ],
+              loadState: 'loaded',
+              path: parentDir.path,
+            },
+          },
+        ],
+      });
+
+      await act(async () => {
+        await result.current.loadSpecificPaths([parentDir.path, childDir.path], progress);
+      });
+
+      expect(progress).toHaveBeenNthCalledWith(1, 0, 2, parentDir.path);
+      expect(progress).toHaveBeenNthCalledWith(2, 2, 2, childDir.path);
+      expect(onNodesIndexed).toHaveBeenCalledWith(
+        [expect.objectContaining({ path: childDir.path })],
+        null
+      );
+    });
+
+    it('logs and ignores worker restoration patches whose handles cannot be rehydrated', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      mockWorkerPort.loadPaths.mockResolvedValueOnce({
+        expandedPaths: ['missing-dir'],
+        loadedCount: 1,
+        patches: [
+          {
+            type: 'childrenLoaded',
+            payload: {
+              children: [
+                {
+                  depth: 1,
+                  loadState: 'loaded',
+                  name: 'missing-dir',
+                  path: 'missing-dir',
+                  rootFolderId: 'mock-root',
+                  type: 'directory',
+                },
+              ],
+              loadState: 'loaded',
+              path: 'mock-root/parent',
+            },
+          },
+        ],
+      });
+
+      const loggedErrors: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'LazyFileTree' && typeof record.message === 'string') {
+          loggedErrors.push(record.message);
+        }
+      });
+
+      try {
+        const TestWrapper = ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+        const { result } = renderHook(() => useFileTree(handle), {
+          wrapper: TestWrapper,
+        });
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        await act(async () => {
+          await result.current.loadSpecificPaths(['mock-root/parent', 'missing-dir']);
+        });
+
+        await waitFor(() => expect(loggedErrors).toContain('loadSpecificPaths failed'));
+        expect(result.current.loadingPaths.size).toBe(0);
+      } finally {
+        unsubscribe();
+      }
+    });
+
+    it('serves descendant counts and file paths from the normalized tree cache', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory before cache assertions');
+      }
+
+      await act(async () => {
+        await result.current.loadSpecificPaths([parentDir.path]);
+      });
+
+      const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
+      expect(loadedParent?.type).toBe('directory');
+      if (!loadedParent || loadedParent.type !== 'directory') {
+        throw new Error('Expected loaded parent directory before loading child');
+      }
+      const childDir = loadedParent.children?.find((node) => node.name === 'child');
+      expect(childDir?.type).toBe('directory');
+      if (!childDir || childDir.type !== 'directory') {
+        throw new Error('Expected child directory before cache assertions');
+      }
+
+      await act(async () => {
+        await result.current.loadSpecificPaths([childDir.path]);
+      });
+
+      expect(result.current.__internalGetDescendantFileCount?.(parentDir.path)).toBe(1);
+      expect(result.current.__internalGetDescendantFilePaths?.(parentDir.path)).toEqual([
+        `${childDir.path}/nested-file.txt`,
+      ]);
+      expect(result.current.__internalGetDescendantFilePaths?.(parentDir.path, 0)).toEqual([]);
+      expect(result.current.__internalMaterializeSubtree?.(parentDir.path)).toEqual(
+        expect.objectContaining({
+          children: [expect.objectContaining({ path: childDir.path })],
+          path: parentDir.path,
+        })
+      );
+    });
+
     it('completes expand-all without leaving directories stuck in loading state', async () => {
       const mockFS = createExpandAllMockFileSystem();
       mockAdapter.setMockFileSystem(mockFS);
@@ -1104,6 +1581,41 @@ describe('useFileTree (lazy loading version)', () => {
         'loaded',
         'loaded',
       ]);
+    });
+
+    it('surfaces worker expand-all failures and clears progress state', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      mockWorkerPort.expandAll.mockRejectedValueOnce(new Error('worker crashed'));
+
+      const loggedErrors: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'ExpandAll' && typeof record.message === 'string') {
+          loggedErrors.push(record.message);
+        }
+      });
+
+      try {
+        const TestWrapper = ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+        const { result } = renderHook(() => useFileTree(handle), {
+          wrapper: TestWrapper,
+        });
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        await act(async () => {
+          await result.current.expandAllProgressively(() => new Set());
+        });
+
+        expect(result.current.expandAllProgress).toBeNull();
+        await waitFor(() => expect(loggedErrors).toContain('expandAllProgressively: error'));
+      } finally {
+        unsubscribe();
+      }
     });
 
     it('bulk-applies worker expand-all children patches in one normalized update', async () => {

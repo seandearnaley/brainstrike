@@ -43,6 +43,23 @@ function dataStreamFromLines(lines: readonly string[]): ReadableStream<Uint8Arra
   });
 }
 
+function runOptions(
+  overrides: Partial<Parameters<BrainstrikeDataStreamRuntimeAdapter['run']>[0]> = {}
+): Parameters<BrainstrikeDataStreamRuntimeAdapter['run']>[0] {
+  return {
+    abortSignal: new AbortController().signal,
+    context: {
+      callSettings: {},
+      config: {},
+      tools: {},
+    },
+    messages: [message('user', 'user')],
+    runConfig: undefined,
+    unstable_getMessage: () => message('message-id', 'assistant'),
+    ...overrides,
+  } as Parameters<BrainstrikeDataStreamRuntimeAdapter['run']>[0];
+}
+
 async function readAssistantStreamMessages(lines: readonly string[]): Promise<
   readonly {
     readonly content?: unknown;
@@ -160,6 +177,10 @@ describe('selectTransportMessagesForMastraMemory', () => {
 });
 
 describe('extractTransportBodyData', () => {
+  it('returns an empty data payload for absent body values', () => {
+    expect(extractTransportBodyData(undefined)).toStrictEqual({});
+  });
+
   it('returns only the app-specific data payload', () => {
     expect(
       extractTransportBodyData({
@@ -378,6 +399,102 @@ describe('assistant-stream integration', () => {
     expect(JSON.stringify(requestBody)).not.toContain('"type":"text"');
   });
 
+  it('serializes hosted system, file, assistant tool-call, and tool result messages', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-test"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+    const userFileMessage = {
+      ...message('file-user', 'user'),
+      content: [{ type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mimeType: 'text/plain' }],
+    } as unknown as ThreadMessage;
+    const assistantToolCallMessage = {
+      ...message('assistant-tool-call', 'assistant'),
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'lookup',
+          args: { query: 'weather' },
+          result: { tempC: 18 },
+        },
+        {
+          type: 'tool-call',
+          toolCallId: 'call-2',
+          toolName: 'lookup',
+          args: { query: 'broken' },
+          result: { message: 'failed' },
+          isError: true,
+        },
+      ],
+    } as unknown as ThreadMessage;
+
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [message('system prompt', 'system'), userFileMessage, assistantToolCallMessage],
+      })
+    )) {
+      // Consume the response so the request is fully exercised.
+    }
+
+    expect(requestBody?.['messages']).toEqual([
+      {
+        role: 'system',
+        content: [{ text: 'system prompt' }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'lookup',
+            input: { query: 'weather' },
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-2',
+            toolName: 'lookup',
+            input: { query: 'broken' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            toolName: 'lookup',
+            output: { type: 'json', value: { tempC: 18 } },
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'call-2',
+            toolName: 'lookup',
+            output: { type: 'error-json', value: { message: 'failed' } },
+          },
+        ],
+      },
+    ]);
+  });
+
   it('rejects runtime config fields that would override transport protocol data', async () => {
     const onError = vi.fn();
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
@@ -410,6 +527,208 @@ describe('assistant-stream integration', () => {
         message: 'Assistant runtime callSettings cannot override transport field(s): messages.',
       })
     );
+  });
+
+  it('rejects runtime config collisions separately from call settings', async () => {
+    const onError = vi.fn();
+    const collidingConfig = { threadId: 'override' } as unknown as Parameters<
+      BrainstrikeDataStreamRuntimeAdapter['run']
+    >[0]['context']['config'];
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(
+        runOptions({
+          context: {
+            callSettings: {},
+            config: collidingConfig,
+            tools: {},
+          },
+        })
+      )) {
+        // The request fails before fetch because config collides with transport fields.
+      }
+    }).rejects.toThrow('Assistant runtime config cannot override transport field(s): threadId');
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Assistant runtime config cannot override transport field(s): threadId.',
+      })
+    );
+  });
+
+  it('builds requests from async options and attaches transport compaction metadata', async () => {
+    const onResponse = vi.fn();
+    const onFinish = vi.fn();
+    let requestBody: Record<string, unknown> | undefined;
+    let requestHeaders: Headers | undefined;
+    let requestCredentials: RequestCredentials | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requestHeaders = init?.headers as Headers;
+      requestCredentials = init?.credentials;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-test"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: async () => ({ data: { memory: { resourceId: 'workspace', threadId: 'thread' } } }),
+      credentials: 'include',
+      headers: async () => ({ authorization: 'Bearer token' }),
+      onFinish,
+      onResponse,
+    });
+    const oldUser = message('old-user', 'user');
+    const currentUser = message('current-user', 'user');
+    const finishMessage = message('finished', 'assistant');
+    const providerConfig = { temperature: 0.2 } as unknown as Parameters<
+      BrainstrikeDataStreamRuntimeAdapter['run']
+    >[0]['context']['config'];
+    const runConfig = { maxTokens: 128 } as unknown as Parameters<
+      BrainstrikeDataStreamRuntimeAdapter['run']
+    >[0]['runConfig'];
+
+    for await (const _message of adapter.run(
+      runOptions({
+        context: {
+          callSettings: {},
+          config: providerConfig,
+          tools: {},
+          system: 'System prompt',
+        },
+        messages: [oldUser, currentUser],
+        runConfig,
+        unstable_assistantMessageId: 'assistant-message',
+        unstable_parentId: null,
+        unstable_threadId: 'thread-id',
+        unstable_getMessage: () =>
+          ({
+            ...finishMessage,
+            metadata: { ...finishMessage.metadata, unstable_state: { mode: 'debug' } },
+          }) as unknown as ThreadMessage,
+      })
+    )) {
+      // Consume the response so finish hooks run.
+    }
+
+    expect(requestHeaders?.get('authorization')).toBe('Bearer token');
+    expect(requestHeaders?.get('content-type')).toBe('application/json');
+    expect(requestCredentials).toBe('include');
+    expect(onResponse).toHaveBeenCalledWith(expect.any(Response));
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'finished',
+      })
+    );
+    expect(requestBody).toMatchObject({
+      system: 'System prompt',
+      threadId: 'thread-id',
+      parentId: null,
+      runConfig: { maxTokens: 128 },
+      unstable_assistantMessageId: 'assistant-message',
+      state: { mode: 'debug' },
+      temperature: 0.2,
+      data: {
+        memory: { resourceId: 'workspace', threadId: 'thread' },
+        transportCompaction: {
+          originalMessageCount: 2,
+          sentMessageCount: 1,
+          strategy: 'mastra-memory-current-turn',
+        },
+      },
+    });
+    expect(
+      (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
+    ).toEqual(['user']);
+  });
+
+  it('reports null response bodies as transport failures', async () => {
+    const onError = vi.fn();
+    globalThis.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(runOptions())) {
+        // The response has no stream body.
+      }
+    }).rejects.toThrow('Response body is null');
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Response body is null',
+      })
+    );
+  });
+
+  it('reports empty HTTP error response bodies without reading from a null stream', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(null, { status: 500 })) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(runOptions())) {
+        // The response fails before yielding.
+      }
+    }).rejects.toThrow('Status 500: ');
+  });
+
+  it('invokes onCancel for normal aborts but not detach aborts', async () => {
+    const onCancel = vi.fn();
+    const createBlockingFetch = () =>
+      vi.fn(
+        (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+              once: true,
+            });
+          })
+      ) as typeof fetch;
+
+    const normalAbortController = new AbortController();
+    globalThis.fetch = createBlockingFetch();
+    const normalAdapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onCancel,
+    });
+    const normalRun = (async () => {
+      for await (const _message of normalAdapter.run(
+        runOptions({ abortSignal: normalAbortController.signal })
+      )) {
+        // The fetch promise rejects when aborted.
+      }
+    })();
+    normalAbortController.abort(new DOMException('cancelled', 'AbortError'));
+    await expect(normalRun).rejects.toThrow('cancelled');
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    const detachAbortController = new AbortController();
+    globalThis.fetch = createBlockingFetch();
+    const detachAdapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onCancel,
+    });
+    const detachRun = (async () => {
+      for await (const _message of detachAdapter.run(
+        runOptions({ abortSignal: detachAbortController.signal })
+      )) {
+        // The fetch promise rejects when aborted.
+      }
+    })();
+    detachAbortController.abort({ detach: true });
+    await expect(detachRun).rejects.toMatchObject({ detach: true });
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('does not let onResponse mask HTTP status failures', async () => {
@@ -513,6 +832,37 @@ describe('assistant-stream integration', () => {
         message: expect.not.stringContaining('tail-that-should-not-be-read') as string,
       })
     );
+  });
+
+  it('truncates HTTP error responses when a later chunk arrives after the size limit is reached', async () => {
+    const encoder = new TextEncoder();
+    let cancelCalled = false;
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(encoder.encode('x'.repeat(4000)));
+              controller.enqueue(encoder.encode('y'));
+            },
+            cancel() {
+              cancelCalled = true;
+            },
+          }),
+          { status: 500 }
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(runOptions())) {
+        // The response fails before yielding.
+      }
+    }).rejects.toThrow(`Status 500: ${'x'.repeat(4000)}...[truncated]`);
+
+    expect(cancelCalled).toBe(true);
   });
 
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {

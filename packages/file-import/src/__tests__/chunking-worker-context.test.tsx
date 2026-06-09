@@ -142,6 +142,7 @@ describe('ChunkingWorkerProvider', () => {
     vi.doUnmock('../chunking-worker-port');
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window as Window & { chunkingHost?: unknown }, 'chunkingHost');
+    Reflect.deleteProperty(globalThis as { parserHost?: unknown }, 'parserHost');
     workers = [];
     resolveChunkingWorkerUrlMock.mockResolvedValue(new URL('file:///chunking.worker.js'));
     function MockWorkerConstructor(_scriptUrl: URL | string, _options?: WorkerOptions): Worker {
@@ -329,6 +330,92 @@ describe('ChunkingWorkerProvider', () => {
     unmount();
   });
 
+  it('ignores duplicate ready messages after the worker is marked ready', async () => {
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await emitWorkerMessage(worker, { type: 'ready' });
+    await emitWorkerMessage(worker, { type: 'ready' });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(true);
+      expect(result.current.error).toBeNull();
+    });
+    unmount();
+  });
+
+  it('enters terminal failure state on worker init error messages', async () => {
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await emitWorkerMessage(worker, {
+      type: 'error',
+      id: '__init__',
+      fileRecordId: '__init__',
+      error: 'worker init failed',
+    });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(false);
+      expect(result.current.port).toBeNull();
+      expect(result.current.error?.message).toBe('worker init failed');
+    });
+    expect(worker.terminate).toHaveBeenCalled();
+    unmount();
+  });
+
+  it('normalizes terminal tokenizer errors before entering failure state', async () => {
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await emitWorkerMessage(worker, {
+      type: 'error',
+      id: 'req-2',
+      fileRecordId: 'file-2',
+      error: 'Error: accurate token counting unavailable: missing encoder',
+    });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(false);
+      expect(result.current.error?.message).toContain('accurate token counting unavailable');
+    });
+    expect(worker.terminate).toHaveBeenCalled();
+    unmount();
+  });
+
   it('removes worker lifecycle listeners during reinitialize and unmount cleanup', async () => {
     const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
       '../chunking-worker-context'
@@ -390,9 +477,400 @@ describe('ChunkingWorkerProvider', () => {
     );
   });
 
+  it('clears processing state when wrapped local port operations fail or terminate', async () => {
+    const rawPort: ChunkingWorkerPort = {
+      transportKind: 'local-worker',
+      chunkFile: vi.fn(async () => {
+        throw new Error('chunk file failed');
+      }),
+      chunkBatch: vi.fn(async () => {
+        throw new Error('chunk batch failed');
+      }),
+      chunkFileById: vi.fn(async () => undefined as never),
+      isReady: vi.fn(() => true),
+      terminate: vi.fn(),
+    };
+    vi.doMock('../chunking-worker-port', () => ({
+      createChunkingWorkerPort: vi.fn(() => rawPort),
+    }));
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(result.current.port).not.toBeNull());
+    const port = result.current.port;
+    if (!port?.chunkFileById) {
+      throw new Error('Expected wrapped local port with chunkFileById');
+    }
+
+    await expect(
+      port.chunkFile('file-1', 'content', 'file.ts', '/file.ts', { strategy: 'sentence' })
+    ).rejects.toThrow('chunk file failed');
+    await waitForExpect(() => expect(result.current.isProcessing).toBe(false));
+
+    await expect(
+      port.chunkBatch(
+        [{ fileRecordId: 'file-1', content: 'content', fileName: 'file.ts', filePath: '/file.ts' }],
+        { strategy: 'sentence' }
+      )
+    ).rejects.toThrow('chunk batch failed');
+    await waitForExpect(() => expect(result.current.isProcessing).toBe(false));
+
+    await expect(port.chunkFileById('file-1', { requestedStrategy: 'sentence' })).rejects.toThrow(
+      'Chunking worker port missing chunkFileById implementation.'
+    );
+    await waitForExpect(() => expect(result.current.isProcessing).toBe(false));
+
+    act(() => {
+      port.terminate();
+    });
+
+    expect(rawPort.terminate).toHaveBeenCalledOnce();
+    expect(result.current.port).toBeNull();
+    expect(result.current.isReady).toBe(false);
+    unmount();
+  });
+
+  it('proxies chunking requests through the desktop chunking host bridge', async () => {
+    const runningStatus = {
+      state: 'running' as const,
+      active: false,
+      lastError: null,
+      runtimeKind: 'chunking-host' as const,
+      runtimeId: 'host-1',
+    };
+    let progressHandler:
+      | ((progress: {
+          channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
+          payload: unknown;
+          requestId: string;
+          runtimeId: string;
+          type: 'progress';
+        }) => void)
+      | null = null;
+    const cleanupProgress = vi.fn();
+    const cleanupStatus = vi.fn();
+    const fileResult: ChunkResult = {
+      type: 'result',
+      id: 'file-result',
+      fileRecordId: 'file-1',
+      chunks: [],
+      strategyUsed: 'sentence',
+      totalTokens: 3,
+      skipped: false,
+    };
+    const batchResult: ChunkResult = {
+      ...fileResult,
+      id: 'batch-result',
+      fileRecordId: 'batch-file-1',
+    };
+    const bridge = {
+      chunkBatch: vi.fn(async (request: { requestId: string }) => {
+        progressHandler?.({
+          type: 'progress',
+          runtimeId: 'host-1',
+          requestId: request.requestId,
+          channel: 'chunk',
+          payload: {
+            fileRecordId: 'batch-file-1',
+            chunksCreated: 2,
+            currentIndex: 0,
+            totalFiles: 1,
+          },
+        });
+        progressHandler?.({
+          type: 'progress',
+          runtimeId: 'host-1',
+          requestId: request.requestId,
+          channel: 'chunk-file-complete',
+          payload: { fileRecordId: 'batch-file-1', result: batchResult },
+        });
+        progressHandler?.({
+          type: 'progress',
+          runtimeId: 'host-1',
+          requestId: request.requestId,
+          channel: 'chunk-file-error',
+          payload: { fileRecordId: 'batch-file-2', errorMessage: 'too large' },
+        });
+        return [batchResult];
+      }),
+      chunkFile: vi.fn(async () => fileResult),
+      ensureStarted: vi.fn(async () => runningStatus),
+      getStatus: vi.fn(async () => runningStatus),
+      onProgress: vi.fn((handler: NonNullable<typeof progressHandler>) => {
+        progressHandler = handler;
+        return cleanupProgress;
+      }),
+      onStatus: vi.fn(() => cleanupStatus),
+      reset: vi.fn(async () => runningStatus),
+    };
+    Object.assign(window, { chunkingHost: bridge });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider mode="host-proxy">{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(result.current.isReady).toBe(true));
+    const port = result.current.port;
+    if (!port?.chunkFileById) {
+      throw new Error('Expected host-proxy port with chunkFileById');
+    }
+
+    await expect(
+      port.chunkFile('file-1', 'const value = 1;', 'file.ts', '/repo/file.ts', {
+        allowLargeFiles: true,
+        forceStrategy: true,
+        ignoreFileTypeRecommendations: true,
+        maxTokens: 100,
+        maxTokensCap: 200,
+        overlap: 10,
+        separators: ['\n'],
+        strategy: 'sentence',
+        tokenTrueSizing: true,
+      })
+    ).resolves.toEqual(fileResult);
+    await expect(port.chunkFileById('file-2', { requestedStrategy: 'sentence' })).resolves.toEqual(
+      fileResult
+    );
+
+    const onProgress = vi.fn();
+    const onFileComplete = vi.fn();
+    const onFileError = vi.fn();
+    await expect(
+      port.chunkBatch(
+        [
+          {
+            fileRecordId: 'batch-file-1',
+            content: 'content',
+            fileName: 'batch.ts',
+            filePath: '/repo/batch.ts',
+          },
+        ],
+        { strategy: 'sentence' },
+        { onFileComplete, onFileError, onProgress }
+      )
+    ).resolves.toEqual([batchResult]);
+
+    expect(bridge.chunkFile).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        kind: 'chunk-file',
+        fileRecordId: 'file-1',
+        content: 'const value = 1;',
+        fileName: 'file.ts',
+        filePath: '/repo/file.ts',
+        options: {
+          requestedStrategy: 'sentence',
+          allowLargeFiles: true,
+          forceStrategy: true,
+          ignoreFileTypeRecommendations: true,
+          maxTokens: 100,
+          maxTokensCap: 200,
+          overlap: 10,
+          separators: ['\n'],
+          tokenTrueSizing: true,
+        },
+      })
+    );
+    expect(bridge.chunkFile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        kind: 'chunk-file-by-id',
+        fileRecordId: 'file-2',
+        options: { requestedStrategy: 'sentence' },
+      })
+    );
+    expect(onProgress).toHaveBeenCalledWith('batch-file-1', 2, 0, 1);
+    expect(onFileComplete).toHaveBeenCalledWith('batch-file-1', batchResult);
+    expect(onFileError).toHaveBeenCalledWith('batch-file-2', 'too large');
+    expect(cleanupProgress).toHaveBeenCalledOnce();
+
+    unmount();
+
+    expect(cleanupStatus).toHaveBeenCalledOnce();
+  });
+
+  it('replies to parser-host bridge invokes with an explicit missing-bridge error', async () => {
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-1',
+        payload: { code: 'const value = 1;' },
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() =>
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        type: 'parser-host:reply',
+        requestId: 'parse-1',
+        response: {
+          ok: false,
+          requestId: 'parse-1',
+          error: expect.stringContaining('parser-host bridge unavailable'),
+        },
+      })
+    );
+    unmount();
+  });
+
+  it('routes parser-host bridge invokes through parserHost.parse', async () => {
+    const parse = vi.fn(async (payload: unknown) => ({
+      ok: true,
+      requestId: 'parse-2',
+      payload,
+    }));
+    Object.assign(globalThis, { parserHost: { parse } });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    const payload = { code: 'const value = 2;' };
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-2',
+        payload,
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() => {
+      expect(parse).toHaveBeenCalledWith(payload);
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        type: 'parser-host:reply',
+        requestId: 'parse-2',
+        response: {
+          ok: true,
+          requestId: 'parse-2',
+          payload,
+        },
+      });
+    });
+    unmount();
+  });
+
+  it('routes parser-host parse failures back to the worker', async () => {
+    Object.assign(globalThis, {
+      parserHost: {
+        parse: vi.fn(async () => {
+          throw new Error('parser crashed');
+        }),
+      },
+    });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-3',
+        payload: { code: 'broken' },
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() =>
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        type: 'parser-host:reply',
+        requestId: 'parse-3',
+        response: {
+          ok: false,
+          requestId: 'parse-3',
+          error: 'parser crashed',
+        },
+      })
+    );
+    unmount();
+  });
+
+  it('does not surface parser-host replies when worker postMessage fails after termination', async () => {
+    Object.assign(globalThis, {
+      parserHost: {
+        parse: vi.fn(async () => ({ ok: true, requestId: 'parse-4' })),
+      },
+    });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+    vi.mocked(worker.postMessage).mockImplementationOnce(() => {
+      throw new Error('worker terminated');
+    });
+
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-4',
+        payload: { code: 'const value = 4;' },
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() => expect(worker.postMessage).toHaveBeenCalledTimes(2));
+    unmount();
+  });
+
   it('proxies chunking work through the desktop chunking host bridge', async () => {
     const onStatus = vi.fn();
     const onProgress = vi.fn();
+    const onBatchProgress = vi.fn();
     const onFileComplete = vi.fn();
     const onFileError = vi.fn();
     const ensureStarted = vi.fn(async () => ({
@@ -481,11 +959,37 @@ describe('ChunkingWorkerProvider', () => {
     const resolvedPort: ChunkingWorkerPort = port;
 
     await expect(
-      resolvedPort.chunkFile('file-1', 'content', 'file.ts', '/file.ts', { strategy: 'sentence' })
+      resolvedPort.chunkFile('file-1', 'content', 'file.ts', '/file.ts', {
+        allowLargeFiles: true,
+        forceStrategy: true,
+        ignoreFileTypeRecommendations: true,
+        maxTokens: 256,
+        maxTokensCap: 512,
+        overlap: 16,
+        separators: ['\n\n'],
+        strategy: 'sentence',
+        tokenTrueSizing: true,
+      })
     ).resolves.toEqual(
       expect.objectContaining({
         fileRecordId: 'file-1',
         totalTokens: 12,
+      })
+    );
+    expect(chunkFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'chunk-file',
+        options: {
+          allowLargeFiles: true,
+          forceStrategy: true,
+          ignoreFileTypeRecommendations: true,
+          maxTokens: 256,
+          maxTokensCap: 512,
+          overlap: 16,
+          requestedStrategy: 'sentence',
+          separators: ['\n\n'],
+          tokenTrueSizing: true,
+        },
       })
     );
 
@@ -502,7 +1006,7 @@ describe('ChunkingWorkerProvider', () => {
       [{ fileRecordId: 'file-1', content: 'content', fileName: 'file.ts', filePath: '/file.ts' }],
       { strategy: 'sentence' },
       {
-        onProgress: vi.fn(),
+        onProgress: onBatchProgress,
         onFileComplete,
         onFileError,
       }
@@ -514,6 +1018,16 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected chunk batch request payload');
     }
 
+    onProgress({
+      type: 'progress',
+      requestId: 'other-request',
+      runtimeId: 'chunking-host:runtime-1',
+      channel: 'chunk',
+      payload: {
+        fileRecordId: 'file-ignored',
+        chunksCreated: 99,
+      },
+    });
     onProgress({
       type: 'progress',
       requestId: batchRequest.requestId,
@@ -556,6 +1070,7 @@ describe('ChunkingWorkerProvider', () => {
     });
 
     await expect(batchPromise).resolves.toHaveLength(1);
+    expect(onBatchProgress).toHaveBeenCalledWith('file-1', 3, 1, 1);
     expect(onFileComplete).toHaveBeenCalledWith(
       'file-1',
       expect.objectContaining({
@@ -585,7 +1100,67 @@ describe('ChunkingWorkerProvider', () => {
     await expect(result.current.ensureStarted()).rejects.toThrow(
       'Chunking host bridge is not available.'
     );
+
+    await act(async () => {
+      result.current.reinitialize();
+      await Promise.resolve();
+    });
+
+    expect(result.current.error?.message).toBe('Chunking host bridge is not available.');
     unmount();
+  });
+
+  it('surfaces non-running chunking host startup and status probe failures', async () => {
+    const cleanupStatus = vi.fn();
+    const getStatus = vi.fn(async () => {
+      throw new Error('status offline');
+    });
+    const bridge = {
+      ensureStarted: vi.fn(async () => ({
+        state: 'starting' as const,
+        active: true,
+        lastError: null,
+        runtimeKind: 'chunking-host' as const,
+        runtimeId: 'chunking-host:starting',
+      })),
+      getStatus,
+      reset: vi.fn(async () => ({
+        state: 'running' as const,
+        active: false,
+        lastError: null,
+        runtimeKind: 'chunking-host' as const,
+        runtimeId: 'chunking-host:running',
+      })),
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+      onStatus: vi.fn(() => cleanupStatus),
+      onProgress: vi.fn(() => () => {}),
+    };
+    Object.assign(window, { chunkingHost: bridge });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => (
+        <ChunkingWorkerProvider autoStart={false} mode="host-proxy">
+          {children}
+        </ChunkingWorkerProvider>
+      )
+    );
+
+    await waitForExpect(() => expect(result.current.error?.message).toBe('status offline'));
+
+    await expect(result.current.ensureStarted()).rejects.toThrow(
+      'Chunking host is not running (state: starting).'
+    );
+
+    expect(bridge.ensureStarted).toHaveBeenCalledOnce();
+    expect(result.current.port).toBeNull();
+
+    unmount();
+    expect(cleanupStatus).toHaveBeenCalledOnce();
   });
 
   it('surfaces chunking host status and reset failures explicitly', async () => {

@@ -218,6 +218,13 @@ function buildPersistOptions(
       });
       return { sizes: initial } as PersistedShape;
     },
+    merge: (persisted, current) => ({
+      ...current,
+      sizes: sanitizeColumnSizes(
+        (persisted as PersistedShape | undefined)?.sizes,
+        options.columnBounds
+      ),
+    }),
   };
 }
 

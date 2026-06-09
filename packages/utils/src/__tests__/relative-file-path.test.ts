@@ -11,12 +11,42 @@ describe('validateRelativeFilePath', () => {
     expect(validateRelativeFilePath('src/components/button.tsx')).toBe('src/components/button.tsx');
   });
 
+  it('rejects empty paths with the configured label', () => {
+    expect(() => validateRelativeFilePath('   ', { label: 'Cache key' })).toThrow(
+      'Cache key must not be empty'
+    );
+  });
+
+  it('rejects null bytes and ASCII control characters', () => {
+    expect(() => validateRelativeFilePath('src/\0file.ts')).toThrow(
+      'File path must not contain null bytes'
+    );
+    expect(() => validateRelativeFilePath('src/\u001Ffile.ts')).toThrow(
+      'File path must not contain control characters'
+    );
+    expect(() => validateRelativeFilePath('src/\u007Ffile.ts')).toThrow(
+      'File path must not contain control characters'
+    );
+  });
+
   it('rejects absolute paths', () => {
     expect(() => validateRelativeFilePath('/absolute/path.ts')).toThrow(
       'File path must be relative'
     );
     expect(() => validateRelativeFilePath('C:\\absolute\\path.ts')).toThrow(
       'File path must be relative'
+    );
+  });
+
+  it('rejects traversal and empty path segments', () => {
+    expect(() => validateRelativeFilePath('src/./file.ts')).toThrow(
+      'File path must not contain relative traversal segments'
+    );
+    expect(() => validateRelativeFilePath('src/../file.ts')).toThrow(
+      'File path must not contain relative traversal segments'
+    );
+    expect(() => validateRelativeFilePath('src//file.ts')).toThrow(
+      'File path must not contain empty segments'
     );
   });
 });
@@ -68,6 +98,17 @@ describe('normalizeFilePathForFolder', () => {
 
   it('strips leading slash when folder id is not present', () => {
     expect(normalizeFilePathForFolder('/src/index.ts', 'project')).toBe('src/index.ts');
+  });
+
+  it('strips UNC server and share prefixes when folder id is not present', () => {
+    expect(normalizeFilePathForFolder('//server/share/project/src/index.ts', 'other')).toBe(
+      'project/src/index.ts'
+    );
+    expect(normalizeFilePathForFolder('//server/share', 'other')).toBe('server/share');
+  });
+
+  it('strips windows drive prefixes when folder id is not present', () => {
+    expect(normalizeFilePathForFolder('C:/repo/src/index.ts', 'project')).toBe('repo/src/index.ts');
   });
 
   it('handles empty folder id by stripping root prefix only', () => {

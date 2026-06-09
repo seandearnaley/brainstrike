@@ -43,6 +43,36 @@ describe('file-tree-telemetry', () => {
     expect(JSON.stringify(estimate)).not.toContain('secret-plan.md');
   });
 
+  it('accounts for UTF-8 string widths and optional node metadata', () => {
+    const estimate = estimateTreePayloadBytes([
+      {
+        depth: 0,
+        lastModified: 1_717_000_000,
+        loadError: 'é€😀',
+        loadState: 'error',
+        name: 'é€😀',
+        path: '/root/é€😀.txt',
+        rootFolderId: 'root',
+        size: 64,
+        type: 'file',
+      },
+    ]);
+
+    expect(estimate).toEqual({
+      bytes: 74,
+      nodeCount: 1,
+    });
+  });
+
+  it('skips empty stack entries while estimating malformed worker payloads', () => {
+    const estimate = estimateTreePayloadBytes([undefined] as unknown as WorkerFileNode[]);
+
+    expect(estimate).toEqual({
+      bytes: 0,
+      nodeCount: 0,
+    });
+  });
+
   it('records only coarse metric metadata', () => {
     configureLogger({ console: false, level: LogLevel.DEBUG });
     const records: unknown[] = [];

@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canLoadNode,
+  collectDirectoryPaths,
+  collectExpandedPaths,
   findNodeByPath,
   getPathDepth,
   isDescendantPath,
+  isLoading,
+  needsLoading,
+  resetDirectoryNode,
+  setNodeLoadState,
+  sortTreeNodes,
   type TreeNode,
   updateNodeChildren,
 } from '../tree-operations';
@@ -76,6 +84,44 @@ describe('tree-operations', () => {
     });
   });
 
+  describe('sortTreeNodes', () => {
+    it('orders directories before files and uses numeric name sorting within each type', () => {
+      const nodes = [
+        createFileNode({ name: 'file10.ts', path: '/root/file10.ts' }),
+        createDirectoryNode({ name: 'dir2', path: '/root/dir2' }),
+        createFileNode({ name: 'file2.ts', path: '/root/file2.ts' }),
+        createDirectoryNode({ name: 'dir10', path: '/root/dir10' }),
+      ];
+
+      expect(sortTreeNodes(nodes).map((node) => node.name)).toEqual([
+        'dir2',
+        'dir10',
+        'file2.ts',
+        'file10.ts',
+      ]);
+      expect(sortTreeNodes(nodes)).not.toBe(nodes);
+    });
+  });
+
+  describe('loading predicates', () => {
+    it('identifies loadable and loading directory states', () => {
+      expect(needsLoading(createDirectoryNode())).toBe(true);
+      expect(needsLoading(createDirectoryNode({ loadState: 'unloaded' }))).toBe(true);
+      expect(needsLoading(createDirectoryNode({ loadState: 'loaded' }))).toBe(false);
+      expect(needsLoading(createFileNode())).toBe(false);
+
+      expect(isLoading(createDirectoryNode({ loadState: 'loading' }))).toBe(true);
+      expect(isLoading(createDirectoryNode({ loadState: 'error' }))).toBe(false);
+
+      expect(canLoadNode(null)).toBe(false);
+      expect(canLoadNode(undefined)).toBe(false);
+      expect(canLoadNode(createFileNode())).toBe(false);
+      expect(canLoadNode(createDirectoryNode({ loadState: 'loaded' }))).toBe(false);
+      expect(canLoadNode(createDirectoryNode({ loadState: 'loading' }))).toBe(false);
+      expect(canLoadNode(createDirectoryNode({ loadState: 'error' }))).toBe(true);
+    });
+  });
+
   describe('updateNodeChildren', () => {
     it('does not clone sibling branches that only share a string prefix', () => {
       const untouchedPrefixBranch = createDirectoryNode({
@@ -101,6 +147,86 @@ describe('tree-operations', () => {
       expect(updated[0]).toBe(untouchedPrefixBranch);
       expect(updated[1]).not.toBe(targetBranch);
       expect(updated[1]?.children?.[0]?.children).toEqual(newChildren);
+    });
+  });
+
+  describe('setNodeLoadState', () => {
+    it('updates the target node state immutably and replaces stale errors only when provided', () => {
+      const target = createDirectoryNode({
+        path: '/root/dir/child',
+        loadError: 'old error',
+      });
+      const parent = createDirectoryNode({
+        path: '/root/dir',
+        children: [target],
+      });
+      const sibling = createDirectoryNode({ path: '/root/sibling' });
+      const tree = [parent, sibling];
+
+      const loadingTree = setNodeLoadState(tree, '/root/dir/child', 'loading');
+
+      expect(loadingTree[0]).not.toBe(parent);
+      expect(loadingTree[1]).toBe(sibling);
+      expect(loadingTree[0]?.children?.[0]).toMatchObject({
+        loadState: 'loading',
+        path: '/root/dir/child',
+      });
+      expect(loadingTree[0]?.children?.[0]).not.toHaveProperty('loadError');
+
+      const errorTree = setNodeLoadState(tree, '/root/dir/child', 'error', 'permission denied');
+      expect(errorTree[0]?.children?.[0]).toMatchObject({
+        loadError: 'permission denied',
+        loadState: 'error',
+      });
+    });
+  });
+
+  describe('directory path collection', () => {
+    it('collects all directory paths and expanded loaded paths recursively', () => {
+      const tree: TestTreeNode[] = [
+        createDirectoryNode({
+          path: '/root/src',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              path: '/root/src/components',
+              loadState: 'loaded',
+              children: [createFileNode({ path: '/root/src/components/button.tsx' })],
+            }),
+            createDirectoryNode({
+              path: '/root/src/pending',
+              loadState: 'unloaded',
+              children: [createFileNode({ path: '/root/src/pending/hidden.ts' })],
+            }),
+          ],
+        }),
+        createFileNode({ path: '/root/readme.md' }),
+      ];
+      const paths = new Set<string>();
+
+      collectDirectoryPaths(tree, paths);
+
+      expect([...paths]).toEqual(['/root/src', '/root/src/components', '/root/src/pending']);
+      expect(collectExpandedPaths(tree)).toEqual(['/root/src', '/root/src/components']);
+    });
+  });
+
+  describe('resetDirectoryNode', () => {
+    it('removes loaded children and errors only from directory nodes', () => {
+      const directory = createDirectoryNode({
+        children: [createFileNode()],
+        loadError: 'failed',
+        loadState: 'error',
+      });
+      const file = createFileNode();
+
+      expect(resetDirectoryNode(directory)).toEqual({
+        name: 'dir',
+        path: '/root/dir',
+        type: 'directory',
+        loadState: 'unloaded',
+      });
+      expect(resetDirectoryNode(file)).toBe(file);
     });
   });
 });

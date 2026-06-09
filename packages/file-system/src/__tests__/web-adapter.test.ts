@@ -77,6 +77,46 @@ describe('WebFileSystemAdapter', () => {
       expect(handleCache.storeRootHandle).toHaveBeenCalledWith('root', dirHandle);
     });
 
+    it('requests persistent storage once and still returns the directory when persistence fails', async () => {
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+      (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker = vi.fn().mockResolvedValue(dirHandle);
+      const persisted = vi.fn().mockResolvedValue(false);
+      const persist = vi.fn().mockRejectedValue(new Error('quota prompt failed'));
+      const originalStorage = navigator.storage;
+      Object.defineProperty(navigator, 'storage', {
+        configurable: true,
+        value: { persisted, persist },
+      });
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      try {
+        await expect(adapter.requestDirectoryAccess()).resolves.toMatchObject({
+          name: 'root',
+          path: 'root',
+        });
+        await expect(adapter.requestDirectoryAccess()).resolves.toMatchObject({
+          name: 'root',
+          path: 'root',
+        });
+
+        expect(persisted).toHaveBeenCalledOnce();
+        expect(persist).toHaveBeenCalledOnce();
+        expect(handleCache.storeRootHandle).toHaveBeenCalledTimes(2);
+      } finally {
+        Object.defineProperty(navigator, 'storage', {
+          configurable: true,
+          value: originalStorage,
+        });
+      }
+    });
+
     it('throws when showDirectoryPicker is missing', async () => {
       // biome-ignore lint/performance/noDelete: simulating missing API
       delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker;
@@ -191,6 +231,32 @@ describe('WebFileSystemAdapter', () => {
   });
 
   describe('readDirectory', () => {
+    it('throws when directory handles are malformed', async () => {
+      await expect(
+        adapter.readDirectory({
+          path: '',
+          name: 'root',
+          kind: 'directory',
+          platform: 'web',
+          _internal: {} as unknown as FileSystemDirectoryHandle,
+        })
+      ).rejects.toThrow('Directory handle is missing its canonical path');
+
+      await expect(
+        adapter.readDirectory({
+          path: 'root',
+          name: 'root',
+          kind: 'directory',
+          platform: 'web',
+          _internal: {} as unknown as FileSystemDirectoryHandle,
+        })
+      ).rejects.toMatchObject({
+        name: 'AccessError',
+        message: 'Invalid directory handle',
+        path: 'root',
+      });
+    });
+
     it('returns directory entries', async () => {
       const file = createFile('file.txt', 'hello', 123);
       const fileHandle = {
@@ -288,6 +354,39 @@ describe('WebFileSystemAdapter', () => {
       await adapter.readDirectory(handle);
 
       expect(handleCache.storeFileHandle).toHaveBeenCalledWith('root', 'root/file.txt', fileHandle);
+    });
+
+    it('drops file entries whose metadata cannot be read while preserving directories', async () => {
+      const fileHandle = {
+        kind: 'file',
+        name: 'broken.txt',
+        getFile: vi.fn().mockRejectedValue(new Error('metadata unavailable')),
+      } as unknown as FileSystemFileHandle;
+      const subHandle = {
+        kind: 'directory',
+        name: 'sub',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+      async function* entries() {
+        yield ['broken.txt', fileHandle];
+        yield ['sub', subHandle];
+      }
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries,
+      } as unknown as FileSystemDirectoryHandle;
+      const handle: DirectoryHandle = {
+        path: 'root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web',
+        _internal: dirHandle,
+      };
+
+      const entriesList = await adapter.readDirectory(handle);
+
+      expect(entriesList).toEqual([expect.objectContaining({ name: 'sub', type: 'directory' })]);
     });
 
     it('reads a file by path through the cached root directory handle', async () => {
@@ -738,6 +837,140 @@ describe('WebFileSystemAdapter', () => {
 
       expect(restored).toBeNull();
       expect(removeRootHandle).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('readDirectoryStreaming', () => {
+    it('throws AccessError for invalid directory handles', async () => {
+      await expect(
+        adapter.readDirectoryStreaming(
+          {
+            path: 'root',
+            name: 'root',
+            kind: 'directory',
+            platform: 'web',
+            _internal: {} as unknown as FileSystemDirectoryHandle,
+          },
+          vi.fn()
+        )
+      ).rejects.toMatchObject({
+        name: 'AccessError',
+        message: 'Invalid directory handle',
+        path: 'root',
+      });
+    });
+
+    it('streams directory entries in batches and emits a final empty completion batch', async () => {
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+      const firstFileHandle = {
+        kind: 'file',
+        name: 'a.txt',
+        getFile: vi.fn().mockResolvedValue(createFile('a.txt', 'aa', 10)),
+      } as unknown as FileSystemFileHandle;
+      const secondFileHandle = {
+        kind: 'file',
+        name: 'b.txt',
+        getFile: vi.fn().mockResolvedValue(createFile('b.txt', 'bbbb', 20)),
+      } as unknown as FileSystemFileHandle;
+      async function* entries() {
+        yield ['a.txt', firstFileHandle];
+        yield ['b.txt', secondFileHandle];
+      }
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries,
+      } as unknown as FileSystemDirectoryHandle;
+      const batches: Array<{ names: string[]; done: boolean; total: number }> = [];
+
+      await adapter.readDirectoryStreaming(
+        {
+          path: 'root',
+          name: 'root',
+          kind: 'directory',
+          platform: 'web',
+          _internal: dirHandle,
+        },
+        (batch, meta) => {
+          batches.push({
+            names: batch.map((node) => node.name),
+            done: meta.done,
+            total: meta.total,
+          });
+        },
+        { batchSize: 2, includeMetadata: true }
+      );
+
+      expect(batches).toEqual([
+        { names: ['a.txt', 'b.txt'], done: false, total: 2 },
+        { names: [], done: true, total: 2 },
+      ]);
+      expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
+        'root',
+        'root/a.txt',
+        firstFileHandle
+      );
+      expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
+        'root',
+        'root/b.txt',
+        secondFileHandle
+      );
+    });
+
+    it('streams an empty final batch for empty directories and stops when aborted', async () => {
+      async function* emptyEntries() {}
+      const emptyDirHandle = {
+        name: 'empty',
+        kind: 'directory',
+        entries: emptyEntries,
+      } as unknown as FileSystemDirectoryHandle;
+      const emptyBatchSpy = vi.fn();
+
+      await adapter.readDirectoryStreaming(
+        {
+          path: 'empty',
+          name: 'empty',
+          kind: 'directory',
+          platform: 'web',
+          _internal: emptyDirHandle,
+        },
+        emptyBatchSpy
+      );
+
+      expect(emptyBatchSpy).toHaveBeenCalledWith([], { done: true, total: 0 });
+
+      const abortController = new AbortController();
+      const fileHandle = {
+        kind: 'file',
+        name: 'skipped.txt',
+        getFile: vi.fn(),
+      } as unknown as FileSystemFileHandle;
+      async function* abortedEntries() {
+        abortController.abort();
+        yield ['skipped.txt', fileHandle];
+      }
+      const abortedDirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries: abortedEntries,
+      } as unknown as FileSystemDirectoryHandle;
+      const abortedBatchSpy = vi.fn();
+
+      await adapter.readDirectoryStreaming(
+        {
+          path: 'root',
+          name: 'root',
+          kind: 'directory',
+          platform: 'web',
+          _internal: abortedDirHandle,
+        },
+        abortedBatchSpy,
+        { signal: abortController.signal }
+      );
+
+      expect(abortedBatchSpy).toHaveBeenCalledWith([], { done: true, total: 0 });
+      expect(fileHandle.getFile).not.toHaveBeenCalled();
     });
   });
 

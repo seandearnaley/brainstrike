@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetDatabaseDemoStoreForTests,
+  databaseDemoSelectors,
   useDatabaseDemoStore,
 } from '../stores/database-demo-store';
 
@@ -87,6 +88,79 @@ describe('database-demo-store', () => {
     expect(state.recordPageSize).toBe(50);
     expect(state.searchQuery).toBe('');
     expect(state.searchThreshold).toBe(0.5);
+  });
+
+  it('updates expanded file ids with deduping actions', () => {
+    const store = useDatabaseDemoStore.getState();
+
+    store.addExpanded('file-1');
+    store.addExpanded('file-1');
+    store.addExpanded('file-2');
+    expect(useDatabaseDemoStore.getState().expandedFileIds).toEqual(['file-1', 'file-2']);
+
+    useDatabaseDemoStore.getState().removeExpanded('file-1');
+    expect(useDatabaseDemoStore.getState().expandedFileIds).toEqual(['file-2']);
+
+    useDatabaseDemoStore.getState().setExpanded(['file-3', 'file-3', 'file-4']);
+    expect(useDatabaseDemoStore.getState().expandedFileIds).toEqual(['file-3', 'file-4']);
+
+    useDatabaseDemoStore.getState().clearExpanded();
+    expect(useDatabaseDemoStore.getState().expandedFileIds).toEqual([]);
+  });
+
+  it('normalizes pagination and search settings', () => {
+    const store = useDatabaseDemoStore.getState();
+
+    store.setRecordPage(2.9);
+    expect(useDatabaseDemoStore.getState().recordPage).toBe(2);
+
+    useDatabaseDemoStore.getState().setRecordPage(-4);
+    expect(useDatabaseDemoStore.getState().recordPage).toBe(0);
+
+    useDatabaseDemoStore.getState().setRecordPage(Number.NaN);
+    expect(useDatabaseDemoStore.getState().recordPage).toBe(0);
+
+    useDatabaseDemoStore.getState().setRecordPage(5);
+    useDatabaseDemoStore.getState().setRecordPageSize(25.8);
+    expect(useDatabaseDemoStore.getState()).toEqual(
+      expect.objectContaining({ recordPage: 0, recordPageSize: 25 })
+    );
+
+    useDatabaseDemoStore.getState().setRecordPageSize(0);
+    expect(useDatabaseDemoStore.getState().recordPageSize).toBe(50);
+
+    useDatabaseDemoStore.getState().setRecordPage(3);
+    useDatabaseDemoStore.getState().resetRecordPagination();
+    expect(useDatabaseDemoStore.getState().recordPage).toBe(0);
+
+    useDatabaseDemoStore.getState().setSearchQuery('embedding');
+    useDatabaseDemoStore.getState().setSearchThreshold(2);
+    expect(useDatabaseDemoStore.getState()).toEqual(
+      expect.objectContaining({ searchQuery: 'embedding', searchThreshold: 1 })
+    );
+
+    useDatabaseDemoStore.getState().setSearchThreshold(-1);
+    expect(useDatabaseDemoStore.getState().searchThreshold).toBe(0);
+
+    useDatabaseDemoStore.getState().setSearchThreshold(Number.NaN);
+    expect(useDatabaseDemoStore.getState().searchThreshold).toBe(0.5);
+  });
+
+  it('selects settings, expansion, pagination, and search slices', () => {
+    const store = useDatabaseDemoStore.getState();
+
+    store.setShowSettings(true);
+    store.setExpanded(['file-1']);
+    store.setRecordPage(4);
+    store.setRecordPageSize(10);
+    store.setSearchQuery('report');
+    store.setSearchThreshold(0.8);
+
+    const state = useDatabaseDemoStore.getState();
+    expect(databaseDemoSelectors.settings(state)).toBe(true);
+    expect(databaseDemoSelectors.expanded(state)).toEqual(['file-1']);
+    expect(databaseDemoSelectors.pagination(state)).toEqual([0, 10]);
+    expect(databaseDemoSelectors.search(state)).toEqual(['report', 0.8]);
   });
 
   it('swallows storage clearing failures in the test reset helper', () => {
