@@ -1,9 +1,17 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Wrench } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  CircleDashed,
+  Wrench,
+} from 'lucide-react';
 import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
@@ -20,7 +28,7 @@ const STATUS_LABELS: Record<DisplayStatus, string> = {
 };
 
 const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
-  running: <Loader2 className="size-4 animate-spin text-blue-500" />,
+  running: <CircleDashed className="size-4 text-muted-foreground" />,
   error: <AlertCircle className="size-4 text-destructive" />,
   success: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
   unknown: <CheckCircle className="size-4 text-muted-foreground" />,
@@ -112,6 +120,16 @@ const formatResult = (result: ToolResult): string => {
   }
 };
 
+const getToolHeading = (toolName: string, displayStatus: DisplayStatus): string => {
+  if (displayStatus === 'running') {
+    return `Using ${toolName}`;
+  }
+  if (displayStatus === 'error') {
+    return `Tool failed: ${toolName}`;
+  }
+  return `Used ${toolName}`;
+};
+
 /**
  * ToolFallback component displays tool execution status and results.
  *
@@ -138,6 +156,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const errorMessage = resolveErrorMessage(status, result);
   const showDetails = !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
+  const heading = getToolHeading(toolName, displayStatus);
 
   const category = classifyToolName(toolName);
   const tint = categoryTintClasses(category);
@@ -170,11 +189,11 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
             <span className="inline-flex items-center gap-1.5">
               <Wrench className="size-3.5 text-muted-foreground" />
-              <span>Used {toolName}</span>
+              <span>{heading}</span>
             </span>
           </p>
           {isRunning ? (
-            <p className="mt-1 text-muted-foreground text-xs">Waiting for tool result...</p>
+            <AssistantThinkingIndicator className="mt-1 text-xs" markClassName="size-3.5" />
           ) : null}
           {isError && errorMessage ? (
             <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
