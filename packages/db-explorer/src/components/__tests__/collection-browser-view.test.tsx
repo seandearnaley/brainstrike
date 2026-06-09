@@ -1217,4 +1217,98 @@ describe('CollectionBrowserView', () => {
     expect(loadChunkDetail).toHaveBeenCalledWith('chunk-1');
     expect(onChunkSelect).not.toHaveBeenCalled();
   });
+
+  it('materializes large collections without dropping records', () => {
+    const largeRecordSet = Array.from({ length: 250 }, (_, index): FileRecord => {
+      const id = `large-${index}`;
+      return {
+        id,
+        name: `${id}.ts`,
+        path: `/${id}.ts`,
+        size: index + 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      };
+    });
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        records={largeRecordSet}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: {
+        files: expect.arrayContaining([
+          expect.objectContaining({ id: 'large-0' }),
+          expect.objectContaining({ id: 'large-249' }),
+        ]),
+      },
+    });
+  });
+
+  it('calls selection callbacks for file and chunk nodes that resolve details', async () => {
+    const user = userEvent.setup();
+    const onFileSelect = vi.fn();
+    const onChunkSelect = vi.fn();
+    const loadChunkDetail = vi.fn().mockResolvedValue(TEST_CHUNKS[0]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        loadChunkDetail={loadChunkDetail}
+        onChunkSelect={onChunkSelect}
+        onFileSelect={onFileSelect}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Select first file' }));
+    expect(onFileSelect).toHaveBeenCalledWith('1', TEST_RECORDS[0]);
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0] as
+      | {
+          onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
+        }
+      | undefined;
+
+    await act(async () => {
+      latestProps?.onSelect?.('chunk-chunk-1', 'chunk', {});
+      await Promise.resolve();
+    });
+
+    expect(loadChunkDetail).toHaveBeenCalledWith('chunk-1');
+    expect(onChunkSelect).toHaveBeenCalledWith('chunk-1', TEST_CHUNKS[0]);
+  });
+
+  it('opens the inspector from the context menu when it starts collapsed', async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useCollectionBrowserStore.getState().setInspectorCollapsed(true);
+    });
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
+    await user.click(screen.getByRole('button', { name: 'Inspect' }));
+
+    expect(useCollectionBrowserStore.getState()).toMatchObject({
+      selectedId: 'file-1',
+      isInspectorCollapsed: false,
+    });
+    expect(screen.getByTestId('node-inspector')).toHaveTextContent('file:1');
+  });
 });
