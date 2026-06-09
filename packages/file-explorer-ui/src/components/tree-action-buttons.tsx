@@ -3,7 +3,11 @@
  *
  * Rendered in the file-explorer quick-filter row (via FileFilterBar's `trailing`
  * slot), next to the info button -- not as a floating overlay. Includes an
- * optional inline scanning status indicator that doesn't cause layout shift.
+ * optional inline scanning status indicator placed *before* the fixed-width
+ * buttons: it mounts immediately after the row's `flex-1 min-w-0` search input,
+ * which absorbs the indicator's width (on mount and on digit growth), so the
+ * action buttons keep their position rather than shifting. The only exception
+ * is at the minimum panel width, where the input can no longer shrink.
  */
 
 import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
@@ -84,7 +88,7 @@ const InlineScanningIndicator: React.FC<{
       ) : (
         countText && (
           <span
-            className="text-right text-muted-foreground text-xs tabular-nums"
+            className="text-muted-foreground text-xs tabular-nums"
             data-testid="inline-scanning-count"
             title={currentPath}
           >
