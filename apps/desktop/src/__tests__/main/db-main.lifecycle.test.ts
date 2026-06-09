@@ -444,6 +444,86 @@ describe('db-main lifecycle', () => {
     }
   });
 
+  it('reuses a self-owned database process lock', async () => {
+    const lockError = new Error('lock exists') as Error & { code: string };
+    lockError.code = 'EEXIST';
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('.db-process.lock') ? String(process.pid) : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(unlinkSyncMock).not.toHaveBeenCalledWith(expect.stringContaining('.db-process.lock'));
+    expect(PGliteMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a stale database process lock when the owner pid is unreadable', async () => {
+    const lockError = new Error('lock exists') as Error & { code: string };
+    lockError.code = 'EEXIST';
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('.db-process.lock') ? 'not-a-pid' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith(expect.stringContaining('.db-process.lock'));
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('.db-process.lock'),
+      String(process.pid),
+      { encoding: 'utf8', flag: 'wx' }
+    );
+  });
+
+  it('treats EPERM during lock owner probing as a live database process', async () => {
+    const lockError = new Error('lock exists') as Error & { code: string };
+    lockError.code = 'EEXIST';
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('.db-process.lock') ? '424242' : ''
+    );
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      const permissionError = new Error('operation not permitted') as Error & { code: string };
+      permissionError.code = 'EPERM';
+      throw permissionError;
+    });
+
+    try {
+      const { initializeMainDatabase } = await import('../../db-main');
+      await expect(initializeMainDatabase()).rejects.toThrow(/Database lock is held by process/);
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it('surfaces a generic lock error when stale-lock retry loses to an unreadable owner', async () => {
+    const lockError = new Error('lock exists') as Error & { code: string };
+    lockError.code = 'EEXIST';
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    readFileSyncMock.mockImplementation((candidate: string) =>
+      String(candidate).endsWith('.db-process.lock') ? 'not-a-pid' : ''
+    );
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      /Database lock is held by another process/
+    );
+  });
+
   it('surfaces a friendly concurrency error when lock is claimed during stale-lock recovery', async () => {
     const lockError = new Error('lock exists') as Error & { code: string };
     lockError.code = 'EEXIST';

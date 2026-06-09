@@ -58,9 +58,41 @@ vi.mock('electron', () => ({
   },
 }));
 
+function mockSuccessfulDatabaseModules(options?: {
+  liveModule?: unknown;
+  vectorModule?: unknown;
+}): { PGliteMock: ReturnType<typeof vi.fn> } {
+  const queryMock = vi
+    .fn()
+    .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    .mockResolvedValueOnce({ rows: [{ extname: 'vector' }] });
+  const execMock = vi.fn().mockResolvedValue(undefined);
+  const syncToFsMock = vi.fn().mockResolvedValue(undefined);
+  const PGliteMock = vi.fn().mockImplementation(function (this: {
+    exec: typeof execMock;
+    query: typeof queryMock;
+    syncToFs: typeof syncToFsMock;
+  }) {
+    this.query = queryMock;
+    this.exec = execMock;
+    this.syncToFs = syncToFsMock;
+  });
+
+  vi.doMock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
+  vi.doMock('@brainstrike/db', () => ({ migrate: vi.fn().mockResolvedValue(undefined) }));
+  vi.doMock('@electric-sql/pglite-pgvector', () => options?.vectorModule ?? { vector: 'vector' });
+  vi.doMock('@electric-sql/pglite/live', () => options?.liveModule ?? { live: 'live' });
+
+  return { PGliteMock };
+}
+
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock('@brainstrike/db');
+    vi.doUnmock('@electric-sql/pglite');
+    vi.doUnmock('@electric-sql/pglite-pgvector');
+    vi.doUnmock('@electric-sql/pglite/live');
     installUtilityProcessParentPort();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.mkdirSync.mockReset();
@@ -89,12 +121,61 @@ describe('db-main coverage helpers', () => {
     vi.doMock('@electric-sql/pglite-pgvector', () => {
       throw new Error('vector module missing');
     });
+
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/pgvector extension is required/i);
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.initializationAttemptCount).toBeGreaterThan(0);
     expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
     expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
+  });
+
+  it('loads pgvector and live extensions from default exports', async () => {
+    const { PGliteMock } = mockSuccessfulDatabaseModules({
+      liveModule: { default: 'live-default', live: undefined },
+      vectorModule: { default: 'vector-default', vector: undefined },
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(PGliteMock).toHaveBeenCalledWith({
+      dataDir: expect.stringContaining('pgdata'),
+      extensions: {
+        live: 'live-default',
+        vector: 'vector-default',
+      },
+    });
+  });
+
+  it('fails fast when live query extension cannot be loaded', async () => {
+    mockSuccessfulDatabaseModules({ liveModule: {} });
+
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/live query extension is required/i);
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
+  });
+
+  it('serializes non-error extension load failures in diagnostics', async () => {
+    const circularFailure: Record<string, unknown> = { code: 'E_BROKEN', reason: 'bad package' };
+    circularFailure['self'] = circularFailure;
+    const vectorModule: { vector?: unknown } = {};
+    Object.defineProperty(vectorModule, 'vector', {
+      configurable: true,
+      get() {
+        throw circularFailure;
+      },
+    });
+    mockSuccessfulDatabaseModules({
+      vectorModule,
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+
+    await expect(initializeMainDatabase()).rejects.toThrow(/"self":"\[Circular\]"/);
   });
 
   it('classifies wasm abort during extension load as wasm-runtime', async () => {
