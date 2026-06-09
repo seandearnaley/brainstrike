@@ -1,6 +1,18 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const useMessagePartTextMock = vi.hoisted(() =>
+  vi.fn(() => ({
+    status: { type: 'complete' },
+    text: 'Rendered markdown',
+    type: 'text',
+  }))
+);
+
+vi.mock('@assistant-ui/react', () => ({
+  useMessagePartText: useMessagePartTextMock,
+}));
+
 // Mock @assistant-ui/react-markdown before importing
 vi.mock('@assistant-ui/react-markdown', () => ({
   MarkdownTextPrimitive: ({
@@ -51,6 +63,11 @@ import { MarkdownText } from '../assistant-ui-panel/markdown-text';
 
 describe('MarkdownText', () => {
   beforeEach(() => {
+    useMessagePartTextMock.mockReturnValue({
+      status: { type: 'complete' },
+      text: 'Rendered markdown',
+      type: 'text',
+    });
     vi.stubGlobal('navigator', {
       clipboard: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -77,6 +94,33 @@ describe('MarkdownText', () => {
     rerender(<MarkdownText />);
     // Should not throw
     expect(screen.getByTestId('markdown-primitive')).toBeInTheDocument();
+  });
+
+  it('renders the shared thinking indicator for an empty running text part', () => {
+    useMessagePartTextMock.mockReturnValue({
+      status: { type: 'running' },
+      text: '',
+      type: 'text',
+    });
+
+    render(<MarkdownText />);
+
+    expect(screen.queryByTestId('markdown-primitive')).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
+    expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
+  });
+
+  it('keeps empty running reasoning parts in the markdown primitive', () => {
+    useMessagePartTextMock.mockReturnValue({
+      status: { type: 'running' },
+      text: '',
+      type: 'reasoning',
+    });
+
+    render(<MarkdownText />);
+
+    expect(screen.getByTestId('markdown-primitive')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
   });
 
   it('uses Electron clipboard when available and blocks duplicate copies while copied', () => {

@@ -41,4 +41,25 @@ describe('assistant UI panel architecture', () => {
     expect(localChainOfThoughtSource).toContain('tools: {');
     expect(localChainOfThoughtSource).toContain('Fallback: ToolFallback');
   });
+
+  it('uses the shared thinking indicator instead of a bare streaming caret', () => {
+    const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    expect(panelSource).toContain("from './assistant-thinking-indicator'");
+    expect(cssSource).toContain('.bs-streaming-thinking');
+    expect(cssSource).toContain('@media (forced-colors: active)');
+    expect(cssSource).toContain('-webkit-text-fill-color: CanvasText');
+    expect(cssSource).not.toContain('--aui-content: "|"');
+  });
+
+  it('only animates the chain-of-thought pill while reasoning is running', () => {
+    const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    expect(panelSource).toContain('isRunningReasoningPart');
+    expect(panelSource).toContain('isReasoningRunning ? (');
+    expect(panelSource).toContain('assistant-reasoning-static-mark');
+    expect(cssSource).toContain('.bs-thinking-mark-static');
+  });
 });
