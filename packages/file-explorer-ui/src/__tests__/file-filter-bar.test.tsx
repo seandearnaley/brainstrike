@@ -88,6 +88,38 @@ describe('FileFilterBar', () => {
     expect(screen.queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
   });
 
+  describe('trailing slot', () => {
+    it('renders trailing controls before the info button', () => {
+      render(
+        <FileFilterBar
+          {...defaultProps}
+          trailing={<button data-testid="trailing-control" type="button" />}
+        />
+      );
+      expect(screen.getByTestId('trailing-control')).toBeInTheDocument();
+    });
+
+    it('places trailing controls ahead of the filter syntax help button in DOM order', () => {
+      render(
+        <FileFilterBar
+          {...defaultProps}
+          trailing={<button data-testid="trailing-control" type="button" />}
+        />
+      );
+      const trailing = screen.getByTestId('trailing-control');
+      const help = screen.getByRole('button', { name: /filter syntax help/i });
+      // Node.DOCUMENT_POSITION_FOLLOWING (4) => `help` comes after `trailing`.
+      expect(trailing.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+    });
+
+    it('renders no trailing region when none is provided', () => {
+      render(<FileFilterBar {...defaultProps} />);
+      expect(screen.queryByTestId('trailing-control')).not.toBeInTheDocument();
+    });
+  });
+
   describe('visual consistency with collection-browser filter input', () => {
     it('renders a leading search icon for visual consistency', () => {
       const { container } = render(<FileFilterBar {...defaultProps} />);

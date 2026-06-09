@@ -29,7 +29,15 @@ type ScanningStatusProps = {
   isCancelling: boolean;
   onCancel: () => void;
   currentPath?: string;
-  percentage?: number;
+  /**
+   * Monotonic count of directories processed so far. Preferred over a
+   * percentage: `total` grows as lazy subfolders are discovered, so a
+   * `loaded/total` percentage is non-monotonic and visually "flashes".
+   * `loaded` only ever increases, so a raw count reads as steady growth.
+   */
+  loadedCount?: number;
+  /** Best-known total directory count (may grow as discovery continues). */
+  totalCount?: number;
 } | null;
 
 /**
@@ -70,11 +78,11 @@ export function computeScanningStatusProps(input: ScanningStatusPropsInput): Sca
     const total = expandAllProgress?.total ?? 0;
     const currentPath =
       total > 0 ? `Loading ${loaded}/${total} directories` : 'Preparing to expand directories...';
-    const percentage = total > 0 ? Math.round((loaded / total) * 100) : undefined;
 
-    // Only include percentage if defined
-    if (percentage !== undefined) {
-      return { ...baseProps, currentPath, percentage };
+    // Only surface counts once a total is known; before that we show an
+    // indeterminate spinner rather than a misleading "0/0".
+    if (total > 0) {
+      return { ...baseProps, currentPath, loadedCount: loaded, totalCount: total };
     }
     return { ...baseProps, currentPath };
   }

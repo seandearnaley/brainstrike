@@ -14,8 +14,11 @@ export interface ScanningStatusInfo {
   currentPath?: string;
   isCancelling: boolean;
   isScanning: boolean;
+  /** Monotonic count of directories processed so far (steady growth, no flashing). */
+  loadedCount?: number;
   onCancel: () => void;
-  percentage?: number;
+  /** Best-known total directory count (may grow as discovery continues). */
+  totalCount?: number;
 }
 
 interface TreeActionButtonsProps {
@@ -35,35 +38,37 @@ interface TreeActionButtonsProps {
 const InlineScanningIndicator: React.FC<{
   status: ScanningStatusInfo;
 }> = React.memo(({ status }) => {
-  const { isCancelling, cancellable, onCancel, currentPath, percentage } = status;
+  const { isCancelling, cancellable, onCancel, currentPath, loadedCount, totalCount } = status;
 
-  // Build compact status text
-  const statusText = React.useMemo(() => {
-    if (isCancelling) {
-      return 'Stopping...';
+  // Prefer a raw, monotonic directory count over a percentage. `totalCount`
+  // grows as lazy subfolders are discovered, so a `loaded/total` percentage is
+  // non-monotonic and visually flashes; `loadedCount` only ever increases, so a
+  // bare count reads as steady growth. `tabular-nums` keeps digit width fixed.
+  const countText = React.useMemo(() => {
+    if (loadedCount === undefined) {
+      return '';
     }
-    if (percentage !== undefined && percentage > 0) {
-      return `${percentage}%`;
-    }
-    return '';
-  }, [isCancelling, percentage]);
+    return totalCount === undefined ? `${loadedCount}` : `${loadedCount}/${totalCount}`;
+  }, [loadedCount, totalCount]);
 
   return (
     <div
-      className={cn(
-        'flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1 shadow-sm backdrop-blur-sm',
-        isCancelling && 'opacity-60'
-      )}
+      className={cn('flex items-center gap-1.5', isCancelling && 'opacity-60')}
       data-testid="inline-scanning-indicator"
+      title={currentPath}
     >
-      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-      {statusText && (
-        <span className="text-muted-foreground text-xs tabular-nums">{statusText}</span>
-      )}
-      {currentPath && !statusText && (
-        <span className="max-w-[80px] truncate text-muted-foreground text-xs" title={currentPath}>
-          Loading...
-        </span>
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+      {isCancelling ? (
+        <span className="text-muted-foreground text-xs">Stopping...</span>
+      ) : (
+        countText && (
+          <span
+            className="text-right text-muted-foreground text-xs tabular-nums"
+            data-testid="inline-scanning-count"
+          >
+            {countText}
+          </span>
+        )
       )}
       {cancellable && (
         <Tooltip>
@@ -112,22 +117,24 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
     const expandTooltip = isExpandingAll ? 'Expanding directories...' : 'Expand all directories';
 
     return (
-      <div className="absolute top-2 right-6 z-20 flex items-center gap-1">
-        {/* Inline scanning indicator - shown to the left of action buttons */}
+      <div className="flex shrink-0 items-center gap-1">
+        {/* Inline scanning indicator - shown to the left of action buttons.
+            Placed before the (fixed-width) buttons so the filter row's flexible
+            search input absorbs its width, keeping the buttons from shifting. */}
         {scanningStatus?.isScanning && <InlineScanningIndicator status={scanningStatus} />}
 
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
+              className="h-8 w-8"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
               size="icon"
               variant="ghost"
             >
-              <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
+              <RefreshCw className={cn('h-4 w-4', { 'animate-spin': isRefreshing })} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
@@ -138,7 +145,7 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label={expandLabel}
-              className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
+              className="h-8 w-8"
               data-testid="expand-all-button-small"
               disabled={expandDisabled}
               onClick={onExpandAll}
@@ -146,9 +153,9 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
               variant="ghost"
             >
               {isExpandingAll ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <ChevronsUpDown className="h-3.5 w-3.5" />
+                <ChevronsUpDown className="h-4 w-4" />
               )}
             </Button>
           </TooltipTrigger>
@@ -160,14 +167,14 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Collapse All"
-              className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
+              className="h-8 w-8"
               data-testid="collapse-all-button-small"
               disabled={collapseDisabled}
               onClick={onCollapseAll}
               size="icon"
               variant="ghost"
             >
-              <ChevronsDownUp className="h-3.5 w-3.5" />
+              <ChevronsDownUp className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
