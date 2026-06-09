@@ -478,6 +478,26 @@ describe('WebHandleCache', () => {
       openSpy.mockRestore();
     });
 
+    it('retries IndexedDB after the open failure cooldown expires', async () => {
+      const openSpy = vi.spyOn(globalThis.indexedDB, 'open').mockImplementation(() => {
+        throw new Error('IndexedDB open failed');
+      });
+      const cache = new WebHandleCache();
+
+      await cache.storeRootHandle('retry-root', createDirectoryHandle('retry-root'));
+      expect(openSpy).toHaveBeenCalledTimes(1);
+
+      mockedNow += 5001;
+      await expect(cache.getAllRootHandles()).resolves.toMatchObject([
+        {
+          folderId: 'retry-root',
+        },
+      ]);
+
+      expect(openSpy).toHaveBeenCalledTimes(2);
+      openSpy.mockRestore();
+    });
+
     it('limits memory-only root handles to the most recent entries', async () => {
       await withIndexedDbUnavailable(async () => {
         const cache = new WebHandleCache();
