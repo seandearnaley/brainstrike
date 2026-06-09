@@ -201,16 +201,35 @@ export const persistWindowState = (
   }
 };
 
+/**
+ * Wire window-bounds persistence to a BrowserWindow.
+ *
+ * Returns a disposer that removes every listener and clears the pending debounce
+ * timer. The caller MUST invoke it when the window is destroyed (e.g. on
+ * `'closed'`): `app.on('activate')` recreates the main window, so without
+ * cleanup the listeners + timer accumulate per window, and a debounce firing
+ * after destruction would call `captureWindowState` on a dead window and throw.
+ */
 export const registerWindowStatePersistence = (
   win: BrowserWindow,
   store: ElectronStore<DesktopSettingsStoreSchema>
-): void => {
+): (() => void) => {
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
-  const persistNow = () => {
+  const clearDebounce = () => {
     if (debounce) {
       clearTimeout(debounce);
       debounce = null;
+    }
+  };
+
+  const persistNow = () => {
+    clearDebounce();
+    // A debounce can fire after the window is destroyed (race with teardown).
+    // captureWindowState() calls win.isFullScreen() — which throws on a dead
+    // window — outside persistWindowState's try/catch, so guard here.
+    if (win.isDestroyed()) {
+      return;
     }
     persistWindowState(store, captureWindowState(win));
   };
@@ -229,4 +248,15 @@ export const registerWindowStatePersistence = (
   win.on('enter-full-screen', schedulePersist);
   win.on('leave-full-screen', schedulePersist);
   win.on('close', persistNow);
+
+  return () => {
+    clearDebounce();
+    win.removeListener('resize', schedulePersist);
+    win.removeListener('move', schedulePersist);
+    win.removeListener('maximize', schedulePersist);
+    win.removeListener('unmaximize', schedulePersist);
+    win.removeListener('enter-full-screen', schedulePersist);
+    win.removeListener('leave-full-screen', schedulePersist);
+    win.removeListener('close', persistNow);
+  };
 };
