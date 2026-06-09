@@ -360,6 +360,185 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ]);
   });
 
+  it('hydrates mixed content arrays and system messages while skipping malformed parts', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-system',
+          role: 'system',
+          content: { text: 'System guard' },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+        },
+        {
+          id: 'message-user',
+          role: 'user',
+          content: ['Use', { content: 'nested text' }],
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+        },
+        {
+          id: 'message-assistant',
+          role: 'assistant',
+          content: {
+            parts: [
+              null,
+              ['bad'],
+              { type: 'unknown', text: 'ignored' },
+              { type: 'text', text: '  ' },
+              { type: 'text', text: 'Visible answer' },
+            ],
+          },
+          createdAt: new Date('2026-04-24T12:00:02Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    expect(history.messages.map((item) => item.parentId)).toEqual([
+      null,
+      'message-system',
+      'message-user',
+    ]);
+    expect(history.messages.map((item) => item.message.content)).toEqual([
+      [{ type: 'text', text: 'System guard' }],
+      [{ type: 'text', text: 'Use\nnested text' }],
+      [{ type: 'text', text: 'Visible answer' }],
+    ]);
+  });
+
+  it('hydrates legacy tool-result output and error snapshots', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-1',
+          role: 'assistant',
+          content: {
+            parts: [
+              { type: 'tool-call', toolCallId: 'call-output', toolName: 'workspace.read' },
+              { type: 'tool-call', toolCallId: 'call-error', toolName: 'workspace.write' },
+            ],
+          },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+        },
+        {
+          id: 'message-2',
+          role: 'tool',
+          content: { toolCallId: 'call-output', output: { ok: true } },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+        },
+        {
+          id: 'message-3',
+          role: 'tool',
+          content: { toolCallId: 'call-error', error: 'denied' },
+          createdAt: new Date('2026-04-24T12:00:02Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    expect(history.messages[0]?.message.content).toEqual([
+      {
+        type: 'tool-call',
+        toolCallId: 'call-output',
+        toolName: 'workspace.read',
+        args: {},
+        argsText: '{}',
+        result: { ok: true },
+      },
+      {
+        type: 'tool-call',
+        toolCallId: 'call-error',
+        toolName: 'workspace.write',
+        args: {},
+        argsText: '{}',
+        result: 'denied',
+        isError: true,
+      },
+    ]);
+  });
+
+  it('drops malformed tool calls and empty system messages from hydrated history', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-empty-system',
+          role: 'system',
+          content: { text: '   ' },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+        },
+        {
+          id: 'message-empty-assistant',
+          role: 'assistant',
+          content: {
+            parts: [
+              { type: 'tool-call', toolCallId: '', toolName: 'workspace.read' },
+              { type: 'tool-call', toolCallId: 'call-missing-name', toolName: '' },
+            ],
+          },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+        },
+        {
+          id: 'message-user',
+          role: 'user',
+          content: { content: 'still visible' },
+          createdAt: new Date('2026-04-24T12:00:02Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    expect(history.headId).toBe('message-user');
+    expect(history.messages).toHaveLength(1);
+    expect(history.messages[0]?.message.content).toEqual([{ type: 'text', text: 'still visible' }]);
+  });
+
   describe('reasoning hydration', () => {
     function makeRepository(
       content: unknown
