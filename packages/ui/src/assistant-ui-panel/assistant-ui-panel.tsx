@@ -56,7 +56,10 @@ import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { AssistantRunTimeline, resolveAssistantRunEventStatus } from './assistant-run-timeline';
-import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import {
+  AssistantThinkingIndicator,
+  BrainstrikeThinkingMark,
+} from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
@@ -291,9 +294,25 @@ const LocalReasoningPart: FC = () => {
   );
 };
 
+function isRunningChainOfThoughtPart(part: unknown): boolean {
+  if (!(part && typeof part === 'object')) {
+    return false;
+  }
+
+  const status = (part as { readonly status?: unknown }).status;
+  if (!(status && typeof status === 'object')) {
+    return false;
+  }
+
+  return (status as { readonly type?: unknown }).type === 'running';
+}
+
 const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
+  const isReasoningRunning = useAuiState((state) =>
+    state.chainOfThought.parts.some(isRunningChainOfThoughtPart)
+  );
   const isContinuation = useAuiState((state) => {
     const [firstChainPart] = state.chainOfThought.parts;
     if (!firstChainPart) {
@@ -347,12 +366,25 @@ const LocalChainOfThought: FC = () => {
         onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
         type="button"
       >
-        <AssistantThinkingIndicator
-          className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
-          markClassName="size-4"
-          showText={!isContinuation}
-          textClassName="truncate"
-        />
+        {isReasoningRunning ? (
+          <AssistantThinkingIndicator
+            className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
+            markClassName="size-4"
+            showText={!isContinuation}
+            textClassName="truncate"
+          />
+        ) : (
+          <span
+            className={cn('bs-thinking-indicator min-w-0', isContinuation ? 'justify-center' : '')}
+            data-testid="assistant-reasoning-indicator"
+          >
+            <BrainstrikeThinkingMark
+              className="bs-thinking-mark-static size-4"
+              testId="assistant-reasoning-static-mark"
+            />
+            {isContinuation ? null : <span className="truncate">Reasoning</span>}
+          </span>
+        )}
         {isContinuation ? null : collapsed ? (
           <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
         ) : (

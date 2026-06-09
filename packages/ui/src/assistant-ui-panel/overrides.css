@@ -629,6 +629,21 @@
   animation: bs-thinking-core 1.65s ease-in-out infinite;
 }
 
+.assistant-ui-panel .bs-thinking-mark-static .bs-thinking-pulse,
+.assistant-ui-panel .bs-thinking-mark-static .bs-thinking-core {
+  animation: none;
+}
+
+.assistant-ui-panel .bs-thinking-mark-static .bs-thinking-pulse {
+  opacity: 0.18;
+  transform: scale(1);
+}
+
+.assistant-ui-panel .bs-thinking-mark-static .bs-thinking-core {
+  opacity: 0.78;
+  transform: scale(1);
+}
+
 .assistant-ui-panel .bs-thinking-shimmer {
   animation: bs-thinking-shimmer 1.45s linear infinite;
   background: linear-gradient(

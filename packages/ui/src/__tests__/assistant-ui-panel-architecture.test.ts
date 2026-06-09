@@ -50,4 +50,14 @@ describe('assistant UI panel architecture', () => {
     expect(cssSource).toContain('.bs-streaming-thinking');
     expect(cssSource).not.toContain('--aui-content: "|"');
   });
+
+  it('only animates the chain-of-thought pill while reasoning is running', () => {
+    const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    expect(panelSource).toContain('isRunningChainOfThoughtPart');
+    expect(panelSource).toContain('isReasoningRunning ? (');
+    expect(panelSource).toContain('assistant-reasoning-static-mark');
+    expect(cssSource).toContain('.bs-thinking-mark-static');
+  });
 });

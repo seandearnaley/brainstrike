@@ -42,6 +42,8 @@ describe('ToolFallback', () => {
         'data-tone',
         'greyscale'
       );
+      expect(screen.getAllByTestId('assistant-thinking-mark')).toHaveLength(1);
+      expect(screen.queryByTestId('assistant-thinking-status-mark')).not.toBeInTheDocument();
       expect(screen.queryByRole('button')).not.toBeInTheDocument(); // No collapse button while running
     });
   });
