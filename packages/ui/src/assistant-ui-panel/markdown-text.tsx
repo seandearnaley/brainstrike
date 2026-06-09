@@ -12,6 +12,8 @@ import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 import { TooltipIconButton } from './tooltip-icon-button';
 
+const REMARK_PLUGINS = [remarkGfm];
+
 export const MarkdownText = memo(function MarkdownTextImpl() {
   const { status, text, type } = useMessagePartText();
 
@@ -23,7 +25,7 @@ export const MarkdownText = memo(function MarkdownTextImpl() {
     <MarkdownTextPrimitive
       className="aui-md"
       components={defaultComponents}
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={REMARK_PLUGINS}
     />
   );
 });
