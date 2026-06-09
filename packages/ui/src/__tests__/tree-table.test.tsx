@@ -239,6 +239,32 @@ describe('TreeTable', () => {
       expect(screen.getByText('Test')).toBeInTheDocument();
     });
 
+    it('uses a column id as the resize label when the header is custom content', () => {
+      const columns: TreeTableColumn<TestData>[] = [
+        {
+          id: 'custom-name',
+          header: <span>Custom Header</span>,
+          cell: ({ node }) => node.data.name,
+          defaultWidth: 180,
+          minWidth: 120,
+          maxWidth: 260,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columnSizes={{ 'custom-name': 180 }}
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onColumnSizesChange={() => {}}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      expect(screen.getByLabelText('Resize custom-name column')).toBeInTheDocument();
+    });
+
     it('renders with custom aria-label', () => {
       render(
         <TreeTable
@@ -321,6 +347,30 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 1')).toBeInTheDocument();
       expect(screen.queryByText('File 2')).not.toBeInTheDocument();
       expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+
+    it('keeps paged row slicing when pagination controls are hidden', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2, showControls: false }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
     });
 
     it('renders all rows without pagination controls when none strategy is active', () => {
@@ -648,6 +698,30 @@ describe('TreeTable', () => {
 
       expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
       expect(screen.getByText('File 3')).toBeInTheDocument();
+    });
+
+    it('clamps zero auto paging threshold to search paging for non-empty rows', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={0}
+          autoWindowingContext="search"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 1 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.queryByText('File 2')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Go to next page')).toBeInTheDocument();
     });
   });
 
@@ -1003,6 +1077,51 @@ describe('TreeTable', () => {
       );
 
       expect(screen.getByText('↑')).toBeInTheDocument();
+    });
+
+    it('renders descending and unsorted aria states for active sortable headers', () => {
+      const columns: TreeTableColumn<TestData>[] = [
+        {
+          id: 'name',
+          header: 'Name',
+          sortable: true,
+          cell: ({ node }) => node.data.name,
+        },
+      ];
+
+      const { rerender } = render(
+        <TreeTable
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={() => {}}
+          onToggleExpand={() => {}}
+          sortState={{ columnId: 'name', direction: 'desc' }}
+        />
+      );
+
+      expect(screen.getByText('↓')).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /name/i })).toHaveAttribute(
+        'aria-sort',
+        'descending'
+      );
+
+      rerender(
+        <TreeTable
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={() => {}}
+          onToggleExpand={() => {}}
+          sortState={{ columnId: 'name', direction: null }}
+        />
+      );
+
+      expect(screen.queryByText('↓')).not.toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /name/i })).toHaveAttribute(
+        'aria-sort',
+        'none'
+      );
     });
 
     it('calls onSortChange when sortable column header clicked', () => {

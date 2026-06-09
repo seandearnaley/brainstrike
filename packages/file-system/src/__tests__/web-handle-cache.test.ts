@@ -215,6 +215,33 @@ describe('WebHandleCache', () => {
     expect(requestPermission).toHaveBeenCalledWith({ mode: 'read' });
   });
 
+  it('returns null when a prompted permission request times out', async () => {
+    await withIndexedDbUnavailable(async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const cache = new WebHandleCache();
+        const handle = createDirectoryHandle('root');
+        const queryPermission = vi.fn().mockResolvedValue('prompt');
+        const requestPermission = vi.fn<() => Promise<PermissionState>>(
+          () => new Promise(() => {})
+        );
+        (handle as unknown as { queryPermission: typeof queryPermission }).queryPermission =
+          queryPermission;
+        (handle as unknown as { requestPermission: typeof requestPermission }).requestPermission =
+          requestPermission;
+
+        await cache.storeRootHandle('root', handle);
+        const restorePromise = cache.restoreLastRootHandle();
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        await expect(restorePromise).resolves.toBeNull();
+        expect(requestPermission).toHaveBeenCalledWith({ mode: 'read' });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('restores handles without the optional permission API', async () => {
     const cache = new WebHandleCache();
     const handle = {
