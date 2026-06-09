@@ -387,6 +387,141 @@ describe('runEnhancedImport', () => {
     expect(results[0]?.chunksCreated).toBe(1);
   });
 
+  it('uses the preferred hosted target set without SQL and dispatches an update event', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    const chunkingImpl = vi.fn().mockResolvedValue([
+      {
+        id: '1',
+        imported: true,
+        existed: false,
+        chunksCreated: 1,
+      } satisfies EnhancedImportResult,
+    ]);
+    const resolvedSetIdSpy = vi.fn();
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-hosted-set',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('preferred-hosted-set');
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: { id: 'preferred-hosted-set' },
+        type: 'brainstrike:embedding-set-updated',
+      })
+    );
+    expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        targetEmbeddingSetId: 'preferred-hosted-set',
+      })
+    );
+  });
+
+  it('uses fixed hosted model dimensions when the provider model does not support standard dimensions', async () => {
+    const queuePort: EmbeddingJobQueuePort = {
+      enqueueBatch: vi.fn().mockResolvedValue(undefined),
+    };
+    const sqlPort: SqlExecutorPort = {
+      query: vi.fn().mockImplementation((sql: string) => {
+        if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+          return Promise.resolve({ rows: [{ modelKey: 'voyage::voyage-3-lite' }] });
+        }
+        if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (sql.startsWith('INSERT INTO embedding_sets')) {
+          return Promise.resolve({ rows: [{ id: 'voyage-set' }] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      runInTransaction: vi.fn(),
+    };
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.enqueueJobsForChunks?.(
+        [
+          {
+            id: 'chunk-voyage',
+            fileRecordId: '1',
+            content: 'voyage content',
+            contentHash: 'hash-voyage',
+          } as never,
+        ],
+        '1'
+      );
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      ports: { embeddingQueue: queuePort, sql: sqlPort },
+      embedding: {
+        enabled: true,
+        provider: 'voyage',
+        model: 'voyage-3-lite',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-voyage-set',
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('voyage');
+    expect(queuePort.enqueueBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      '1',
+      expect.objectContaining({
+        dimensionParameter: null,
+        provider: 'voyage',
+        targetDimension: 512,
+      })
+    );
+  });
+
   it('rejects hosted embedding imports when the provider API key is unavailable', async () => {
     resolveHostedProviderApiKeyMock.mockResolvedValueOnce(null);
 
@@ -487,6 +622,68 @@ describe('runEnhancedImport', () => {
     ).rejects.toThrow('Unable to resolve embedding model for set "missing-set".');
   });
 
+  it('rejects target-set-only embedding resolution when SQL access is missing', async () => {
+    await expect(
+      runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: createBaseRunner([
+          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        ]),
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        embedding: {
+          enabled: true,
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'sql-required-set',
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+      })
+    ).rejects.toThrow('Unable to resolve embedding model for set "sql-required-set".');
+  });
+
+  it('rejects target sets with invalid persisted model keys', async () => {
+    const sqlPort: SqlExecutorPort = {
+      query: vi.fn().mockResolvedValue({ rows: [{ modelKey: '   ' }] }),
+      runInTransaction: vi.fn(),
+    };
+
+    await expect(
+      runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: createBaseRunner([
+          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        ]),
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        embedding: {
+          enabled: true,
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'invalid-key-set',
+        },
+        ports: { sql: sqlPort },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+      })
+    ).rejects.toThrow('Embedding set invalid-key-set has invalid model key "   ".');
+  });
+
   it('rejects local embedding models whose registry capabilities are malformed', async () => {
     const sqlPort: SqlExecutorPort = {
       query: vi.fn().mockResolvedValue({
@@ -571,6 +768,81 @@ describe('runEnhancedImport', () => {
         },
       })
     ).rejects.toThrow('Model "chat-model" is not an embedding model.');
+  });
+
+  it('rejects local registry rows with invalid dimensions and invalid payloads', async () => {
+    const baseParams = {
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      progressHandlers: {
+        update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) =>
+          updater(null),
+      },
+    };
+
+    await expect(
+      runEnhancedImport({
+        ...baseParams,
+        embedding: {
+          enabled: true,
+          model: 'local::zero-dimension-model',
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'zero-dimension-set',
+        },
+        ports: {
+          sql: {
+            query: vi.fn().mockResolvedValue({
+              rows: [
+                {
+                  id: 'zero-dimension-model',
+                  providerId: 'transformers',
+                  capabilities: { type: 'embedding', defaultDimension: 0 },
+                },
+              ],
+            }),
+            runInTransaction: vi.fn(),
+          },
+        },
+      })
+    ).rejects.toThrow('Model "zero-dimension-model" has invalid dimensions in registry.');
+
+    await expect(
+      runEnhancedImport({
+        ...baseParams,
+        embedding: {
+          enabled: true,
+          model: 'local::invalid-payload-model',
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'invalid-payload-set',
+        },
+        ports: {
+          sql: {
+            query: vi.fn().mockResolvedValue({
+              rows: [
+                {
+                  id: 'invalid-payload-model',
+                  providerId: 'transformers',
+                  capabilities: null,
+                },
+              ],
+            }),
+            runInTransaction: vi.fn(),
+          },
+        },
+      })
+    ).rejects.toThrow('Model "invalid-payload-model" has invalid capabilities payload.');
   });
 
   it('resolves embedding model via SQL port when available', async () => {
@@ -767,6 +1039,140 @@ describe('runEnhancedImport', () => {
     expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(
       expect.objectContaining({ targetEmbeddingSetId: 'fresh-set' })
     );
+  });
+
+  it('creates a fresh embedding set when preferred lookup fails', async () => {
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+        return Promise.resolve({ rows: [{ modelKey: 'local::recover-model' }] });
+      }
+      if (sql.includes('FROM models')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'recover-model',
+              providerId: 'transformers',
+              capabilities: { type: 'embedding', defaultDimension: 768 },
+            },
+          ],
+        });
+      }
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+        )
+      ) {
+        return Promise.reject(new Error('preferred lookup failed'));
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.startsWith('INSERT INTO embedding_sets')) {
+        return Promise.resolve({ rows: [{ id: 'recovered-set' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const resolvedSetIdSpy = vi.fn();
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'local::recover-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-recover-set',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+      },
+      ports: {
+        sql: {
+          query: sqlPortQuery,
+          runInTransaction: vi.fn(),
+        },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: vi
+        .fn()
+        .mockResolvedValue([{ id: '1', imported: true, existed: false, chunksCreated: 1 }]),
+    });
+
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('recovered-set');
+  });
+
+  it('surfaces matching embedding set query failures', async () => {
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+        return Promise.resolve({ rows: [{ modelKey: 'local::query-failure-model' }] });
+      }
+      if (sql.includes('FROM models')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'query-failure-model',
+              providerId: 'transformers',
+              capabilities: { type: 'embedding', defaultDimension: 768 },
+            },
+          ],
+        });
+      }
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+        )
+      ) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.reject(new Error('matching set query failed'));
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    await expect(
+      runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: createBaseRunner([
+          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        ]),
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        embedding: {
+          enabled: true,
+          model: 'local::query-failure-model',
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'query-failure-set',
+        },
+        ports: {
+          sql: {
+            query: sqlPortQuery,
+            runInTransaction: vi.fn(),
+          },
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+      })
+    ).rejects.toThrow('matching set query failed');
   });
 
   it('does NOT create embedding set when embeddings are disabled', async () => {
