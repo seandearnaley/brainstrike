@@ -570,6 +570,46 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.fileContents[compositeKey]).toMatch('permission required: /locked.txt');
   });
 
+  it('preserves cached permission errors when the file is missing from the indexed tree', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    (adapter as unknown as { readFileByPath?: unknown }).readFileByPath = undefined;
+    const cachedHandle = {
+      kind: 'file',
+      name: 'missing-locked.txt',
+      queryPermission: vi.fn(async () => 'prompt' satisfies PermissionState),
+    } as unknown as FileSystemFileHandle;
+    const handleCache: TestHandleCache = {
+      getFileHandle: vi.fn(async () => cachedHandle),
+    };
+    attachHandleCache(adapter, handleCache);
+
+    const compositeKey = encodeFileSelection('root1', '/missing-locked.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const indexedNode = createFileNode({ path: '/indexed.txt', rootFolderId: 'root1' });
+    const { result, rerender } = renderHook(() => useTestHook([indexedNode]), { wrapper });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      await vi.advanceTimersByTimeAsync(100);
+      await loadPromise;
+      rerender();
+    });
+
+    expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/missing-locked.txt');
+    expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(result.current.fileContents[compositeKey]).toMatch(
+      'permission required: /missing-locked.txt'
+    );
+    expect(result.current.fileContents[compositeKey]).not.toContain('File not found');
+  });
+
   it('rejects directory nodes before queueing worker reads', async () => {
     const adapter = new MockFileSystemAdapter();
     const directoryNode = createFileNode({ path: '/folder', rootFolderId: 'root1' });
