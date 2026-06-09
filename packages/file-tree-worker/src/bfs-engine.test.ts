@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BFSEngine } from './bfs-engine';
+import { BFSEngine, MAX_EXPAND_DIRECTORIES } from './bfs-engine';
 import type { WorkerFileNode, WorkerToMainMessage } from './types';
 
 // Test fixtures
@@ -503,6 +503,19 @@ describe('BFSEngine', () => {
       // No errors should be thrown
       expect(true).toBe(true);
     });
+
+    it('rejects a load request that starts after an abort signal', async () => {
+      const mutableEngine = engine as unknown as {
+        requestLoads: (paths: string[], operationId: number) => Promise<unknown>;
+      };
+      engine.abort();
+
+      await expect(mutableEngine.requestLoads(['/root/dir'], 49)).rejects.toThrow(
+        'Operation aborted'
+      );
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+    });
   });
 
   describe('collapseAll', () => {
@@ -975,6 +988,29 @@ describe('BFSEngine', () => {
         payload: { expandedPaths: [], loadedCount: 0 },
       });
     });
+
+    it('returns without completion when an in-flight path load is aborted', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadPaths(['/root/dir'], 45);
+
+      await vi.waitFor(() => {
+        expect(messages.some((message) => message.type === 'requestLoad')).toBe(true);
+      });
+
+      engine.abort();
+      await loadPromise;
+
+      expect(messages).toContainEqual({
+        type: 'log',
+        level: 'info',
+        message: '[loadPaths] Aborted',
+      });
+      expect(
+        messages.some((message) => message.type === 'complete' && message.operationId === 45)
+      ).toBe(false);
+    });
   });
 
   describe('loadSubtree', () => {
@@ -1238,6 +1274,41 @@ describe('BFSEngine', () => {
             message.message.includes('depth limit')
         )
       ).toBe(true);
+    });
+
+    it('stops subtree wave processing when the directory limit has already been reached', async () => {
+      const mutableEngine = engine as unknown as {
+        processSubtreeWaves: (
+          state: {
+            currentWave: Set<string>;
+            hitDepthLimit: boolean;
+            hitDirectoryLimit: boolean;
+            loadedCount: number;
+            processed: Set<string>;
+            totalDiscovered: number;
+          },
+          baseDepth: number,
+          operationId: number
+        ) => Promise<void>;
+      };
+      const state = {
+        currentWave: new Set(['/root/dir']),
+        hitDepthLimit: false,
+        hitDirectoryLimit: false,
+        loadedCount: MAX_EXPAND_DIRECTORIES,
+        processed: new Set<string>(),
+        totalDiscovered: 1,
+      };
+
+      await mutableEngine.processSubtreeWaves(state, 0, 67);
+
+      expect(state.hitDirectoryLimit).toBe(true);
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'log',
+        level: 'info',
+        message: `[loadSubtree] Reached directory limit (${MAX_EXPAND_DIRECTORIES}), stopping`,
+      });
     });
   });
 
