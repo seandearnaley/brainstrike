@@ -426,6 +426,58 @@ describe('WebHandleCache', () => {
       });
     });
 
+    it('removes and clears handles in memory-only mode', async () => {
+      await withIndexedDbUnavailable(async () => {
+        const cache = new WebHandleCache();
+        const rootHandle = createDirectoryHandle('memory-only-root');
+        const firstFileHandle = createFileHandle('first.txt');
+        const secondFileHandle = createFileHandle('second.txt');
+
+        await cache.storeRootHandle('root', rootHandle);
+        await cache.storeFileHandle('root', 'first.txt', firstFileHandle);
+        await cache.removeFileHandle('root', 'first.txt');
+
+        await expect(cache.getRootHandle('root')).resolves.toBe(rootHandle);
+        await expect(cache.getFileHandle('root', 'first.txt')).resolves.toBeNull();
+
+        await cache.storeFileHandle('root', 'second.txt', secondFileHandle);
+        await cache.removeRootHandle('root');
+
+        await expect(cache.getRootHandle('root')).resolves.toBeNull();
+        await expect(cache.getFileHandle('root', 'second.txt')).resolves.toBeNull();
+
+        await cache.storeRootHandle('root', rootHandle);
+        await cache.storeFileHandle('root', 'second.txt', secondFileHandle);
+        await cache.clear();
+
+        await expect(cache.getAllRootHandles()).resolves.toEqual([]);
+        await expect(cache.getFileHandle('root', 'second.txt')).resolves.toBeNull();
+      });
+    });
+
+    it('uses the memory cache during IndexedDB open failure cooldown', async () => {
+      const openSpy = vi.spyOn(globalThis.indexedDB, 'open').mockImplementation(() => {
+        throw new Error('IndexedDB open failed');
+      });
+      const cache = new WebHandleCache();
+      const handle = createDirectoryHandle('cooldown-root');
+
+      await cache.storeRootHandle('cooldown-root', handle);
+      await expect(cache.getRootHandle('cooldown-root')).resolves.toBe(handle);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+
+      mockedNow += 4000;
+      await expect(cache.getAllRootHandles()).resolves.toMatchObject([
+        {
+          folderId: 'cooldown-root',
+          handle,
+        },
+      ]);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+
+      openSpy.mockRestore();
+    });
+
     it('limits memory-only root handles to the most recent entries', async () => {
       await withIndexedDbUnavailable(async () => {
         const cache = new WebHandleCache();
