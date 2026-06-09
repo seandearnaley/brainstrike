@@ -1,5 +1,6 @@
 import type { SelectionModel } from '@brainstrike/types';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -150,6 +151,32 @@ describe('SelectionModeBadge', () => {
       cancelAnimationFrameSpy.mockRestore();
     });
 
+    it('cancels a pending focus frame when the popover closes before focus runs', async () => {
+      const user = userEvent.setup();
+      const cancelAnimationFrameSpy = vi
+        .spyOn(window, 'cancelAnimationFrame')
+        .mockImplementation(() => {});
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 42);
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      const badge = screen.getByTestId('selection-mode-badge');
+      await user.click(badge);
+      await user.click(badge);
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(42);
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+    });
+
     it('shows Manual Selection and Rules-Based Selection options', async () => {
       render(
         <FileExplorerTestWrapper>
@@ -203,6 +230,109 @@ describe('SelectionModeBadge', () => {
       fireEvent.click(screen.getByRole('button', { name: '6K' }));
 
       expect(onMaxSelectionCountChange).toHaveBeenCalledWith(6000);
+    });
+
+    it('commits a typed selection cap with Enter and closes with Escape', async () => {
+      const user = userEvent.setup();
+      const onMaxSelectionCountChange = vi.fn();
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge
+            maxSelectionCount={100}
+            onMaxSelectionCountChange={onMaxSelectionCountChange}
+          />
+        </FileExplorerTestWrapper>
+      );
+
+      await user.click(screen.getByTestId('selection-mode-badge'));
+      const input = await screen.findByLabelText(/Maximum selection count input/i);
+
+      await user.clear(input);
+      await user.type(input, '250{Enter}');
+
+      expect(onMaxSelectionCountChange).toHaveBeenCalledWith(250);
+      await waitFor(() => {
+        expect(screen.queryByText('Selection Settings')).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId('selection-mode-badge'));
+      expect(await screen.findByLabelText(/Maximum selection count input/i)).toHaveValue('100');
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByText('Selection Settings')).not.toBeInTheDocument();
+      });
+    });
+
+    it('reports invalid typed selection cap values and clears the error while editing', async () => {
+      const user = userEvent.setup();
+      const onMaxSelectionCountChange = vi.fn();
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge
+            maxSelectionCount={100}
+            onMaxSelectionCountChange={onMaxSelectionCountChange}
+          />
+        </FileExplorerTestWrapper>
+      );
+
+      await user.click(screen.getByTestId('selection-mode-badge'));
+      const input = await screen.findByLabelText(/Maximum selection count input/i);
+      const applyButton = screen.getByRole('button', { name: 'Apply selection count' });
+
+      await user.clear(input);
+      await user.type(input, '3.5');
+      await user.click(applyButton);
+      expect(screen.getByRole('alert')).toHaveTextContent('Please enter a whole number');
+
+      await user.clear(input);
+      await user.type(input, '0');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      await user.click(applyButton);
+      expect(screen.getByRole('alert')).toHaveTextContent('Minimum selection count is 1');
+
+      await user.clear(input);
+      await user.type(input, '10001');
+      await user.click(applyButton);
+      expect(screen.getByRole('alert')).toHaveTextContent('Maximum selection count is 10,000');
+
+      expect(onMaxSelectionCountChange).not.toHaveBeenCalled();
+    });
+
+    it('keeps the popover open when applying without a selection count callback', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      await user.click(screen.getByTestId('selection-mode-badge'));
+      await user.click(screen.getByRole('button', { name: 'Apply selection count' }));
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByText('Selection Settings')).toBeInTheDocument();
+    });
+
+    it('closes the popover from the selection cap close button', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      await user.click(screen.getByTestId('selection-mode-badge'));
+      await user.click(screen.getByRole('button', { name: 'Close selection settings' }));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Selection Settings')).not.toBeInTheDocument();
+      });
     });
 
     it('calls setSelectionMode when switching to rules mode', async () => {
