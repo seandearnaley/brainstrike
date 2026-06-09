@@ -142,6 +142,54 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
 
+    it('correlates successful load results to the matching request id', async () => {
+      const tree = [
+        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+
+      const firstLoad = engine.loadPaths(['/root/dir1'], 11);
+      const secondLoad = engine.loadPaths(['/root/dir2'], 22);
+
+      await vi.waitFor(() => {
+        expect(messages.filter((message) => message.type === 'requestLoad')).toHaveLength(2);
+      });
+      const requestMessages = messages.filter((message) => message.type === 'requestLoad');
+      const firstRequest = requestMessages[0];
+      const secondRequest = requestMessages[1];
+      if (firstRequest?.type !== 'requestLoad' || secondRequest?.type !== 'requestLoad') {
+        throw new Error('expected correlated load requests');
+      }
+
+      engine.handleLoadResult(
+        '/root/dir2',
+        [createFileNode({ path: '/root/dir2/file.txt' })],
+        secondRequest.payload.requestId
+      );
+      engine.handleLoadResult(
+        '/root/dir1',
+        [createFileNode({ path: '/root/dir1/file.txt' })],
+        firstRequest.payload.requestId
+      );
+
+      await Promise.all([firstLoad, secondLoad]);
+
+      const completedOperationIds = messages
+        .filter((message) => message.type === 'complete')
+        .map((message) => message.operationId);
+      expect(completedOperationIds).toEqual(expect.arrayContaining([11, 22]));
+      expect(messages).toContainEqual({
+        type: 'childrenLoaded',
+        operationId: 22,
+        payload: {
+          path: '/root/dir2',
+          children: [createFileNode({ path: '/root/dir2/file.txt' })],
+          loadState: 'loaded',
+        },
+      });
+    });
+
     it('should maintain the path index without a full rebuild after directory loads', () => {
       const tree = [
         createDirectoryNode({
@@ -316,6 +364,50 @@ describe('BFSEngine', () => {
         payload: { expandedPaths: [], loadedCount: 0 },
       });
     });
+
+    it('correlates load errors without patching unrelated paths', async () => {
+      const tree = [
+        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+
+      const firstLoad = engine.loadPaths(['/root/dir1'], 31);
+      const secondLoad = engine.loadPaths(['/root/dir2'], 32);
+
+      await vi.waitFor(() => {
+        expect(messages.filter((message) => message.type === 'requestLoad')).toHaveLength(2);
+      });
+      const requestMessages = messages.filter((message) => message.type === 'requestLoad');
+      const firstRequest = requestMessages[0];
+      const secondRequest = requestMessages[1];
+      if (firstRequest?.type !== 'requestLoad' || secondRequest?.type !== 'requestLoad') {
+        throw new Error('expected correlated load requests');
+      }
+
+      engine.handleLoadError('/root/dir2', 'Permission denied', secondRequest.payload.requestId);
+      engine.handleLoadResult('/root/dir1', [], firstRequest.payload.requestId);
+
+      await Promise.all([firstLoad, secondLoad]);
+
+      expect(engine.getTree()).toEqual([
+        expect.objectContaining({ path: '/root/dir1', loadState: 'loaded' }),
+        expect.objectContaining({
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        }),
+      ]);
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 32,
+        payload: {
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        },
+      });
+    });
   });
 
   describe('abort', () => {
@@ -373,6 +465,35 @@ describe('BFSEngine', () => {
         expect(deltaMsg.payload.added).toEqual([]);
         expect(deltaMsg.payload.removed).toEqual(['/root/dir']);
       }
+    });
+
+    it('removes nested expanded paths in one delta', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/parent',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              path: '/root/parent/child',
+              loadState: 'loaded',
+              depth: 2,
+              children: [],
+            }),
+          ],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      engine.collapseAll();
+
+      expect(messages).toContainEqual({
+        type: 'expandedPathsDelta',
+        payload: {
+          added: [],
+          removed: ['/root/parent', '/root/parent/child'],
+        },
+      });
     });
 
     it('should not affect file nodes', () => {
@@ -595,6 +716,28 @@ describe('BFSEngine', () => {
         expect(completeMsg.payload.loadedCount).toBe(1);
       }
     });
+
+    it('stops before requesting directories beyond the depth limit', async () => {
+      const deepPath = `/${Array.from({ length: 53 }, (_, index) => `level-${index}`).join('/')}`;
+      engine.setTree([createDirectoryNode({ path: deepPath, loadState: 'unloaded' })], 'root');
+
+      await engine.expandAll(55);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 55,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'log' &&
+            message.level === 'info' &&
+            message.message.includes('depth limit')
+        )
+      ).toBe(true);
+    });
   });
 
   describe('loadPaths loadedCount', () => {
@@ -703,6 +846,40 @@ describe('BFSEngine', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('counts permanently missing paths as skipped after bounded retries', async () => {
+      engine.setTree([createDirectoryNode({ path: '/root/dir', loadState: 'loaded' })], 'root');
+
+      await engine.loadPaths(['/root/missing'], 43);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 43,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'log' &&
+            message.level === 'debug' &&
+            message.message.includes('still not found after retries')
+        )
+      ).toBe(true);
+    });
+
+    it('skips file paths without requesting directory loads', async () => {
+      engine.setTree([createFileNode({ path: '/root/file.txt' })], 'root');
+
+      await engine.loadPaths(['/root/file.txt'], 44);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 44,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
     });
   });
 
@@ -937,6 +1114,36 @@ describe('BFSEngine', () => {
 
       const progressMessages = messages.filter((m) => m.type === 'progress');
       expect(progressMessages.length).toBeGreaterThan(0);
+    });
+
+    it('stops subtree loading before requesting descendants beyond the depth limit', async () => {
+      const deepPath = `/root/${Array.from({ length: 52 }, (_, index) => `level-${index}`).join('/')}`;
+      const tree = [
+        createDirectoryNode({
+          path: '/root',
+          loadState: 'loaded',
+          depth: 0,
+          children: [createDirectoryNode({ path: deepPath, loadState: 'unloaded', depth: 52 })],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      await engine.loadSubtree('/root', 66);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 66,
+        payload: { expandedPaths: ['/root'], loadedCount: 0 },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'log' &&
+            message.level === 'info' &&
+            message.message.includes('depth limit')
+        )
+      ).toBe(true);
     });
   });
 
