@@ -1,6 +1,6 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,6 +169,24 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
               Right-click chunk
             </button>
             <button
+              aria-label="Right-click collection"
+              onClick={(e) =>
+                onContextMenu?.('collection-current', 'collection', {}, e as unknown as MouseEvent)
+              }
+              type="button"
+            >
+              Right-click collection
+            </button>
+            <button
+              aria-label="Right-click group"
+              onClick={(e) =>
+                onContextMenu?.('group-status-complete', 'group', {}, e as unknown as MouseEvent)
+              }
+              type="button"
+            >
+              Right-click group
+            </button>
+            <button
               aria-label="Multi-select"
               onClick={() => onMultiSelect?.(new Set([`file-${firstFile.id}`]))}
               type="button"
@@ -219,12 +237,29 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         >
           Clear selection
         </button>
+        <button
+          aria-label="Select malformed id"
+          onClick={() => onSelectedIdChange?.('workspace-root')}
+          type="button"
+        >
+          Select malformed id
+        </button>
       </div>
     );
   };
 
-  const NodeInspector = ({ nodeId, nodeType }: { nodeId?: string; nodeType: string | null }) => (
-    <div data-testid="node-inspector">{`${nodeType ?? 'none'}:${nodeId ?? ''}`}</div>
+  const NodeInspector = ({
+    nodeData,
+    nodeId,
+    nodeType,
+  }: {
+    nodeData?: unknown;
+    nodeId?: string;
+    nodeType: string | null;
+  }) => (
+    <div data-node-data={JSON.stringify(nodeData ?? null)} data-testid="node-inspector">
+      {`${nodeType ?? 'none'}:${nodeId ?? ''}`}
+    </div>
   );
   const TablePagination = ({
     currentPage,
@@ -246,12 +281,16 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     isSearchExpanded,
     onSemanticSearch,
     onSearchExpandedChange,
+    onModeChange,
+    onSemanticQueryChange,
   }: {
     advancedOptions?: ReactNode;
     disabled?: boolean;
     isSearchExpanded?: boolean;
+    onModeChange?: (mode: string) => void;
     onSemanticSearch?: () => void;
     onSearchExpandedChange?: (expanded: boolean) => void;
+    onSemanticQueryChange?: (query: string) => void;
   }) => (
     <div data-testid="search-mode-bar">
       <button
@@ -272,6 +311,23 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         type="button"
       >
         Run hybrid search
+      </button>
+      <button
+        aria-label="Set semantic query"
+        onClick={() => onSemanticQueryChange?.('mock semantic query')}
+        type="button"
+      >
+        Set semantic query
+      </button>
+      <button aria-label="Switch quick mode" onClick={() => onModeChange?.('quick')} type="button">
+        Switch quick mode
+      </button>
+      <button
+        aria-label="Switch semantic mode"
+        onClick={() => onModeChange?.('semantic')}
+        type="button"
+      >
+        Switch semantic mode
       </button>
       {isSearchExpanded && advancedOptions}
     </div>
@@ -317,7 +373,37 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       {groupBy && groupBy !== 'none' && <span data-testid="active-group-by">{groupBy}</span>}
     </div>
   );
-  const SearchConfigPanel = () => <div data-testid="search-config-panel" />;
+  const SearchConfigPanel = ({
+    onConfigChange,
+  }: {
+    onConfigChange?: (config: {
+      threshold: number;
+      resultLimit: number;
+      distanceMetric: 'cosine';
+      retrievalMode: 'hybrid';
+      vectorWeight: number;
+      ftsWeight: number;
+    }) => void;
+  }) => (
+    <div data-testid="search-config-panel">
+      <button
+        aria-label="Apply search config"
+        onClick={() =>
+          onConfigChange?.({
+            threshold: 0.42,
+            resultLimit: 17,
+            distanceMetric: 'cosine',
+            retrievalMode: 'hybrid',
+            vectorWeight: 0.7,
+            ftsWeight: 0.3,
+          })
+        }
+        type="button"
+      >
+        Apply search config
+      </button>
+    </div>
+  );
   const FilterBar = () => <div data-testid="filter-bar" />;
 
   // DropdownMenu mocks for context menu
@@ -366,8 +452,27 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: ReactNode }) => <div data-testid="panel-group">{children}</div>,
-  Panel: ({ children, id }: { children: ReactNode; id?: string }) => (
-    <div data-testid={id ? `panel-${id}` : 'panel-main'}>{children}</div>
+  Panel: ({
+    children,
+    id,
+    onResize,
+  }: {
+    children: ReactNode;
+    id?: string;
+    onResize?: (panelSize: { asPercentage: number }) => void;
+  }) => (
+    <div data-testid={id ? `panel-${id}` : 'panel-main'}>
+      {children}
+      {id === 'inspector-panel' && (
+        <button
+          aria-label="Resize inspector to zero"
+          onClick={() => onResize?.({ asPercentage: 0 })}
+          type="button"
+        >
+          Resize inspector to zero
+        </button>
+      )}
+    </div>
   ),
   Separator: () => <div data-testid="resize-handle" />,
 }));
@@ -773,6 +878,68 @@ describe('CollectionBrowserView', () => {
     });
   });
 
+  it('filters active collection data and preserves optional tree metadata', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-1"
+        chunks={[
+          {
+            ...TEST_CHUNKS[0]!,
+            embeddingDimensions: 1536,
+            embeddingSetId: 'collection-1',
+            hasEmbedding: true,
+          },
+          {
+            ...TEST_CHUNKS[0]!,
+            id: 'other-chunk',
+            embeddingSetId: 'collection-2',
+            fileRecordId: 'other-file',
+          },
+        ]}
+        height={500}
+        pendingChunkIds={new Set(['chunk-1'])}
+        records={[
+          {
+            ...TEST_RECORDS[0]!,
+            chunksCount: 2,
+            embeddedChunksCount: 1,
+            embeddingSetId: 'collection-1',
+            processedAt: '2026-01-02T00:00:00.000Z',
+          },
+          {
+            ...TEST_RECORDS[0]!,
+            id: 'other-file',
+            embeddingSetId: 'collection-2',
+          },
+        ]}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: {
+        files: [
+          expect.objectContaining({
+            id: '1',
+            chunksCount: 2,
+            embeddedChunksCount: 1,
+            embeddingSetId: 'collection-1',
+            processedAt: '2026-01-02T00:00:00.000Z',
+          }),
+        ],
+        chunks: [
+          expect.objectContaining({
+            id: 'chunk-1',
+            embeddingDimensions: 1536,
+            embeddingSetId: 'collection-1',
+            hasEmbedding: true,
+          }),
+        ],
+        pendingChunkIds: new Set(['chunk-1']),
+      },
+    });
+  });
+
   it('renders source pagination controls without double-paging the tree', () => {
     render(
       <CollectionBrowserView
@@ -899,6 +1066,84 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
   });
 
+  it('renders semantic search errors from the search context', () => {
+    semanticSearchMock.state = {
+      error: 'search failed',
+      hasSearched: false,
+      isSearching: false,
+      searchResults: [],
+    };
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="set-1"
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.getByText('search failed')).toBeInTheDocument();
+  });
+
+  it('persists search config changes and clears stale results when switching to quick mode', async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useCollectionBrowserStore.getState().setSearchPanelExpanded(true);
+      useCollectionBrowserStore.getState().setSearchMode('semantic');
+    });
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="set-1"
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Apply search config' }));
+    expect(useCollectionBrowserStore.getState()).toMatchObject({
+      searchConfigThreshold: 0.42,
+      searchConfigLimit: 17,
+      searchConfigDistanceMetric: 'cosine',
+      searchConfigRetrievalMode: 'hybrid',
+      searchConfigVectorWeight: 0.7,
+      searchConfigFtsWeight: 0.3,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Switch quick mode' }));
+    expect(useCollectionBrowserStore.getState().searchMode).toBe('quick');
+    expect(semanticSearchMock.clearResults).toHaveBeenCalledOnce();
+  });
+
+  it('updates semantic query and executes scoped search for an active collection', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="set-1"
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Set semantic query' }));
+    expect(useCollectionBrowserStore.getState().semanticQuery).toBe('mock semantic query');
+
+    await user.click(screen.getByRole('button', { name: 'Run hybrid search' }));
+    expect(useCollectionBrowserStore.getState().searchMode).toBe('semantic');
+    expect(semanticSearchMock.executeSearch).toHaveBeenCalledWith(
+      'mock semantic query',
+      expect.objectContaining({
+        threshold: expect.any(Number),
+        resultLimit: expect.any(Number),
+      }),
+      'set-1'
+    );
+  });
+
   it('handles double-click by toggling expansion for file nodes', async () => {
     const user = userEvent.setup();
 
@@ -948,6 +1193,67 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('node-inspector')).toHaveTextContent('embedding:chunk-1');
   });
 
+  it('ignores malformed selected ids when deriving inspector state', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Select malformed id' }));
+
+    expect(useCollectionBrowserStore.getState().selectedId).toBe('workspace-root');
+    expect(screen.queryByTestId('panel-inspector-panel')).not.toBeInTheDocument();
+  });
+
+  it('loads selected chunk detail for inspector data', async () => {
+    act(() => {
+      useCollectionBrowserStore.getState().setSelectedId('chunk-chunk-1');
+    });
+    const detailedChunk: FileChunk = {
+      ...TEST_CHUNKS[0]!,
+      content: 'resolved chunk content',
+      embedding: [0.1, 0.2, 0.3],
+    };
+    const loadChunkDetail = vi.fn().mockResolvedValue(detailedChunk);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[
+          {
+            ...TEST_CHUNKS[0]!,
+            hasEmbedding: false,
+          },
+        ]}
+        height={500}
+        loadChunkDetail={loadChunkDetail}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.getByTestId('node-inspector')).toHaveAttribute(
+      'data-node-data',
+      expect.stringContaining('Loading chunk content...')
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('node-inspector')).toHaveAttribute(
+        'data-node-data',
+        expect.stringContaining('resolved chunk content')
+      )
+    );
+    expect(screen.getByTestId('node-inspector')).toHaveAttribute(
+      'data-node-data',
+      expect.stringContaining('"embeddingStatus":"complete"')
+    );
+  });
+
   it('opens context menu on right-click', async () => {
     const user = userEvent.setup();
 
@@ -995,6 +1301,39 @@ describe('CollectionBrowserView', () => {
 
     expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
     expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument();
+  });
+
+  it('handles collection and chunk context menu expansion branches', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-1"
+        chunks={[
+          {
+            ...TEST_CHUNKS[0]!,
+            embeddingSetId: 'collection-1',
+            hasEmbedding: true,
+          },
+        ]}
+        height={500}
+        records={[
+          {
+            ...TEST_RECORDS[0]!,
+            chunksCount: 1,
+            embeddingSetId: 'collection-1',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Right-click collection' }));
+    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(useCollectionBrowserStore.getState().expandedIds).toContain('collection-current');
+
+    await user.click(screen.getByRole('button', { name: 'Right-click first chunk' }));
+    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(useCollectionBrowserStore.getState().expandedIds).toContain('chunk-chunk-1');
   });
 
   it('expands freshly loaded chunk children from the context menu', async () => {
@@ -1094,6 +1433,31 @@ describe('CollectionBrowserView', () => {
     await user.click(screen.getByRole('button', { name: 'Expand all' }));
 
     expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1']);
+  });
+
+  it('uses already loaded chunks when expanding all files from the toolbar', async () => {
+    const user = userEvent.setup();
+    const loadFileChunkSummaries = vi.fn().mockResolvedValue([]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            ...TEST_RECORDS[0]!,
+            chunksCount: 1,
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Expand all' }));
+
+    expect(loadFileChunkSummaries).not.toHaveBeenCalled();
     expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1']);
   });
 
@@ -1310,5 +1674,28 @@ describe('CollectionBrowserView', () => {
       isInspectorCollapsed: false,
     });
     expect(screen.getByTestId('node-inspector')).toHaveTextContent('file:1');
+  });
+
+  it('reopens and collapses the inspector through panel controls', async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useCollectionBrowserStore.getState().setSelectedId('file-1');
+      useCollectionBrowserStore.getState().setInspectorCollapsed(true);
+    });
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /show inspector panel/i }));
+    expect(useCollectionBrowserStore.getState().isInspectorCollapsed).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: 'Resize inspector to zero' }));
+    expect(useCollectionBrowserStore.getState().isInspectorCollapsed).toBe(true);
   });
 });
