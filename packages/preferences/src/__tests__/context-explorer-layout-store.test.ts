@@ -1,18 +1,23 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createContextExplorerLayoutStore } from '../stores/context-explorer-layout-store';
 
 const STORE_NAME = 'context-explorer-layout-store.v1';
+const GLOBAL_STORE_KEY = '__brainstrike_context_explorer_layout_store__';
 
-function getPersistApi(store: ReturnType<typeof createContextExplorerLayoutStore>): {
+function getPersistApi(store: unknown): {
+  clearStorage: () => Promise<void>;
   rehydrate: () => Promise<void>;
 } {
-  const persistApi = (store as unknown as { persist?: { rehydrate?: () => Promise<void> } })
-    .persist;
-  if (!persistApi?.rehydrate) {
+  const persistApi = (
+    store as unknown as {
+      persist?: { clearStorage?: () => Promise<void>; rehydrate?: () => Promise<void> };
+    }
+  ).persist;
+  if (!(persistApi?.clearStorage && persistApi.rehydrate)) {
     throw new Error('expected context explorer layout store persist API');
   }
-  return { rehydrate: persistApi.rehydrate };
+  return { clearStorage: persistApi.clearStorage, rehydrate: persistApi.rehydrate };
 }
 
 describe('context-explorer-layout-store', () => {
@@ -62,6 +67,40 @@ describe('context-explorer-layout-store', () => {
 
     store.getState().setSizes([]);
     expect(store.getState().sizes).toEqual([42, 100 / 3, 100 / 3]);
+  });
+
+  it('repairs corrupted direct size updates', () => {
+    store.getState().setSizes([4, 30, 20]);
+
+    expect(store.getState().sizes).toEqual(DEFAULT_SIZES);
+  });
+
+  it('ignores persisted payloads without state', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(STORE_NAME, JSON.stringify({ version: 2 }));
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(false);
+  });
+
+  it('removes adapter-backed persisted state through the persist API', async () => {
+    const storage = createMemoryStorageAdapter();
+    const persistedStore = createContextExplorerLayoutStore(storage);
+
+    persistedStore.getState().setState({
+      showConsole: true,
+      sizes: [30, 30, 40],
+    });
+    expect(await storage.getItem(STORE_NAME)).not.toBeNull();
+
+    await getPersistApi(persistedStore).clearStorage();
+
+    expect(await storage.getItem(STORE_NAME)).toBeNull();
   });
 
   it('migrates from v1 to v2 by swapping panel visibility and sizes', async () => {
@@ -197,5 +236,48 @@ describe('context-explorer-layout-store', () => {
     expect(persistedStore.getState().showLeftPanel).toBe(false);
     expect(persistedStore.getState().showRightPanel).toBe(true);
     expect(persistedStore.getState().showConsole).toBe(true);
+  });
+
+  it('creates the module singleton with fallback storage when browser storage is unavailable', async () => {
+    const globalRecord = globalThis as unknown as Record<string, unknown>;
+    const originalSingleton = globalRecord[GLOBAL_STORE_KEY];
+    const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    globalRecord[GLOBAL_STORE_KEY] = vi.fn();
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: undefined,
+    });
+    vi.resetModules();
+    vi.doMock('@brainstrike/storage', async () => {
+      const actual =
+        await vi.importActual<typeof import('@brainstrike/storage')>('@brainstrike/storage');
+      return {
+        ...actual,
+        createBrowserStorageAdapter: vi.fn(() => {
+          throw new Error('browser storage unavailable');
+        }),
+      };
+    });
+
+    try {
+      const module = await import('../stores/context-explorer-layout-store');
+      const singleton = module.useContextExplorerLayoutStore;
+
+      singleton.getState().setSizes([30, 30, 40]);
+      expect(singleton.getState().sizes).toEqual([30, 30, 40]);
+      await getPersistApi(singleton).rehydrate();
+      await getPersistApi(singleton).clearStorage();
+    } finally {
+      vi.doUnmock('@brainstrike/storage');
+      vi.resetModules();
+      if (originalWindowDescriptor) {
+        Object.defineProperty(globalThis, 'window', originalWindowDescriptor);
+      }
+      if (originalSingleton === undefined) {
+        delete globalRecord[GLOBAL_STORE_KEY];
+      } else {
+        globalRecord[GLOBAL_STORE_KEY] = originalSingleton;
+      }
+    }
   });
 });
