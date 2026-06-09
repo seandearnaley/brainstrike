@@ -199,6 +199,59 @@ describe('useBackgroundTokenIndexer', () => {
     expect(String(worker.url)).toBe('http://localhost/custom-background-indexer.worker.js');
   });
 
+  it('does not start the worker for an empty indexing request', async () => {
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        autoStart: false,
+        store: null,
+        mode: 'heuristic',
+      })
+    );
+
+    await act(async () => {
+      await result.current.indexFiles([]);
+    });
+
+    expect(mockWorkers).toHaveLength(0);
+    expect(result.current.isIndexing).toBe(false);
+    expect(result.current.progress).toBeNull();
+  });
+
+  it('routes non-terminal worker logs to the matching logger levels', async () => {
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+      })
+    );
+
+    await markWorkerReady();
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      for (const level of ['error', 'warn', 'info', 'debug'] as const) {
+        worker.emitEvent('message', {
+          data: {
+            type: 'log',
+            level,
+            message: `${level} message`,
+            data: { source: level },
+          },
+        } as MessageEvent);
+      }
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledWith('Worker log: error message', {
+      source: 'error',
+    });
+    expect(mockLogger.warn).toHaveBeenCalledWith('Worker log: warn message', { source: 'warn' });
+    expect(mockLogger.info).toHaveBeenCalledWith('Worker log: info message', { source: 'info' });
+    expect(mockLogger.debug).toHaveBeenCalledWith('Worker log: debug message', {
+      source: 'debug',
+    });
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+  });
+
   it('invokes onFileError when worker reports an error', async () => {
     const onFileError = vi.fn();
 
