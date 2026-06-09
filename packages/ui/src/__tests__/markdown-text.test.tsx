@@ -5,6 +5,7 @@ const useMessagePartTextMock = vi.hoisted(() =>
   vi.fn(() => ({
     status: { type: 'complete' },
     text: 'Rendered markdown',
+    type: 'text',
   }))
 );
 
@@ -65,6 +66,7 @@ describe('MarkdownText', () => {
     useMessagePartTextMock.mockReturnValue({
       status: { type: 'complete' },
       text: 'Rendered markdown',
+      type: 'text',
     });
     vi.stubGlobal('navigator', {
       clipboard: {
@@ -98,6 +100,7 @@ describe('MarkdownText', () => {
     useMessagePartTextMock.mockReturnValue({
       status: { type: 'running' },
       text: '',
+      type: 'text',
     });
 
     render(<MarkdownText />);
@@ -105,6 +108,19 @@ describe('MarkdownText', () => {
     expect(screen.queryByTestId('markdown-primitive')).not.toBeInTheDocument();
     expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
     expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
+  });
+
+  it('keeps empty running reasoning parts in the markdown primitive', () => {
+    useMessagePartTextMock.mockReturnValue({
+      status: { type: 'running' },
+      text: '',
+      type: 'reasoning',
+    });
+
+    render(<MarkdownText />);
+
+    expect(screen.getByTestId('markdown-primitive')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
   });
 
   it('uses Electron clipboard when available and blocks duplicate copies while copied', () => {

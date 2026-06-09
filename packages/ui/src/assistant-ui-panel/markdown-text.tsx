@@ -13,9 +13,9 @@ import { SyntaxHighlighterComponent } from './shiki-highlighter';
 import { TooltipIconButton } from './tooltip-icon-button';
 
 export const MarkdownText = memo(function MarkdownTextImpl() {
-  const { status, text } = useMessagePartText();
+  const { status, text, type } = useMessagePartText();
 
-  if (status.type === 'running' && text.trim().length === 0) {
+  if (type === 'text' && status.type === 'running' && text.trim().length === 0) {
     return <AssistantThinkingIndicator className="bs-streaming-thinking" markClassName="size-4" />;
   }
 

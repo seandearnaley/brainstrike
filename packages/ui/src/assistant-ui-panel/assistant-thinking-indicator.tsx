@@ -9,7 +9,6 @@ interface AssistantThinkingIndicatorProps
   extends Omit<ComponentPropsWithoutRef<'span'>, 'children'> {
   label?: string;
   markClassName?: string;
-  markTestId?: string;
   showText?: boolean;
   textClassName?: string;
 }
@@ -78,7 +77,6 @@ export function AssistantThinkingIndicator({
   className,
   label = 'Thinking',
   markClassName,
-  markTestId,
   showText = true,
   textClassName,
   ...props
@@ -89,10 +87,7 @@ export function AssistantThinkingIndicator({
       data-testid="assistant-thinking-indicator"
       {...props}
     >
-      <BrainstrikeThinkingMark
-        className={markClassName}
-        {...(markTestId === undefined ? {} : { testId: markTestId })}
-      />
+      <BrainstrikeThinkingMark className={markClassName} />
       {showText ? <span className={cn('bs-thinking-shimmer', textClassName)}>{label}</span> : null}
     </span>
   );
