@@ -49,6 +49,17 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
+/**
+ * Coerce a filesystem mtime to a BIGINT-safe integer. The OS stat (and thus
+ * IFileNode.lastModified) carries sub-millisecond fractional precision, e.g.
+ * 1757381225844.767, which Postgres rejects for a BIGINT column with 22P02.
+ * 1ms resolution is ample for change detection. Applied at the value boundary so
+ * EVERY applyManagedCacheBatch caller is covered, not just the IPC-parsed path.
+ */
+function toBigIntMtime(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : null;
+}
+
 function isFiniteNonNegativeNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
@@ -93,8 +104,11 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
   // mtimeMs is optional best-effort stat metadata: a missing or non-numeric value
   // means "no mtime available" (→ null), which is a valid state, not malformed
   // input. The row simply won't benefit from the stat-cache until its next write.
+  // Floor to an integer: the `mtime_ms` column is BIGINT but the OS stat carries
+  // sub-millisecond fractional precision (e.g. 1757381225844.767), which Postgres
+  // rejects as a bigint. 1ms resolution is ample for change detection.
   const mtimeMsCandidate = candidate['mtimeMs'];
-  const mtimeMs = isFiniteNonNegativeNumber(mtimeMsCandidate) ? mtimeMsCandidate : null;
+  const mtimeMs = isFiniteNonNegativeNumber(mtimeMsCandidate) ? Math.floor(mtimeMsCandidate) : null;
 
   const parsedBase: ManagedCacheRecordBase = {
     id: candidate['id'],
@@ -305,7 +319,7 @@ async function insertManagedCacheImports(
     record.name,
     record.path,
     record.size,
-    record.mtimeMs,
+    toBigIntMtime(record.mtimeMs),
     record.sourceRootPath,
     record.createdAt,
     record.updatedAt,
@@ -352,7 +366,7 @@ async function applyManagedCacheReplacements(
     record.name,
     record.path,
     record.size,
-    record.mtimeMs,
+    toBigIntMtime(record.mtimeMs),
     record.sourceRootPath,
     record.updatedAt,
     record.content,

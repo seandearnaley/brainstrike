@@ -408,7 +408,10 @@ function createFileBatchPreparations(
     });
     const compositeKey = encodeFileSelection(rootPath, relativePath);
     return {
-      mtimeMs: typeof node.lastModified === 'number' ? node.lastModified : null,
+      // Floor to integer ms: stat.mtimeMs is fractional, but the persisted
+      // mtime_ms is a BIGINT (stored floored). Flooring here keeps the stat-cache
+      // comparison consistent with the stored value AND keeps the DB write valid.
+      mtimeMs: typeof node.lastModified === 'number' ? Math.floor(node.lastModified) : null,
       request: {
         compositeKey,
         fileNode: node,

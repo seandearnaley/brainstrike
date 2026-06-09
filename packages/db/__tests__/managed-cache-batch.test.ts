@@ -754,6 +754,48 @@ describe('applyManagedCacheBatch', () => {
     ]);
   });
 
+  it('floors a fractional filesystem mtime before writing to the BIGINT column', async () => {
+    const now = new Date().toISOString();
+    // Electron's stat.mtimeMs (-> IFileNode.lastModified) carries sub-millisecond
+    // fractional precision. A BIGINT column rejects "1757381225844.767" with
+    // 22P02, which broke every managed-cache batch write (regression repro).
+    const fractionalMtimeMs = 1_757_381_225_844.767;
+
+    await expect(
+      applyManagedCacheBatch(db, {
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'fractional-mtime-file',
+              name: 'frac.ts',
+              path: 'src/frac.ts',
+              size: 64,
+              mtimeMs: fractionalMtimeMs,
+              sourceRootPath: '/workspace/root',
+              createdAt: now,
+              updatedAt: now,
+              processedAt: now,
+              content: 'export const value = 1;',
+              contentHash: 'frac-hash',
+              tokenCount: 5,
+            },
+          },
+        ],
+      })
+    ).resolves.toBeUndefined();
+
+    const entries = await fileRecordRepository.listManagedCacheEntryMetadata('set-1');
+    expect(entries).toEqual([
+      expect.objectContaining({
+        fileRecordId: 'fractional-mtime-file',
+        relativePath: 'src/frac.ts',
+        mtimeMs: Math.floor(fractionalMtimeMs),
+      }),
+    ]);
+  });
+
   it('persists mtimeMs on replace so an in-place edit refreshes the stat-cache', async () => {
     const now = new Date().toISOString();
 

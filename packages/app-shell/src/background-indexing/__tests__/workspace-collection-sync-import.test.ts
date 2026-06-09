@@ -227,4 +227,30 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect(result.changes.map((change) => change.relativePath)).toEqual(['fresh.ts']);
     expect(result.totalFiles).toBe(2);
   });
+
+  it('floors sub-millisecond mtime so a stored integer mtime still hits the stat-cache', async () => {
+    const { processor, readPaths } = createRecordingProcessor();
+    // The persisted mtime is a floored integer (BIGINT column); the live file
+    // reports the same instant with sub-ms jitter (stat.mtimeMs is fractional).
+    // Flooring at capture must make this a hit, not a needless re-read.
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [existingEntry('jitter.ts', { size: 42, mtimeMs: 1000 })],
+      fileContentProcessor: processor,
+      fileNodes: [makeFileNode('jitter.ts', 42, 1000.7)],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootPath: ROOT,
+    });
+
+    expect(readPaths()).toEqual([]);
+    expect(result.unchangedCount).toBe(1);
+    expect(result.changes).toEqual([]);
+  });
 });
