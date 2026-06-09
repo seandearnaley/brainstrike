@@ -44,4 +44,28 @@ describe('enforce-coverage script', () => {
     const out = execFileSync('node', [scriptPath], { cwd: tmpRoot, encoding: 'utf8' });
     expect(out).toMatch(/All package coverage thresholds satisfied\./);
   });
+
+  it('fails when a covered workspace package does not produce a coverage artifact', () => {
+    const missingPkgDir = path.join(tmpRoot, 'packages', 'missing');
+    writeJson(path.join(missingPkgDir, 'package.json'), {
+      name: '@brainstrike/missing',
+      scripts: { 'test:coverage': 'vitest run --coverage' },
+    });
+
+    expect(() => execFileSync('node', [scriptPath], { cwd: tmpRoot, encoding: 'utf8' })).toThrow(
+      /Missing coverage artifacts/
+    );
+  });
+
+  it('allows DB to be enforced by the separate DB coverage lanes', () => {
+    const dbPkgDir = path.join(tmpRoot, 'packages', 'db');
+    writeJson(path.join(dbPkgDir, 'package.json'), {
+      name: '@brainstrike/db',
+      scripts: { 'test:coverage': 'vitest run --coverage' },
+    });
+
+    const out = execFileSync('node', [scriptPath], { cwd: tmpRoot, encoding: 'utf8' });
+
+    expect(out).toMatch(/All package coverage thresholds satisfied\./);
+  });
 });
