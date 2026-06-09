@@ -339,7 +339,7 @@ describe('chat route schema', () => {
     expect(stillBlockedRes.status).toBe(429);
   });
 
-  it('logs when all tracked clients are actively blocked', async () => {
+  it('logs once per window when all tracked clients are actively blocked', async () => {
     const now = Date.now();
     for (let i = 0; i < 1024; i += 1) {
       __setRateLimiterEntryForTests(`blocked-${i}`, {
@@ -368,6 +368,20 @@ describe('chat route schema', () => {
         windowMs: 60_000,
       }
     );
+
+    const secondRes = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': 'another-new-client',
+        },
+        body: '{}',
+      })
+    );
+
+    expect(secondRes.status).toBe(429);
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(1);
   });
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {

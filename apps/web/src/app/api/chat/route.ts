@@ -17,6 +17,7 @@ const RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_MAX_CLIENTS = 1024;
 const logger = createLogger('WebChatRoute');
 const chatRequestBodyLimitBytes = resolveBodyLimit(process.env[BODY_LIMIT_ENV_VAR]);
+let lastRateLimitSaturationWarnAt = 0;
 
 interface RateLimitEntry {
   blockedUntil?: number;
@@ -182,10 +183,9 @@ function applyRateLimit(
       pruneRateLimitState(now);
     }
     if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS && !evictOldestUnblockedRateLimitEntry(now)) {
-      logger.warn('Chat rate limiter rejected a new client because all entries are blocked', {
-        maxClients: RATE_LIMIT_MAX_CLIENTS,
-        windowMs: RATE_LIMIT_WINDOW_MS,
-      });
+      // All tracked clients are actively blocked. Rejecting new identifiers preserves the memory
+      // bound, but can deny new clients until a block expires, so keep this path observable.
+      logRateLimitSaturation(now);
       return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW_MS };
     }
     rateLimitState.set(identifier, {
@@ -237,6 +237,17 @@ function pruneRateLimitState(now: number): void {
   }
 }
 
+function logRateLimitSaturation(now: number): void {
+  if (now - lastRateLimitSaturationWarnAt < RATE_LIMIT_WINDOW_MS) {
+    return;
+  }
+  lastRateLimitSaturationWarnAt = now;
+  logger.warn('Chat rate limiter rejected a new client because all entries are blocked', {
+    maxClients: RATE_LIMIT_MAX_CLIENTS,
+    windowMs: RATE_LIMIT_WINDOW_MS,
+  });
+}
+
 function createRateLimitResponse(retryAfterMs: number): Response {
   const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
   return new Response(
@@ -265,6 +276,7 @@ function parseJsonRequestBody(body: string): unknown {
 
 export function __resetRateLimiterForTests(): void {
   rateLimitState.clear();
+  lastRateLimitSaturationWarnAt = 0;
 }
 
 export function __setRateLimiterEntryForTests(
