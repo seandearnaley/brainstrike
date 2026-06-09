@@ -15,6 +15,58 @@ import {
 } from './file-explorer-selection.shared';
 
 test.describe('Desktop file explorer selection restore', () => {
+  test('restored folder stays responsive while Expand All materializes nested files', async ({
+    electronHarness,
+  }) => {
+    test.setTimeout(90_000);
+
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-expand-all-restore-'));
+    const deepFileName = 'file-23-3.ts';
+
+    try {
+      for (let directoryIndex = 0; directoryIndex < 24; directoryIndex += 1) {
+        const srcPath = path.join(rootPath, 'packages', `pkg-${directoryIndex}`, 'src');
+        await mkdir(srcPath, { recursive: true });
+        for (let fileIndex = 0; fileIndex < 4; fileIndex += 1) {
+          await writeFile(
+            path.join(srcPath, `file-${directoryIndex}-${fileIndex}.ts`),
+            `export const fixture = ${directoryIndex * 10 + fileIndex};`
+          );
+        }
+      }
+
+      await seedRestoredExplicitSelectionState({
+        electronHarness,
+        rootPath,
+        expandedDirectoryPaths: [],
+        selectedFilePaths: [],
+      });
+
+      const restartedContext = await electronHarness.restart();
+      const restartedWindow = restartedContext.window;
+      await ensureFileExplorerPanelVisible(restartedWindow);
+
+      const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
+      await expect(fileTree).toBeVisible({ timeout: 15_000 });
+
+      const filterInput = restartedWindow.getByTestId('file-filter-input');
+      await expect(filterInput).toBeVisible({ timeout: 15_000 });
+
+      const expandAllButton = restartedWindow.getByTestId('expand-all-button-small');
+      await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
+      await expandAllButton.click({ noWaitAfter: true });
+
+      await filterInput.fill('file-23', { timeout: 5000 });
+      await expect(filterInput).toHaveValue('file-23');
+      await expect(fileTree.getByText(deepFileName)).toBeVisible({ timeout: 30_000 });
+
+      await filterInput.fill('');
+      await expect(filterInput).toHaveValue('');
+    } finally {
+      await rm(rootPath, { force: true, recursive: true });
+    }
+  });
+
   test('restored explicit folders can be deselected and reselected after app restart', async ({
     electronHarness,
   }) => {
