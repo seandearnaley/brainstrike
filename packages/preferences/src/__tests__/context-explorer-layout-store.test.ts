@@ -31,6 +31,39 @@ describe('context-explorer-layout-store', () => {
     expect(state.showConsole).toBe(false);
   });
 
+  it('toggles panel visibility and accepts direct partial state updates', () => {
+    store.getState().toggleLeft();
+    store.getState().toggleRight();
+    store.getState().toggleConsole();
+
+    expect(store.getState()).toMatchObject({
+      showLeftPanel: true,
+      showRightPanel: false,
+      showConsole: true,
+    });
+
+    store.getState().setState({ showConsole: false, sizes: [30, 30, 40] });
+
+    expect(store.getState()).toMatchObject({
+      showConsole: false,
+      sizes: [30, 30, 40],
+    });
+  });
+
+  it('normalizes direct size updates without corrupting omitted panel sizes', () => {
+    store.getState().setSizes([80, 80, 0]);
+    expect(store.getState().sizes).toEqual([50, 50, 0]);
+
+    store.getState().setSizes([0, 0, 0]);
+    expect(store.getState().sizes).toEqual([100 / 3, 100 / 3, 100 / 3]);
+
+    store.getState().setSizes([42]);
+    expect(store.getState().sizes).toEqual([42, 100 / 3, 100 / 3]);
+
+    store.getState().setSizes([]);
+    expect(store.getState().sizes).toEqual([42, 100 / 3, 100 / 3]);
+  });
+
   it('migrates from v1 to v2 by swapping panel visibility and sizes', async () => {
     const storage = createMemoryStorageAdapter();
     await storage.setItem(
@@ -123,6 +156,19 @@ describe('context-explorer-layout-store', () => {
     expect(persistedStore.getState().showLeftPanel).toBe(false);
     expect(persistedStore.getState().showRightPanel).toBe(true);
     expect(persistedStore.getState().showConsole).toBe(true);
+  });
+
+  it('ignores malformed persisted layout JSON during rehydration', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(STORE_NAME, '{not-json');
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(false);
   });
 
   it.each([

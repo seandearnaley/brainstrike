@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AssistantInvalidJsonError,
+  AssistantRequestBodyLimitConfigError,
+  AssistantRequestBodyTooLargeError,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
+  hasNonEmptyAssistantPrompt,
+  parseAssistantRequestPayloadText,
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
 } from '../assistant-request';
+import type { AgentMessage } from '../types';
 
 describe('assistant request helpers', () => {
   it('uses the default request body byte limit when no override is configured', () => {
@@ -28,6 +34,9 @@ describe('assistant request helpers', () => {
     expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
       'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive integer byte count'
     );
+    expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
+      AssistantRequestBodyLimitConfigError
+    );
   });
 
   it('rejects declared oversized request bodies before reading', async () => {
@@ -39,6 +48,31 @@ describe('assistant request helpers', () => {
     await expect(readRequestBodyText(req, 5)).rejects.toThrow(
       'Assistant request body exceeds 5 bytes.'
     );
+    await expect(readRequestBodyText(req, 5)).rejects.toBeInstanceOf(
+      AssistantRequestBodyTooLargeError
+    );
+  });
+
+  it('returns an empty body when the request has no stream', async () => {
+    const req = new Request('http://localhost/api/chat', { method: 'POST' });
+
+    await expect(readRequestBodyText(req, 5)).resolves.toBe('');
+  });
+
+  it('reads streamed request body text within the byte limit', async () => {
+    const req = new Request('http://localhost/api/chat', {
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('hello'));
+          controller.enqueue(new TextEncoder().encode(' world'));
+          controller.close();
+        },
+      }),
+      duplex: 'half',
+      method: 'POST',
+    } as RequestInit & { duplex: 'half' });
+
+    await expect(readRequestBodyText(req, 20)).resolves.toBe('hello world');
   });
 
   it('rejects chunked request bodies when the streamed bytes exceed the limit', async () => {
@@ -57,5 +91,75 @@ describe('assistant request helpers', () => {
     await expect(readRequestBodyText(req, 5)).rejects.toThrow(
       'Assistant request body exceeds 5 bytes.'
     );
+  });
+
+  it('parses empty and non-object request payloads to an empty transport payload', () => {
+    expect(parseAssistantRequestPayloadText('')).toEqual({
+      data: undefined,
+      rawMessages: [],
+      runConfig: undefined,
+    });
+    expect(parseAssistantRequestPayloadText('null')).toEqual({
+      data: undefined,
+      rawMessages: [],
+      runConfig: undefined,
+    });
+  });
+
+  it('extracts runtime data, messages, and run config from valid payload JSON', () => {
+    const payload = parseAssistantRequestPayloadText(
+      JSON.stringify({
+        data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+        runConfig: { maxTokens: 128 },
+      })
+    );
+
+    expect(payload).toMatchObject({
+      data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
+      rawMessages: [{ role: 'user' }],
+      runConfig: { maxTokens: 128 },
+    });
+  });
+
+  it('ignores non-array messages while preserving data and run config', () => {
+    expect(
+      parseAssistantRequestPayloadText(
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: { role: 'user' },
+          runConfig: false,
+        })
+      )
+    ).toEqual({
+      data: { provider: 'openai' },
+      rawMessages: [],
+      runConfig: false,
+    });
+  });
+
+  it('throws a typed invalid-json error for malformed request JSON', () => {
+    expect(() => parseAssistantRequestPayloadText('{')).toThrow(AssistantInvalidJsonError);
+    expect(() => parseAssistantRequestPayloadText('{')).toThrow('Request body must be valid JSON.');
+  });
+
+  it('detects whether the latest assistant prompt has non-empty text', () => {
+    const emptyPrompt: AgentMessage = {
+      role: 'user',
+      parts: [{ type: 'text', text: '   ' }],
+    };
+    const nonTextPrompt: AgentMessage = {
+      role: 'user',
+      parts: [{ type: 'file', data: 'abc', mediaType: 'text/plain' }],
+    } as AgentMessage;
+    const nonEmptyPrompt: AgentMessage = {
+      role: 'user',
+      parts: [{ type: 'text', text: '  summarize this  ' }],
+    };
+
+    expect(hasNonEmptyAssistantPrompt([])).toBe(false);
+    expect(hasNonEmptyAssistantPrompt([nonEmptyPrompt, emptyPrompt])).toBe(false);
+    expect(hasNonEmptyAssistantPrompt([nonTextPrompt])).toBe(false);
+    expect(hasNonEmptyAssistantPrompt([emptyPrompt, nonEmptyPrompt])).toBe(true);
   });
 });

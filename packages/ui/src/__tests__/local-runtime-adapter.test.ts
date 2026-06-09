@@ -1,9 +1,11 @@
 import type { ChatModelRunOptions, ChatModelRunResult } from '@assistant-ui/react';
-import type { LocalLlmGenerationResult } from '@brainstrike/assistant-contract';
+import type { LocalLlmBackend, LocalLlmGenerationResult } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createLocalModelAdapter,
   disposeLocalBackend,
+  getBestInferenceDevice,
+  isLocalInferenceAvailable,
 } from '../../src/assistant-ui-panel/local-runtime-adapter';
 
 const { acquireBackgroundWorkPauseReasonMock, releaseBackgroundWorkPauseReasonMock } = vi.hoisted(
@@ -215,6 +217,122 @@ describe('createLocalModelAdapter', () => {
       ]),
     });
     expect(completeRuntimeData).toHaveBeenCalledWith(preparedRuntimeData, 'completed');
+  });
+
+  it('loads the browser backend once and streams local generation snapshots', async () => {
+    const initialize = vi.fn(
+      async ({ onProgress }: Parameters<LocalLlmBackend['initialize']>[0]) => {
+        onProgress?.({
+          stage: 'loading',
+          progress: 33,
+          message: 'Loading browser Gemma runtime',
+        });
+      }
+    );
+    const generate = vi.fn(
+      async (messages: Parameters<LocalLlmBackend['generate']>[0], options) => {
+        expect(messages).toEqual([
+          {
+            role: 'user',
+            content: 'Tell me a joke',
+          },
+        ]);
+        options?.stream?.onStageChange?.('responding');
+        options?.stream?.onReasoningSnapshot?.('Browser reasoning.');
+        options?.stream?.onTextSnapshot?.('Browser stream text.');
+        return createGenerationResult({
+          reasoningText: 'Browser reasoning.',
+          text: 'Browser final text.',
+        });
+      }
+    );
+    const backend = {
+      dispose: vi.fn(async () => {}),
+      generate,
+      initialize,
+      isReady: vi.fn(() => false),
+    } satisfies LocalLlmBackend;
+    const loadBackend = vi.fn(async () => backend);
+    const progress = vi.fn();
+
+    const adapter = createLocalModelAdapter({
+      loadBackend,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onLoadingProgress: progress,
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(loadBackend).toHaveBeenCalledTimes(1);
+    expect(initialize).toHaveBeenCalledWith({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onProgress: progress,
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Loading browser Gemma runtime',
+        progress: 33,
+        stage: 'loading',
+      })
+    );
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Generating answer...',
+        stage: 'generating',
+      })
+    );
+    expect(updates).toContainEqual({
+      content: expect.arrayContaining([
+        {
+          type: 'reasoning',
+          text: 'Browser reasoning.',
+        },
+        {
+          type: 'text',
+          text: 'Browser stream text.',
+        },
+      ]),
+    });
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        {
+          type: 'text',
+          text: 'Browser final text.',
+        },
+      ]),
+    });
+  });
+
+  it('reuses an initialized browser backend for the same model until disposal', async () => {
+    let ready = false;
+    const backend = {
+      dispose: vi.fn(async () => {
+        ready = false;
+      }),
+      generate: vi.fn(async () => createGenerationResult({ text: 'Browser response.' })),
+      initialize: vi.fn(async () => {
+        ready = true;
+      }),
+      isReady: vi.fn(() => ready),
+    } satisfies LocalLlmBackend;
+    const loadBackend = vi.fn(async () => backend);
+
+    const adapter = createLocalModelAdapter({
+      loadBackend,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(loadBackend).toHaveBeenCalledTimes(1);
+    expect(backend.initialize).toHaveBeenCalledTimes(1);
+    expect(backend.generate).toHaveBeenCalledTimes(2);
+
+    await disposeLocalBackend();
+
+    expect(backend.dispose).toHaveBeenCalledTimes(1);
   });
 
   it('does not re-warm an already warmed desktop model', async () => {
@@ -1140,5 +1258,18 @@ describe('createLocalModelAdapter', () => {
         ]),
       })
     );
+  });
+
+  it('reports local inference availability from navigator.gpu', () => {
+    expect(isLocalInferenceAvailable()).toBe(false);
+    expect(getBestInferenceDevice()).toBeNull();
+
+    Object.defineProperty(navigator, 'gpu', {
+      configurable: true,
+      value: {},
+    });
+
+    expect(isLocalInferenceAvailable()).toBe(true);
+    expect(getBestInferenceDevice()).toBe('webgpu');
   });
 });

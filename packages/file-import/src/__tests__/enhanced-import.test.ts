@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BaseImportRunner,
   BaseImportRunnerRequest,
@@ -7,6 +7,14 @@ import type {
 } from '../enhanced-import';
 import { runEnhancedImport } from '../enhanced-import';
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
+
+const { resolveHostedProviderApiKeyMock } = vi.hoisted(() => ({
+  resolveHostedProviderApiKeyMock: vi.fn(),
+}));
+
+vi.mock('@brainstrike/embeddings', () => ({
+  resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
+}));
 
 function createBaseRunner(
   results: EnhancedImportResult[],
@@ -36,8 +44,13 @@ function createBaseRunner(
 }
 
 describe('runEnhancedImport', () => {
+  beforeEach(() => {
+    resolveHostedProviderApiKeyMock.mockResolvedValue('test-api-key');
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
+    resolveHostedProviderApiKeyMock.mockReset();
   });
 
   it('returns base results when chunking is disabled', async () => {
@@ -282,6 +295,134 @@ describe('runEnhancedImport', () => {
       })
     );
     expect(results[0]?.chunksCreated).toBe(2);
+  });
+
+  it('resolves hosted embedding metadata and queues chunks with explicit dimensions', async () => {
+    const queuePort: EmbeddingJobQueuePort = {
+      enqueueBatch: vi.fn().mockResolvedValue(undefined),
+    };
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+        return Promise.resolve({
+          rows: [{ modelKey: 'openai::text-embedding-3-small' }],
+        });
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.startsWith('INSERT INTO embedding_sets')) {
+        return Promise.resolve({ rows: [{ id: 'hosted-set' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const sqlPort: SqlExecutorPort = {
+      query: sqlPortQuery,
+      runInTransaction: vi.fn(),
+    };
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.enqueueJobsForChunks?.(
+        [
+          {
+            id: 'chunk-openai',
+            fileRecordId: '1',
+            content: 'hosted content',
+            contentHash: 'hash-openai',
+          } as never,
+        ],
+        '1'
+      );
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+    const resolvedSetIdSpy = vi.fn();
+
+    const results = await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      ports: { embeddingQueue: queuePort, sql: sqlPort },
+      embedding: {
+        enabled: true,
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-hosted-set',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('hosted-set');
+    expect(queuePort.enqueueBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      '1',
+      expect.objectContaining({
+        dimensionParameter: 'dimensions',
+        model: 'openai::text-embedding-3-small',
+        provider: 'openai',
+        targetDimension: 768,
+        targetEmbeddingSetId: 'hosted-set',
+      })
+    );
+    expect(results[0]?.chunksCreated).toBe(1);
+  });
+
+  it('rejects hosted embedding imports when the provider API key is unavailable', async () => {
+    resolveHostedProviderApiKeyMock.mockResolvedValueOnce(null);
+
+    await expect(
+      runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: createBaseRunner([
+          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        ]),
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        ports: {
+          sql: {
+            query: vi.fn().mockResolvedValue({ rows: [] }),
+            runInTransaction: vi.fn(),
+          },
+        },
+        embedding: {
+          enabled: true,
+          provider: 'openai',
+          model: 'text-embedding-3-small',
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => null,
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+      })
+    ).rejects.toThrow('Hosted provider "openai" requires an API key before running embeddings.');
   });
 
   it('resolves embedding model via SQL port when available', async () => {

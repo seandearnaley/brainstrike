@@ -4,10 +4,11 @@ import type {
   FileRecord,
   FileRecordRepository,
 } from '@brainstrike/db';
+import { EmbeddingProviderFactory } from '@brainstrike/embeddings/factory';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';
 
 const mockDb = {
@@ -71,8 +72,11 @@ vi.mock('../../vector-preferences', () => ({
 type ToastFn = Parameters<typeof useSearchFunctionality>[2];
 
 describe('useSearchFunctionality', () => {
+  const originalSearchDefaultThreshold = process.env['SEARCH_DEFAULT_THRESHOLD'];
+
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env['SEARCH_DEFAULT_THRESHOLD'] = undefined;
     mockDb.query.mockResolvedValue({
       rows: [
         {
@@ -115,6 +119,14 @@ describe('useSearchFunctionality', () => {
       setReinitEveryN: vi.fn(),
       setVerboseOrtLogs: vi.fn(),
     });
+  });
+
+  afterEach(() => {
+    if (originalSearchDefaultThreshold === undefined) {
+      process.env['SEARCH_DEFAULT_THRESHOLD'] = undefined;
+    } else {
+      process.env['SEARCH_DEFAULT_THRESHOLD'] = originalSearchDefaultThreshold;
+    }
   });
 
   it('no-ops when query is empty', async () => {
@@ -206,6 +218,102 @@ describe('useSearchFunctionality', () => {
       expect(res.fileRecord.name).toBe('app.tsx');
       expect(typeof res.similarity).toBe('number');
     }
+  });
+
+  it('passes code-query search options and uses fallback file records when metadata is missing', async () => {
+    process.env['SEARCH_DEFAULT_THRESHOLD'] = '0.9';
+    const toast = vi.fn() as unknown as ToastFn;
+    const chunk = {
+      id: 'c1',
+      fileRecordId: 'missing-file',
+      chunkIndex: 0,
+      content: 'export function runSearch() { return true; }',
+      tokenCount: 10,
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    } as unknown as FileChunk;
+    const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.7 }]);
+    const findById = vi.fn().mockResolvedValue(null);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+    const repository = { findById } as unknown as FileRecordRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, repository, toast));
+
+    expect(result.current.searchThreshold).toBe(0.9);
+
+    act(() => {
+      result.current.setSearchThreshold(0.65);
+      result.current.setSearchQuery('export function runSearch()');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    const [embeddingArg, optionsArg] = searchSimilar.mock.calls[0] ?? [];
+    expect(embeddingArg).toEqual([expect.closeTo(0.1), expect.closeTo(0.2), expect.closeTo(0.3)]);
+    expect(optionsArg).toEqual({
+      limit: 20,
+      threshold: 0.65,
+      chunkType: 'recursive',
+      embeddingSetId: 'set-1',
+    });
+    expect(findById).toHaveBeenCalledWith('missing-file');
+    expect(result.current.searchResults[0]?.fileRecord).toMatchObject({
+      id: 'missing-file',
+      name: 'Unknown file',
+      path: '(unavailable)',
+      size: 0,
+    });
+  });
+
+  it('runs a hosted embedding search through the provider factory', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    const embed = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { embedding: [0.4, 0.5, 0.6] },
+    });
+    vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
+      ok: true,
+      value: { embed },
+    } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
+    mockDb.query.mockResolvedValue({
+      rows: [
+        {
+          modelKey: 'openai::text-embedding-3-small',
+          dimensions: 1536,
+        },
+      ],
+    });
+    const searchSimilar = vi.fn().mockResolvedValue([]);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+    const repository = { findById: vi.fn() } as unknown as FileRecordRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, repository, toast));
+
+    act(() => {
+      result.current.setSearchQuery('hosted search');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(EmbeddingProviderFactory.createProvider).toHaveBeenCalledWith({
+      runtime: 'hosted',
+      provider: 'openai',
+      modelId: 'text-embedding-3-small',
+      dimensions: 1536,
+    });
+    expect(embed).toHaveBeenCalledWith({
+      text: 'hosted search',
+      modelId: 'text-embedding-3-small',
+    });
+    expect(searchSimilar).toHaveBeenCalledWith([0.4, 0.5, 0.6], {
+      limit: 20,
+      threshold: 0.5,
+      embeddingSetId: 'set-1',
+    });
   });
 
   it('surfaces a friendly toast when embeddingSetId is required', async () => {

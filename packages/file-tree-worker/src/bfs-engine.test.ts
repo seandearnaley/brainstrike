@@ -193,6 +193,34 @@ describe('BFSEngine', () => {
       expect(indexedEngine.findNode('/root/dir/fresh.txt')?.name).toBe('fresh.txt');
     });
 
+    it('should emit a loading-state patch for external directory updates', () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      engine.applyDirectoryChildrenUpdate('/root/dir', [], 'loading', 42);
+
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 42,
+        payload: {
+          path: '/root/dir',
+          loadState: 'loading',
+          loadError: undefined,
+        },
+      });
+      expect(messages.some((message) => message.type === 'childrenLoaded')).toBe(false);
+    });
+
+    it('should ignore external directory updates for paths missing from the index', () => {
+      engine.setTree([createDirectoryNode({ path: '/root/dir' })], 'root');
+      messages = [];
+
+      engine.applyDirectoryChildrenUpdate('/root/missing', [], 'loading', 42);
+
+      expect(messages).toEqual([]);
+    });
+
     it('warns when a legacy id-less load result could match multiple pending loads', () => {
       const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
       engine.setTree(tree, 'root');
@@ -251,6 +279,42 @@ describe('BFSEngine', () => {
       const updatedTree = engine.getTree();
       expect(updatedTree[0]?.loadState).toBe('error');
       expect(updatedTree[0]?.loadError).toBe('Permission denied');
+    });
+
+    it('should resolve a correlated pending path load with an error result', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadPaths(['/root/dir'], 77);
+
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((message) => message.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+      const requestMsg = messages.find((message) => message.type === 'requestLoad');
+      const requestId = requestMsg?.type === 'requestLoad' ? requestMsg.payload.requestId : '';
+
+      engine.handleLoadError('/root/dir', 'Permission denied', requestId);
+
+      await loadPromise;
+
+      const updatedTree = engine.getTree();
+      expect(updatedTree[0]?.loadState).toBe('error');
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 77,
+        payload: {
+          path: '/root/dir',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        },
+      });
+      const completeMsg = messages.find((message) => message.type === 'complete');
+      expect(completeMsg).toEqual({
+        type: 'complete',
+        operationId: 77,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
     });
   });
 
@@ -618,6 +682,26 @@ describe('BFSEngine', () => {
       if (completeMsg?.type === 'complete') {
         // Both parent and child should be loaded
         expect(completeMsg.payload.loadedCount).toBe(2);
+      }
+    });
+
+    it('should reject when the main thread does not answer a load request before timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+        engine.setTree(tree, 'root');
+
+        const loadPromise = engine.loadPaths(['/root/dir'], 88);
+
+        expect(messages.some((message) => message.type === 'requestLoad')).toBe(true);
+        const rejectionExpectation = expect(loadPromise).rejects.toThrow(
+          'Load timeout for: /root/dir'
+        );
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        await rejectionExpectation;
+      } finally {
+        vi.useRealTimers();
       }
     });
   });

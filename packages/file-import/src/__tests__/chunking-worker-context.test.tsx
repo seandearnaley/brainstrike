@@ -142,6 +142,7 @@ describe('ChunkingWorkerProvider', () => {
     vi.doUnmock('../chunking-worker-port');
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window as Window & { chunkingHost?: unknown }, 'chunkingHost');
+    Reflect.deleteProperty(globalThis as { parserHost?: unknown }, 'parserHost');
     workers = [];
     resolveChunkingWorkerUrlMock.mockResolvedValue(new URL('file:///chunking.worker.js'));
     function MockWorkerConstructor(_scriptUrl: URL | string, _options?: WorkerOptions): Worker {
@@ -388,6 +389,174 @@ describe('ChunkingWorkerProvider', () => {
       'error',
       expect.any(Function)
     );
+  });
+
+  it('replies to parser-host bridge invokes with an explicit missing-bridge error', async () => {
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-1',
+        payload: { code: 'const value = 1;' },
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() =>
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        type: 'parser-host:reply',
+        requestId: 'parse-1',
+        response: {
+          ok: false,
+          requestId: 'parse-1',
+          error: expect.stringContaining('parser-host bridge unavailable'),
+        },
+      })
+    );
+    unmount();
+  });
+
+  it('routes parser-host bridge invokes through parserHost.parse', async () => {
+    const parse = vi.fn(async (payload: unknown) => ({
+      ok: true,
+      requestId: 'parse-2',
+      payload,
+    }));
+    Object.assign(globalThis, { parserHost: { parse } });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    const payload = { code: 'const value = 2;' };
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-2',
+        payload,
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() => {
+      expect(parse).toHaveBeenCalledWith(payload);
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        type: 'parser-host:reply',
+        requestId: 'parse-2',
+        response: {
+          ok: true,
+          requestId: 'parse-2',
+          payload,
+        },
+      });
+    });
+    unmount();
+  });
+
+  it('routes parser-host parse failures back to the worker', async () => {
+    Object.assign(globalThis, {
+      parserHost: {
+        parse: vi.fn(async () => {
+          throw new Error('parser crashed');
+        }),
+      },
+    });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-3',
+        payload: { code: 'broken' },
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() =>
+      expect(worker.postMessage).toHaveBeenCalledWith({
+        type: 'parser-host:reply',
+        requestId: 'parse-3',
+        response: {
+          ok: false,
+          requestId: 'parse-3',
+          error: 'parser crashed',
+        },
+      })
+    );
+    unmount();
+  });
+
+  it('does not surface parser-host replies when worker postMessage fails after termination', async () => {
+    Object.assign(globalThis, {
+      parserHost: {
+        parse: vi.fn(async () => ({ ok: true, requestId: 'parse-4' })),
+      },
+    });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+    vi.mocked(worker.postMessage).mockImplementationOnce(() => {
+      throw new Error('worker terminated');
+    });
+
+    await act(async () => {
+      worker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'parse-4',
+        payload: { code: 'const value = 4;' },
+      } as unknown as WorkerResponse);
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() => expect(worker.postMessage).toHaveBeenCalledTimes(2));
+    unmount();
   });
 
   it('proxies chunking work through the desktop chunking host bridge', async () => {

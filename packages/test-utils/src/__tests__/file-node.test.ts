@@ -5,6 +5,9 @@ import {
   createFileNode,
   createFileTreeFromStructure,
   createNestedDirectoryStructure,
+  flattenTreeForCount,
+  generateLargeTree,
+  largeTreePresets,
 } from '../factories/file-node';
 
 function countFiles(node: IFileNode): number {
@@ -285,5 +288,62 @@ describe('createNestedDirectoryStructure edge cases', () => {
 
     const level3Dir = level2Dir?.children?.find((c) => c.type === 'directory');
     expect(level3Dir?.depth).toBe(3);
+  });
+});
+
+describe('generateLargeTree', () => {
+  it('generates a deterministic bounded tree from a custom config', () => {
+    const { tree, nodeCount } = generateLargeTree({
+      targetNodeCount: 20,
+      maxDepth: 3,
+      filesPerDir: 2,
+      subdirsPerDir: 2,
+    });
+
+    expect(tree).toHaveLength(1);
+    const root = tree[0]!;
+    expect(root).toMatchObject({
+      name: 'root',
+      path: 'root',
+      type: 'directory',
+      depth: 0,
+    });
+    expect(root.children?.filter((child) => child.type === 'file')).toHaveLength(2);
+    expect(root.children?.filter((child) => child.type === 'directory')).toHaveLength(2);
+
+    const flattened = flattenTreeForCount(tree);
+    expect(nodeCount).toBe(flattened.length);
+    expect(flattened.every((node) => node.rootFolderId === 'test-folder')).toBe(true);
+    expect(Math.max(...flattened.map((node) => node.depth))).toBeLessThanOrEqual(3);
+  });
+
+  it('respects maxDepth even when the target count is much larger', () => {
+    const { tree, nodeCount } = generateLargeTree({
+      targetNodeCount: 10_000,
+      maxDepth: 1,
+      filesPerDir: 3,
+      subdirsPerDir: 10,
+    });
+
+    const flattened = flattenTreeForCount(tree);
+
+    expect(nodeCount).toBe(4);
+    expect(flattened.map((node) => node.path)).toEqual([
+      'root',
+      'root/file-0.ts',
+      'root/file-1.ts',
+      'root/file-2.ts',
+    ]);
+  });
+
+  it('provides named presets that can be flattened for smoke coverage', () => {
+    const { tree, nodeCount } = generateLargeTree(largeTreePresets.small);
+    const flattened = flattenTreeForCount(tree);
+
+    expect(nodeCount).toBe(flattened.length);
+    expect(nodeCount).toBeGreaterThan(0);
+    expect(nodeCount).toBeLessThanOrEqual(largeTreePresets.small.targetNodeCount);
+    expect(flattened.some((node) => node.type === 'directory')).toBe(true);
+    expect(flattened.some((node) => node.type === 'file')).toBe(true);
   });
 });

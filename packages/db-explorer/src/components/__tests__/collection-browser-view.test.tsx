@@ -1,4 +1,5 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
+import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from 'react';
@@ -63,8 +64,17 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       nodeData: unknown,
       event: MouseEvent
     ) => void;
-    bulkActions?: Array<{ id: string; label: string }>;
+    bulkActions?: Array<{ id: string; label: string; onAction: (ids: Set<string>) => void }>;
+    onColumnSizesChange?: (sizes: Record<string, number>) => void;
+    onExpandedIdsChange?: (ids: Set<string>) => void;
+    onFiltersChange?: (filters: {
+      embeddingStatus: string;
+      nodeTypes: Set<string>;
+      searchMatchesOnly: boolean;
+      searchQuery: string;
+    }) => void;
     onMultiSelect?: (ids: Set<string>) => void;
+    onSortChange?: (sortState: { column: string; direction: 'asc' | 'desc' } | null) => void;
     semanticResults?: unknown[];
     showCheckbox?: boolean;
     treeWindowingStrategy?: string;
@@ -80,6 +90,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       onContextMenu,
       bulkActions,
       onMultiSelect,
+      onColumnSizesChange,
+      onExpandedIdsChange,
+      onFiltersChange,
+      onSortChange,
       showCheckbox,
     } = props;
     const firstFile = data.files[0];
@@ -91,6 +105,18 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         {bulkActions && bulkActions.length > 0 && (
           <span data-testid="bulk-actions-count">{bulkActions.length}</span>
         )}
+        {bulkActions?.map((action) => (
+          <button
+            aria-label={`Bulk ${action.label}`}
+            key={action.id}
+            onClick={() =>
+              action.onAction(new Set([`file-${firstFile?.id ?? '1'}`, 'chunk-chunk-1']))
+            }
+            type="button"
+          >
+            {`Bulk ${action.label}`}
+          </button>
+        ))}
         {!firstFile && emptyMessage ? (
           <span data-testid="empty-message">{emptyMessage}</span>
         ) : null}
@@ -111,6 +137,20 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
               Double-click file
             </button>
             <button
+              aria-label="Double-click first chunk"
+              onClick={() => onDoubleClick?.('chunk-chunk-1', 'chunk', {})}
+              type="button"
+            >
+              Double-click chunk
+            </button>
+            <button
+              aria-label="Double-click first embedding"
+              onClick={() => onDoubleClick?.('embedding-chunk-1', 'embedding', {})}
+              type="button"
+            >
+              Double-click embedding
+            </button>
+            <button
               aria-label="Right-click first file"
               onClick={(e) =>
                 onContextMenu?.(`file-${firstFile.id}`, 'file', {}, e as unknown as MouseEvent)
@@ -120,11 +160,55 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
               Right-click file
             </button>
             <button
+              aria-label="Right-click first chunk"
+              onClick={(e) =>
+                onContextMenu?.('chunk-chunk-1', 'chunk', {}, e as unknown as MouseEvent)
+              }
+              type="button"
+            >
+              Right-click chunk
+            </button>
+            <button
               aria-label="Multi-select"
               onClick={() => onMultiSelect?.(new Set([`file-${firstFile.id}`]))}
               type="button"
             >
               Multi-select
+            </button>
+            <button
+              aria-label="Apply expanded ids"
+              onClick={() => onExpandedIdsChange?.(new Set([`file-${firstFile.id}`]))}
+              type="button"
+            >
+              Apply expanded ids
+            </button>
+            <button
+              aria-label="Apply filters"
+              onClick={() =>
+                onFiltersChange?.({
+                  embeddingStatus: 'complete',
+                  nodeTypes: new Set(['file', 'chunk']),
+                  searchMatchesOnly: false,
+                  searchQuery: 'needle',
+                })
+              }
+              type="button"
+            >
+              Apply filters
+            </button>
+            <button
+              aria-label="Apply sort"
+              onClick={() => onSortChange?.({ column: 'size', direction: 'desc' })}
+              type="button"
+            >
+              Apply sort
+            </button>
+            <button
+              aria-label="Apply column sizes"
+              onClick={() => onColumnSizesChange?.({ name: 444, size: 123 })}
+              type="button"
+            >
+              Apply column sizes
             </button>
           </>
         ) : null}
@@ -317,6 +401,13 @@ const TEST_CHUNKS: FileChunk[] = [
 describe('CollectionBrowserView', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
+    useCollectionBrowserColumnSizesStore.getState().setAll({});
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
     vi.clearAllMocks();
     semanticSearchMock.state = {
       error: null,
@@ -406,6 +497,72 @@ describe('CollectionBrowserView', () => {
 
     // 3 bulk actions: Expand, Collapse, Copy IDs
     expect(screen.getByTestId('bulk-actions-count')).toHaveTextContent('3');
+  });
+
+  it('applies browser callback changes to persisted collection browser state', async () => {
+    const user = userEvent.setup();
+    const loadFileChunkSummaries = vi.fn().mockResolvedValue([]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            ...TEST_RECORDS[0]!,
+            chunksCount: 1,
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }));
+    expect(useCollectionBrowserStore.getState()).toMatchObject({
+      searchQuery: 'needle',
+      nodeTypes: ['file', 'chunk'],
+      embeddingStatus: 'complete',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Apply sort' }));
+    expect(useCollectionBrowserStore.getState().sortState).toEqual({
+      column: 'size',
+      direction: 'desc',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Apply column sizes' }));
+    expect(useCollectionBrowserColumnSizesStore.getState().sizes).toMatchObject({
+      name: 444,
+      size: 123,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Apply expanded ids' }));
+    expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1']);
+  });
+
+  it('runs browser bulk actions against selected node ids', async () => {
+    const user = userEvent.setup();
+    const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Bulk Expand' }));
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1', 'chunk-chunk-1']);
+
+    await user.click(screen.getByRole('button', { name: 'Bulk Collapse' }));
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual([]);
+
+    await user.click(screen.getByRole('button', { name: 'Bulk Copy IDs' }));
+    expect(writeTextSpy).toHaveBeenCalledWith('1\nchunk-1');
   });
 
   it('nests advanced options inside the expanded hybrid search panel', async () => {
@@ -765,6 +922,32 @@ describe('CollectionBrowserView', () => {
     expect(useCollectionBrowserStore.getState().expandedIds).not.toContain('file-1');
   });
 
+  it('double-clicks chunk nodes for expansion and embedding nodes for inspection', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[
+          {
+            ...TEST_CHUNKS[0]!,
+            embeddingDimensions: 2,
+            hasEmbedding: true,
+          },
+        ]}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Double-click first chunk' }));
+    expect(useCollectionBrowserStore.getState().expandedIds).toContain('chunk-chunk-1');
+
+    await user.click(screen.getByRole('button', { name: 'Double-click first embedding' }));
+    expect(useCollectionBrowserStore.getState().selectedId).toBe('embedding-chunk-1');
+    expect(screen.getByTestId('node-inspector')).toHaveTextContent('embedding:chunk-1');
+  });
+
   it('opens context menu on right-click', async () => {
     const user = userEvent.setup();
 
@@ -785,6 +968,33 @@ describe('CollectionBrowserView', () => {
 
     // Context menu should appear
     expect(screen.getByTestId('context-menu')).toBeInTheDocument();
+  });
+
+  it('copies and selects context-menu node ids', async () => {
+    const user = userEvent.setup();
+    const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
+    await user.click(screen.getByRole('button', { name: 'Copy ID' }));
+
+    expect(writeTextSpy).toHaveBeenCalledWith('1');
+    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
+    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
+    await user.click(screen.getByRole('button', { name: 'Select' }));
+
+    expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
+    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument();
   });
 
   it('expands freshly loaded chunk children from the context menu', async () => {
