@@ -1,6 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalLlmBackend, verifyModelIntegrity } from '../local-llm-backend';
+import {
+  addAllowedModels,
+  getAllowedModels,
+  isModelAllowed,
+  LocalLlmBackend,
+  setModelChecksums,
+  verifyModelIntegrity,
+} from '../local-llm-backend';
 import { GEMMA4_E2B_MODEL_ID } from '../local-model-specs';
+
+const { mockArtifactDownload, mockHasRequiredArtifacts } = vi.hoisted(() => ({
+  mockArtifactDownload: vi.fn(),
+  mockHasRequiredArtifacts: vi.fn(),
+}));
 
 const mockProcessorApplyChatTemplate = vi.fn();
 const mockProcessorCall = vi.fn();
@@ -59,6 +71,13 @@ vi.mock('@huggingface/transformers', () => ({
   TextStreamer: mockTextStreamerCtor,
 }));
 
+vi.mock('../local-artifact-store', () => ({
+  createLocalArtifactStore: () => ({
+    download: mockArtifactDownload,
+    hasRequiredArtifacts: mockHasRequiredArtifacts,
+  }),
+}));
+
 function installNavigatorWebGpu(hasGpu: boolean): void {
   vi.stubGlobal(
     'navigator',
@@ -101,6 +120,8 @@ describe('LocalLlmBackend', () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     installNavigatorWebGpu(true);
+    mockArtifactDownload.mockResolvedValue(undefined);
+    mockHasRequiredArtifacts.mockResolvedValue(true);
 
     mockProcessorApplyChatTemplate.mockImplementation(function (
       this: unknown,
@@ -203,6 +224,22 @@ describe('LocalLlmBackend', () => {
     ).rejects.toThrow('unsupported built-in local model');
   });
 
+  it('reports allowed built-in local model ids without accepting unknown ids', () => {
+    expect(getAllowedModels()).toEqual([GEMMA4_E2B_MODEL_ID]);
+    expect(isModelAllowed(GEMMA4_E2B_MODEL_ID)).toBe(true);
+    expect(isModelAllowed('unknown/local-model')).toBe(false);
+    expect(addAllowedModels([GEMMA4_E2B_MODEL_ID, 'unknown/local-model'])).toEqual({
+      added: [GEMMA4_E2B_MODEL_ID],
+      rejected: ['unknown/local-model'],
+    });
+
+    expect(() =>
+      setModelChecksums(GEMMA4_E2B_MODEL_ID, {
+        onnxSha256: 'deprecated',
+      })
+    ).not.toThrow();
+  });
+
   it('requires WebGPU for Gemma instead of silently falling back to wasm', async () => {
     installNavigatorWebGpu(false);
     const backend = new LocalLlmBackend();
@@ -212,6 +249,17 @@ describe('LocalLlmBackend', () => {
         modelId: GEMMA4_E2B_MODEL_ID,
       })
     ).rejects.toThrow('webgpu_unavailable');
+  });
+
+  it('rejects explicit wasm requests instead of silently falling back', async () => {
+    const backend = new LocalLlmBackend();
+
+    await expect(
+      backend.initialize({
+        device: 'wasm',
+        modelId: GEMMA4_E2B_MODEL_ID,
+      })
+    ).rejects.toThrow('does not support wasm');
   });
 
   it('maps transformers progress callbacks onto loading percentages', async () => {
@@ -251,6 +299,131 @@ describe('LocalLlmBackend', () => {
       stage: 'ready',
       progress: 100,
     });
+  });
+
+  it('tracks ready and uninitialized status across repeated initialize and dispose calls', async () => {
+    const backend = new LocalLlmBackend();
+
+    expect(backend.isReady()).toBe(false);
+    expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
+    await expect(backend.generate([])).rejects.toThrow('Model not initialized');
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    expect(mockFromPretrainedProcessor).toHaveBeenCalledTimes(1);
+    expect(backend.isReady()).toBe(true);
+    expect(backend.getStatus()).toEqual({ state: 'ready', device: 'webgpu' });
+
+    await backend.dispose();
+
+    expect(backend.isReady()).toBe(false);
+    expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
+  });
+
+  it('uses explicit progress percentages and done status from Transformers progress callbacks', async () => {
+    const progressUpdates: Array<{ file?: string; progress: number; stage: string }> = [];
+    mockFromPretrainedProcessor.mockImplementationOnce(async function (
+      this: typeof mockAutoProcessor,
+      _modelId: string,
+      options: {
+        progress_callback?: (progress: {
+          file?: string;
+          progress?: number;
+          status?: string;
+        }) => void;
+      }
+    ) {
+      if (this !== mockAutoProcessor) {
+        throw new TypeError('this is not a constructor');
+      }
+      options.progress_callback?.({
+        file: 'processor.json',
+        progress: 42,
+      });
+      options.progress_callback?.({
+        status: 'done',
+      });
+      return callableProcessor;
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+      onProgress: (progress) => {
+        progressUpdates.push(progress);
+      },
+    });
+
+    expect(progressUpdates).toContainEqual({
+      file: 'processor.json',
+      stage: 'loading',
+      progress: 42,
+      message: 'Loading processor.json',
+    });
+    expect(progressUpdates).toContainEqual({
+      stage: 'loading',
+      progress: 100,
+      message: `Loading ${GEMMA4_E2B_MODEL_ID}`,
+    });
+  });
+
+  it('reports device availability and WebGPU adapter metadata', async () => {
+    expect(LocalLlmBackend.isDeviceAvailable('wasm')).toBe(true);
+    expect(LocalLlmBackend.isDeviceAvailable('webgpu')).toBe(true);
+    expect(LocalLlmBackend.getBestDevice()).toBe('webgpu');
+
+    await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toEqual({
+      vendor: 'test-vendor',
+      architecture: 'test-arch',
+      device: 'test-device',
+      description: 'test-description',
+      maxBufferSize: 8_000_000_000,
+      maxStorageBufferBindingSize: 8_000_000_000,
+    });
+
+    installNavigatorWebGpu(false);
+    await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toBeNull();
+
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: vi.fn().mockResolvedValue(null),
+      },
+    });
+    await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toBeNull();
+  });
+
+  it('delegates model download and downloaded checks to the browser artifact store', async () => {
+    const abortController = new AbortController();
+    const onProgress = vi.fn();
+
+    await LocalLlmBackend.downloadModel(GEMMA4_E2B_MODEL_ID, {
+      cacheDir: '/tmp/ignored',
+      onProgress,
+      signal: abortController.signal,
+    });
+
+    expect(mockArtifactDownload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: GEMMA4_E2B_MODEL_ID,
+      }),
+      onProgress,
+      abortController.signal
+    );
+    await expect(LocalLlmBackend.downloadModel('unknown/local-model')).rejects.toThrow(
+      'unsupported built-in local model'
+    );
+    await expect(LocalLlmBackend.hasDownloadedModel('unknown/local-model')).resolves.toBe(false);
+    await expect(LocalLlmBackend.hasDownloadedModel(GEMMA4_E2B_MODEL_ID)).resolves.toBe(true);
+    expect(mockHasRequiredArtifacts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: GEMMA4_E2B_MODEL_ID,
+      })
+    );
   });
 
   it('strips Gemma thought traces from generated text', async () => {
