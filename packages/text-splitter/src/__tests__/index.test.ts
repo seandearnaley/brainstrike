@@ -9,6 +9,7 @@ import {
   getChunkingPresetDefinitions,
   getChunkingRoutePreview,
   isChunkingStrategy,
+  isMarkdownBlockBoundaryLine,
   isResolvedChunkingStrategy,
   RecursiveTextSplitter,
   resolveChunkingStrategyForFile,
@@ -50,6 +51,24 @@ describe('@brainstrike/text-splitter', () => {
     for (const chunk of chunks) {
       expect(chunk.length).toBeLessThanOrEqual(32);
     }
+  });
+
+  it('uses owned default separators when none are provided', () => {
+    const chunks = splitTextRecursively('Alpha beta gamma delta', {
+      chunkSize: 10,
+      chunkOverlap: 2,
+    });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join(' ')).toContain('Alpha');
+  });
+
+  it('recognizes markdown block boundary lines', () => {
+    expect(isMarkdownBlockBoundaryLine('```ts')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('~~~')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('### Heading')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('   ')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('plain text')).toBe(false);
   });
 
   it('preserves overlapping context between neighboring chunks', () => {
@@ -147,6 +166,20 @@ describe('@brainstrike/text-splitter', () => {
     expect(chunks[0]).toContain('# Title');
   });
 
+  it('splits long semantic markdown sections before merging them', () => {
+    const chunks = splitTextByStrategy(
+      '# Title\n\nThis section has enough prose to exceed the small chunk target and needs recursive splitting within the heading family.',
+      {
+        strategy: 'semantic-markdown',
+        chunkSize: 24,
+        chunkOverlap: 4,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks[0]).toContain('# Title');
+  });
+
   it('supports html-aware splitting', () => {
     const chunks = splitTextByStrategy(
       '<article><section><p>Alpha beta gamma</p></section><section><p>Delta epsilon zeta</p></section></article>',
@@ -221,6 +254,23 @@ describe('@brainstrike/text-splitter', () => {
     expect(resolveChunkingStrategyForFile('/tmp/paper.tex')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/references.bib')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/notes.txt')).toBe('sentence');
+    expect(resolveChunkingStrategyForFile('/tmp/README')).toBe('sentence');
+  });
+
+  it('honors explicit regex separators on RecursiveTextSplitter instances', async () => {
+    const splitter = new RecursiveTextSplitter({
+      chunkSize: 6,
+      chunkOverlap: 0,
+      separators: ['\\d+'],
+      isSeparatorRegex: true,
+    });
+
+    await expect(splitter.splitText('alpha123beta456gamma')).resolves.toEqual([
+      'alpha1',
+      '23',
+      'beta45',
+      '6gamma',
+    ]);
   });
 
   it('resolves final effective strategy from the shared contract', () => {
