@@ -82,6 +82,23 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
 
+    it('clears stale load errors when a directory later loads successfully', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+
+      const updatedNode = engine.getTree()[0];
+      expect(updatedNode).toEqual(expect.objectContaining({ loadState: 'loaded' }));
+      expect(updatedNode?.loadError).toBeUndefined();
+    });
+
     it('should emit children-loaded patch without a redundant loaded-state patch', () => {
       const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
       engine.setTree(tree, 'root');
@@ -365,6 +382,66 @@ describe('BFSEngine', () => {
       });
     });
 
+    it('correlates legacy id-less load errors after skipping unmatched pending loads', async () => {
+      const tree = [
+        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+      const firstLoad = engine.loadPaths(['/root/dir1'], 51);
+      const secondLoad = engine.loadPaths(['/root/dir2'], 52);
+
+      await vi.waitFor(() => {
+        expect(messages.filter((message) => message.type === 'requestLoad')).toHaveLength(2);
+      });
+
+      engine.handleLoadError('/root/dir2', 'Permission denied');
+      const firstRequest = messages.find(
+        (message) => message.type === 'requestLoad' && message.operationId === 51
+      );
+      if (firstRequest?.type !== 'requestLoad') {
+        throw new Error('expected first request');
+      }
+      engine.handleLoadResult('/root/dir1', [], firstRequest.payload.requestId);
+
+      await Promise.all([firstLoad, secondLoad]);
+
+      expect(engine.getTree()).toEqual([
+        expect.objectContaining({ path: '/root/dir1', loadState: 'loaded' }),
+        expect.objectContaining({
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        }),
+      ]);
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 52,
+        payload: {
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        },
+      });
+    });
+
+    it('clears stale load errors when a directory is marked loading again', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'error',
+          loadError: 'Previous failure',
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.applyDirectoryChildrenUpdate('/root/dir', [], 'loading');
+
+      const updatedNode = engine.getTree()[0];
+      expect(updatedNode).toEqual(expect.objectContaining({ loadState: 'loading' }));
+      expect(updatedNode?.loadError).toBeUndefined();
+    });
+
     it('correlates load errors without patching unrelated paths', async () => {
       const tree = [
         createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
@@ -494,6 +571,23 @@ describe('BFSEngine', () => {
           removed: ['/root/parent', '/root/parent/child'],
         },
       });
+    });
+
+    it('does not emit an expanded-path delta when collapse is already synchronized', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'loaded',
+          children: [],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      engine.collapseAll();
+      messages = [];
+
+      engine.collapseAll();
+
+      expect(messages).toEqual([]);
     });
 
     it('should not affect file nodes', () => {
