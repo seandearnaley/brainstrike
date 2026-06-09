@@ -422,6 +422,24 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.queryByTestId('assistant-reasoning-static-mark')).not.toBeInTheDocument();
   });
 
+  it('keeps completed reasoning static while a chain tool call is running', () => {
+    mockAuiState = createMockAuiState([
+      completedReasoningPart,
+      {
+        status: { type: 'running' },
+        type: 'tool-call',
+      },
+    ]);
+
+    renderCapturedChainOfThought();
+
+    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Reasoning');
+    expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
+      'bs-thinking-mark-static'
+    );
+    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+  });
+
   it('prepares per-run request data when the hosted runtime starts a request', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {

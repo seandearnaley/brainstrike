@@ -294,8 +294,12 @@ const LocalReasoningPart: FC = () => {
   );
 };
 
-function isRunningChainOfThoughtPart(part: unknown): boolean {
+function isRunningReasoningPart(part: unknown): boolean {
   if (!(part && typeof part === 'object')) {
+    return false;
+  }
+
+  if ((part as { readonly type?: unknown }).type !== 'reasoning') {
     return false;
   }
 
@@ -311,7 +315,7 @@ const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const isReasoningRunning = useAuiState((state) =>
-    state.chainOfThought.parts.some(isRunningChainOfThoughtPart)
+    state.chainOfThought.parts.some(isRunningReasoningPart)
   );
   const isContinuation = useAuiState((state) => {
     const [firstChainPart] = state.chainOfThought.parts;

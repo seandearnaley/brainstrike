@@ -57,7 +57,7 @@ describe('assistant UI panel architecture', () => {
     const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
     const cssSource = readSource('assistant-ui-panel/overrides.css');
 
-    expect(panelSource).toContain('isRunningChainOfThoughtPart');
+    expect(panelSource).toContain('isRunningReasoningPart');
     expect(panelSource).toContain('isReasoningRunning ? (');
     expect(panelSource).toContain('assistant-reasoning-static-mark');
     expect(cssSource).toContain('.bs-thinking-mark-static');
