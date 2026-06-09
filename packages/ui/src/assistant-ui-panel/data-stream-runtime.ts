@@ -56,8 +56,21 @@ interface GenericTextPart {
 }
 
 interface GenericMessageLike {
-  readonly content?: readonly GenericTextPart[];
+  readonly content?: unknown;
   readonly role?: unknown;
+}
+
+function toContentParts(content: unknown): readonly GenericTextPart[] {
+  if (Array.isArray(content)) {
+    return content as readonly GenericTextPart[];
+  }
+  if (typeof content === 'string') {
+    return [{ text: content, type: 'text' }];
+  }
+  if (content && typeof content === 'object') {
+    return [content as GenericTextPart];
+  }
+  return [];
 }
 
 function toPartRecord(part: GenericTextPart): Record<string, unknown> {
@@ -225,7 +238,7 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
   const genericMessages = toGenericMessages(messages as Parameters<typeof toGenericMessages>[0]);
   return genericMessages.map((message) => {
     const item = message as GenericMessageLike;
-    const content = item.content ?? [];
+    const content = toContentParts(item.content);
     switch (item.role) {
       case 'system':
         return {

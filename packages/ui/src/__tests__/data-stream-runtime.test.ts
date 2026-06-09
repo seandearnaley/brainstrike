@@ -399,6 +399,102 @@ describe('assistant-stream integration', () => {
     expect(JSON.stringify(requestBody)).not.toContain('"type":"text"');
   });
 
+  it('serializes hosted system, file, assistant tool-call, and tool result messages', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-test"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+    const userFileMessage = {
+      ...message('file-user', 'user'),
+      content: [{ type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mimeType: 'text/plain' }],
+    } as unknown as ThreadMessage;
+    const assistantToolCallMessage = {
+      ...message('assistant-tool-call', 'assistant'),
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'lookup',
+          args: { query: 'weather' },
+          result: { tempC: 18 },
+        },
+        {
+          type: 'tool-call',
+          toolCallId: 'call-2',
+          toolName: 'lookup',
+          args: { query: 'broken' },
+          result: { message: 'failed' },
+          isError: true,
+        },
+      ],
+    } as unknown as ThreadMessage;
+
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [message('system prompt', 'system'), userFileMessage, assistantToolCallMessage],
+      })
+    )) {
+      // Consume the response so the request is fully exercised.
+    }
+
+    expect(requestBody?.['messages']).toEqual([
+      {
+        role: 'system',
+        content: [{ text: 'system prompt' }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'lookup',
+            input: { query: 'weather' },
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-2',
+            toolName: 'lookup',
+            input: { query: 'broken' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            toolName: 'lookup',
+            output: { type: 'json', value: { tempC: 18 } },
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'call-2',
+            toolName: 'lookup',
+            output: { type: 'error-json', value: { message: 'failed' } },
+          },
+        ],
+      },
+    ]);
+  });
+
   it('rejects runtime config fields that would override transport protocol data', async () => {
     const onError = vi.fn();
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
@@ -736,6 +832,37 @@ describe('assistant-stream integration', () => {
         message: expect.not.stringContaining('tail-that-should-not-be-read') as string,
       })
     );
+  });
+
+  it('truncates HTTP error responses when a later chunk arrives after the size limit is reached', async () => {
+    const encoder = new TextEncoder();
+    let cancelCalled = false;
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(encoder.encode('x'.repeat(4000)));
+              controller.enqueue(encoder.encode('y'));
+            },
+            cancel() {
+              cancelCalled = true;
+            },
+          }),
+          { status: 500 }
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    await expect(async () => {
+      for await (const _message of adapter.run(runOptions())) {
+        // The response fails before yielding.
+      }
+    }).rejects.toThrow(`Status 500: ${'x'.repeat(4000)}...[truncated]`);
+
+    expect(cancelCalled).toBe(true);
   });
 
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
