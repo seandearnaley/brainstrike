@@ -126,7 +126,11 @@ describe('TreeActionButtons', () => {
       expect(screen.getByTestId('refresh-button-small')).toBeInTheDocument();
     });
 
-    it('shows the indicator spinner while expanding (not refreshing)', () => {
+    it('during expand-all, hides the indicator spinner (expand button already spins) but keeps the count', () => {
+      // The expand-all button swaps its chevron for a spinning Loader2 while
+      // isExpandingAll, so an indicator spinner would be a second spinning
+      // circle in the same row -- the exact redundancy removed for refresh.
+      // The 5/10 count is the intended progress signal during expand.
       renderWithTooltips(
         <TreeActionButtons
           {...defaultProps}
@@ -134,6 +138,15 @@ describe('TreeActionButtons', () => {
           scanningStatus={scanning({ loadedCount: 1, totalCount: 3 })}
         />
       );
+      expect(screen.queryByTestId('inline-scanning-spinner')).not.toBeInTheDocument();
+      expect(screen.getByTestId('inline-scanning-count')).toHaveTextContent('1/3');
+    });
+
+    it('shows the indicator spinner during a first load when nothing else spins', () => {
+      // Plain initial load (not refresh, not expand-all): no adjacent button
+      // is spinning, so the indicator's own spinner is the sole activity cue
+      // and must remain visible.
+      renderWithTooltips(<TreeActionButtons {...defaultProps} scanningStatus={scanning()} />);
       expect(screen.getByTestId('inline-scanning-spinner')).toBeInTheDocument();
     });
 

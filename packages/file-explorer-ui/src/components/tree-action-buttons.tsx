@@ -134,12 +134,19 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
         {/* Inline scanning indicator - shown to the left of action buttons.
             Placed before the (fixed-width) buttons so the filter row's flexible
             search input absorbs its width, keeping the buttons from shifting.
-            While refreshing we hide only the redundant spinner (the Refresh
-            button already spins), NOT the whole indicator: the reload is
-            cancellable and the X is the user's only way to abort a slow/stuck
-            refresh, since the Refresh button is disabled. */}
+            Hide ONLY the indicator's spinner when an adjacent button is already
+            spinning (Refresh while isRefreshing, Expand-all while
+            isExpandingAll) -- two spinning circles in one row is the redundancy
+            this row removes. We never hide the whole indicator: the count is
+            the progress signal during expand, and the cancel X is the user's
+            only way to abort a slow/stuck reload (the Refresh button is
+            disabled). During a plain first load nothing else spins, so the
+            indicator's own spinner stays visible as the sole activity cue. */}
         {scanningStatus?.isScanning && (
-          <InlineScanningIndicator hideSpinner={isRefreshing} status={scanningStatus} />
+          <InlineScanningIndicator
+            hideSpinner={isRefreshing || isExpandingAll}
+            status={scanningStatus}
+          />
         )}
 
         <Tooltip>
