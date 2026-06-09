@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import * as panelPersistence from '../hooks/use-panel-persistence';
-import { IdeLayout } from '../layout/ide-layout';
+import { IdeLayout, useIdeFileEditor } from '../layout/ide-layout';
+import { PanelLayoutProvider } from '../providers/panel-layout-provider';
 
 // Note: We mock usePanelPersistence below and rely on implicit fallback in IdeLayout.
 
@@ -28,6 +30,7 @@ const panelResizeHandlers: Record<
   string,
   ((panelSize: { asPercentage: number }) => void) | undefined
 > = {};
+const groupHandles: Record<string, { setLayout: Mock }> = {};
 
 // react-resizable-panels v4: onCollapse/onExpand props removed from Panel
 
@@ -50,9 +53,15 @@ vi.mock('react-resizable-panels', () => {
       if (groupRef) {
         groupRef.current = handle;
       }
+      if (orientation) {
+        groupHandles[orientation] = handle;
+      }
       return () => {
         if (groupRef && groupRef.current === handle) {
           groupRef.current = null;
+        }
+        if (orientation && groupHandles[orientation] === handle) {
+          delete groupHandles[orientation];
         }
       };
     }, [groupRef, handle]);
@@ -172,6 +181,9 @@ describe('IdeLayout', () => {
     for (const key of Object.keys(panelResizeHandlers)) {
       delete panelResizeHandlers[key];
     }
+    for (const key of Object.keys(groupHandles)) {
+      delete groupHandles[key];
+    }
 
     mockState = {
       sizes: [25, 20, 30],
@@ -239,6 +251,118 @@ describe('IdeLayout', () => {
       'data-max-size',
       '75%'
     );
+  });
+
+  it('exposes the registered file editor opener through layout context', () => {
+    const openFile = vi.fn();
+
+    function RegisteringChild() {
+      const { openFileInTab, registerOpenFileInTab } = useIdeFileEditor();
+
+      useEffect(() => {
+        registerOpenFileInTab(openFile);
+      }, [registerOpenFileInTab]);
+
+      return (
+        <button onClick={() => openFileInTab?.('workspace:file.ts')} type="button">
+          Open registered file
+        </button>
+      );
+    }
+
+    render(
+      <IdeLayout>
+        <RegisteringChild />
+      </IdeLayout>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open registered file' }));
+
+    expect(openFile).toHaveBeenCalledWith('workspace:file.ts');
+  });
+
+  it('routes panel changes through controlled provider state', () => {
+    const onChange = vi.fn();
+
+    render(
+      <PanelLayoutProvider
+        controlledState={{
+          sizes: [25, 5, 20],
+          showConsole: false,
+          showLeftPanel: false,
+          showRightPanel: false,
+        }}
+        onChange={onChange}
+      >
+        <IdeLayout rightPanelContent={rightContent}>
+          <div>Main Content</div>
+        </IdeLayout>
+      </PanelLayoutProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('show-tools-panel'));
+
+    expect(onChange).toHaveBeenCalledWith({
+      sizes: [25, 20, 20],
+      showConsole: false,
+      showLeftPanel: false,
+      showRightPanel: true,
+    });
+  });
+
+  it('ignores layout callbacks until the initial layout is applied', () => {
+    vi.useFakeTimers();
+    Object.assign(mockState, {
+      showLeftPanel: true,
+      showRightPanel: true,
+      showConsole: true,
+    });
+    const { unmount } = renderDefaultLayout();
+
+    handlers.horizontal[0]?.({
+      'explorer-panel': 40,
+      'middle-panel': 40,
+      'tools-panel': 20,
+    });
+    handlers.vertical[0]?.({
+      'main-content-panel': 70,
+      'console-panel': 30,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
+
+    expect(mockState.saveLayout).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('normalizes invalid persisted panel sizes before applying the initial layout', () => {
+    vi.useFakeTimers();
+    Object.assign(mockState, {
+      sizes: [Number.NaN, 4, undefined],
+      showConsole: true,
+      showLeftPanel: true,
+      showRightPanel: true,
+    });
+    const { unmount } = renderDefaultLayout();
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+
+    expect(groupHandles['horizontal']?.setLayout).toHaveBeenCalledWith({
+      'explorer-panel': 25,
+      'middle-panel': 55,
+      'tools-panel': 20,
+    });
+    expect(groupHandles['vertical']?.setLayout).toHaveBeenCalledWith({
+      'console-panel': 20,
+      'main-content-panel': 80,
+    });
+
+    unmount();
   });
 
   it('calls saveLayout from layout callbacks', () => {
