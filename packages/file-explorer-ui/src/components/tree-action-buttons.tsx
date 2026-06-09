@@ -63,7 +63,6 @@ const InlineScanningIndicator: React.FC<{
     <div
       className={cn('flex items-center gap-1.5', isCancelling && 'opacity-60')}
       data-testid="inline-scanning-indicator"
-      title={currentPath}
     >
       {!hideSpinner && (
         <Loader2
@@ -78,6 +77,7 @@ const InlineScanningIndicator: React.FC<{
           <span
             className="text-right text-muted-foreground text-xs tabular-nums"
             data-testid="inline-scanning-count"
+            title={currentPath}
           >
             {countText}
           </span>

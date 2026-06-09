@@ -104,6 +104,31 @@ describe('TreeActionButtons', () => {
       expect(indicator).not.toHaveTextContent('5/10');
     });
 
+    it('scopes the currentPath tooltip to the count, not the indicator or cancel button', () => {
+      // A container-level `title` bled onto the cancel <Button>, stacking a
+      // native tooltip on top of its Radix "Cancel operation" tooltip. Keep the
+      // currentPath hover scoped to the (non-interactive) count span.
+      renderWithTooltips(
+        <TreeActionButtons
+          {...defaultProps}
+          isExpandingAll
+          scanningStatus={scanning({
+            currentPath: 'Loading 5/10 directories',
+            loadedCount: 5,
+            totalCount: 10,
+          })}
+        />
+      );
+      expect(screen.getByTestId('inline-scanning-count')).toHaveAttribute(
+        'title',
+        'Loading 5/10 directories'
+      );
+      expect(screen.getByTestId('inline-scanning-indicator')).not.toHaveAttribute('title');
+      expect(screen.getByRole('button', { name: /cancel operation/i })).not.toHaveAttribute(
+        'title'
+      );
+    });
+
     it('does not render the indicator when not scanning', () => {
       renderWithTooltips(<TreeActionButtons {...defaultProps} scanningStatus={null} />);
       expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();
