@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test } from 'vitest';
 import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
+import { TooltipProvider } from '../tooltip';
 
 const baseProps = {
   type: 'tool-call' as const,
@@ -19,7 +20,13 @@ describe('ToolFallback browser behavior', () => {
   test('keeps tool details collapsed until the user expands them', async () => {
     const user = userEvent.setup();
 
-    render(<ToolFallback {...baseProps} result={{ echoed: 'hello' }} />);
+    // ToolFallback's status tooltip needs the app-level TooltipProvider
+    // (mounted once in app-shell's app-layout in the real app).
+    render(
+      <TooltipProvider>
+        <ToolFallback {...baseProps} result={{ echoed: 'hello' }} />
+      </TooltipProvider>
+    );
 
     expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
     expect(screen.queryByText('Result:')).not.toBeInTheDocument();
