@@ -78,3 +78,7 @@
 ## 2026-06-07 - Synthetic Electron handle path joins avoid segment arrays
 **Learning:** `packages/file-explorer-ui/src/indexing/background-token-indexer-handles.ts` builds synthetic Electron paths for bulk selected files during background token indexing. The old `relativePath.split('/').filter(...).join(...)` normalization measured 686.90ms over 100k paths x 30 runs on Node 24.16.0; direct trailing-separator trimming plus slash scanning measured 367.53ms with output parity.
 **Action:** Keep `joinElectronAbsolutePath()` on direct slash scanning for synthetic handle creation; do not reintroduce split/filter/join in the bulk indexing path.
+
+## 2026-06-09 - Collection tree search ID prefix stripping avoids regex
+**Learning:** `packages/ui/src/collection-browser/use-collection-tree.ts` builds searchable fields for every candidate node while filtering and highlighting collection-browser search results. Replacing `node.id.replace(/^(collection|file|chunk|embedding)-/, '')` with explicit known-prefix checks measured 241.75ms -> 228.93ms over 500k node IDs x 20 runs on Node 24.16.0 with identical output totals.
+**Action:** Keep collection-browser searchable node ID normalization on explicit `startsWith`/`slice` checks for the fixed node-id prefixes; do not reintroduce regex replacement in this per-node search path.
