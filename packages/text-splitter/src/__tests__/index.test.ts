@@ -272,6 +272,29 @@ describe('@brainstrike/text-splitter', () => {
     ).toThrow('chunkOverlap must be smaller than chunkSize');
   });
 
+  it('throws on invalid text and size inputs', () => {
+    expect(() =>
+      splitTextRecursively(123 as unknown as string, {
+        chunkSize: 4,
+        chunkOverlap: 0,
+      })
+    ).toThrow('text must be a string');
+
+    expect(() =>
+      splitTextRecursively('abc', {
+        chunkSize: 0,
+        chunkOverlap: 0,
+      })
+    ).toThrow('chunkSize must be a positive integer');
+
+    expect(() =>
+      splitTextRecursively('abc', {
+        chunkSize: 4,
+        chunkOverlap: -1,
+      })
+    ).toThrow('chunkOverlap must be a non-negative integer');
+  });
+
   it('throws on invalid separator configuration', () => {
     expect(() =>
       splitTextRecursively('abc', {
@@ -280,5 +303,33 @@ describe('@brainstrike/text-splitter', () => {
         separators: [],
       })
     ).toThrow('separators must contain at least one entry');
+
+    expect(() =>
+      splitTextRecursively('abc', {
+        chunkSize: 4,
+        chunkOverlap: 0,
+        separators: [' ', 1 as unknown as string],
+      })
+    ).toThrow('separators must be strings');
+  });
+
+  it('uses custom strategy separators without mutating shared defaults', () => {
+    const chunks = splitTextByStrategy('alpha::beta::gamma', {
+      strategy: 'markdown',
+      chunkSize: 8,
+      chunkOverlap: 0,
+      separators: ['::', ''],
+    });
+
+    expect(chunks).toEqual(['alpha::', 'beta::', 'gamma']);
+    expect(
+      splitTextByStrategy('abcdef', { strategy: 'character', chunkSize: 10, chunkOverlap: 0 })
+    ).toEqual(['abcdef']);
+  });
+
+  it('throws for unknown preset ids', () => {
+    expect(() => getChunkingPreset('missing' as Parameters<typeof getChunkingPreset>[0])).toThrow(
+      'Unknown chunking preset: missing'
+    );
   });
 });
