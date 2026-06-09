@@ -378,25 +378,35 @@ function TreeTableViewport({
   );
 }
 
-function buildFallbackVirtualItems(rowCount: number, overscan: number): Array<{ index: number }> {
+interface TreeTableVirtualItem {
+  end?: number;
+  index: number;
+  start?: number;
+}
+
+function buildFallbackVirtualItems(rowCount: number, overscan: number): TreeTableVirtualItem[] {
   const fallbackCount = Math.min(rowCount, Math.max(MIN_FALLBACK_VIRTUAL_ROWS, overscan * 2));
   return Array.from({ length: fallbackCount }, (_, index) => ({ index }));
 }
 
 function resolveRenderedVirtualItems(
   isVirtualWindowing: boolean,
-  virtualItems: Array<{ index: number }>,
+  virtualItems: TreeTableVirtualItem[],
   rowCount: number,
   overscan: number
-): Array<{ index: number }> {
+): TreeTableVirtualItem[] {
   if (!isVirtualWindowing) {
     return [];
   }
-  if (virtualItems.length > 0 || rowCount === 0) {
-    return virtualItems;
+  const validVirtualItems = virtualItems.filter(
+    (virtualItem) => virtualItem.index >= 0 && virtualItem.index < rowCount
+  );
+  if (validVirtualItems.length > 0 || rowCount === 0) {
+    return validVirtualItems;
   }
   // During first paint react-virtual can briefly report zero measured items.
-  // Render a small fallback slice to avoid an empty table flash until measurement completes.
+  // It can also briefly report stale indexes after a row-count collapse.
+  // Render a small fallback slice to avoid an empty table flash until measurement settles.
   return buildFallbackVirtualItems(rowCount, overscan);
 }
 
@@ -963,13 +973,18 @@ export function TreeTable<T>({
   const virtualRowMeasureProps = resolveVirtualRowMeasureProps(hasFixedRowHeight, measureRow);
   const renderedVirtualItems = resolveRenderedVirtualItems(
     isVirtualWindowing,
-    virtualItems as Array<{ index: number }>,
+    virtualItems as TreeTableVirtualItem[],
     rows.length,
     overscan
   );
   const totalSize = isVirtualWindowing ? rowVirtualizer.getTotalSize() : 0;
-  const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
-  const paddingBottom = virtualItems.length > 0 ? totalSize - (virtualItems.at(-1)?.end ?? 0) : 0;
+  const firstRenderedVirtualItem = renderedVirtualItems[0];
+  const lastRenderedVirtualItem = renderedVirtualItems.at(-1);
+  const paddingTop = firstRenderedVirtualItem?.start ?? 0;
+  const paddingBottom =
+    lastRenderedVirtualItem?.end === undefined
+      ? 0
+      : Math.max(0, totalSize - lastRenderedVirtualItem.end);
   const shouldShowPagination = isPagedWindowing ? (pagination?.showControls ?? true) : false;
   const tablePaginationProps = React.useMemo(
     () =>

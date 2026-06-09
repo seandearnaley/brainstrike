@@ -48,6 +48,7 @@ import {
   supportsStreaming,
 } from '../utils/lazy-tree-loader';
 import {
+  applyNormalizedDirectoryChildrenUpdates,
   createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
   getNormalizedDescendantFileCount,
@@ -56,6 +57,7 @@ import {
   materializeNormalizedFileTree,
   materializeNormalizedShallowNode,
   materializeNormalizedSubtree,
+  type NormalizedDirectoryChildrenUpdate,
   type NormalizedFileTreeState,
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
@@ -426,8 +428,13 @@ function applyWorkerPatchesToNormalizedTree(args: {
   normalizedTree: NormalizedFileTreeState;
 } {
   const { handleMap, patches } = args;
-  let nextNormalizedTree = args.normalizedTree;
+  const childrenUpdates: NormalizedDirectoryChildrenUpdate[] = [];
   const indexedNodes: IFileNode[] = [];
+  const loadedChildrenPaths = new Set<string>();
+  const loadStatePatches: Extract<
+    AccumulatedFileTreePatchMessage,
+    { type: 'nodeLoadStateChanged' }
+  >[] = [];
 
   for (const patch of patches) {
     if (patch.type === 'childrenLoaded') {
@@ -436,28 +443,42 @@ function applyWorkerPatchesToNormalizedTree(args: {
         patch.payload.children,
         handleMap
       );
-      nextNormalizedTree = replaceNormalizedDirectoryChildren(
-        nextNormalizedTree,
-        patch.payload.path,
+      childrenUpdates.push({
         children,
-        patch.payload.loadState
-      );
+        loadState: patch.payload.loadState,
+        path: patch.payload.path,
+      });
+      loadedChildrenPaths.add(patch.payload.path);
       indexedNodes.push(...children);
       continue;
     }
 
     if (patch.type === 'nodeLoadStateChanged') {
-      nextNormalizedTree = setNormalizedNodeLoadState(
-        nextNormalizedTree,
-        patch.payload.path,
-        patch.payload.loadState,
-        patch.payload.loadError
-      );
+      loadStatePatches.push(patch);
       continue;
     }
 
     const _exhaustive: never = patch;
     throw new Error(`Unhandled file tree worker patch: ${JSON.stringify(_exhaustive)}`);
+  }
+
+  let nextNormalizedTree = applyNormalizedDirectoryChildrenUpdates(
+    args.normalizedTree,
+    childrenUpdates
+  );
+
+  // Child replacement patches carry the authoritative final load state.
+  // Apply load-state-only patches afterward, but ignore stale loading events for loaded paths.
+  for (const patch of loadStatePatches) {
+    if (patch.payload.loadState === 'loading' && loadedChildrenPaths.has(patch.payload.path)) {
+      continue;
+    }
+    nextNormalizedTree = setNormalizedNodeLoadState(
+      nextNormalizedTree,
+      patch.payload.path,
+      patch.payload.loadState,
+      patch.payload.loadError
+    );
   }
 
   return { indexedNodes, normalizedTree: nextNormalizedTree };
