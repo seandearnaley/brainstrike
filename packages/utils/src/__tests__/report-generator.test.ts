@@ -8,7 +8,11 @@ import type {
 } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { extractPathSegments } from '../path-utils.js';
-import { generateReport, generateReportFromAdapter } from '../report-generator';
+import {
+  generateReport,
+  generateReportFromAdapter,
+  normalizeContextLineRanges,
+} from '../report-generator';
 
 interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
@@ -444,6 +448,26 @@ describe('reportGenerator', () => {
   beforeEach(() => {
     mockRootDirectoryHandle = createMockDirectoryHandle();
     vi.clearAllMocks();
+  });
+
+  it('normalizes context line ranges by filtering, clamping, sorting, and merging', () => {
+    expect(normalizeContextLineRanges(undefined, 10)).toEqual([]);
+
+    expect(
+      normalizeContextLineRanges(
+        [
+          { startLine: 7, endLine: 9 },
+          { startLine: 2, endLine: 5.8 },
+          { startLine: 1, endLine: 3 },
+          { startLine: 0, endLine: 1, isActive: false },
+          { startLine: 20, endLine: 30 },
+        ],
+        10
+      )
+    ).toEqual([
+      { startLine: 1, endLine: 5 },
+      { startLine: 7, endLine: 10 },
+    ]);
   });
 
   it('generates a basic report without project tree', async () => {

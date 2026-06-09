@@ -192,6 +192,18 @@ describe('logger', () => {
       expect(record?.message).toBe('main-process-health');
       expect(record?.args).toEqual([{ cpuPercent: 34, rssKb: 790_480 }, 'main-process-health']);
     });
+
+    it('handles empty and metadata-only log calls', () => {
+      const records = collectLogs(() => {
+        info();
+        warn({ retryCount: 2 });
+      });
+
+      expect(records[0]?.args).toEqual([]);
+      expect(records[0]?.message).toBeUndefined();
+      expect(records[1]?.args).toEqual([{ retryCount: 2 }]);
+      expect(records[1]?.message).toBeUndefined();
+    });
   });
 
   describe('legacy aliases', () => {
@@ -398,6 +410,18 @@ describe('logger', () => {
       expect(__loggerTesting.formatBrowserConsoleMessage('plain text', 'scope', {})).toBe(
         'plain text'
       );
+
+      expect(
+        __loggerTesting.formatBrowserConsoleMessage(
+          {
+            level: 30,
+            msg: 'message only',
+            time: 123,
+          },
+          'scope',
+          {}
+        )
+      ).toBe('message only');
 
       expect(
         __loggerTesting.formatBrowserConsoleMessage(
