@@ -381,6 +381,32 @@ describe('processFileChunking', () => {
     ).rejects.toThrow('Chunking worker is required but not available');
   });
 
+  it('fails fast when the worker becomes unavailable at execution time', async () => {
+    mockRepository.findById.mockResolvedValue({
+      id: 'file-1',
+      name: 'test.txt',
+      path: '/test.txt',
+      content: 'File content to be chunked',
+    });
+
+    const notReadyWorkerPort = createMockChunkingWorkerPort({
+      isReady: vi.fn().mockReturnValue(false),
+    });
+
+    await expect(
+      processFileChunking(
+        { id: 'file-1', imported: true, existed: false },
+        0,
+        1,
+        0,
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { updateProgress: mockUpdateProgress, chunkingWorkerPort: notReadyWorkerPort }
+      )
+    ).rejects.toThrow('Chunking worker is not ready at chunk execution time');
+
+    expect(notReadyWorkerPort.chunkFile).not.toHaveBeenCalled();
+  });
+
   it('updates progress correctly via worker', async () => {
     mockRepository.findById.mockResolvedValue({
       id: 'file-1',
@@ -523,6 +549,44 @@ describe('processChunking', () => {
         { updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Repository not available for chunking');
+  });
+
+  it('throws when processChunking is called without a worker port', async () => {
+    await expect(
+      processChunking(
+        [{ id: 'file-1', imported: true, existed: false }],
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { updateProgress: mockUpdateProgress }
+      )
+    ).rejects.toThrow('Chunking worker is required for imports but was not provided');
+
+    expect(mockRepository.findByIds).not.toHaveBeenCalled();
+  });
+
+  it('times out instead of degrading when the worker never becomes ready', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const unavailableWorkerPort = createMockChunkingWorkerPort({
+        isReady: vi.fn().mockReturnValue(false),
+      });
+
+      const chunkingPromise = processChunking(
+        [{ id: 'file-1', imported: true, existed: false }],
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { updateProgress: mockUpdateProgress, chunkingWorkerPort: unavailableWorkerPort }
+      );
+      const rejection = expect(chunkingPromise).rejects.toThrow(
+        'Chunking worker failed to become ready within 5000ms'
+      );
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(mockRepository.findByIds).not.toHaveBeenCalled();
   });
 
   it('processes multiple files successfully via worker', async () => {
