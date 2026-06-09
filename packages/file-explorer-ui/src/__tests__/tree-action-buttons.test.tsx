@@ -108,5 +108,27 @@ describe('TreeActionButtons', () => {
       renderWithTooltips(<TreeActionButtons {...defaultProps} scanningStatus={null} />);
       expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();
     });
+
+    it('suppresses the indicator during a refresh so it does not double the spinner', () => {
+      // A refresh sets isInitialLoading -> scanningStatus.isScanning, but the
+      // refresh button already spins. Showing the bare-spinner indicator too
+      // crowded the filter row, so it must stay hidden while refreshing.
+      renderWithTooltips(
+        <TreeActionButtons {...defaultProps} isRefreshing scanningStatus={scanning()} />
+      );
+      expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();
+      expect(screen.getByTestId('refresh-button-small')).toBeInTheDocument();
+    });
+
+    it('still shows the count indicator during expand-all even alongside other work', () => {
+      renderWithTooltips(
+        <TreeActionButtons
+          {...defaultProps}
+          isExpandingAll
+          scanningStatus={scanning({ loadedCount: 5, totalCount: 10 })}
+        />
+      );
+      expect(screen.getByTestId('inline-scanning-indicator')).toHaveTextContent('5/10');
+    });
   });
 });

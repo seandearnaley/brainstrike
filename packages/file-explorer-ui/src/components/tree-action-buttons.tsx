@@ -120,8 +120,12 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
       <div className="flex shrink-0 items-center gap-1">
         {/* Inline scanning indicator - shown to the left of action buttons.
             Placed before the (fixed-width) buttons so the filter row's flexible
-            search input absorbs its width, keeping the buttons from shifting. */}
-        {scanningStatus?.isScanning && <InlineScanningIndicator status={scanningStatus} />}
+            search input absorbs its width, keeping the buttons from shifting.
+            Suppressed while refreshing: the refresh button already spins, and a
+            second bare-spinner here just crowded the filter row. */}
+        {scanningStatus?.isScanning && !isRefreshing && (
+          <InlineScanningIndicator status={scanningStatus} />
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>
