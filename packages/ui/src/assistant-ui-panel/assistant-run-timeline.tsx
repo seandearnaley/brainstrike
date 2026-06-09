@@ -5,7 +5,15 @@ import type {
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Clock3, Radio } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  CircleDashed,
+  Clock3,
+  Radio,
+} from 'lucide-react';
 import * as m from 'motion/react-m';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
@@ -37,7 +45,7 @@ function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus })
     return <AlertCircle className="size-4 text-muted-foreground" />;
   }
   if (status === 'running') {
-    return <Clock3 className="size-4 text-muted-foreground" />;
+    return <CircleDashed className="size-4 text-muted-foreground" />;
   }
   return <Radio className="size-4 text-sky-600 dark:text-sky-400" />;
 }
