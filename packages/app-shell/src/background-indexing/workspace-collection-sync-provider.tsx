@@ -33,6 +33,7 @@ import {
   type WorkspaceIndexingPowerSnapshot,
 } from '@brainstrike/utils/workspace-indexing-power-snapshot';
 import {
+  createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
   type WorkspaceIndexingQosPolicy,
@@ -392,13 +393,18 @@ export function WorkspaceCollectionSyncProvider({
     }
   }, [runtimeController]);
 
+  // useState lazy initializer guarantees one transition tracker per provider
+  // instance: the sync loop re-resolves the QoS policy every cycle, and the
+  // tracker logs only (state, reason) transitions instead of every resolution.
+  const [observeQosTransition] = useState(() => createWorkspaceIndexingQosTransitionLogger());
+
   const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
     if (!readDatabasePressure) {
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
     }
     const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
     const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
-    return resolveWorkspaceIndexingQosPolicy({
+    const policy = resolveWorkspaceIndexingQosPolicy({
       dbPressure: await readDatabasePressure(),
       // Coarse app-shell signal: this spans the full assistant turn so background
       // indexing yields while tool/LLM work is active. The desktop hidden-host
@@ -415,7 +421,9 @@ export function WorkspaceCollectionSyncProvider({
       thermalState: powerSnapshot?.thermalState ?? 'unknown',
       windowVisible: windowVisibleRef.current,
     });
-  }, [readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
+    observeQosTransition(policy);
+    return policy;
+  }, [observeQosTransition, readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
 
   const service = useMemo(() => {
     if (

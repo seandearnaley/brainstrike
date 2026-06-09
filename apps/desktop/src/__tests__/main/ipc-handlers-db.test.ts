@@ -30,12 +30,15 @@ describe('database IPC handlers', () => {
 
     let releaseWork: (() => void) | null = null;
     const workStarted = new Promise<void>((resolve) => {
-      void runDesktopScheduledDatabaseWork({ label: 'shutdown-drain-test' }, async () => {
-        resolve();
-        await new Promise<void>((release) => {
-          releaseWork = release;
-        });
-      });
+      void runDesktopScheduledDatabaseWork(
+        { label: 'shutdown-drain-test', priority: 'normal' },
+        async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseWork = release;
+          });
+        }
+      );
     });
 
     await workStarted;
@@ -77,7 +80,7 @@ describe('database IPC handlers', () => {
 
     let workStarted = false;
     const pendingWork = runDesktopScheduledDatabaseWork(
-      { label: 'reset-submitted-live-query' },
+      { label: 'reset-submitted-live-query', priority: 'foreground' },
       async () => {
         workStarted = true;
         return 'ran-after-reset';
@@ -687,12 +690,15 @@ describe('database IPC handlers', () => {
     const { runDesktopScheduledDatabaseWork } = await import('../../ipc-handlers');
     let releaseWork: (() => void) | null = null;
     const workStarted = new Promise<void>((resolve) => {
-      void runDesktopScheduledDatabaseWork({ label: 'reset-drain-test' }, async () => {
-        resolve();
-        await new Promise<void>((release) => {
-          releaseWork = release;
-        });
-      });
+      void runDesktopScheduledDatabaseWork(
+        { label: 'reset-drain-test', priority: 'normal' },
+        async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseWork = release;
+          });
+        }
+      );
     });
     await workStarted;
 

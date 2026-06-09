@@ -1,6 +1,6 @@
 import {
-  type DatabaseWorkOptions,
   type DatabaseWorkPriority,
+  type DatabaseWorkRunOptions,
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
   runScheduledDatabaseMaintenance,
   type ScheduledDatabaseMaintenanceOptions,
@@ -17,7 +17,7 @@ interface SchedulerSnapshot {
 type MaintenanceDb = Parameters<typeof runScheduledDatabaseMaintenance>[0];
 
 type RunScheduledWork = <TResult>(
-  options: DatabaseWorkOptions,
+  options: DatabaseWorkRunOptions,
   work: () => Promise<TResult>
 ) => Promise<TResult>;
 
@@ -65,7 +65,7 @@ export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly runScheduledWork: RunScheduledWork;
 }
 
-const MAINTENANCE_WORK_OPTIONS: DatabaseWorkOptions = {
+const MAINTENANCE_WORK_OPTIONS: DatabaseWorkRunOptions = {
   label: 'scheduled-db-maintenance',
   priority: 'background',
 };

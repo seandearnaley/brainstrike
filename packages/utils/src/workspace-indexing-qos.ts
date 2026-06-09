@@ -1,3 +1,9 @@
+// Self-import via the package subpath (not './logger'): tsup builds with
+// `splitting: false`, so a relative import would inline a private logger copy
+// into the dist chunk with its own listener registry. The subpath is in tsup's
+// `external` list and resolves to the shared logger singleton at runtime.
+import { createLogger } from '@brainstrike/utils/logger';
+
 export type WorkspaceIndexingQosState =
   | 'balanced'
   | 'foreground-yielding'
@@ -184,6 +190,41 @@ function isIdleOnAc(inputs: WorkspaceIndexingQosInputs): boolean {
     inputs.idleTimeMs >= IDLE_AC_MIN_IDLE_MS &&
     !inputs.windowVisible
   );
+}
+
+interface WorkspaceIndexingQosObservation {
+  readonly reason: WorkspaceIndexingQosReason;
+  readonly state: WorkspaceIndexingQosState;
+}
+
+/**
+ * Creates a stateful observer that logs workspace-indexing QoS transitions.
+ *
+ * Consumers re-resolve the QoS policy on every claim/permit cycle, so logging
+ * each resolution would flood the logs. This logger emits only when the
+ * (state, reason) pair actually changes — including reason-only changes within
+ * the same state (e.g. system-constrained: battery → thermal-serious), which
+ * matter when diagnosing why background indexing throttled.
+ */
+export function createWorkspaceIndexingQosTransitionLogger(): (
+  policy: WorkspaceIndexingQosPolicy
+) => void {
+  const logger = createLogger('WorkspaceIndexingQos');
+  let previous: WorkspaceIndexingQosObservation | null = null;
+  return (policy: WorkspaceIndexingQosPolicy): void => {
+    if (previous && previous.state === policy.state && previous.reason === policy.reason) {
+      return;
+    }
+    const next: WorkspaceIndexingQosObservation = {
+      reason: policy.reason,
+      state: policy.state,
+    };
+    logger.info('Workspace indexing QoS state changed', {
+      from: previous,
+      to: next,
+    });
+    previous = next;
+  };
 }
 
 export function resolveWorkspaceIndexingQosPolicy(

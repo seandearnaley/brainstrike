@@ -189,6 +189,68 @@ describe('createLocalModelAdapter', () => {
     });
   });
 
+  it('invokes onActivity for streamed snapshots and survives hook failures', async () => {
+    let progressListener: ((progress: unknown) => void) | null = null;
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
+      progressListener?.({
+        type: 'progress',
+        requestId: requestId ?? 'req-activity',
+        payload: {
+          clientRequestId: requestId,
+          kind: 'reasoning',
+          reasoningText: 'Thinking about it.',
+        },
+      });
+      progressListener?.({
+        type: 'progress',
+        requestId: requestId ?? 'req-activity',
+        payload: {
+          clientRequestId: requestId,
+          kind: 'text',
+          text: 'Here is the answer.',
+        },
+      });
+      return createGenerationResult({ text: 'Here is the answer.' });
+    });
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: (callback: (progress: unknown) => void) => {
+          progressListener = callback;
+          return () => {
+            progressListener = null;
+          };
+        },
+      },
+    });
+
+    const onActivity = vi.fn(() => {
+      throw new Error('activity hook failed');
+    });
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onActivity,
+      thinkingEnabled: true,
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    // Both reasoning and text snapshots count as activity, and a throwing
+    // hook must not break the stream.
+    expect(onActivity.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        {
+          type: 'text',
+          text: 'Here is the answer.',
+        },
+      ]),
+    });
+  });
+
   it('completes prepared runtime data when a local run has no message content', async () => {
     const completeRuntimeData = vi.fn();
     const preparedRuntimeData = { memory: { runId: 'run-empty' } };

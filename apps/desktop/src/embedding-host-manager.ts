@@ -457,14 +457,26 @@ export class EmbeddingHostManager {
     if (this.powerSaveBlockerId === null) {
       return;
     }
-    if (powerSaveBlocker.isStarted(this.powerSaveBlockerId)) {
-      powerSaveBlocker.stop(this.powerSaveBlockerId);
-      logger.info('powerSaveBlocker stopped for idle embedding host', {
+    try {
+      if (powerSaveBlocker.isStarted(this.powerSaveBlockerId)) {
+        powerSaveBlocker.stop(this.powerSaveBlockerId);
+        logger.info('powerSaveBlocker stopped for idle embedding host', {
+          id: this.powerSaveBlockerId,
+          runtimeId: this.getStatus().runtimeId,
+        });
+      }
+    } catch (stopError) {
+      // Loud-but-recoverable: surface the failure, but never leave the stale id
+      // in place — that would permanently wedge syncPowerSaveBlocker so no
+      // future blocker could ever start.
+      logger.warn('powerSaveBlocker stop failed; clearing stale blocker id', {
+        error: stopError,
         id: this.powerSaveBlockerId,
         runtimeId: this.getStatus().runtimeId,
       });
+    } finally {
+      this.powerSaveBlockerId = null;
     }
-    this.powerSaveBlockerId = null;
   }
 
   private assertNotDisposed(

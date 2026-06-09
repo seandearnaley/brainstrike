@@ -41,7 +41,10 @@ import {
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { acquireAssistantForegroundActivity } from './assistant-foreground-activity';
+import {
+  acquireAssistantForegroundActivity,
+  renewAssistantForegroundActivityLeases,
+} from './assistant-foreground-activity';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -1410,6 +1413,7 @@ export function AssistantUiPanelWrapper({
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       onProviderSettingsChange={handleProviderSettingsChange}
+      onStreamActivity={renewAssistantForegroundActivityLeases}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       prepareRequestData={prepareRequestData}

@@ -26,10 +26,13 @@ describe('desktop database work platform', () => {
     await resetStarted;
 
     let workStarted = false;
-    const pendingWork = runDesktopScheduledDatabaseWork({ label: 'blocked-by-reset' }, async () => {
-      workStarted = true;
-      return 'ran';
-    });
+    const pendingWork = runDesktopScheduledDatabaseWork(
+      { label: 'blocked-by-reset', priority: 'foreground' },
+      async () => {
+        workStarted = true;
+        return 'ran';
+      }
+    );
     await Promise.resolve();
 
     expect(workStarted).toBe(false);
@@ -50,12 +53,15 @@ describe('desktop database work platform', () => {
   it('waits for scheduled work to drain', async () => {
     let releaseWork: (() => void) | null = null;
     const workStarted = new Promise<void>((resolve) => {
-      void runDesktopScheduledDatabaseWork({ label: 'idle-drain' }, async () => {
-        resolve();
-        await new Promise<void>((release) => {
-          releaseWork = release;
-        });
-      });
+      void runDesktopScheduledDatabaseWork(
+        { label: 'idle-drain', priority: 'foreground' },
+        async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseWork = release;
+          });
+        }
+      );
     });
     await workStarted;
 
@@ -118,7 +124,10 @@ describe('desktop database work platform', () => {
   it('rejects scheduled database work submitted from inside the active reset barrier', async () => {
     await expect(
       runWithDesktopDatabaseResetBarrier(async () => {
-        await runDesktopScheduledDatabaseWork({ label: 'nested-reset-work' }, async () => 'ran');
+        await runDesktopScheduledDatabaseWork(
+          { label: 'nested-reset-work', priority: 'foreground' },
+          async () => 'ran'
+        );
       })
     ).rejects.toThrow(
       'Desktop database work cannot be scheduled from inside the active reset barrier.'
