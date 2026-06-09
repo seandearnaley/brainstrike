@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BFSEngine } from './bfs-engine';
+import { BFSEngine, MAX_EXPAND_DIRECTORIES } from './bfs-engine';
 import type { WorkerFileNode, WorkerToMainMessage } from './types';
 
 // Test fixtures
@@ -82,6 +82,23 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
 
+    it('clears stale load errors when a directory later loads successfully', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+
+      const updatedNode = engine.getTree()[0];
+      expect(updatedNode).toEqual(expect.objectContaining({ loadState: 'loaded' }));
+      expect(updatedNode?.loadError).toBeUndefined();
+    });
+
     it('should emit children-loaded patch without a redundant loaded-state patch', () => {
       const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
       engine.setTree(tree, 'root');
@@ -142,6 +159,54 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
 
+    it('correlates successful load results to the matching request id', async () => {
+      const tree = [
+        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+
+      const firstLoad = engine.loadPaths(['/root/dir1'], 11);
+      const secondLoad = engine.loadPaths(['/root/dir2'], 22);
+
+      await vi.waitFor(() => {
+        expect(messages.filter((message) => message.type === 'requestLoad')).toHaveLength(2);
+      });
+      const requestMessages = messages.filter((message) => message.type === 'requestLoad');
+      const firstRequest = requestMessages[0];
+      const secondRequest = requestMessages[1];
+      if (firstRequest?.type !== 'requestLoad' || secondRequest?.type !== 'requestLoad') {
+        throw new Error('expected correlated load requests');
+      }
+
+      engine.handleLoadResult(
+        '/root/dir2',
+        [createFileNode({ path: '/root/dir2/file.txt' })],
+        secondRequest.payload.requestId
+      );
+      engine.handleLoadResult(
+        '/root/dir1',
+        [createFileNode({ path: '/root/dir1/file.txt' })],
+        firstRequest.payload.requestId
+      );
+
+      await Promise.all([firstLoad, secondLoad]);
+
+      const completedOperationIds = messages
+        .filter((message) => message.type === 'complete')
+        .map((message) => message.operationId);
+      expect(completedOperationIds).toEqual(expect.arrayContaining([11, 22]));
+      expect(messages).toContainEqual({
+        type: 'childrenLoaded',
+        operationId: 22,
+        payload: {
+          path: '/root/dir2',
+          children: [createFileNode({ path: '/root/dir2/file.txt' })],
+          loadState: 'loaded',
+        },
+      });
+    });
+
     it('should maintain the path index without a full rebuild after directory loads', () => {
       const tree = [
         createDirectoryNode({
@@ -191,6 +256,34 @@ describe('BFSEngine', () => {
 
       expect(indexedEngine.findNode('/root/dir/stale.txt')).toBeNull();
       expect(indexedEngine.findNode('/root/dir/fresh.txt')?.name).toBe('fresh.txt');
+    });
+
+    it('should emit a loading-state patch for external directory updates', () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      engine.applyDirectoryChildrenUpdate('/root/dir', [], 'loading', 42);
+
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 42,
+        payload: {
+          path: '/root/dir',
+          loadState: 'loading',
+          loadError: undefined,
+        },
+      });
+      expect(messages.some((message) => message.type === 'childrenLoaded')).toBe(false);
+    });
+
+    it('should ignore external directory updates for paths missing from the index', () => {
+      engine.setTree([createDirectoryNode({ path: '/root/dir' })], 'root');
+      messages = [];
+
+      engine.applyDirectoryChildrenUpdate('/root/missing', [], 'loading', 42);
+
+      expect(messages).toEqual([]);
     });
 
     it('warns when a legacy id-less load result could match multiple pending loads', () => {
@@ -252,6 +345,146 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('error');
       expect(updatedTree[0]?.loadError).toBe('Permission denied');
     });
+
+    it('should resolve a correlated pending path load with an error result', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadPaths(['/root/dir'], 77);
+
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((message) => message.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+      const requestMsg = messages.find((message) => message.type === 'requestLoad');
+      const requestId = requestMsg?.type === 'requestLoad' ? requestMsg.payload.requestId : '';
+
+      engine.handleLoadError('/root/dir', 'Permission denied', requestId);
+
+      await loadPromise;
+
+      const updatedTree = engine.getTree();
+      expect(updatedTree[0]?.loadState).toBe('error');
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 77,
+        payload: {
+          path: '/root/dir',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        },
+      });
+      const completeMsg = messages.find((message) => message.type === 'complete');
+      expect(completeMsg).toEqual({
+        type: 'complete',
+        operationId: 77,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
+    });
+
+    it('correlates legacy id-less load errors after skipping unmatched pending loads', async () => {
+      const tree = [
+        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+      const firstLoad = engine.loadPaths(['/root/dir1'], 51);
+      const secondLoad = engine.loadPaths(['/root/dir2'], 52);
+
+      await vi.waitFor(() => {
+        expect(messages.filter((message) => message.type === 'requestLoad')).toHaveLength(2);
+      });
+
+      engine.handleLoadError('/root/dir2', 'Permission denied');
+      const firstRequest = messages.find(
+        (message) => message.type === 'requestLoad' && message.operationId === 51
+      );
+      if (firstRequest?.type !== 'requestLoad') {
+        throw new Error('expected first request');
+      }
+      engine.handleLoadResult('/root/dir1', [], firstRequest.payload.requestId);
+
+      await Promise.all([firstLoad, secondLoad]);
+
+      expect(engine.getTree()).toEqual([
+        expect.objectContaining({ path: '/root/dir1', loadState: 'loaded' }),
+        expect.objectContaining({
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        }),
+      ]);
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 52,
+        payload: {
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        },
+      });
+    });
+
+    it('clears stale load errors when a directory is marked loading again', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'error',
+          loadError: 'Previous failure',
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.applyDirectoryChildrenUpdate('/root/dir', [], 'loading');
+
+      const updatedNode = engine.getTree()[0];
+      expect(updatedNode).toEqual(expect.objectContaining({ loadState: 'loading' }));
+      expect(updatedNode?.loadError).toBeUndefined();
+    });
+
+    it('correlates load errors without patching unrelated paths', async () => {
+      const tree = [
+        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+
+      const firstLoad = engine.loadPaths(['/root/dir1'], 31);
+      const secondLoad = engine.loadPaths(['/root/dir2'], 32);
+
+      await vi.waitFor(() => {
+        expect(messages.filter((message) => message.type === 'requestLoad')).toHaveLength(2);
+      });
+      const requestMessages = messages.filter((message) => message.type === 'requestLoad');
+      const firstRequest = requestMessages[0];
+      const secondRequest = requestMessages[1];
+      if (firstRequest?.type !== 'requestLoad' || secondRequest?.type !== 'requestLoad') {
+        throw new Error('expected correlated load requests');
+      }
+
+      engine.handleLoadError('/root/dir2', 'Permission denied', secondRequest.payload.requestId);
+      engine.handleLoadResult('/root/dir1', [], firstRequest.payload.requestId);
+
+      await Promise.all([firstLoad, secondLoad]);
+
+      expect(engine.getTree()).toEqual([
+        expect.objectContaining({ path: '/root/dir1', loadState: 'loaded' }),
+        expect.objectContaining({
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        }),
+      ]);
+      expect(messages).toContainEqual({
+        type: 'nodeLoadStateChanged',
+        operationId: 32,
+        payload: {
+          path: '/root/dir2',
+          loadState: 'error',
+          loadError: 'Permission denied',
+        },
+      });
+    });
   });
 
   describe('abort', () => {
@@ -269,6 +502,19 @@ describe('BFSEngine', () => {
 
       // No errors should be thrown
       expect(true).toBe(true);
+    });
+
+    it('rejects a load request that starts after an abort signal', async () => {
+      const mutableEngine = engine as unknown as {
+        requestLoads: (paths: string[], operationId: number) => Promise<unknown>;
+      };
+      engine.abort();
+
+      await expect(mutableEngine.requestLoads(['/root/dir'], 49)).rejects.toThrow(
+        'Operation aborted'
+      );
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
     });
   });
 
@@ -309,6 +555,52 @@ describe('BFSEngine', () => {
         expect(deltaMsg.payload.added).toEqual([]);
         expect(deltaMsg.payload.removed).toEqual(['/root/dir']);
       }
+    });
+
+    it('removes nested expanded paths in one delta', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/parent',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              path: '/root/parent/child',
+              loadState: 'loaded',
+              depth: 2,
+              children: [],
+            }),
+          ],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      engine.collapseAll();
+
+      expect(messages).toContainEqual({
+        type: 'expandedPathsDelta',
+        payload: {
+          added: [],
+          removed: ['/root/parent', '/root/parent/child'],
+        },
+      });
+    });
+
+    it('does not emit an expanded-path delta when collapse is already synchronized', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'loaded',
+          children: [],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      engine.collapseAll();
+      messages = [];
+
+      engine.collapseAll();
+
+      expect(messages).toEqual([]);
     });
 
     it('should not affect file nodes', () => {
@@ -531,6 +823,28 @@ describe('BFSEngine', () => {
         expect(completeMsg.payload.loadedCount).toBe(1);
       }
     });
+
+    it('stops before requesting directories beyond the depth limit', async () => {
+      const deepPath = `/${Array.from({ length: 53 }, (_, index) => `level-${index}`).join('/')}`;
+      engine.setTree([createDirectoryNode({ path: deepPath, loadState: 'unloaded' })], 'root');
+
+      await engine.expandAll(55);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 55,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'log' &&
+            message.level === 'info' &&
+            message.message.includes('depth limit')
+        )
+      ).toBe(true);
+    });
   });
 
   describe('loadPaths loadedCount', () => {
@@ -619,6 +933,83 @@ describe('BFSEngine', () => {
         // Both parent and child should be loaded
         expect(completeMsg.payload.loadedCount).toBe(2);
       }
+    });
+
+    it('should reject when the main thread does not answer a load request before timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+        engine.setTree(tree, 'root');
+
+        const loadPromise = engine.loadPaths(['/root/dir'], 88);
+
+        expect(messages.some((message) => message.type === 'requestLoad')).toBe(true);
+        const rejectionExpectation = expect(loadPromise).rejects.toThrow(
+          'Load timeout for: /root/dir'
+        );
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        await rejectionExpectation;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('counts permanently missing paths as skipped after bounded retries', async () => {
+      engine.setTree([createDirectoryNode({ path: '/root/dir', loadState: 'loaded' })], 'root');
+
+      await engine.loadPaths(['/root/missing'], 43);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 43,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'log' &&
+            message.level === 'debug' &&
+            message.message.includes('still not found after retries')
+        )
+      ).toBe(true);
+    });
+
+    it('skips file paths without requesting directory loads', async () => {
+      engine.setTree([createFileNode({ path: '/root/file.txt' })], 'root');
+
+      await engine.loadPaths(['/root/file.txt'], 44);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 44,
+        payload: { expandedPaths: [], loadedCount: 0 },
+      });
+    });
+
+    it('returns without completion when an in-flight path load is aborted', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadPaths(['/root/dir'], 45);
+
+      await vi.waitFor(() => {
+        expect(messages.some((message) => message.type === 'requestLoad')).toBe(true);
+      });
+
+      engine.abort();
+      await loadPromise;
+
+      expect(messages).toContainEqual({
+        type: 'log',
+        level: 'info',
+        message: '[loadPaths] Aborted',
+      });
+      expect(
+        messages.some((message) => message.type === 'complete' && message.operationId === 45)
+      ).toBe(false);
     });
   });
 
@@ -853,6 +1244,71 @@ describe('BFSEngine', () => {
 
       const progressMessages = messages.filter((m) => m.type === 'progress');
       expect(progressMessages.length).toBeGreaterThan(0);
+    });
+
+    it('stops subtree loading before requesting descendants beyond the depth limit', async () => {
+      const deepPath = `/root/${Array.from({ length: 52 }, (_, index) => `level-${index}`).join('/')}`;
+      const tree = [
+        createDirectoryNode({
+          path: '/root',
+          loadState: 'loaded',
+          depth: 0,
+          children: [createDirectoryNode({ path: deepPath, loadState: 'unloaded', depth: 52 })],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      await engine.loadSubtree('/root', 66);
+
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'complete',
+        operationId: 66,
+        payload: { expandedPaths: ['/root'], loadedCount: 0 },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'log' &&
+            message.level === 'info' &&
+            message.message.includes('depth limit')
+        )
+      ).toBe(true);
+    });
+
+    it('stops subtree wave processing when the directory limit has already been reached', async () => {
+      const mutableEngine = engine as unknown as {
+        processSubtreeWaves: (
+          state: {
+            currentWave: Set<string>;
+            hitDepthLimit: boolean;
+            hitDirectoryLimit: boolean;
+            loadedCount: number;
+            processed: Set<string>;
+            totalDiscovered: number;
+          },
+          baseDepth: number,
+          operationId: number
+        ) => Promise<void>;
+      };
+      const state = {
+        currentWave: new Set(['/root/dir']),
+        hitDepthLimit: false,
+        hitDirectoryLimit: false,
+        loadedCount: MAX_EXPAND_DIRECTORIES,
+        processed: new Set<string>(),
+        totalDiscovered: 1,
+      };
+
+      await mutableEngine.processSubtreeWaves(state, 0, 67);
+
+      expect(state.hitDirectoryLimit).toBe(true);
+      expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
+      expect(messages).toContainEqual({
+        type: 'log',
+        level: 'info',
+        message: `[loadSubtree] Reached directory limit (${MAX_EXPAND_DIRECTORIES}), stopping`,
+      });
     });
   });
 

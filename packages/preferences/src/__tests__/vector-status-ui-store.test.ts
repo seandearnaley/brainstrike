@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetVectorStatusUIStoreForTests,
   type CachedCollection,
+  compareCollectionsDesc,
   useVectorStatusUIStore,
   vectorStatusUISelectors,
 } from '../stores/vector-status-ui-store';
@@ -233,6 +234,116 @@ describe('vector-status-ui-store', () => {
     });
   });
 
+  describe('cached collection ordering', () => {
+    it('sorts cached collection upserts by newest createdAt and then id', () => {
+      const older: CachedCollection = {
+        id: 'a',
+        modelKey: 'test',
+        modelId: 'test',
+        dimensions: 768,
+        distance: 'cosine',
+        createdAt: '2024-01-01T00:00:00Z',
+        name: 'Older',
+        description: null,
+        tags: null,
+        category: null,
+        fileCount: 1,
+        chunkCount: 10,
+        embeddingCount: 10,
+      };
+      const newerB: CachedCollection = {
+        ...older,
+        id: 'b',
+        createdAt: '2024-01-02T00:00:00Z',
+        name: 'Newer B',
+      };
+      const newerC: CachedCollection = {
+        ...older,
+        id: 'c',
+        createdAt: '2024-01-02T00:00:00Z',
+        name: 'Newer C',
+      };
+
+      expect(compareCollectionsDesc(newerB, newerC)).toBe(1);
+      expect(compareCollectionsDesc(newerC, newerB)).toBe(-1);
+      expect(compareCollectionsDesc(newerB, newerB)).toBe(0);
+
+      const store = useVectorStatusUIStore.getState();
+      store.upsertCachedCollection(older);
+      store.upsertCachedCollection(newerB);
+      store.upsertCachedCollection(newerC);
+      store.upsertCachedCollection({ ...older, fileCount: 99 });
+
+      expect(
+        useVectorStatusUIStore.getState().cachedCollections.map((collection) => collection.id)
+      ).toEqual(['c', 'b', 'a']);
+      expect(useVectorStatusUIStore.getState().cachedCollections.at(-1)?.fileCount).toBe(99);
+    });
+  });
+
+  describe('cached file data and schema status', () => {
+    it('stores cached file data, schema verification, and exposes selectors', () => {
+      const cachedFileData = {
+        collectionId: 'collection-1',
+        collectionCounts: {
+          chunks: 2,
+          embeddings: 1,
+          records: 1,
+        },
+        page: 1,
+        pageSize: 25,
+        records: [
+          {
+            chunkingStrategy: 'recursive',
+            chunksCount: 2,
+            chunksProcessedAt: '2026-01-01T00:00:00.000Z',
+            contentHash: 'hash',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            embeddedChunksCount: 1,
+            embeddingSetId: 'set-1',
+            hasEmbedding: true,
+            id: 'file-1',
+            name: 'file.md',
+            path: '/workspace/file.md',
+            processedAt: '2026-01-01T00:00:00.000Z',
+            size: 128,
+            tokenCount: 20,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        chunks: [
+          {
+            chunkIndex: 0,
+            chunkSize: 12,
+            chunkType: 'text' as const,
+            contentHash: 'chunk-hash',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            embeddingDimensions: 1536,
+            embeddingHash: 'embedding-hash',
+            embeddingSetId: 'set-1',
+            embeddingUpdatedAt: '2026-01-01T00:00:00.000Z',
+            fileRecordId: 'file-1',
+            hasEmbedding: true,
+            id: 'chunk-1',
+            tokenCount: 12,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        totalRecords: 1,
+      };
+
+      const store = useVectorStatusUIStore.getState();
+      store.setCachedFileData(cachedFileData);
+      store.setSchemaVerified(true);
+      store.setIsImporting(true);
+
+      const state = useVectorStatusUIStore.getState();
+      expect(vectorStatusUISelectors.cachedFileData(state)).toBe(cachedFileData);
+      expect(vectorStatusUISelectors.schemaVerified(state)).toBe(true);
+      expect(vectorStatusUISelectors.isImporting(state)).toBe(true);
+    });
+  });
+
   describe('import and embedding flags', () => {
     it('correctly computes isEmbeddingActive from queue and job flags', () => {
       const store = useVectorStatusUIStore;
@@ -300,6 +411,31 @@ describe('vector-status-ui-store', () => {
       });
 
       expect(store.getState()).toBe(before);
+    });
+
+    it('updates state when queue stats change or are cleared', () => {
+      const store = useVectorStatusUIStore;
+
+      store.getState().setDurableQueueStats({
+        queued: 1,
+        running: 0,
+        failed: 0,
+        succeeded: 0,
+        nextRunnableAt: null,
+      });
+      expect(vectorStatusUISelectors.durableQueueStats(store.getState())?.queued).toBe(1);
+
+      store.getState().setDurableQueueStats({
+        queued: 2,
+        running: 0,
+        failed: 0,
+        succeeded: 0,
+        nextRunnableAt: null,
+      });
+      expect(vectorStatusUISelectors.durableQueueStats(store.getState())?.queued).toBe(2);
+
+      store.getState().setDurableQueueStats(null);
+      expect(vectorStatusUISelectors.durableQueueStats(store.getState())).toBeNull();
     });
   });
 

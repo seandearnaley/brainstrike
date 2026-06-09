@@ -367,6 +367,69 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
+  it('accepts positive numeric string embedding dimensions from the active embedding set', async () => {
+    mockDb.query.mockResolvedValue({
+      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: '1024' }],
+    });
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await expect(
+      result.current!('test query', createSearchConfig(), 'set-1')
+    ).resolves.toHaveLength(1);
+  });
+
+  it('rejects non-numeric string embedding dimensions from the active embedding set', async () => {
+    mockDb.query.mockResolvedValue({
+      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: 'not-a-number' }],
+    });
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: createMockChunkRepository([createMockChunk('chunk-1', 'file-1')]),
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(result.current!('test query', createSearchConfig(), 'set-1')).rejects.toThrow(
+      'Active embedding set dimensions are missing or invalid.'
+    );
+  });
+
+  it('creates a hosted OpenAI embedder from hosted model keys without initializing a local model', async () => {
+    mockDb.query.mockResolvedValue({
+      rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: 1536 }],
+    });
+    const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
+    const createProvider = vi.mocked(EmbeddingProviderFactory.createProvider);
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await expect(
+      result.current!('hosted query', createSearchConfig(), 'set-1')
+    ).resolves.toHaveLength(1);
+
+    expect(createProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: 1536,
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
+        runtime: 'hosted',
+      })
+    );
+    expect(MockSimpleEmbeddingService).not.toHaveBeenCalled();
+  });
+
   it('retries local embedder initialization after an earlier failure for the same model', async () => {
     const initializeWithModel = vi
       .fn()
@@ -419,6 +482,41 @@ describe('useSemanticSearchExecutor', () => {
       expect.objectContaining({
         fileName: 'Unknown file',
         filePath: '(unavailable)',
+      })
+    );
+  });
+
+  it('keeps chunk location metadata and falls back when file record lookup rejects', async () => {
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    chunk.startLine = 4;
+    chunk.endLine = 8;
+    chunk.startOffset = 12;
+    chunk.endOffset = 40;
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = {
+      findById: vi.fn().mockRejectedValue(new Error('lookup failed')),
+      findAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    } as unknown as DrizzleFileRecordRepository;
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    const searchResults = await result.current!(
+      'test query',
+      createSearchConfig({ retrievalMode: 'vector' }),
+      'set-1'
+    );
+
+    expect(searchResults[0]).toEqual(
+      expect.objectContaining({
+        endLine: 8,
+        endOffset: 40,
+        fileName: 'Error loading',
+        filePath: '(error)',
+        startLine: 4,
+        startOffset: 12,
       })
     );
   });

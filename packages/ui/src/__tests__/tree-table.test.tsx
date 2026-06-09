@@ -4,7 +4,7 @@
  * NOTE: useVirtualizer requires actual DOM dimensions to render items.
  * In JSDOM tests, we mock the virtualizer to return all items for testing.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';
@@ -239,6 +239,32 @@ describe('TreeTable', () => {
       expect(screen.getByText('Test')).toBeInTheDocument();
     });
 
+    it('uses a column id as the resize label when the header is custom content', () => {
+      const columns: TreeTableColumn<TestData>[] = [
+        {
+          id: 'custom-name',
+          header: <span>Custom Header</span>,
+          cell: ({ node }) => node.data.name,
+          defaultWidth: 180,
+          minWidth: 120,
+          maxWidth: 260,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columnSizes={{ 'custom-name': 180 }}
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onColumnSizesChange={() => {}}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      expect(screen.getByLabelText('Resize custom-name column')).toBeInTheDocument();
+    });
+
     it('renders with custom aria-label', () => {
       render(
         <TreeTable
@@ -321,6 +347,30 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 1')).toBeInTheDocument();
       expect(screen.queryByText('File 2')).not.toBeInTheDocument();
       expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+
+    it('keeps paged row slicing when pagination controls are hidden', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2, showControls: false }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
     });
 
     it('renders all rows without pagination controls when none strategy is active', () => {
@@ -491,6 +541,41 @@ describe('TreeTable', () => {
       }
     });
 
+    it('keeps focused paged rows visible when the target is already on the current page', async () => {
+      const scrollIntoViewSpy = vi.fn();
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoViewSpy;
+
+      try {
+        const nodes: TreeNode<TestData>[] = [
+          createTestNode('file-one', 'File 1'),
+          createTestNode('file-two', 'File 2'),
+          createTestNode('file-three', 'File 3'),
+        ];
+
+        render(
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={nodes}
+            onToggleExpand={() => {}}
+            pagination={{ pageSize: 3 }}
+            windowingStrategy="paged"
+          />
+        );
+
+        const tree = screen.getByRole('treegrid');
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // activate -> File 1
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 2 on same page
+
+        await waitFor(() => {
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
+        });
+      } finally {
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
+    });
+
     it('handles css-special node ids when paged focus crosses boundaries', async () => {
       const scrollIntoViewSpy = vi.fn();
       const originalScrollIntoView = Element.prototype.scrollIntoView;
@@ -649,6 +734,30 @@ describe('TreeTable', () => {
       expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
       expect(screen.getByText('File 3')).toBeInTheDocument();
     });
+
+    it('clamps zero auto paging threshold to search paging for non-empty rows', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={0}
+          autoWindowingContext="search"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 1 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.queryByText('File 2')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Go to next page')).toBeInTheDocument();
+    });
   });
 
   describe('expansion', () => {
@@ -791,6 +900,32 @@ describe('TreeTable', () => {
       expect(handleToggle).not.toHaveBeenCalled();
     });
 
+    it('normalizes loading state from loadingNodeIds without preserving stale row loading flags', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('loading-folder', 'Loading folder', null, true),
+        {
+          ...createTestNode('stale-folder', 'Stale folder', null, true),
+          isLoading: true,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          loadingNodeIds={new Set(['loading-folder'])}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      const loadingRow = screen.getByRole('row', { name: /Loading folder/i });
+      const staleRow = screen.getByRole('row', { name: /Stale folder/i });
+      expect(within(loadingRow).getByRole('button', { name: 'Expand' })).toBeDisabled();
+      expect(within(staleRow).getByRole('button', { name: 'Expand' })).not.toBeDisabled();
+    });
+
     it('shows children when parent is expanded', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('1', 'Parent', null, true, 0),
@@ -827,6 +962,112 @@ describe('TreeTable', () => {
 
       expect(screen.getByText('Parent')).toBeInTheDocument();
       expect(screen.queryByText('Child')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('checkbox selection', () => {
+    it('selects and deselects a parent with all descendants through row checkboxes', () => {
+      const handleMultiSelect = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('parent', 'Parent', null, true, 0),
+        createTestNode('child', 'Child', 'parent', false, 1),
+      ];
+
+      const { rerender } = render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['parent'])}
+          multiSelectedIds={new Set()}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByLabelText('Select parent'));
+      const selectedParentCall = handleMultiSelect.mock.calls.at(-1);
+      expect(selectedParentCall).toBeDefined();
+      const selectedParentIds = selectedParentCall?.[0] as Set<string> | undefined;
+      expect(selectedParentIds).toEqual(new Set(['parent', 'child']));
+
+      rerender(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['parent'])}
+          multiSelectedIds={new Set(['parent', 'child'])}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select parent')).toHaveAttribute('data-state', 'checked');
+      fireEvent.click(screen.getByLabelText('Select parent'));
+      const deselectedParentCall = handleMultiSelect.mock.calls.at(-1);
+      expect(deselectedParentCall).toBeDefined();
+      const deselectedParentIds = deselectedParentCall?.[0] as Set<string> | undefined;
+      expect(deselectedParentIds).toEqual(new Set());
+    });
+
+    it('marks parents indeterminate when only some descendants are selected', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('parent', 'Parent', null, true, 0),
+        createTestNode('child-a', 'Child A', 'parent', false, 1),
+        createTestNode('child-b', 'Child B', 'parent', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['parent'])}
+          multiSelectedIds={new Set(['child-a'])}
+          nodes={nodes}
+          onMultiSelectChange={() => {}}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select parent')).toHaveAttribute('data-state', 'indeterminate');
+    });
+
+    it('uses conservative checkbox state when malformed data contains a cycle', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('cycle-a', 'Cycle A', 'cycle-b', true, 0),
+        createTestNode('cycle-b', 'Cycle B', 'cycle-a', true, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['cycle-a', 'cycle-b'])}
+          multiSelectedIds={new Set(['cycle-a'])}
+          nodes={nodes}
+          nodesArePreFlattened={true}
+          onMultiSelectChange={() => {}}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select cycle-a')).toHaveAttribute(
+        'data-state',
+        'indeterminate'
+      );
+      expect(screen.getByLabelText('Select cycle-b')).toHaveAttribute(
+        'data-state',
+        'indeterminate'
+      );
     });
   });
 
@@ -1003,6 +1244,51 @@ describe('TreeTable', () => {
       );
 
       expect(screen.getByText('↑')).toBeInTheDocument();
+    });
+
+    it('renders descending and unsorted aria states for active sortable headers', () => {
+      const columns: TreeTableColumn<TestData>[] = [
+        {
+          id: 'name',
+          header: 'Name',
+          sortable: true,
+          cell: ({ node }) => node.data.name,
+        },
+      ];
+
+      const { rerender } = render(
+        <TreeTable
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={() => {}}
+          onToggleExpand={() => {}}
+          sortState={{ columnId: 'name', direction: 'desc' }}
+        />
+      );
+
+      expect(screen.getByText('↓')).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /name/i })).toHaveAttribute(
+        'aria-sort',
+        'descending'
+      );
+
+      rerender(
+        <TreeTable
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={() => {}}
+          onToggleExpand={() => {}}
+          sortState={{ columnId: 'name', direction: null }}
+        />
+      );
+
+      expect(screen.queryByText('↓')).not.toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /name/i })).toHaveAttribute(
+        'aria-sort',
+        'none'
+      );
     });
 
     it('calls onSortChange when sortable column header clicked', () => {

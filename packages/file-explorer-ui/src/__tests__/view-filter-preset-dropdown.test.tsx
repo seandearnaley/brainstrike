@@ -1,7 +1,7 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { TooltipProvider } from '@brainstrike/ui';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ViewFilterPresetDropdown } from '../view-filter-preset-dropdown';
@@ -38,6 +38,22 @@ const mockPresets: ViewFilterPreset[] = [
   },
 ];
 
+function getMockPreset(index: number): ViewFilterPreset {
+  const preset = mockPresets[index];
+  if (!preset) {
+    throw new Error(`Expected mock preset at index ${index}`);
+  }
+  return preset;
+}
+
+function getPresetRow(label: string): HTMLElement {
+  const row = screen.getAllByText(label).at(-1)?.closest('div[class*="group"]');
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`Expected ${label} preset row`);
+  }
+  return row;
+}
+
 describe('ViewFilterPresetDropdown', () => {
   const mockOnSelect = vi.fn();
   const mockOnCreate = vi.fn();
@@ -56,8 +72,8 @@ describe('ViewFilterPresetDropdown', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockOnCreate.mockResolvedValue(mockPresets[0]);
-    mockOnUpdate.mockResolvedValue(mockPresets[0]);
+    mockOnCreate.mockResolvedValue(getMockPreset(0));
+    mockOnUpdate.mockResolvedValue(getMockPreset(0));
     mockOnDelete.mockResolvedValue(true);
   });
 
@@ -68,7 +84,7 @@ describe('ViewFilterPresetDropdown', () => {
 
   it('renders with selected preset name', () => {
     renderWithProviders(
-      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] || null} />
+      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={getMockPreset(0)} />
     );
     expect(screen.getByRole('button')).toHaveTextContent('Source Files');
   });
@@ -111,7 +127,7 @@ describe('ViewFilterPresetDropdown', () => {
     const presetButton = screen.getByText('Source Files');
     await userEvent.click(presetButton);
 
-    expect(mockOnSelect).toHaveBeenCalledWith(mockPresets[0] || null);
+    expect(mockOnSelect).toHaveBeenCalledWith(getMockPreset(0));
   });
 
   it('selects the single filtered preset with Enter', async () => {
@@ -122,7 +138,7 @@ describe('ViewFilterPresetDropdown', () => {
     await user.type(screen.getByRole('textbox', { name: /filter presets/i }), 'Documentation');
     await user.keyboard('{Enter}');
 
-    expect(mockOnSelect).toHaveBeenCalledWith(mockPresets[1] || null);
+    expect(mockOnSelect).toHaveBeenCalledWith(getMockPreset(1));
     await waitFor(() => {
       expect(screen.queryByRole('textbox', { name: /filter presets/i })).not.toBeInTheDocument();
     });
@@ -130,7 +146,7 @@ describe('ViewFilterPresetDropdown', () => {
 
   it('shows check mark for selected preset', async () => {
     renderWithProviders(
-      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] || null} />
+      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={getMockPreset(0)} />
     );
     const trigger = screen.getByRole('button');
     await userEvent.click(trigger);
@@ -192,6 +208,119 @@ describe('ViewFilterPresetDropdown', () => {
         useRegex: false,
       });
     });
+  });
+
+  it('trims create-form pattern lists and selected icon before saving', async () => {
+    const createdPreset: ViewFilterPreset = {
+      ...getMockPreset(1),
+      id: 'created-preset',
+      icon: 'file-code',
+      includes: ['src/**', '*.tsx'],
+      name: 'Frontend',
+      useRegex: true,
+    };
+    mockOnCreate.mockResolvedValueOnce(createdPreset);
+
+    renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(screen.getByText('Create New Preset'));
+
+    await userEvent.type(screen.getByPlaceholderText('e.g. My Custom Filter'), '  Frontend  ');
+    await userEvent.click(screen.getByRole('button', { name: /^Select Code icon$/i }));
+    await userEvent.type(screen.getByPlaceholderText('*.ts, src/**'), ' src/**, , *.tsx ');
+    await userEvent.type(screen.getByPlaceholderText('node_modules, dist'), ' dist, , build ');
+    await userEvent.click(screen.getByText('Use Regex'));
+    await userEvent.click(screen.getByRole('button', { name: 'Save & Select' }));
+
+    await waitFor(() => {
+      expect(mockOnCreate).toHaveBeenCalledWith({
+        name: 'Frontend',
+        icon: 'file-code',
+        includes: ['src/**', '*.tsx'],
+        excludes: ['dist', 'build'],
+        useRegex: true,
+      });
+    });
+    expect(mockOnSelect).toHaveBeenCalledWith(createdPreset);
+  });
+
+  it('does not create a preset when the create-form name is blank', async () => {
+    renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(screen.getByText('Create New Preset'));
+
+    expect(screen.getByRole('button', { name: 'Save & Select' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Save & Select' }));
+
+    expect(mockOnCreate).not.toHaveBeenCalled();
+  });
+
+  it('edits the selected preset and reselects the updated preset', async () => {
+    const updatedPreset: ViewFilterPreset = {
+      ...getMockPreset(1),
+      excludes: ['archive'],
+      icon: 'database',
+      includes: ['docs/**'],
+      name: 'Docs Edited',
+      useRegex: true,
+    };
+    mockOnUpdate.mockResolvedValueOnce(updatedPreset);
+
+    renderWithProviders(
+      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={getMockPreset(1)} />
+    );
+    await userEvent.click(screen.getByRole('button'));
+
+    const documentationRow = getPresetRow('Documentation');
+    await userEvent.click(within(documentationRow).getByRole('button', { name: 'Edit preset' }));
+
+    await userEvent.click(screen.getByRole('button', { name: /select data icon/i }));
+    await userEvent.clear(screen.getByDisplayValue('Documentation'));
+    await userEvent.type(screen.getByPlaceholderText('Name'), 'Docs Edited');
+    await userEvent.clear(screen.getByDisplayValue('*.md, *.txt'));
+    await userEvent.type(screen.getByPlaceholderText('Include patterns (comma sep)'), 'docs/**');
+    await userEvent.type(screen.getByPlaceholderText('Exclude patterns'), 'archive');
+    await userEvent.click(screen.getByText('Regex'));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(mockOnUpdate).toHaveBeenCalledWith('preset-2', {
+        name: 'Docs Edited',
+        icon: 'database',
+        includes: ['docs/**'],
+        excludes: ['archive'],
+        useRegex: true,
+      });
+    });
+    expect(mockOnSelect).toHaveBeenCalledWith(updatedPreset);
+  });
+
+  it('deletes a selected custom preset and selects the next available preset', async () => {
+    renderWithProviders(
+      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={getMockPreset(1)} />
+    );
+    await userEvent.click(screen.getByRole('button'));
+
+    const documentationRow = getPresetRow('Documentation');
+    await userEvent.click(within(documentationRow).getByRole('button', { name: 'Edit preset' }));
+    await userEvent.click(screen.getByRole('button', { name: /delete/i }));
+
+    await waitFor(() => {
+      expect(mockOnDelete).toHaveBeenCalledWith('preset-2');
+    });
+    expect(mockOnSelect).toHaveBeenCalledWith(getMockPreset(0));
+  });
+
+  it('keeps the dropdown open when Enter does not resolve to one preset', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('textbox', { name: /filter presets/i }), '.');
+    await user.keyboard('{Enter}');
+
+    expect(mockOnSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: /filter presets/i })).toBeInTheDocument();
   });
 
   it('keeps the trigger enabled when presets are still loading', () => {

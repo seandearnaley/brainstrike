@@ -1,9 +1,11 @@
 import type { ChatModelRunOptions, ChatModelRunResult } from '@assistant-ui/react';
-import type { LocalLlmGenerationResult } from '@brainstrike/assistant-contract';
+import type { LocalLlmBackend, LocalLlmGenerationResult } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createLocalModelAdapter,
   disposeLocalBackend,
+  getBestInferenceDevice,
+  isLocalInferenceAvailable,
 } from '../../src/assistant-ui-panel/local-runtime-adapter';
 
 const { acquireBackgroundWorkPauseReasonMock, releaseBackgroundWorkPauseReasonMock } = vi.hoisted(
@@ -277,6 +279,122 @@ describe('createLocalModelAdapter', () => {
       ]),
     });
     expect(completeRuntimeData).toHaveBeenCalledWith(preparedRuntimeData, 'completed');
+  });
+
+  it('loads the browser backend once and streams local generation snapshots', async () => {
+    const initialize = vi.fn(
+      async ({ onProgress }: Parameters<LocalLlmBackend['initialize']>[0]) => {
+        onProgress?.({
+          stage: 'loading',
+          progress: 33,
+          message: 'Loading browser Gemma runtime',
+        });
+      }
+    );
+    const generate = vi.fn(
+      async (messages: Parameters<LocalLlmBackend['generate']>[0], options) => {
+        expect(messages).toEqual([
+          {
+            role: 'user',
+            content: 'Tell me a joke',
+          },
+        ]);
+        options?.stream?.onStageChange?.('responding');
+        options?.stream?.onReasoningSnapshot?.('Browser reasoning.');
+        options?.stream?.onTextSnapshot?.('Browser stream text.');
+        return createGenerationResult({
+          reasoningText: 'Browser reasoning.',
+          text: 'Browser final text.',
+        });
+      }
+    );
+    const backend = {
+      dispose: vi.fn(async () => {}),
+      generate,
+      initialize,
+      isReady: vi.fn(() => false),
+    } satisfies LocalLlmBackend;
+    const loadBackend = vi.fn(async () => backend);
+    const progress = vi.fn();
+
+    const adapter = createLocalModelAdapter({
+      loadBackend,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onLoadingProgress: progress,
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(loadBackend).toHaveBeenCalledTimes(1);
+    expect(initialize).toHaveBeenCalledWith({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onProgress: progress,
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Loading browser Gemma runtime',
+        progress: 33,
+        stage: 'loading',
+      })
+    );
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Generating answer...',
+        stage: 'generating',
+      })
+    );
+    expect(updates).toContainEqual({
+      content: expect.arrayContaining([
+        {
+          type: 'reasoning',
+          text: 'Browser reasoning.',
+        },
+        {
+          type: 'text',
+          text: 'Browser stream text.',
+        },
+      ]),
+    });
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        {
+          type: 'text',
+          text: 'Browser final text.',
+        },
+      ]),
+    });
+  });
+
+  it('reuses an initialized browser backend for the same model until disposal', async () => {
+    let ready = false;
+    const backend = {
+      dispose: vi.fn(async () => {
+        ready = false;
+      }),
+      generate: vi.fn(async () => createGenerationResult({ text: 'Browser response.' })),
+      initialize: vi.fn(async () => {
+        ready = true;
+      }),
+      isReady: vi.fn(() => ready),
+    } satisfies LocalLlmBackend;
+    const loadBackend = vi.fn(async () => backend);
+
+    const adapter = createLocalModelAdapter({
+      loadBackend,
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(loadBackend).toHaveBeenCalledTimes(1);
+    expect(backend.initialize).toHaveBeenCalledTimes(1);
+    expect(backend.generate).toHaveBeenCalledTimes(2);
+
+    await disposeLocalBackend();
+
+    expect(backend.dispose).toHaveBeenCalledTimes(1);
   });
 
   it('does not re-warm an already warmed desktop model', async () => {
@@ -1122,6 +1240,321 @@ describe('createLocalModelAdapter', () => {
     );
   });
 
+  it('normalizes runnable local tool schemas before browser generation', async () => {
+    let ready = false;
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: '',
+          toolCalls: [
+            {
+              id: 'tool-schema-1',
+              type: 'function',
+              function: {
+                name: 'brainstrike.search_notes',
+                arguments: JSON.stringify({ query: 'coverage', tags: ['unit'] }),
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: 'Found coverage notes.',
+        })
+      );
+    const backend = {
+      dispose: vi.fn(async () => {
+        ready = false;
+      }),
+      generate,
+      initialize: vi.fn(async () => {
+        ready = true;
+      }),
+      isReady: vi.fn(() => ready),
+    } satisfies LocalLlmBackend;
+    const execute = vi.fn().mockResolvedValue({
+      durationMs: 3,
+      result: {
+        matches: 2,
+      },
+      success: true,
+    });
+
+    Object.assign(window as Window & { tools?: unknown }, {
+      tools: {
+        execute,
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      loadBackend: vi.fn(async () => backend),
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      tools: [
+        {
+          id: 'brainstrike.search_notes',
+          description: 'Search workspace notes',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: 'Search query',
+                enum: ['coverage', 'vitest'],
+              },
+              tags: {
+                type: 'array',
+                description: 'Filter tags',
+                items: {
+                  type: 'string',
+                  description: 'Tag value',
+                },
+              },
+              ignoredWithoutType: {
+                description: 'Not a valid JSON schema property',
+              },
+            },
+            required: ['query', 'tags'],
+          },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(generate).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Array),
+      expect.objectContaining({
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'brainstrike.search_notes',
+              description: 'Search workspace notes',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: {
+                    type: 'string',
+                    description: 'Search query',
+                    enum: ['coverage', 'vitest'],
+                  },
+                  tags: {
+                    type: 'array',
+                    description: 'Filter tags',
+                    items: {
+                      type: 'string',
+                      description: 'Tag value',
+                    },
+                  },
+                },
+                required: ['query', 'tags'],
+              },
+            },
+          },
+        ],
+      })
+    );
+    expect(execute).toHaveBeenCalledWith(
+      'brainstrike.search_notes',
+      { query: 'coverage', tags: ['unit'] },
+      undefined
+    );
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: 'Found coverage notes.',
+        }),
+      ]),
+    });
+  });
+
+  it.each([
+    {
+      expectedReason: 'no tool menu was provided to the local runtime adapter',
+      name: 'missing tool menu',
+      tools: undefined,
+    },
+    {
+      expectedReason: 'the tool menu is empty',
+      name: 'empty tool menu',
+      tools: [],
+    },
+    {
+      expectedReason: 'all 1 configured tools are disabled',
+      name: 'disabled tools',
+      tools: [
+        {
+          id: 'brainstrike.disabled',
+          enabled: false,
+          inputSchema: {
+            type: 'object',
+          },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    },
+    {
+      expectedReason:
+        '1 enabled tools are present, but none are marked runnable by the local runtime',
+      name: 'non-runnable tools',
+      tools: [
+        {
+          id: 'brainstrike.not_runnable',
+          inputSchema: {
+            type: 'object',
+          },
+          isLocalRuntimeRunnable: false,
+        },
+      ],
+    },
+    {
+      expectedReason: '1 runnable tools are present, but none have an object JSON schema',
+      name: 'tools without object schemas',
+      tools: [
+        {
+          id: 'brainstrike.bad_schema',
+          inputSchema: {
+            type: 'string',
+          },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    },
+  ])('reports unavailable local tool reason for $name', async ({ expectedReason, tools }) => {
+    const generate = vi.fn().mockResolvedValue(
+      createGenerationResult({
+        text: '',
+        toolCalls: [
+          {
+            id: 'tool-unavailable-1',
+            type: 'function',
+            function: {
+              name: 'brainstrike.missing',
+              arguments: '{}',
+            },
+          },
+        ],
+      })
+    );
+    const backend = {
+      dispose: vi.fn(async () => {}),
+      generate,
+      initialize: vi.fn(async () => {}),
+      isReady: vi.fn(() => false),
+    } satisfies LocalLlmBackend;
+    const onError = vi.fn();
+
+    Object.assign(window as Window & { tools?: unknown }, {
+      tools: {
+        execute: vi.fn(),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      loadBackend: vi.fn(async () => backend),
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onError,
+      ...(tools === undefined ? {} : { tools }),
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(expectedReason),
+      })
+    );
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining(expectedReason),
+          type: 'text',
+        }),
+      ]),
+    });
+  });
+
+  it('keeps non-object tool-call arguments out of assistant-ui args', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: '',
+          toolCalls: [
+            {
+              id: 'tool-array-args',
+              type: 'function',
+              function: {
+                name: 'brainstrike.echo',
+                arguments: '["array input"]',
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: 'Array input handled.',
+        })
+      );
+    const backend = {
+      dispose: vi.fn(async () => {}),
+      generate,
+      initialize: vi.fn(async () => {}),
+      isReady: vi.fn(() => false),
+    } satisfies LocalLlmBackend;
+    const execute = vi.fn().mockResolvedValue({
+      durationMs: 1,
+      result: {
+        echoed: true,
+      },
+      success: true,
+    });
+
+    Object.assign(window as Window & { tools?: unknown }, {
+      tools: {
+        execute,
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      loadBackend: vi.fn(async () => backend),
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      tools: [
+        {
+          id: 'brainstrike.echo',
+          inputSchema: {
+            type: 'object',
+          },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(execute).toHaveBeenCalledWith('brainstrike.echo', ['array input'], undefined);
+    expect(updates).toContainEqual({
+      content: expect.arrayContaining([
+        expect.objectContaining({
+          args: {},
+          argsText: '["array input"]',
+          result: {
+            echoed: true,
+          },
+          toolCallId: 'tool-array-args',
+          toolName: 'brainstrike.echo',
+          type: 'tool-call',
+        }),
+      ]),
+    });
+  });
+
   it('feeds only structured tool output back into the model after a tool failure', async () => {
     const generate = vi
       .fn()
@@ -1202,5 +1635,18 @@ describe('createLocalModelAdapter', () => {
         ]),
       })
     );
+  });
+
+  it('reports local inference availability from navigator.gpu', () => {
+    expect(isLocalInferenceAvailable()).toBe(false);
+    expect(getBestInferenceDevice()).toBeNull();
+
+    Object.defineProperty(navigator, 'gpu', {
+      configurable: true,
+      value: {},
+    });
+
+    expect(isLocalInferenceAvailable()).toBe(true);
+    expect(getBestInferenceDevice()).toBe('webgpu');
   });
 });

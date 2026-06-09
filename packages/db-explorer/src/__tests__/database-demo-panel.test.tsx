@@ -531,6 +531,40 @@ describe('DatabaseDemoPanel', () => {
       });
     });
 
+    it('publishes and clears desktop test hook snapshots in test mode', async () => {
+      window.desktopLifecycle = { isTestMode: true };
+
+      const view = renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(window.__brainstrikeDatabaseDemoTestHooks__).toBeDefined();
+        expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeDefined();
+      });
+
+      expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
+        expect.objectContaining({
+          activeCollectionId: TEST_COLLECTION_ID,
+          isImporting: false,
+          selectedFileCount: 1,
+        })
+      );
+      expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__?.getSnapshot()).toEqual(
+        expect.objectContaining({
+          error: null,
+          firstResultNodeId: null,
+          hasSearched: false,
+          isSearching: false,
+          resultCount: 0,
+        })
+      );
+
+      view.unmount();
+
+      expect(window.__brainstrikeDatabaseDemoTestHooks__).toBeUndefined();
+      expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeUndefined();
+      window.desktopLifecycle = undefined;
+    });
+
     it('keeps database browser controls visible when no collection is selected', async () => {
       setActiveEmbeddingSetId(null);
 

@@ -9,6 +9,7 @@ import {
   getChunkingPresetDefinitions,
   getChunkingRoutePreview,
   isChunkingStrategy,
+  isMarkdownBlockBoundaryLine,
   isResolvedChunkingStrategy,
   RecursiveTextSplitter,
   resolveChunkingStrategyForFile,
@@ -50,6 +51,24 @@ describe('@brainstrike/text-splitter', () => {
     for (const chunk of chunks) {
       expect(chunk.length).toBeLessThanOrEqual(32);
     }
+  });
+
+  it('uses owned default separators when none are provided', () => {
+    const chunks = splitTextRecursively('Alpha beta gamma delta', {
+      chunkSize: 10,
+      chunkOverlap: 2,
+    });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join(' ')).toContain('Alpha');
+  });
+
+  it('recognizes markdown block boundary lines', () => {
+    expect(isMarkdownBlockBoundaryLine('```ts')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('~~~')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('### Heading')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('   ')).toBe(true);
+    expect(isMarkdownBlockBoundaryLine('plain text')).toBe(false);
   });
 
   it('preserves overlapping context between neighboring chunks', () => {
@@ -147,6 +166,20 @@ describe('@brainstrike/text-splitter', () => {
     expect(chunks[0]).toContain('# Title');
   });
 
+  it('splits long semantic markdown sections before merging them', () => {
+    const chunks = splitTextByStrategy(
+      '# Title\n\nThis section has enough prose to exceed the small chunk target and needs recursive splitting within the heading family.',
+      {
+        strategy: 'semantic-markdown',
+        chunkSize: 24,
+        chunkOverlap: 4,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks[0]).toContain('# Title');
+  });
+
   it('supports html-aware splitting', () => {
     const chunks = splitTextByStrategy(
       '<article><section><p>Alpha beta gamma</p></section><section><p>Delta epsilon zeta</p></section></article>',
@@ -221,6 +254,23 @@ describe('@brainstrike/text-splitter', () => {
     expect(resolveChunkingStrategyForFile('/tmp/paper.tex')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/references.bib')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/notes.txt')).toBe('sentence');
+    expect(resolveChunkingStrategyForFile('/tmp/README')).toBe('sentence');
+  });
+
+  it('honors explicit regex separators on RecursiveTextSplitter instances', async () => {
+    const splitter = new RecursiveTextSplitter({
+      chunkSize: 6,
+      chunkOverlap: 0,
+      separators: ['\\d+'],
+      isSeparatorRegex: true,
+    });
+
+    await expect(splitter.splitText('alpha123beta456gamma')).resolves.toEqual([
+      'alpha1',
+      '23',
+      'beta45',
+      '6gamma',
+    ]);
   });
 
   it('resolves final effective strategy from the shared contract', () => {
@@ -272,6 +322,29 @@ describe('@brainstrike/text-splitter', () => {
     ).toThrow('chunkOverlap must be smaller than chunkSize');
   });
 
+  it('throws on invalid text and size inputs', () => {
+    expect(() =>
+      splitTextRecursively(123 as unknown as string, {
+        chunkSize: 4,
+        chunkOverlap: 0,
+      })
+    ).toThrow('text must be a string');
+
+    expect(() =>
+      splitTextRecursively('abc', {
+        chunkSize: 0,
+        chunkOverlap: 0,
+      })
+    ).toThrow('chunkSize must be a positive integer');
+
+    expect(() =>
+      splitTextRecursively('abc', {
+        chunkSize: 4,
+        chunkOverlap: -1,
+      })
+    ).toThrow('chunkOverlap must be a non-negative integer');
+  });
+
   it('throws on invalid separator configuration', () => {
     expect(() =>
       splitTextRecursively('abc', {
@@ -280,5 +353,33 @@ describe('@brainstrike/text-splitter', () => {
         separators: [],
       })
     ).toThrow('separators must contain at least one entry');
+
+    expect(() =>
+      splitTextRecursively('abc', {
+        chunkSize: 4,
+        chunkOverlap: 0,
+        separators: [' ', 1 as unknown as string],
+      })
+    ).toThrow('separators must be strings');
+  });
+
+  it('uses custom strategy separators without mutating shared defaults', () => {
+    const chunks = splitTextByStrategy('alpha::beta::gamma', {
+      strategy: 'markdown',
+      chunkSize: 8,
+      chunkOverlap: 0,
+      separators: ['::', ''],
+    });
+
+    expect(chunks).toEqual(['alpha::', 'beta::', 'gamma']);
+    expect(
+      splitTextByStrategy('abcdef', { strategy: 'character', chunkSize: 10, chunkOverlap: 0 })
+    ).toEqual(['abcdef']);
+  });
+
+  it('throws for unknown preset ids', () => {
+    expect(() => getChunkingPreset('missing' as Parameters<typeof getChunkingPreset>[0])).toThrow(
+      'Unknown chunking preset: missing'
+    );
   });
 });

@@ -2,8 +2,11 @@ import {
   __resetBackgroundWorkArbiterForTests,
   acquireBackgroundWorkPauseReason,
   getBackgroundWorkArbiterSnapshot,
+  getBackgroundWorkPauseReasonLabel,
+  getBackgroundWorkPauseReasonLabels,
   registerBackgroundWorkPauseHandler,
   setBackgroundWorkManualPause,
+  subscribeToBackgroundWorkArbiter,
 } from '../background-work-arbiter';
 
 describe('background-work-arbiter', () => {
@@ -85,5 +88,62 @@ describe('background-work-arbiter', () => {
       backgroundIndexingPaused: false,
       manualPause: false,
     });
+  });
+
+  it('notifies subscribers only when the snapshot changes', () => {
+    const subscriber = vi.fn();
+    const unsubscribe = subscribeToBackgroundWorkArbiter(subscriber);
+
+    setBackgroundWorkManualPause(true);
+    setBackgroundWorkManualPause(true);
+
+    expect(subscriber).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    setBackgroundWorkManualPause(false);
+
+    expect(subscriber).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a newer pause handler when an older unregister callback runs', async () => {
+    const firstPause = vi.fn();
+    const secondPause = vi.fn();
+
+    const unregisterFirst = registerBackgroundWorkPauseHandler('background-indexing', {
+      pause: firstPause,
+    });
+    const unregisterSecond = registerBackgroundWorkPauseHandler('background-indexing', {
+      pause: secondPause,
+    });
+
+    unregisterFirst();
+
+    const release = await acquireBackgroundWorkPauseReason('local-llm');
+
+    expect(firstPause).not.toHaveBeenCalled();
+    expect(secondPause).toHaveBeenCalledTimes(1);
+
+    release();
+    unregisterSecond();
+  });
+
+  it('returns an idempotent release callback for acquired pause reasons', async () => {
+    const release = await acquireBackgroundWorkPauseReason('local-llm');
+
+    release();
+    release();
+
+    expect(getBackgroundWorkArbiterSnapshot()).toEqual({
+      automaticPauseReasons: [],
+      backgroundIndexingPaused: false,
+      manualPause: false,
+    });
+  });
+
+  it('maps automatic pause reasons to display labels', () => {
+    expect(getBackgroundWorkPauseReasonLabel('local-llm')).toBe('Paused for local assistant');
+    expect(getBackgroundWorkPauseReasonLabels(['local-llm'])).toEqual([
+      'Paused for local assistant',
+    ]);
   });
 });

@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { memo, useMemo, useState } from 'react';
+import { type ComponentProps, memo, useMemo, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TableRowData } from '../../utils/grouping-configs';
+import type { GroupedData, TableRowData } from '../../utils/grouping-configs';
 import { TapestryView } from '../tapestry-view';
 import type { FileTapestry, TapestryRange } from '../types';
 
@@ -55,6 +55,44 @@ const buildTableRows = (files: FileTapestry[]): TableRowData[] =>
     }
     return row;
   });
+
+function renderTapestryView(overrides: Partial<ComponentProps<typeof TapestryView>> = {}) {
+  const files = [buildFile(0), buildFile(1)];
+  const tableRows = buildTableRows(files);
+  const props: ComponentProps<typeof TapestryView> = {
+    activeRangesCount: 2,
+    groupedSections: [],
+    groupingConfig: 'none',
+    isAllSelected: () => false,
+    isEmpty: false,
+    isGroupFullySelected: () => false,
+    isGroupPartiallySelected: () => false,
+    onDeselectAll: vi.fn(),
+    onGroupDeselectAll: vi.fn(),
+    onGroupSelectAll: vi.fn(),
+    onRangesChange: vi.fn(),
+    onResetRanges: vi.fn(),
+    onSelectAllOnPage: vi.fn(),
+    onToggleGroupCollapse: vi.fn(),
+    onToggleSelection: vi.fn(),
+    pagination: {
+      currentPage: 0,
+      totalPages: 1,
+      totalItems: files.length,
+      onPageChange: vi.fn(),
+      pageInfo: '1-2 of 2',
+      pageSize: 25,
+    },
+    previewSelections: new Set<string>(),
+    showSelectionControls: true,
+    totalFiles: files.length,
+    totalLinesSelected: 20,
+    ungroupedFiles: files,
+    visibleFilesOnPage: tableRows,
+    ...overrides,
+  };
+  return render(<TapestryView {...props} />);
+}
 
 const TapestryHarness = memo(
   ({
@@ -422,6 +460,149 @@ describe('TapestryView', () => {
     });
 
     expect(screen.queryByText(/Lines 10-20/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the empty state when there are no matching files', () => {
+    renderTapestryView({
+      isEmpty: true,
+      totalFiles: 0,
+      ungroupedFiles: [],
+      visibleFilesOnPage: [],
+    });
+
+    expect(screen.getByText('No matching files')).toBeInTheDocument();
+    expect(
+      screen.getByText('Try adjusting your filters or selecting more files')
+    ).toBeInTheDocument();
+  });
+
+  it('selects and deselects the current page from the page checkbox', async () => {
+    const onSelectAllOnPage = vi.fn();
+    const onDeselectAll = vi.fn();
+    const files = [buildFile(0), buildFile(1)];
+    const tableRows = buildTableRows(files);
+    const { rerender } = renderTapestryView({
+      onDeselectAll,
+      onSelectAllOnPage,
+      ungroupedFiles: files,
+      visibleFilesOnPage: tableRows,
+    });
+
+    const pageCheckbox = screen.getByRole('checkbox', {
+      name: /select all files on current page/i,
+    });
+    await user.click(pageCheckbox);
+
+    expect(onSelectAllOnPage).toHaveBeenCalledWith(tableRows);
+
+    rerender(
+      <TapestryView
+        activeRangesCount={2}
+        groupedSections={[]}
+        groupingConfig="none"
+        isAllSelected={() => true}
+        isEmpty={false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={onDeselectAll}
+        onGroupDeselectAll={vi.fn()}
+        onGroupSelectAll={vi.fn()}
+        onRangesChange={vi.fn()}
+        onResetRanges={vi.fn()}
+        onSelectAllOnPage={onSelectAllOnPage}
+        onToggleGroupCollapse={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{
+          currentPage: 0,
+          totalPages: 1,
+          totalItems: files.length,
+          onPageChange: vi.fn(),
+        }}
+        previewSelections={new Set(tableRows.map((row) => row.compositeKey))}
+        showSelectionControls={true}
+        totalFiles={files.length}
+        totalLinesSelected={20}
+        ungroupedFiles={files}
+        visibleFilesOnPage={tableRows}
+      />
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: /select all files on current page/i }));
+
+    expect(onDeselectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders grouped sections and dispatches group controls', async () => {
+    const files = [buildFile(0), buildFile(1)];
+    const tableRows = buildTableRows(files);
+    const group: GroupedData<TableRowData> = {
+      count: files.length,
+      groupKey: 'src',
+      groupLabel: 'Source files',
+      items: tableRows,
+      totalSize: files.reduce((total, file) => total + (file.size ?? 0), 0),
+      totalTokens: files.reduce((total, file) => total + (file.tokens ?? 0), 0),
+    };
+    const onGroupDeselectAll = vi.fn();
+    const onGroupSelectAll = vi.fn();
+    const onToggleGroupCollapse = vi.fn();
+
+    renderTapestryView({
+      groupedSections: [
+        {
+          group,
+          isCollapsed: false,
+          items: files,
+          showHeader: true,
+        },
+      ],
+      groupingConfig: 'directory',
+      isGroupFullySelected: () => false,
+      isGroupPartiallySelected: () => true,
+      onGroupDeselectAll,
+      onGroupSelectAll,
+      onToggleGroupCollapse,
+      previewSelections: new Set([files[0]?.compositeKey ?? '']),
+      ungroupedFiles: [],
+      visibleFilesOnPage: tableRows,
+    });
+
+    expect(screen.getByText('Source files')).toBeInTheDocument();
+    expect(screen.getByText('2 files')).toBeInTheDocument();
+    expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: /collapse group source files/i }));
+    expect(onToggleGroupCollapse).toHaveBeenCalledWith('src');
+
+    await user.click(
+      screen.getByRole('checkbox', { name: /select all items in group source files/i })
+    );
+    expect(onGroupSelectAll).toHaveBeenCalledWith(group);
+    expect(onGroupDeselectAll).not.toHaveBeenCalled();
+  });
+
+  it('hides collapsed grouped section items', () => {
+    const files = [buildFile(0), buildFile(1)];
+    const tableRows = buildTableRows(files);
+    const group: GroupedData<TableRowData> = {
+      count: files.length,
+      groupKey: 'src',
+      groupLabel: 'Source files',
+      items: tableRows,
+      totalSize: 0,
+      totalTokens: 0,
+    };
+
+    renderTapestryView({
+      groupedSections: [{ group, isCollapsed: true, items: files, showHeader: true }],
+      groupingConfig: 'directory',
+      ungroupedFiles: [],
+      visibleFilesOnPage: tableRows,
+    });
+
+    expect(screen.getByText('Source files')).toBeInTheDocument();
+    expect(screen.queryByText('file-0.ts')).not.toBeInTheDocument();
+    expect(screen.queryByText('file-1.ts')).not.toBeInTheDocument();
   });
 });
 

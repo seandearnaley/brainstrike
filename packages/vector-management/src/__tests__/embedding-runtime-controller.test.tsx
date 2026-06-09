@@ -1,6 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEmbeddingRuntimeController } from '../vector-status/embedding-runtime-controller';
+import {
+  type EmbeddingRuntimeBackfillProgress,
+  type EmbeddingRuntimeStatus,
+  useEmbeddingRuntimeController,
+} from '../vector-status/embedding-runtime-controller';
 
 const {
   backgroundDbState,
@@ -21,16 +25,26 @@ const {
   cancelAllBackfillsMock,
   enqueueBackfillMock,
   ensureStartedMock,
+  getBackfillsInFlightMock,
   getStatusMock,
+  onBackfillProgressMock,
   onStatusMock,
+  resetMock,
   stopMock,
 } = vi.hoisted(() => ({
   cancelBackfillMock: vi.fn(async () => {}),
   cancelAllBackfillsMock: vi.fn(async () => {}),
   enqueueBackfillMock: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
   ensureStartedMock: vi.fn(),
+  getBackfillsInFlightMock: vi.fn(async () => []),
   getStatusMock: vi.fn(),
-  onStatusMock: vi.fn(() => () => {}),
+  onBackfillProgressMock: vi.fn<
+    (callback: (progress: EmbeddingRuntimeBackfillProgress) => void) => () => void
+  >(() => () => {}),
+  onStatusMock: vi.fn<(callback: (status: EmbeddingRuntimeStatus) => void) => () => void>(
+    () => () => {}
+  ),
+  resetMock: vi.fn(),
   stopMock: vi.fn(),
 }));
 
@@ -64,6 +78,10 @@ describe('useEmbeddingRuntimeController', () => {
 
     getStatusMock.mockResolvedValue(runningStatus);
     ensureStartedMock.mockResolvedValue(runningStatus);
+    resetMock.mockResolvedValue({
+      ...runningStatus,
+      state: 'stopped' as const,
+    });
     stopMock.mockResolvedValue({
       ...runningStatus,
       state: 'stopped' as const,
@@ -81,10 +99,11 @@ describe('useEmbeddingRuntimeController', () => {
         cancelAllBackfills: cancelAllBackfillsMock,
         enqueueBackfill: enqueueBackfillMock,
         ensureStarted: ensureStartedMock,
-        getBackfillsInFlight: vi.fn(async () => []),
+        getBackfillsInFlight: getBackfillsInFlightMock,
         getStatus: getStatusMock,
+        onBackfillProgress: onBackfillProgressMock,
         onStatus: onStatusMock,
-        reset: vi.fn(),
+        reset: resetMock,
         stop: stopMock,
       },
     });
@@ -169,8 +188,9 @@ describe('useEmbeddingRuntimeController', () => {
         ensureStarted: ensureStartedMock,
         getBackfillsInFlight: inFlightMock,
         getStatus: getStatusMock,
+        onBackfillProgress: onBackfillProgressMock,
         onStatus: onStatusMock,
-        reset: vi.fn(),
+        reset: resetMock,
         stop: stopMock,
       },
     });
@@ -218,6 +238,115 @@ describe('useEmbeddingRuntimeController', () => {
       embeddingSetId: 'set-2',
       source: 'manual',
     });
+  });
+
+  it('cleans up desktop host status and backfill subscriptions on unmount', async () => {
+    const cleanupStatus = vi.fn();
+    const cleanupBackfillProgress = vi.fn();
+    const emitters: {
+      backfillProgress?: (progress: EmbeddingRuntimeBackfillProgress) => void;
+      status?: (status: EmbeddingRuntimeStatus) => void;
+    } = {};
+    onStatusMock.mockImplementation((callback) => {
+      emitters.status = callback;
+      return cleanupStatus;
+    });
+    onBackfillProgressMock.mockImplementation((callback) => {
+      emitters.backfillProgress = callback;
+      return cleanupBackfillProgress;
+    });
+
+    const { result, unmount } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    const statusListener = vi.fn();
+    const backfillProgressListener = vi.fn();
+    const unsubscribeStatus = result.current.onStatus(statusListener);
+    const unsubscribeBackfillProgress = result.current.onBackfillProgress(backfillProgressListener);
+    if (emitters.status === undefined || emitters.backfillProgress === undefined) {
+      throw new Error('Expected desktop host listeners to be registered');
+    }
+    const statusEmitter = emitters.status;
+    const backfillProgressEmitter = emitters.backfillProgress;
+
+    await act(async () => {
+      statusEmitter({
+        runtimeKind: 'embedding-host',
+        runtimeId: 'embedding-host:running',
+        state: 'running',
+        active: true,
+        lastError: null,
+      });
+      backfillProgressEmitter({
+        embeddingSetId: 'set-1',
+        requestId: 'background-indexing-backfill:1',
+        source: 'background-indexing',
+        stage: 'backfill',
+        current: 2,
+        total: 5,
+      });
+    });
+
+    expect(statusListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        active: true,
+        runtimeId: 'embedding-host:running',
+        state: 'running',
+      })
+    );
+    expect(backfillProgressListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        current: 2,
+        embeddingSetId: 'set-1',
+        total: 5,
+      })
+    );
+
+    unsubscribeStatus();
+    unsubscribeBackfillProgress();
+    unmount();
+
+    expect(cleanupStatus).toHaveBeenCalledTimes(1);
+    expect(cleanupBackfillProgress).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets the desktop host bridge and stores the returned status', async () => {
+    resetMock.mockResolvedValueOnce({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:reset',
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await expect(result.current.reset()).resolves.toEqual(
+      expect.objectContaining({
+        runtimeId: 'embedding-host:reset',
+        state: 'running',
+      })
+    );
+    await expect(result.current.getStatus()).resolves.toEqual(
+      expect.objectContaining({
+        runtimeId: 'embedding-host:test-runtime',
+        state: 'running',
+      })
+    );
+    expect(resetMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not stop the desktop host when the hook remounts mid-session', async () => {
@@ -323,6 +452,156 @@ describe('useEmbeddingRuntimeController', () => {
     expect(createPriorityDbHandleMock).toHaveBeenCalledWith(db, 'background');
   });
 
+  it('returns the current local status when the web worker is already running', async () => {
+    clearDesktopHostBridge();
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'webgpu',
+        reinitEveryN: 50,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+    const secondStart = await result.current.ensureStarted();
+
+    expect(secondStart).toEqual(
+      expect.objectContaining({
+        runtimeKind: 'embedding-worker',
+        state: 'running',
+      })
+    );
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces local worker activity and fatal error callbacks as status changes', async () => {
+    clearDesktopHostBridge();
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+    const statusListener = vi.fn();
+    const unsubscribe = result.current.onStatus(statusListener);
+
+    await act(async () => {
+      await result.current.start();
+    });
+    const workerOptions = startEmbeddingWorkerMock.mock.calls[0]?.[0];
+
+    await act(async () => {
+      workerOptions.onWorkerActivityChange(true);
+      workerOptions.onFatalError(new Error('model worker crashed'));
+    });
+
+    expect(statusListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        active: true,
+        state: 'running',
+      })
+    );
+    expect(statusListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: 'model worker crashed',
+        state: 'error',
+      })
+    );
+    unsubscribe();
+  });
+
+  it('stores local worker start failures as an error status', async () => {
+    clearDesktopHostBridge();
+    startEmbeddingWorkerMock.mockRejectedValueOnce(new Error('worker boot failed'));
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await expect(result.current.start()).resolves.toEqual(
+      expect.objectContaining({
+        lastError: 'worker boot failed',
+        state: 'error',
+      })
+    );
+  });
+
+  it('stops and recreates the local worker on reset', async () => {
+    clearDesktopHostBridge();
+
+    const firstStop = vi.fn(async () => {});
+    const secondStop = vi.fn(async () => {});
+    startEmbeddingWorkerMock
+      .mockResolvedValueOnce({ stop: firstStop })
+      .mockResolvedValueOnce({ stop: secondStop });
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+    await expect(result.current.reset()).resolves.toEqual(
+      expect.objectContaining({
+        runtimeKind: 'embedding-worker',
+        state: 'running',
+      })
+    );
+
+    expect(firstStop).toHaveBeenCalledTimes(1);
+    expect(secondStop).not.toHaveBeenCalled();
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops the local worker and returns a stopped status', async () => {
+    clearDesktopHostBridge();
+
+    const stopController = vi.fn(async () => {});
+    startEmbeddingWorkerMock.mockResolvedValueOnce({ stop: stopController });
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    await expect(result.current.stop()).resolves.toEqual(
+      expect.objectContaining({
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
+      })
+    );
+    expect(stopController).toHaveBeenCalledTimes(1);
+  });
+
   it('fails fast when local web worker runtime config is not registered', async () => {
     clearDesktopHostBridge();
     getRegisteredEmbeddingRuntimeConfigMock.mockReturnValue(null);
@@ -413,6 +692,67 @@ describe('useEmbeddingRuntimeController', () => {
       })
     );
     await expect(result.current.getBackfillsInFlight()).resolves.toEqual([]);
+  });
+
+  it('rejects duplicate local backfills for the same embedding set', async () => {
+    clearDesktopHostBridge();
+
+    const backfillMock = vi.fn(
+      async (
+        _embeddingSetId: string,
+        options: {
+          signal?: AbortSignal;
+        }
+      ) =>
+        await new Promise<void>((_resolve, reject) => {
+          options.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            },
+            { once: true }
+          );
+        })
+    );
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: {
+          backfill: backfillMock,
+        } as never,
+      })
+    );
+
+    const pendingBackfill = result.current.enqueueBackfill('set-1');
+    void pendingBackfill.catch(() => {});
+    await Promise.resolve();
+
+    await expect(result.current.enqueueBackfill('set-1')).rejects.toThrow(
+      'Embedding backfill is already running for set set-1.'
+    );
+
+    await result.current.cancelBackfill('set-1');
+    await expect(pendingBackfill).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('rejects local backfills when no vector queue service is available', async () => {
+    clearDesktopHostBridge();
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await expect(result.current.enqueueBackfill('set-1')).rejects.toThrow(
+      'Embedding runtime backfill requires a vector queue service.'
+    );
   });
 
   it('cancels all local backfills and emits local backfill progress events', async () => {

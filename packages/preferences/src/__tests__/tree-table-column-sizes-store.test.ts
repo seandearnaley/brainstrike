@@ -1,5 +1,7 @@
+import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { describe, expect, it } from 'vitest';
 import {
+  createSingletonColumnSizesStore,
   createTreeTableColumnSizesStore,
   sanitizeColumnSizes,
 } from '../stores/tree-table-column-sizes-store';
@@ -9,6 +11,17 @@ const BOUNDS = {
   size: { defaultWidth: 120, minWidth: 60, maxWidth: 300 },
   status: { defaultWidth: 44, minWidth: 44, maxWidth: 44 },
 } as const;
+
+function getPersistApi(store: ReturnType<typeof createTreeTableColumnSizesStore>): {
+  rehydrate: () => Promise<void>;
+} {
+  const persistApi = (store as unknown as { persist?: { rehydrate?: () => Promise<void> } })
+    .persist;
+  if (!persistApi?.rehydrate) {
+    throw new Error('expected tree table column sizes store persist API');
+  }
+  return { rehydrate: persistApi.rehydrate };
+}
 
 describe('sanitizeColumnSizes', () => {
   it('substitutes defaultWidth when a column has no persisted value', () => {
@@ -109,5 +122,115 @@ describe('createTreeTableColumnSizesStore', () => {
     store.getState().setColumn('name', 240);
     store.getState().reset();
     expect(store.getState().sizes).toEqual({ name: 200, size: 120, status: 44 });
+  });
+
+  it('rehydrates persisted sizes through sanitization', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      'tree-table-test-persist.v1',
+      JSON.stringify({
+        state: { sizes: { name: 375.4, size: Number.NaN, status: 1 } },
+        version: 1,
+      })
+    );
+
+    const store = createTreeTableColumnSizesStore({
+      storeName: 'tree-table-test-persist.v1',
+      version: 1,
+      columnBounds: BOUNDS,
+      storage,
+    });
+    await getPersistApi(store).rehydrate();
+
+    expect(store.getState().sizes).toEqual({ name: 375, size: 120, status: 44 });
+  });
+
+  it('runs consumer migrations before sanitizing restored sizes', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      'tree-table-test-migrate.v2',
+      JSON.stringify({
+        state: { oldName: 120, size: 999 },
+        version: 1,
+      })
+    );
+
+    const store = createTreeTableColumnSizesStore({
+      storeName: 'tree-table-test-migrate.v2',
+      version: 2,
+      columnBounds: BOUNDS,
+      storage,
+      migrate: (raw, version) => {
+        expect(version).toBe(1);
+        const previous = raw as { oldName?: number; size?: number };
+        return { name: previous.oldName ?? 200, size: previous.size ?? 120 };
+      },
+    });
+    await getPersistApi(store).rehydrate();
+
+    expect(store.getState().sizes).toEqual({ name: 120, size: 300, status: 44 });
+  });
+
+  it('discards migrated null values and malformed persisted JSON', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      'tree-table-test-null-migrate.v2',
+      JSON.stringify({
+        state: { sizes: { name: 180 } },
+        version: 1,
+      })
+    );
+    await storage.setItem('tree-table-test-malformed.v1', '{bad-json');
+
+    const nullMigrationStore = createTreeTableColumnSizesStore({
+      storeName: 'tree-table-test-null-migrate.v2',
+      version: 2,
+      columnBounds: BOUNDS,
+      storage,
+      migrate: () => null,
+    });
+    await getPersistApi(nullMigrationStore).rehydrate();
+    expect(nullMigrationStore.getState().sizes).toEqual({ name: 200, size: 120, status: 44 });
+
+    const malformedStore = createTreeTableColumnSizesStore({
+      storeName: 'tree-table-test-malformed.v1',
+      version: 1,
+      columnBounds: BOUNDS,
+      storage,
+    });
+    await getPersistApi(malformedStore).rehydrate();
+    expect(malformedStore.getState().sizes).toEqual({ name: 200, size: 120, status: 44 });
+  });
+});
+
+describe('createSingletonColumnSizesStore', () => {
+  it('reuses a branded singleton and replaces invalid globals', () => {
+    const globalKey = '__brainstrike_test_column_sizes_store__';
+    Reflect.deleteProperty(globalThis, globalKey);
+
+    const first = createSingletonColumnSizesStore(globalKey, {
+      storeName: 'tree-table-singleton.v1',
+      version: 1,
+      columnBounds: BOUNDS,
+    });
+    first.getState().setColumn('name', 260);
+
+    const second = createSingletonColumnSizesStore(globalKey, {
+      storeName: 'tree-table-singleton.v1',
+      version: 1,
+      columnBounds: BOUNDS,
+    });
+    expect(second).toBe(first);
+    expect(second.getState().sizes['name']).toBe(260);
+
+    (globalThis as unknown as Record<string, unknown>)[globalKey] = () => undefined;
+    const replacement = createSingletonColumnSizesStore(globalKey, {
+      storeName: 'tree-table-singleton.v1',
+      version: 1,
+      columnBounds: BOUNDS,
+    });
+    expect(replacement).not.toBe(first);
+
+    Reflect.deleteProperty(globalThis, globalKey);
   });
 });

@@ -37,6 +37,18 @@ function createWrapper(adapter: MockFileSystemAdapter) {
   };
 }
 
+interface TestHandleCache {
+  getFileHandle: (folderId: string, relativePath: string) => Promise<FileSystemFileHandle | null>;
+}
+
+function attachHandleCache(adapter: MockFileSystemAdapter, handleCache: TestHandleCache): void {
+  (
+    adapter as unknown as {
+      getHandleCache: () => TestHandleCache;
+    }
+  ).getHandleCache = () => handleCache;
+}
+
 describe('useSharedFileContentLoading - caching', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -468,6 +480,156 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(findSpy).toHaveBeenCalledTimes(1);
     expect(result.current.fileContents[compositeKey]).toBe('retry');
+  });
+
+  it('reads through a cached browser handle when the indexed file node has no handle', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const cachedHandle = {
+      kind: 'file',
+      name: 'cached.txt',
+      queryPermission: vi.fn(async () => 'granted' satisfies PermissionState),
+    } as unknown as FileSystemFileHandle;
+    const handleCache: TestHandleCache = {
+      getFileHandle: vi.fn(async () => cachedHandle),
+    };
+    attachHandleCache(adapter, handleCache);
+
+    const withHandle = createFileNode({ path: '/cached.txt', rootFolderId: 'root1' });
+    const withoutHandle = { ...withHandle, handle: undefined as unknown as FileSystemFileHandle };
+    const compositeKey = encodeFileSelection('root1', '/cached.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'cached-content' });
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      await vi.advanceTimersByTimeAsync(100);
+      await loadPromise;
+      rerender();
+    });
+
+    expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/cached.txt');
+    expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
+    expect(mockWorker).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          compositeKey,
+          handle: expect.objectContaining({
+            _internal: cachedHandle,
+            name: 'cached.txt',
+            path: '/cached.txt',
+            platform: 'web',
+            rootFolderId: 'root1',
+          }),
+        }),
+      ],
+      expect.any(Function)
+    );
+    expect(result.current.fileContents[compositeKey]).toBe('cached-content');
+  });
+
+  it('reports cached browser handles that still need read permission', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const cachedHandle = {
+      kind: 'file',
+      name: 'locked.txt',
+      queryPermission: vi.fn(async () => 'prompt' satisfies PermissionState),
+    } as unknown as FileSystemFileHandle;
+    const handleCache: TestHandleCache = {
+      getFileHandle: vi.fn(async () => cachedHandle),
+    };
+    attachHandleCache(adapter, handleCache);
+
+    const withHandle = createFileNode({ path: '/locked.txt', rootFolderId: 'root1' });
+    const withoutHandle = { ...withHandle, handle: undefined as unknown as FileSystemFileHandle };
+    const compositeKey = encodeFileSelection('root1', '/locked.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      await vi.advanceTimersByTimeAsync(100);
+      await loadPromise;
+      rerender();
+    });
+
+    expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/locked.txt');
+    expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(result.current.fileContents[compositeKey]).toMatch('permission required: /locked.txt');
+  });
+
+  it('preserves cached permission errors when the file is missing from the indexed tree', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    (adapter as unknown as { readFileByPath?: unknown }).readFileByPath = undefined;
+    const cachedHandle = {
+      kind: 'file',
+      name: 'missing-locked.txt',
+      queryPermission: vi.fn(async () => 'prompt' satisfies PermissionState),
+    } as unknown as FileSystemFileHandle;
+    const handleCache: TestHandleCache = {
+      getFileHandle: vi.fn(async () => cachedHandle),
+    };
+    attachHandleCache(adapter, handleCache);
+
+    const compositeKey = encodeFileSelection('root1', '/missing-locked.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const indexedNode = createFileNode({ path: '/indexed.txt', rootFolderId: 'root1' });
+    const { result, rerender } = renderHook(() => useTestHook([indexedNode]), { wrapper });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      await vi.advanceTimersByTimeAsync(100);
+      await loadPromise;
+      rerender();
+    });
+
+    expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/missing-locked.txt');
+    expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(result.current.fileContents[compositeKey]).toMatch(
+      'permission required: /missing-locked.txt'
+    );
+    expect(result.current.fileContents[compositeKey]).not.toContain('File not found');
+  });
+
+  it('rejects directory nodes before queueing worker reads', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const directoryNode = createFileNode({ path: '/folder', rootFolderId: 'root1' });
+    directoryNode.type = 'directory';
+    const compositeKey = encodeFileSelection('root1', '/folder');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([directoryNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(result.current.fileContents[compositeKey]).toBe('Not a file: /folder');
   });
 
   it('limits concurrent loading to MAX_CONCURRENT_LOADS', async () => {

@@ -1,4 +1,4 @@
-import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
+import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
@@ -570,6 +570,248 @@ describe('WorkspaceTabHost', () => {
     await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
     const closeAll = await screen.findByRole('menuitem', { name: /close all tabs/i });
     expect(closeAll).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('registers openFileInTab and loads newly opened file content once', async () => {
+    let registeredOpenFile: ((compositeKey: string) => void) | undefined;
+    const registerOpenFileInTab = vi.fn((callback: (compositeKey: string) => void) => {
+      registeredOpenFile = callback;
+    });
+    const uiModule = await import('@brainstrike/ui');
+    vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+      openFileInTab: vi.fn(),
+      registerOpenFileInTab,
+    });
+
+    const openTab = vi.fn();
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [],
+      activeTabId: null,
+      openTab,
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    const loadFileContent = vi.fn();
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
+    vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
+      fileTree: [],
+      fileContents: {},
+      loadingFiles: new Set<string>(),
+      loadFileContent,
+      loadMultipleFileContents: vi.fn(),
+      rootDirectoryHandle: null,
+      canLoadWithoutTree: false,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    if (!registeredOpenFile) {
+      throw new Error('Expected openFileInTab registration');
+    }
+    const openFileInTab = registeredOpenFile;
+
+    act(() => {
+      openFileInTab('folderA|@|src/new.ts');
+      openFileInTab('malformed-key');
+    });
+
+    expect(openTab).toHaveBeenCalledWith(
+      'src/new.ts',
+      'folderA|@|src/new.ts',
+      'folderA|@|src/new.ts'
+    );
+    expect(loadFileContent).toHaveBeenCalledTimes(1);
+    expect(loadFileContent).toHaveBeenCalledWith('folderA|@|src/new.ts');
+  });
+
+  it('renders missing app fallback for an unknown persisted app selection', async () => {
+    useWorkspaceTabSelectionStore.getState().selectApp('missing-app');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(await screen.findByText('App unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('No registered workspace app matches the saved selection.')
+    ).toBeInTheDocument();
+  });
+
+  it('renders permission-required restoration status without auto-loading content', async () => {
+    const compositeKey = 'folderA|@|src/locked.ts';
+    useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
+    vi.mocked(useTabFileRestoration).mockReturnValue({
+      tabStatuses: new Map<string, TabFileStatus>([
+        [
+          compositeKey,
+          {
+            compositeKey,
+            error: 'Permission was denied',
+            status: 'needs-permission',
+          },
+        ],
+      ]),
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      needsUserAction: () => true,
+      getStatusMessage: () => 'Permission was denied',
+      isRestoring: false,
+    });
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: compositeKey,
+          path: 'src/locked.ts',
+          compositeKey,
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: compositeKey,
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    const loadFileContent = vi.fn();
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
+    vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
+      fileTree: [{ path: 'src/locked.ts' }],
+      fileContents: {},
+      loadingFiles: new Set<string>(),
+      loadFileContent,
+      loadMultipleFileContents: vi.fn(),
+      rootDirectoryHandle: null,
+      canLoadWithoutTree: false,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(await screen.findByText('File Access Required')).toBeInTheDocument();
+    expect(screen.getByText('Permission was denied')).toBeInTheDocument();
+    expect(loadFileContent).not.toHaveBeenCalled();
+  });
+
+  it('renders not-found restoration status with the decoded file path', async () => {
+    const compositeKey = 'folderA|@|src/missing.ts';
+    useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
+    vi.mocked(useTabFileRestoration).mockReturnValue({
+      tabStatuses: new Map<string, TabFileStatus>([
+        [
+          compositeKey,
+          {
+            compositeKey,
+            error: 'File disappeared',
+            status: 'not-found',
+          },
+        ],
+      ]),
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      needsUserAction: () => false,
+      getStatusMessage: () => 'File disappeared',
+      isRestoring: false,
+    });
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: compositeKey,
+          path: 'src/missing.ts',
+          compositeKey,
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: compositeKey,
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(await screen.findByText('File Not Found')).toBeInTheDocument();
+    expect(screen.getByText('src/missing.ts')).toBeInTheDocument();
+    expect(screen.getByText('File disappeared')).toBeInTheDocument();
+  });
+
+  it('renders inaccessible file content as a browser permission message', async () => {
+    const compositeKey = 'folderA|@|src/locked.ts';
+    useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: compositeKey,
+          path: 'src/locked.ts',
+          compositeKey,
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: compositeKey,
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    const inaccessibleContent = `${INACCESSIBLE_CONTENT_PREFIX} permission required`;
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
+    vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
+      fileTree: [],
+      fileContents: { [compositeKey]: inaccessibleContent },
+      loadingFiles: new Set<string>(),
+      loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
+      rootDirectoryHandle: null,
+      canLoadWithoutTree: false,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(await screen.findByText(inaccessibleContent)).toBeInTheDocument();
+    expect(screen.getByText(/please open the folder again/i)).toBeInTheDocument();
   });
 
   it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {

@@ -7,7 +7,7 @@ import type {
 } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
 
 // Mock preferences store state for useVectorStatusUIStore
@@ -250,6 +250,10 @@ beforeEach(() => {
   // Clear mock call history but preserve implementation
   mockVectorStatusUIStore.setSchemaVerified.mockClear();
   mockVectorStatusUIStore.setCachedFileData.mockClear();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('useDatabaseDemoData', () => {
@@ -1026,6 +1030,192 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
+  it('rejects invalid chunk detail requests before querying a repository', async () => {
+    setupLiveQueries();
+    const renderSubject = (chunkRepository: DrizzleFileChunkRepository | null) =>
+      renderHook(() =>
+        useDatabaseDemoData({
+          repository: createRepository(),
+          chunkRepository,
+          toast: vi.fn(),
+          database: createMockDatabase(),
+          activeCollectionId: 'set-1',
+        })
+      );
+
+    const { result } = renderSubject(createChunkRepository([]));
+    await expect(result.current.loadChunkDetail('')).rejects.toThrow(
+      'Chunk detail requests require a chunk id.'
+    );
+
+    const withoutRepository = renderSubject(null);
+    await expect(withoutRepository.result.current.loadChunkDetail('chunk-1')).rejects.toThrow(
+      'Chunk detail repository is unavailable.'
+    );
+
+    const unsupportedRepository = renderSubject({
+      findAll: vi.fn(),
+    } as unknown as DrizzleFileChunkRepository);
+    await expect(unsupportedRepository.result.current.loadChunkDetail('chunk-1')).rejects.toThrow(
+      'Chunk detail repository does not support findById.'
+    );
+  });
+
+  it('rejects invalid chunk summary requests before querying the database', async () => {
+    setupLiveQueries();
+    const validOptions = {
+      repository: createRepository(),
+      chunkRepository: createChunkRepository([]),
+      toast: vi.fn(),
+      database: createMockDatabase(),
+      activeCollectionId: 'set-1',
+    };
+
+    const valid = renderHook(() => useDatabaseDemoData(validOptions));
+    await expect(valid.result.current.loadFileChunkSummaries('')).rejects.toThrow(
+      'Chunk summary requests require a file record id.'
+    );
+
+    const withoutCollection = renderHook(() =>
+      useDatabaseDemoData({ ...validOptions, activeCollectionId: null })
+    );
+    await expect(
+      withoutCollection.result.current.loadFileChunkSummaries('record-1')
+    ).rejects.toThrow('Chunk summary requests require an active collection.');
+
+    const withoutDatabase = renderHook(() =>
+      useDatabaseDemoData({
+        repository: validOptions.repository,
+        chunkRepository: validOptions.chunkRepository,
+        toast: validOptions.toast,
+        activeCollectionId: validOptions.activeCollectionId,
+      })
+    );
+    await expect(withoutDatabase.result.current.loadFileChunkSummaries('record-1')).rejects.toThrow(
+      'Chunk summary requests require an initialized database.'
+    );
+
+    const withoutQuerySupport = renderHook(() =>
+      useDatabaseDemoData({ ...validOptions, database: {} as never })
+    );
+    await expect(
+      withoutQuerySupport.result.current.loadFileChunkSummaries('record-1')
+    ).rejects.toThrow('Chunk summary requests require database query support.');
+  });
+
+  it('rejects invalid collection export requests before fan-out', async () => {
+    setupLiveQueries();
+    const repository = createRepository();
+    const chunkRepository = createChunkRepository([]);
+    const database = createMockDatabase();
+    const renderSubject = ({
+      activeCollectionId,
+      repository,
+      chunkRepository,
+      database,
+    }: {
+      activeCollectionId: string | null;
+      repository: DrizzleFileRecordRepository | null;
+      chunkRepository: DrizzleFileChunkRepository | null;
+      database: unknown;
+    }) =>
+      renderHook(() =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast: vi.fn(),
+          database: database as never,
+          activeCollectionId,
+        })
+      );
+
+    const noCollection = renderSubject({
+      activeCollectionId: null,
+      repository,
+      chunkRepository,
+      database,
+    });
+    await expect(noCollection.result.current.loadCollectionExportData()).rejects.toThrow(
+      'Export requests require an active collection.'
+    );
+
+    const noRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository: null,
+      chunkRepository,
+      database,
+    });
+    await expect(noRepository.result.current.loadCollectionExportData()).rejects.toThrow(
+      'File export repository is unavailable.'
+    );
+
+    const noQuerySupport = renderSubject({
+      activeCollectionId: 'set-1',
+      repository,
+      chunkRepository,
+      database: {},
+    });
+    await expect(noQuerySupport.result.current.loadCollectionExportData()).rejects.toThrow(
+      'Collection export requires database query support.'
+    );
+
+    const noChunkRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository,
+      chunkRepository: null,
+      database,
+    });
+    await expect(noChunkRepository.result.current.loadCollectionExportData()).rejects.toThrow(
+      'Chunk export repository is unavailable.'
+    );
+
+    const unsupportedFileRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository: { count: vi.fn() } as unknown as DrizzleFileRecordRepository,
+      chunkRepository,
+      database,
+    });
+    await expect(
+      unsupportedFileRepository.result.current.loadCollectionExportData()
+    ).rejects.toThrow('File export repository does not support findById.');
+
+    const unsupportedChunkRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository,
+      chunkRepository: { findById: vi.fn() } as unknown as DrizzleFileChunkRepository,
+      database,
+    });
+    await expect(
+      unsupportedChunkRepository.result.current.loadCollectionExportData()
+    ).rejects.toThrow('Chunk export repository does not support findByFileRecordId.');
+  });
+
+  it('rejects collection exports when a listed record cannot be loaded', async () => {
+    setupLiveQueries();
+    const repository = {
+      count: vi.fn().mockResolvedValue(1),
+      findById: vi.fn().mockResolvedValue(null),
+    } as unknown as DrizzleFileRecordRepository;
+    const chunkRepository = createChunkRepository([]);
+    const database = createMockDatabase({
+      recordRows: [{ id: 'missing-record' }],
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await expect(result.current.loadCollectionExportData()).rejects.toThrow(
+      'Missing file record during export: missing-record'
+    );
+  });
+
   it('bounds export repository fan-out in fixed-size batches', async () => {
     const now = new Date().toISOString();
     const recordCount = 120;
@@ -1296,6 +1486,53 @@ describe('useDatabaseDemoData', () => {
     );
   });
 
+  it('refreshes visible data only for matching queue-drained collection events', async () => {
+    const { recordRefresh, totalRecordsRefresh, collectionCountsRefresh } = setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).not.toBeNull();
+    });
+    recordRefresh.mockClear();
+    totalRecordsRefresh.mockClear();
+    collectionCountsRefresh.mockClear();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { embeddingSetId: 'set-2' },
+        })
+      );
+    });
+
+    expect(recordRefresh).not.toHaveBeenCalled();
+    expect(totalRecordsRefresh).not.toHaveBeenCalled();
+    expect(collectionCountsRefresh).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { embeddingSetId: 'set-1' },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(recordRefresh).toHaveBeenCalledTimes(1);
+      expect(totalRecordsRefresh).toHaveBeenCalledTimes(1);
+      expect(collectionCountsRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('provides safe fallbacks when repositories are unavailable', async () => {
     const toast = vi.fn();
     setupLiveQueries();
@@ -1503,5 +1740,70 @@ describe('useDatabaseDemoData', () => {
     // The dbInfo should be set correctly
     expect(result.current.dbInfo?.location).toBe('PGlite WASM');
     expect(result.current.dbInfo?.testResult).toContain('Successfully connected');
+  });
+
+  it('uses Electron DB ping and test handlers when available', async () => {
+    const ping = vi.fn().mockResolvedValue({ success: true });
+    const test = vi.fn().mockResolvedValue({ success: true });
+    let resolveCount: (count: number) => void = () => undefined;
+    const repository = {
+      findAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            resolveCount = resolve;
+          })
+      ),
+    } as unknown as DrizzleFileRecordRepository;
+    vi.stubGlobal('electronAPI', { db: { ping, test } });
+    setupLiveQueries();
+
+    const { result, unmount } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toEqual({
+        location: 'Main Process',
+        testResult: 'Connected (IPC)',
+        connected: true,
+      });
+    });
+    expect(ping).toHaveBeenCalled();
+    expect(test).toHaveBeenCalled();
+
+    unmount();
+    resolveCount(0);
+  });
+
+  it('falls back to repository status when Electron DB handlers fail', async () => {
+    const ping = vi.fn().mockRejectedValue(new Error('ping failed'));
+    const test = vi.fn().mockRejectedValue(new Error('test failed'));
+    vi.stubGlobal('electronAPI', { db: { ping, test } });
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository([], 4),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo?.testResult).toBe(
+        'Successfully connected - 4 file records found'
+      );
+    });
+    expect(ping).toHaveBeenCalled();
+    expect(test).toHaveBeenCalled();
   });
 });

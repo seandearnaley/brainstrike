@@ -68,6 +68,17 @@ describe('createQueueTelemetryCollector', () => {
     expect(collector?.listBatches()).toHaveLength(0);
   });
 
+  it('normalises configured paths and ignores repeated starts', async () => {
+    collector = createQueueTelemetryCollector({ path: 'telemetry' });
+    await collector.start();
+
+    const endpoint = collector.getEndpoint();
+    expect(endpoint).toMatch(/\/telemetry$/);
+
+    await collector.start();
+    expect(collector.getEndpoint()).toBe(endpoint);
+  });
+
   it('normalises metadata and rejects invalid payloads', async () => {
     collector = createQueueTelemetryCollector({ path: '/telemetry' });
     await collector.start();
@@ -101,6 +112,33 @@ describe('createQueueTelemetryCollector', () => {
     expect(validResponse.status).toBe(204);
     const batch = await collector?.nextBatch({ timeoutMs: 200 });
     expect(batch.metadata).toBeNull();
+  });
+
+  it('keeps accepting batches when the observer callback rejects', async () => {
+    const onBatch = vi.fn(async () => {
+      throw new Error('observer failed');
+    });
+    collector = createQueueTelemetryCollector({ onBatch });
+    await collector.start();
+
+    const response = await postJson(collector.getEndpoint() as string, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [
+        {
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'enqueue',
+          taskId: 'task-observed',
+        },
+      ],
+    });
+
+    expect(response.status).toBe(204);
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    await expect(collector.nextBatch({ timeoutMs: 200 })).resolves.toMatchObject({
+      runtime: 'browser',
+    });
   });
 
   it('enforces API keys and supported methods', async () => {
@@ -164,6 +202,50 @@ describe('createQueueTelemetryCollector', () => {
     expect(badEvents.status).toBe(400);
     const badEventBody = await badEvents.json();
     expect(badEventBody.error).toBe('Invalid telemetry events');
+  });
+
+  it('rejects non-object payloads and malformed timestamps', async () => {
+    collector = createQueueTelemetryCollector();
+    await collector.start();
+    const endpoint = collector.getEndpoint() as string;
+
+    const arrayPayload = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '[]',
+    });
+    expect(arrayPayload.status).toBe(400);
+    await expect(arrayPayload.json()).resolves.toEqual({ error: 'Payload must be an object' });
+
+    const nonStringSentAt = await postJson(endpoint, {
+      runtime: 'browser',
+      sentAt: 123,
+      events: [],
+    });
+    expect(nonStringSentAt.status).toBe(400);
+    await expect(nonStringSentAt.json()).resolves.toEqual({
+      error: 'Invalid sentAt timestamp',
+    });
+
+    const invalidDateSentAt = await postJson(endpoint, {
+      runtime: 'browser',
+      sentAt: 'not-a-date',
+      events: [],
+    });
+    expect(invalidDateSentAt.status).toBe(400);
+    await expect(invalidDateSentAt.json()).resolves.toEqual({
+      error: 'Invalid sentAt timestamp',
+    });
+
+    const nonObjectEvent = await postJson(endpoint, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [null],
+    });
+    expect(nonObjectEvent.status).toBe(400);
+    await expect(nonObjectEvent.json()).resolves.toEqual({
+      error: 'Invalid telemetry events',
+    });
   });
 
   it('returns payload too large when telemetry bodies exceed the configured cap', async () => {

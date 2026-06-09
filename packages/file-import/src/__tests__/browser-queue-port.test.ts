@@ -242,4 +242,219 @@ describe('createBrowserEmbeddingQueuePort', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(queue.add).not.toHaveBeenCalled();
   });
+
+  it('skips enqueue when model or repository is missing', async () => {
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const portWithoutModel = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+    });
+    const portWithoutRepository = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository: null,
+      deviceHint: 'wasm',
+    });
+
+    await portWithoutModel.enqueueBatch([chunk as never], 'file-1', {
+      targetEmbeddingSetId: 'set-1',
+    });
+    await portWithoutRepository.enqueueBatch([chunk as never], 'file-1', {
+      model: 'test-model',
+      targetEmbeddingSetId: 'set-1',
+    });
+
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(chunkRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects chunks without browser content before scheduling', async () => {
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+    });
+
+    await expect(
+      port.enqueueBatch([{ id: 'chunk-without-content' } as never], 'file-1', {
+        model: 'test-model',
+        targetEmbeddingSetId: 'set-1',
+      })
+    ).rejects.toThrow('Browser embedding queue requires chunk content.');
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('skips chunks with empty content', async () => {
+    const eventListener = vi.fn();
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+      dispatchProgressEvent: eventListener,
+    });
+
+    await port.enqueueBatch([{ ...chunk, content: '' } as never], 'file-1', {
+      model: 'test-model',
+      targetEmbeddingSetId: 'set-1',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(chunkRepository.update).not.toHaveBeenCalled();
+    expect(eventListener).not.toHaveBeenCalled();
+  });
+
+  it('rejects when aborting during batch scheduling', async () => {
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const controller = new AbortController();
+    const firstChunk = {
+      ...chunk,
+      get content() {
+        controller.abort();
+        return 'Hello world';
+      },
+    };
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+    });
+
+    await expect(
+      port.enqueueBatch([firstChunk as never, { ...chunk, id: 'chunk-2' } as never], 'file-1', {
+        model: 'test-model',
+        targetEmbeddingSetId: 'set-1',
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('does not reset progress while a chunk is pending', async () => {
+    let resolveQueue: ((value: QueueResult) => void) | undefined;
+    const eventListener = vi.fn();
+    const queue = createAdapter({
+      add: vi.fn(
+        () =>
+          new Promise<QueueResult>((resolve) => {
+            resolveQueue = resolve;
+          })
+      ),
+    });
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+      dispatchProgressEvent: eventListener,
+    });
+
+    await port.enqueueBatch([chunk as never], 'file-1', {
+      model: 'test-model',
+      targetEmbeddingSetId: 'set-1',
+    });
+    await vi.waitUntil(() =>
+      eventListener.mock.calls.some(
+        (call) => (call[0] as QueueProgressEventDetail).status === 'queued'
+      )
+    );
+
+    port.resetProgress?.();
+    resolveQueue?.(resultTemplate);
+
+    await vi.waitUntil(() =>
+      eventListener.mock.calls.some(
+        (call) => (call[0] as QueueProgressEventDetail).status === 'completed'
+      )
+    );
+
+    const completion = eventListener.mock.calls.find(
+      (call) => (call[0] as QueueProgressEventDetail).status === 'completed'
+    )?.[0] as QueueProgressEventDetail | undefined;
+    expect(completion).toMatchObject({ processed: 1, totalQueued: 1 });
+  });
+
+  it('emits error progress for non-finite vectors', async () => {
+    const eventListener = vi.fn();
+    const queue = createAdapter({
+      add: vi.fn(async () => ({
+        ...resultTemplate,
+        vectors: [new Float32Array([Number.POSITIVE_INFINITY])],
+      })),
+    });
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+      dispatchProgressEvent: eventListener,
+    });
+
+    await port.enqueueBatch([chunk as never], 'file-1', {
+      model: 'test-model',
+      targetEmbeddingSetId: 'set-1',
+    });
+
+    await vi.waitUntil(() =>
+      eventListener.mock.calls.some(
+        (call) => (call[0] as QueueProgressEventDetail).status === 'error'
+      )
+    );
+
+    const errorEvent = eventListener.mock.calls.find(
+      (call) => (call[0] as QueueProgressEventDetail).status === 'error'
+    )?.[0] as QueueProgressEventDetail | undefined;
+    expect(errorEvent).toMatchObject({
+      errorMessage: 'Embedding worker returned a non-finite vector',
+      failed: 1,
+    });
+  });
+
+  it('dispatches default browser progress and drain events', async () => {
+    const progressListener = vi.fn();
+    const drainListener = vi.fn();
+    window.addEventListener('brainstrike:queue-progress', progressListener);
+    window.addEventListener('brainstrike:queue-drained', drainListener);
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+    });
+
+    try {
+      await port.enqueueBatch([chunk as never], 'file-1', {
+        model: 'test-model',
+        targetEmbeddingSetId: 'set-1',
+      });
+
+      await vi.waitUntil(() => drainListener.mock.calls.length > 0);
+    } finally {
+      window.removeEventListener('brainstrike:queue-progress', progressListener);
+      window.removeEventListener('brainstrike:queue-drained', drainListener);
+    }
+
+    expect(progressListener).toHaveBeenCalled();
+    expect(drainListener).toHaveBeenCalled();
+  });
 });
