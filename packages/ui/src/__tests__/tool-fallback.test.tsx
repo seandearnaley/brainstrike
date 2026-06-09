@@ -32,11 +32,16 @@ describe('ToolFallback', () => {
   };
 
   describe('Running State', () => {
-    it('displays running status with spinner', () => {
+    it('displays running status with the shared thinking indicator', () => {
       wrap(<ToolFallback {...mockBaseProps} result={undefined} status={{ type: 'running' }} />);
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
       expect(screen.getByLabelText(/Running/)).toBeInTheDocument();
+      expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
+      expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute(
+        'data-tone',
+        'greyscale'
+      );
       expect(screen.queryByRole('button')).not.toBeInTheDocument(); // No collapse button while running
     });
   });

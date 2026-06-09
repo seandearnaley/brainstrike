@@ -41,4 +41,13 @@ describe('assistant UI panel architecture', () => {
     expect(localChainOfThoughtSource).toContain('tools: {');
     expect(localChainOfThoughtSource).toContain('Fallback: ToolFallback');
   });
+
+  it('uses the shared thinking indicator instead of a bare streaming caret', () => {
+    const panelSource = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    const cssSource = readSource('assistant-ui-panel/overrides.css');
+
+    expect(panelSource).toContain("from './assistant-thinking-indicator'");
+    expect(cssSource).toContain('.bs-streaming-thinking');
+    expect(cssSource).not.toContain('--aui-content: "|"');
+  });
 });

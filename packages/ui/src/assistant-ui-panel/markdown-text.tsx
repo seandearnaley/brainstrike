@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
 import '@assistant-ui/react-markdown/styles/dot.css';
+import { useMessagePartText } from '@assistant-ui/react';
 import {
   type CodeHeaderProps,
   MarkdownTextPrimitive,
@@ -7,10 +8,17 @@ import {
 } from '@assistant-ui/react-markdown';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
+import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 import { TooltipIconButton } from './tooltip-icon-button';
 
 export const MarkdownText = memo(function MarkdownTextImpl() {
+  const { status, text } = useMessagePartText();
+
+  if (status.type === 'running' && text.trim().length === 0) {
+    return <AssistantThinkingIndicator className="bs-streaming-thinking" markClassName="size-4" />;
+  }
+
   return (
     <MarkdownTextPrimitive
       className="aui-md"

@@ -56,6 +56,7 @@ import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { AssistantRunTimeline, resolveAssistantRunEventStatus } from './assistant-run-timeline';
+import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
@@ -346,16 +347,16 @@ const LocalChainOfThought: FC = () => {
         onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
         type="button"
       >
-        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-sky-500" />
-        {isContinuation ? null : (
-          <>
-            <span className="truncate">Thinking</span>
-            {collapsed ? (
-              <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
-            )}
-          </>
+        <AssistantThinkingIndicator
+          className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
+          markClassName="size-4"
+          showText={!isContinuation}
+          textClassName="truncate"
+        />
+        {isContinuation ? null : collapsed ? (
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
         )}
       </button>
       <div

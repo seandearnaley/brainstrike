@@ -555,6 +555,102 @@
   animation: bs-chain-of-thought-enter 180ms ease-out;
 }
 
+@keyframes bs-thinking-pulse-ring {
+  0% {
+    opacity: 0.56;
+    transform: scale(0.42);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+
+@keyframes bs-thinking-core {
+  0%,
+  100% {
+    opacity: 0.64;
+    transform: scale(0.94);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes bs-thinking-shimmer {
+  from {
+    background-position: 140% 0;
+  }
+
+  to {
+    background-position: -140% 0;
+  }
+}
+
+.assistant-ui-panel .bs-thinking-indicator {
+  align-items: center;
+  color: hsl(var(--foreground) / 0.72);
+  display: inline-flex;
+  gap: 0.375rem;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.assistant-ui-panel .bs-thinking-mark {
+  color: hsl(var(--foreground) / 0.68);
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.assistant-ui-panel .bs-thinking-mark :where(circle, path) {
+  vector-effect: non-scaling-stroke;
+}
+
+.assistant-ui-panel .bs-thinking-pulse,
+.assistant-ui-panel .bs-thinking-core {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.assistant-ui-panel .bs-thinking-pulse {
+  animation: bs-thinking-pulse-ring 1.65s ease-out infinite;
+  stroke-width: 4;
+}
+
+.assistant-ui-panel .bs-thinking-pulse-b {
+  animation-delay: 0.82s;
+}
+
+.assistant-ui-panel .bs-thinking-core {
+  animation: bs-thinking-core 1.65s ease-in-out infinite;
+}
+
+.assistant-ui-panel .bs-thinking-shimmer {
+  animation: bs-thinking-shimmer 1.45s linear infinite;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted-foreground) / 0.52) 0%,
+    hsl(var(--foreground) / 0.94) 42%,
+    hsl(var(--muted-foreground) / 0.58) 84%
+  );
+  background-clip: text;
+  background-size: 220% 100%;
+  color: transparent;
+  font-weight: 600;
+  letter-spacing: 0;
+  min-width: 0;
+  -webkit-background-clip: text;
+}
+
+.assistant-ui-panel .bs-streaming-thinking {
+  margin-top: 0.125rem;
+  min-height: 1.75rem;
+}
+
 /* The collapsed reasoning panel stays in the DOM so aria-controls keeps a
    valid target. The HTML hidden attribute can be silently overridden by any
    future display utility on this class — pin display:none for the hidden
@@ -563,49 +659,27 @@
   display: none;
 }
 
-@keyframes bs-streaming-caret {
-  0%,
-  45% {
-    opacity: 0.2;
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-thinking-pulse,
+  .assistant-ui-panel .bs-thinking-core,
+  .assistant-ui-panel .bs-thinking-shimmer {
+    animation: none;
   }
 
-  46%,
-  100% {
-    opacity: 0.85;
+  .assistant-ui-panel .bs-thinking-pulse {
+    opacity: 0.18;
+    transform: scale(1);
   }
-}
 
-.assistant-ui-panel :where(.aui-md[data-status="running"]):empty::after,
-.assistant-ui-panel
-  :where(.aui-md[data-status="running"])
-  > :where(:not(ol):not(ul):not(pre)):last-child::after,
-.assistant-ui-panel :where(.aui-md[data-status="running"]) > pre:last-child code::after,
-.assistant-ui-panel
-  :where(.aui-md[data-status="running"])
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child:not(:has(* > li)))::after,
-.assistant-ui-panel
-  :where(.aui-md[data-status="running"])
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child:not(:has(* > li)))::after,
-.assistant-ui-panel
-  :where(.aui-md[data-status="running"])
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)::after {
-  --aui-content: "|";
-  animation: bs-streaming-caret 1s step-end infinite;
-  color: hsl(var(--foreground) / 0.55);
-  content: var(--aui-content);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-weight: 500;
-  margin-left: 0.125rem;
-  margin-right: 0;
+  .assistant-ui-panel .bs-thinking-core {
+    opacity: 0.78;
+    transform: scale(1);
+  }
+
+  .assistant-ui-panel .bs-thinking-shimmer {
+    background: none;
+    color: hsl(var(--foreground) / 0.78);
+  }
 }
 
 /**

@@ -5,19 +5,15 @@ import type {
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import {
-  AlertCircle,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  Clock3,
-  Loader2,
-  Radio,
-} from 'lucide-react';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Clock3, Radio } from 'lucide-react';
 import * as m from 'motion/react-m';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import {
+  AssistantThinkingIndicator,
+  BrainstrikeThinkingMark,
+} from './assistant-thinking-indicator';
 import { categoryTintClasses, classifyRunEvent } from './tool-visual-classification';
 
 interface AssistantRunTimelineProps {
@@ -44,7 +40,7 @@ function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus })
     return <AlertCircle className="size-4 text-muted-foreground" />;
   }
   if (status === 'running') {
-    return <Loader2 className="size-4 animate-spin text-sky-600 dark:text-sky-400" />;
+    return <BrainstrikeThinkingMark className="size-4" testId="assistant-thinking-status-mark" />;
   }
   return <Radio className="size-4 text-sky-600 dark:text-sky-400" />;
 }
@@ -298,6 +294,7 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
   const statusLabel = STATUS_LABELS[eventStatus];
   const durationLabel = formatDuration(event.durationMs);
   const isFailed = eventStatus === 'failed';
+  const isRunning = eventStatus === 'running';
 
   const toolName =
     typeof event.metadata?.['toolName'] === 'string' ? event.metadata['toolName'] : undefined;
@@ -335,7 +332,10 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
               <span className="truncate">{event.label}</span>
             </span>
           </p>
-          <p className="mt-0.5 text-muted-foreground text-xs">
+          <p className="mt-0.5 flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
+            {isRunning ? (
+              <AssistantThinkingIndicator markClassName="size-3.5" textClassName="truncate" />
+            ) : null}
             <span>{formatTimestamp(event.timestamp)}</span>
           </p>
         </div>

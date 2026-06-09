@@ -95,4 +95,18 @@ describe('AssistantRunTimeline render', () => {
       'internal'
     );
   });
+
+  it('renders running run activity with the shared thinking indicator', () => {
+    renderTimeline({
+      id: 'r1',
+      kind: 'run.step.started',
+      label: 'Generating response',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    });
+
+    expect(screen.getByLabelText('Running')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
+    expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
+  });
 });
