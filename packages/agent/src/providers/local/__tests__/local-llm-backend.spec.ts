@@ -301,6 +301,43 @@ describe('LocalLlmBackend', () => {
     });
   });
 
+  it('purges stale HTML responses from the Transformers cache before loading', async () => {
+    const staleRequest = new Request('https://cdn.example.test/model/config.json');
+    const modelRequest = new Request('https://cdn.example.test/model/model.onnx');
+    const deleteCachedRequest = vi.fn().mockResolvedValue(true);
+    const cache = {
+      delete: deleteCachedRequest,
+      keys: vi.fn().mockResolvedValue([staleRequest, modelRequest]),
+      match: vi.fn().mockImplementation(async (request: Request) => {
+        if (request === staleRequest) {
+          return new Response('<html>not a model</html>', {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+            },
+          });
+        }
+        return new Response('model-bytes', {
+          headers: {
+            'content-type': 'application/octet-stream',
+          },
+        });
+      }),
+    } satisfies Partial<Cache>;
+    const openCache = vi.fn().mockResolvedValue(cache);
+    vi.stubGlobal('caches', {
+      open: openCache,
+    });
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    expect(openCache).toHaveBeenCalledWith('transformers-cache');
+    expect(deleteCachedRequest).toHaveBeenCalledExactlyOnceWith(staleRequest);
+  });
+
   it('tracks ready and uninitialized status across repeated initialize and dispose calls', async () => {
     const backend = new LocalLlmBackend();
 
@@ -323,6 +360,23 @@ describe('LocalLlmBackend', () => {
 
     expect(backend.isReady()).toBe(false);
     expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
+  });
+
+  it('disposes loaded Gemma models when the backend is disposed', async () => {
+    const disposeModel = vi.fn().mockResolvedValue(undefined);
+    mockFromPretrainedModel.mockResolvedValueOnce({
+      dispose: disposeModel,
+      generate: mockModelGenerate,
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+    await backend.dispose();
+
+    expect(disposeModel).toHaveBeenCalledOnce();
+    expect(backend.isReady()).toBe(false);
   });
 
   it('uses explicit progress percentages and done status from Transformers progress callbacks', async () => {
@@ -720,6 +774,94 @@ Because they make up everything!<turn|>`,
     });
   });
 
+  it('normalizes camelCase processor input ids before model generation', async () => {
+    mockProcessorCall.mockResolvedValueOnce({
+      inputIds: {
+        dims: [1, 7],
+      },
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Use camelCase tensors' }])
+    ).resolves.toMatchObject({
+      finishReason: 'stop',
+      text: 'Final answer',
+    });
+
+    expect(mockModelGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputIds: {
+          dims: [1, 7],
+        },
+      })
+    );
+  });
+
+  it('rejects processor outputs without tensor input ids', async () => {
+    mockProcessorCall.mockResolvedValueOnce({
+      input_ids: {
+        shape: [1, 4],
+      },
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(backend.generate([{ role: 'user', content: 'Bad tensor' }])).rejects.toThrow(
+      'Gemma processor inputs are missing input_ids'
+    );
+  });
+
+  it('passes explicit generation options to Transformers with snake_case keys', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await backend.generate([{ role: 'user', content: 'Tune generation' }], {
+      doSample: true,
+      maxNewTokens: 12,
+      temperature: 0.25,
+      topK: 8,
+      topP: 0.5,
+    });
+
+    expect(mockModelGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        do_sample: true,
+        max_new_tokens: 12,
+        temperature: 0.25,
+        top_k: 8,
+        top_p: 0.5,
+      })
+    );
+  });
+
+  it('aborts generation before running the processor when the signal is already aborted', async () => {
+    const abortController = new AbortController();
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+    abortController.abort();
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Stop' }], {
+        signal: abortController.signal,
+      })
+    ).rejects.toThrow('The operation was aborted');
+    expect(mockProcessorCall).not.toHaveBeenCalled();
+  });
+
   it('parses Gemma tool calls into local tool results', async () => {
     mockBatchDecode.mockReturnValue([
       '<|tool_call|>call:tell_joke{topic: <|"|>penguins<|"|>}<tool_call|>',
@@ -756,6 +898,38 @@ Because they make up everything!<turn|>`,
     expect(result.toolCalls?.[0]?.function).toEqual({
       name: 'tell_joke',
       arguments: JSON.stringify({ topic: 'penguins' }),
+    });
+  });
+
+  it('parses wrapped JSON tool calls with omitted arguments as empty objects', async () => {
+    mockBatchDecode.mockReturnValue(['<tool_call>{"name":"refresh_index"}</tool_call>']);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Refresh the index' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'refresh_index',
+            description: 'Refresh the current index',
+            parameters: {
+              type: 'object',
+              properties: {},
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.finishReason).toBe('tool_calls');
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      name: 'refresh_index',
+      arguments: JSON.stringify({}),
     });
   });
 
