@@ -24,6 +24,10 @@ const panelHandles: Record<
     resize: Mock;
   }
 > = {};
+const panelResizeHandlers: Record<
+  string,
+  ((panelSize: { asPercentage: number }) => void) | undefined
+> = {};
 
 // react-resizable-panels v4: onCollapse/onExpand props removed from Panel
 
@@ -78,6 +82,7 @@ vi.mock('react-resizable-panels', () => {
     defaultSize?: number;
     maxSize?: number;
     minSize?: number;
+    onResize?: (panelSize: { asPercentage: number }) => void;
     panelRef?: React.RefObject<MockImperativeHandle | null>;
   }
 
@@ -89,6 +94,7 @@ vi.mock('react-resizable-panels', () => {
     maxSize,
     collapsible,
     collapsedSize,
+    onResize,
     ...props
   }: PanelProps) => {
     const handle = {
@@ -109,6 +115,7 @@ vi.mock('react-resizable-panels', () => {
       handleRef.current = handle;
       if (panelId) {
         panelHandles[panelId] = handleRef.current;
+        panelResizeHandlers[panelId] = onResize;
       }
     });
     return (
@@ -161,6 +168,9 @@ describe('IdeLayout', () => {
     // Clear panel handles
     for (const key of Object.keys(panelHandles)) {
       delete panelHandles[key];
+    }
+    for (const key of Object.keys(panelResizeHandlers)) {
+      delete panelResizeHandlers[key];
     }
 
     mockState = {
@@ -572,6 +582,119 @@ describe('IdeLayout', () => {
       expect.any(Boolean),
       expect.any(Boolean)
     );
+  });
+
+  it('persists left panel visibility when resize collapses and expands it', () => {
+    vi.useFakeTimers();
+    Object.assign(mockState, { sizes: [5, 20, 30], showLeftPanel: true });
+    const { rerender, unmount } = renderDefaultLayout();
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    mockState.saveLayout.mockClear();
+
+    act(() => {
+      panelResizeHandlers['explorer-panel']?.({ asPercentage: 0 });
+    });
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, false);
+
+    mockState.saveLayout.mockClear();
+    act(() => {
+      panelResizeHandlers['explorer-panel']?.({ asPercentage: 0 });
+    });
+    expect(mockState.saveLayout).not.toHaveBeenCalled();
+
+    Object.assign(mockState, { showLeftPanel: false });
+    rerender(
+      <IdeLayout
+        consoleContent={consoleContent}
+        leftPanelContent={leftContent}
+        rightPanelContent={rightContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    act(() => {
+      panelResizeHandlers['explorer-panel']?.({ asPercentage: 25 });
+    });
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, true, false);
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('persists right panel visibility when resize collapses and expands it', () => {
+    vi.useFakeTimers();
+    Object.assign(mockState, { sizes: [25, 5, 30], showRightPanel: true });
+    const { rerender, unmount } = renderDefaultLayout();
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    mockState.saveLayout.mockClear();
+
+    act(() => {
+      panelResizeHandlers['tools-panel']?.({ asPercentage: 0 });
+    });
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, false);
+
+    mockState.saveLayout.mockClear();
+    Object.assign(mockState, { showRightPanel: false });
+    rerender(
+      <IdeLayout
+        consoleContent={consoleContent}
+        leftPanelContent={leftContent}
+        rightPanelContent={rightContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    act(() => {
+      panelResizeHandlers['tools-panel']?.({ asPercentage: 20 });
+    });
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 30], false, false, true);
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('persists console visibility when resize collapses and expands it', () => {
+    vi.useFakeTimers();
+    Object.assign(mockState, { sizes: [25, 20, 5], showConsole: true });
+    const { rerender, unmount } = renderDefaultLayout();
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    mockState.saveLayout.mockClear();
+
+    act(() => {
+      panelResizeHandlers['console-panel']?.({ asPercentage: 0 });
+    });
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 20], false, false, false);
+
+    mockState.saveLayout.mockClear();
+    Object.assign(mockState, { showConsole: false });
+    rerender(
+      <IdeLayout
+        consoleContent={consoleContent}
+        leftPanelContent={leftContent}
+        rightPanelContent={rightContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    act(() => {
+      panelResizeHandlers['console-panel']?.({ asPercentage: 20 });
+    });
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 20], true, false, false);
+
+    unmount();
+    vi.useRealTimers();
   });
 
   // ─── Performance regression tests ───────────────────────────────────
