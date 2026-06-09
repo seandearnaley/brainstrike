@@ -307,6 +307,24 @@ describe('CollectionBrowserStore', () => {
       expect(resetState.searchMode).toBe('semantic');
       expect(resetState.groupBy).toBe('none');
     });
+
+    it('swallows storage clearing failures in the test reset helper', () => {
+      const persistApi = (
+        useCollectionBrowserStore as unknown as { persist?: { clearStorage?: () => void } }
+      ).persist;
+      if (!persistApi?.clearStorage) {
+        throw new Error('expected collection browser store persist API');
+      }
+
+      const originalClearStorage = persistApi.clearStorage;
+      persistApi.clearStorage = () => {
+        throw new Error('storage unavailable');
+      };
+
+      expect(() => __resetCollectionBrowserStoreForTests()).not.toThrow();
+
+      persistApi.clearStorage = originalClearStorage;
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -353,14 +371,27 @@ describe('CollectionBrowserStore', () => {
       const store = useCollectionBrowserStore.getState();
       store.setExpandedIds(['x']);
       store.setSelectedId('y');
+      store.setSortState({ key: 'name', direction: 'desc' });
+      store.setInspectorCollapsed(true);
+      store.setInspectorWidth(40);
       store.setGroupBy('type');
       store.setShowCheckbox(true);
+      store.setMultiSelectEnabled(true);
+      store.setSearchPanelExpanded(false);
 
       const state = useCollectionBrowserStore.getState();
       expect(collectionBrowserSelectors.expandedIds(state)).toEqual(['x']);
       expect(collectionBrowserSelectors.selectedId(state)).toBe('y');
+      expect(collectionBrowserSelectors.sortState(state)).toEqual({
+        key: 'name',
+        direction: 'desc',
+      });
+      expect(collectionBrowserSelectors.isInspectorCollapsed(state)).toBe(true);
+      expect(collectionBrowserSelectors.inspectorWidth(state)).toBe(40);
       expect(collectionBrowserSelectors.groupBy(state)).toBe('type');
       expect(collectionBrowserSelectors.showCheckbox(state)).toBe(true);
+      expect(collectionBrowserSelectors.multiSelectEnabled(state)).toBe(true);
+      expect(collectionBrowserSelectors.searchPanelExpanded(state)).toBe(false);
     });
   });
 });
