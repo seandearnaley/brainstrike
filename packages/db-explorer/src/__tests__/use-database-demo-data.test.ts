@@ -1026,6 +1026,150 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
+  it('rejects invalid chunk detail requests before querying a repository', async () => {
+    setupLiveQueries();
+    const renderSubject = (chunkRepository: DrizzleFileChunkRepository | null) =>
+      renderHook(() =>
+        useDatabaseDemoData({
+          repository: createRepository(),
+          chunkRepository,
+          toast: vi.fn(),
+          database: createMockDatabase(),
+          activeCollectionId: 'set-1',
+        })
+      );
+
+    const { result } = renderSubject(createChunkRepository([]));
+    await expect(result.current.loadChunkDetail('')).rejects.toThrow(
+      'Chunk detail requests require a chunk id.'
+    );
+
+    const withoutRepository = renderSubject(null);
+    await expect(withoutRepository.result.current.loadChunkDetail('chunk-1')).rejects.toThrow(
+      'Chunk detail repository is unavailable.'
+    );
+
+    const unsupportedRepository = renderSubject({
+      findAll: vi.fn(),
+    } as unknown as DrizzleFileChunkRepository);
+    await expect(unsupportedRepository.result.current.loadChunkDetail('chunk-1')).rejects.toThrow(
+      'Chunk detail repository does not support findById.'
+    );
+  });
+
+  it('rejects invalid collection export requests before fan-out', async () => {
+    setupLiveQueries();
+    const repository = createRepository();
+    const chunkRepository = createChunkRepository([]);
+    const database = createMockDatabase();
+    const renderSubject = ({
+      activeCollectionId,
+      repository,
+      chunkRepository,
+      database,
+    }: {
+      activeCollectionId: string | null;
+      repository: DrizzleFileRecordRepository | null;
+      chunkRepository: DrizzleFileChunkRepository | null;
+      database: unknown;
+    }) =>
+      renderHook(() =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast: vi.fn(),
+          database: database as never,
+          activeCollectionId,
+        })
+      );
+
+    const noCollection = renderSubject({
+      activeCollectionId: null,
+      repository,
+      chunkRepository,
+      database,
+    });
+    await expect(noCollection.result.current.loadCollectionExportData()).rejects.toThrow(
+      'Export requests require an active collection.'
+    );
+
+    const noRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository: null,
+      chunkRepository,
+      database,
+    });
+    await expect(noRepository.result.current.loadCollectionExportData()).rejects.toThrow(
+      'File export repository is unavailable.'
+    );
+
+    const noQuerySupport = renderSubject({
+      activeCollectionId: 'set-1',
+      repository,
+      chunkRepository,
+      database: {},
+    });
+    await expect(noQuerySupport.result.current.loadCollectionExportData()).rejects.toThrow(
+      'Collection export requires database query support.'
+    );
+
+    const noChunkRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository,
+      chunkRepository: null,
+      database,
+    });
+    await expect(noChunkRepository.result.current.loadCollectionExportData()).rejects.toThrow(
+      'Chunk export repository is unavailable.'
+    );
+
+    const unsupportedFileRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository: { count: vi.fn() } as unknown as DrizzleFileRecordRepository,
+      chunkRepository,
+      database,
+    });
+    await expect(
+      unsupportedFileRepository.result.current.loadCollectionExportData()
+    ).rejects.toThrow('File export repository does not support findById.');
+
+    const unsupportedChunkRepository = renderSubject({
+      activeCollectionId: 'set-1',
+      repository,
+      chunkRepository: { findById: vi.fn() } as unknown as DrizzleFileChunkRepository,
+      database,
+    });
+    await expect(
+      unsupportedChunkRepository.result.current.loadCollectionExportData()
+    ).rejects.toThrow('Chunk export repository does not support findByFileRecordId.');
+  });
+
+  it('rejects collection exports when a listed record cannot be loaded', async () => {
+    setupLiveQueries();
+    const repository = {
+      count: vi.fn().mockResolvedValue(1),
+      findById: vi.fn().mockResolvedValue(null),
+    } as unknown as DrizzleFileRecordRepository;
+    const chunkRepository = createChunkRepository([]);
+    const database = createMockDatabase({
+      recordRows: [{ id: 'missing-record' }],
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await expect(result.current.loadCollectionExportData()).rejects.toThrow(
+      'Missing file record during export: missing-record'
+    );
+  });
+
   it('bounds export repository fan-out in fixed-size batches', async () => {
     const now = new Date().toISOString();
     const recordCount = 120;
