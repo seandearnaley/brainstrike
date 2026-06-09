@@ -181,7 +181,11 @@ function applyRateLimit(
     if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS) {
       pruneRateLimitState(now);
     }
-    if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS && !evictOldestRateLimitEntry(now)) {
+    if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS && !evictOldestUnblockedRateLimitEntry(now)) {
+      logger.warn('Chat rate limiter rejected a new client because all entries are blocked', {
+        maxClients: RATE_LIMIT_MAX_CLIENTS,
+        windowMs: RATE_LIMIT_WINDOW_MS,
+      });
       return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW_MS };
     }
     rateLimitState.set(identifier, {
@@ -213,7 +217,7 @@ function applyRateLimit(
   return { allowed: false, retryAfterMs };
 }
 
-function evictOldestRateLimitEntry(now: number): boolean {
+function evictOldestUnblockedRateLimitEntry(now: number): boolean {
   for (const [identifier, entry] of rateLimitState) {
     if (entry.blockedUntil === undefined || now >= entry.blockedUntil) {
       rateLimitState.delete(identifier);
@@ -261,6 +265,13 @@ function parseJsonRequestBody(body: string): unknown {
 
 export function __resetRateLimiterForTests(): void {
   rateLimitState.clear();
+}
+
+export function __setRateLimiterEntryForTests(
+  identifier: string,
+  entry: { blockedUntil?: number; count: number; windowStartedAt: number }
+): void {
+  rateLimitState.set(identifier, entry);
 }
 
 function createErrorResponse(err: unknown): Response {
