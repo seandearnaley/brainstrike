@@ -22,6 +22,31 @@ const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 const setCollapsedMock = vi.fn();
+interface MockAuiState {
+  chainOfThought: {
+    collapsed: boolean;
+    parts: unknown[];
+  };
+  message: {
+    parts: unknown[];
+  };
+  thread: {
+    messages: Array<{ id: string }>;
+  };
+}
+
+const completedReasoningPart = {
+  status: { type: 'complete' },
+  type: 'reasoning',
+};
+
+const createMockAuiState = (parts: unknown[]): MockAuiState => ({
+  chainOfThought: { collapsed: true, parts },
+  message: { parts },
+  thread: { messages: [] },
+});
+
+let mockAuiState = createMockAuiState([completedReasoningPart]);
 let capturedLocalAdapterOptions: {
   completeRuntimeData?: (
     runtimeData: Record<string, unknown> | undefined,
@@ -186,12 +211,7 @@ vi.mock('@assistant-ui/react', () => {
         setCollapsed: setCollapsedMock,
       }),
     }),
-    useAuiState: <T,>(
-      selector: (state: {
-        chainOfThought: { collapsed: boolean };
-        thread: { messages: Array<{ id: string }> };
-      }) => T
-    ) => selector({ chainOfThought: { collapsed: true }, thread: { messages: [] } }),
+    useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       type: 'reasoning' as const,
@@ -316,10 +336,26 @@ const baseProps = {
   selectedModel: 'openai::gpt-5.2',
 };
 
+const renderCapturedChainOfThought = () => {
+  render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+  const components = messagePartsComponentsMock.mock.calls.at(-1)?.[0] as
+    | { readonly ChainOfThought?: React.ComponentType }
+    | undefined;
+  const ChainOfThought = components?.ChainOfThought;
+
+  if (!ChainOfThought) {
+    throw new Error('Expected AssistantUiPanel to register a chain-of-thought component.');
+  }
+
+  render(<ChainOfThought />);
+};
+
 describe('AssistantUiPanel model picker', () => {
   beforeEach(() => {
     Object.assign(window, { assistant: undefined });
     capturedLocalAdapterOptions = null;
+    mockAuiState = createMockAuiState([completedReasoningPart]);
   });
 
   afterEach(() => {
@@ -357,6 +393,33 @@ describe('AssistantUiPanel model picker', () => {
         data: expect.anything(),
       })
     );
+  });
+
+  it('renders completed chain-of-thought with a static reasoning mark', () => {
+    mockAuiState = createMockAuiState([null, { status: 'complete' }, completedReasoningPart]);
+
+    renderCapturedChainOfThought();
+
+    expect(screen.getByTestId('assistant-reasoning-indicator')).toHaveTextContent('Reasoning');
+    expect(screen.getByTestId('assistant-reasoning-static-mark')).toHaveClass(
+      'bs-thinking-mark-static'
+    );
+    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+  });
+
+  it('renders running chain-of-thought with the animated thinking indicator', () => {
+    mockAuiState = createMockAuiState([
+      {
+        status: { type: 'running' },
+        type: 'reasoning',
+      },
+    ]);
+
+    renderCapturedChainOfThought();
+
+    expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
+    expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
+    expect(screen.queryByTestId('assistant-reasoning-static-mark')).not.toBeInTheDocument();
   });
 
   it('prepares per-run request data when the hosted runtime starts a request', async () => {

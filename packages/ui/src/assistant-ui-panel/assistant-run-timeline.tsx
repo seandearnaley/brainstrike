@@ -10,10 +10,7 @@ import * as m from 'motion/react-m';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
-import {
-  AssistantThinkingIndicator,
-  BrainstrikeThinkingMark,
-} from './assistant-thinking-indicator';
+import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { categoryTintClasses, classifyRunEvent } from './tool-visual-classification';
 
 interface AssistantRunTimelineProps {
@@ -40,7 +37,7 @@ function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus })
     return <AlertCircle className="size-4 text-muted-foreground" />;
   }
   if (status === 'running') {
-    return <BrainstrikeThinkingMark className="size-4" testId="assistant-thinking-status-mark" />;
+    return <Clock3 className="size-4 text-muted-foreground" />;
   }
   return <Radio className="size-4 text-sky-600 dark:text-sky-400" />;
 }

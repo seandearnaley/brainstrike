@@ -108,5 +108,7 @@ describe('AssistantRunTimeline render', () => {
     expect(screen.getByLabelText('Running')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
     expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
+    expect(screen.getAllByTestId('assistant-thinking-mark')).toHaveLength(1);
+    expect(screen.queryByTestId('assistant-thinking-status-mark')).not.toBeInTheDocument();
   });
 });
