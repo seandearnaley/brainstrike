@@ -129,6 +129,22 @@ describe('TreeActionButtons', () => {
       );
     });
 
+    it('renders nothing when there is no spinner, label, or cancel to show', () => {
+      // A refresh that is not cancellable and has no count would otherwise paint
+      // an empty, zero-size div: hideSpinner (isRefreshing) hides the spinner,
+      // countText is '' on the non-expand branch, isCancelling is false, and the
+      // cancel X is gated on cancellable. Render null so the empty indicator
+      // can't flake a future toBeVisible() assertion.
+      renderWithTooltips(
+        <TreeActionButtons
+          {...defaultProps}
+          isRefreshing
+          scanningStatus={scanning({ cancellable: false })}
+        />
+      );
+      expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();
+    });
+
     it('does not render the indicator when not scanning', () => {
       renderWithTooltips(<TreeActionButtons {...defaultProps} scanningStatus={null} />);
       expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();

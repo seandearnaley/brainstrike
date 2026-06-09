@@ -1,8 +1,9 @@
 /**
- * Tree Action Buttons - Overlay buttons for expand/collapse/refresh actions.
+ * Tree Action Buttons - inline expand/collapse/refresh controls.
  *
- * Extracted from FileExplorerLeftPanel to reduce cognitive complexity.
- * Includes optional inline scanning status indicator that doesn't cause layout shift.
+ * Rendered in the file-explorer quick-filter row (via FileFilterBar's `trailing`
+ * slot), next to the info button -- not as a floating overlay. Includes an
+ * optional inline scanning status indicator that doesn't cause layout shift.
  */
 
 import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
@@ -59,6 +60,14 @@ const InlineScanningIndicator: React.FC<{
     return totalCount === undefined ? `${loadedCount}` : `${loadedCount}/${totalCount}`;
   }, [loadedCount, totalCount]);
 
+  // With the spinner hidden, no count, no cancelling label, and not cancellable
+  // (e.g. a non-cancellable refresh), there is nothing to paint -- avoid an
+  // empty, zero-size div that could flake a future toBeVisible() assertion.
+  const hasVisibleContent = !hideSpinner || isCancelling || Boolean(countText) || cancellable;
+  if (!hasVisibleContent) {
+    return null;
+  }
+
   return (
     <div
       className={cn('flex items-center gap-1.5', isCancelling && 'opacity-60')}
@@ -109,7 +118,7 @@ const InlineScanningIndicator: React.FC<{
 InlineScanningIndicator.displayName = 'InlineScanningIndicator';
 
 /**
- * Overlay buttons for tree expand/collapse/refresh actions.
+ * Inline buttons for tree expand/collapse/refresh actions.
  * Includes optional inline scanning indicator.
  */
 export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
