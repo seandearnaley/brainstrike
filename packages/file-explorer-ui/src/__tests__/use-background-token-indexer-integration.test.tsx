@@ -1149,6 +1149,81 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       // The hook should handle this gracefully (no crash)
       expect(true).toBe(true);
     });
+
+    it('clears all in-flight files when the worker reports a terminal error', () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootA,
+          selectedFiles: new Set([fileAKey, fileBKey]),
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      flushTimers();
+      expect(result.current.diagnostics.inFlightCount).toBe(2);
+
+      act(() => {
+        capturedOnFileError?.('__worker__', 'worker crashed');
+      });
+
+      expect(result.current.diagnostics.inFlightCount).toBe(0);
+    });
+
+    it('keeps missing-file errors quiet and retryable', () => {
+      const records: Array<{ level: LogLevel; message: string }> = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push({ level: record.level, message: record.message ?? '' });
+      });
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootA,
+          selectedFiles: new Set([fileAKey]),
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      flushTimers();
+
+      try {
+        act(() => {
+          capturedOnFileError?.(fileAKey, 'ENOENT: no such file or directory');
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(result.current.diagnostics.inFlightCount).toBe(0);
+      expect(result.current.diagnostics.indexedCount).toBe(0);
+      expect(records).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: LogLevel.ERROR,
+            message: 'Background indexer file error',
+          }),
+        ])
+      );
+    });
+
+    it('clears diagnostics tracking on manual indexed-cache reset', () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootA,
+          selectedFiles: new Set([fileAKey]),
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      flushTimers();
+      expect(result.current.diagnostics.inFlightCount).toBe(1);
+
+      act(() => {
+        result.current.diagnostics.clearIndexedCache();
+      });
+
+      expect(result.current.diagnostics.inFlightCount).toBe(0);
+      expect(result.current.diagnostics.indexedCount).toBe(0);
+    });
   });
 
   describe('P0 optimization: decouple fileHandleMap rebuild from selection updates', () => {
