@@ -424,6 +424,8 @@ export function applyNormalizedDirectoryChildrenUpdates(
 
   const nextState = cloneState(state);
   let changed = false;
+  // Descendant updates require their ancestor directory nodes to exist first.
+  // File tree paths are prefix extensions, so shorter paths are ancestors.
   const parentFirstUpdates = [...updates].sort(
     (left, right) => left.path.length - right.path.length
   );

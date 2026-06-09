@@ -467,6 +467,8 @@ function applyWorkerPatchesToNormalizedTree(args: {
     childrenUpdates
   );
 
+  // Child replacement patches carry the authoritative final load state.
+  // Apply load-state-only patches afterward, but ignore stale loading events for loaded paths.
   for (const patch of loadStatePatches) {
     if (patch.payload.loadState === 'loading' && loadedChildrenPaths.has(patch.payload.path)) {
       continue;
