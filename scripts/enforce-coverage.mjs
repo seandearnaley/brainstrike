@@ -84,6 +84,9 @@ const OVERRIDES = new Map([
 // DB coverage is intentionally split into dedicated test:coverage:db:* lanes
 // because running it in the normal workspace coverage pass is too slow for PR
 // gates. If DB coverage artifacts exist, they are still enforced below.
+// Embeddings is not exempt: the supported split/nightly coverage flows run its
+// dedicated coverage lane before enforcement, so a missing artifact is a real
+// orchestration failure rather than an allowed split-lane omission.
 const ALLOW_MISSING_COVERAGE_ARTIFACT = new Set(['@brainstrike/db']);
 
 // Discover all coverage files under packages/* and apps/*
