@@ -120,6 +120,21 @@ describe('LogBuffer', () => {
       expect(records[0]?.message).toContain('skipping 3 records');
     });
 
+    it('trims the oldest record when resume skip message exceeds max size', () => {
+      const buffer = new LogBuffer({ size: 1 });
+      buffer.push(createRecord(LogLevel.INFO, 'a', 'before pause'));
+
+      buffer.pause();
+      buffer.push(createRecord(LogLevel.INFO, 'b', 'skipped'));
+      buffer.resume();
+
+      expect(buffer.getRecords()).toEqual([
+        expect.objectContaining({
+          message: expect.stringContaining('skipping 1 records'),
+        }),
+      ]);
+    });
+
     it('does not log skip message if no records were skipped', () => {
       const buffer = new LogBuffer({ size: 10 });
 
@@ -215,6 +230,14 @@ describe('LogBuffer', () => {
 
       expect(buffer.getRecords()[0]?.args[0]).toBe('abcd... [truncated]');
     });
+
+    it('preserves nullish and primitive args when cloning is skipped', () => {
+      const buffer = new LogBuffer({ size: 10, skipArgCloning: true });
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [null, undefined, 7, false]));
+
+      expect(buffer.getRecords()[0]?.args).toEqual([null, undefined, 7, false]);
+    });
   });
 
   describe('full cloning', () => {
@@ -234,6 +257,53 @@ describe('LogBuffer', () => {
       arg['self'] = arg;
 
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
+
+      expect(buffer.getRecords()[0]?.args[0]).toBe('[object Object]');
+    });
+
+    it('stringifies non-json values when full cloning rejects them', () => {
+      const buffer = new LogBuffer({ maxArgSize: 0 });
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [Symbol.for('event')]));
+
+      expect(buffer.getRecords()[0]?.args[0]).toBe('Symbol(event)');
+    });
+  });
+
+  describe('bounded cloning', () => {
+    it('clones arrays and preserves nullish and primitive values within size limits', () => {
+      const buffer = new LogBuffer({ maxArgSize: 1000 });
+      const arg = ['value', 10, true, false, null, undefined];
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
+
+      expect(buffer.getRecords()[0]?.args[0]).toEqual(arg);
+      expect(buffer.getRecords()[0]?.args[0]).not.toBe(arg);
+    });
+
+    it('summarizes arrays when bounded cloning exceeds the size limit', () => {
+      const buffer = new LogBuffer({ maxArgSize: 12 });
+      const arg = ['abc', 'def', 'ghi', 'jkl'];
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
+
+      expect(buffer.getRecords()[0]?.args[0]).toEqual({
+        0: 'abc',
+        1: 'def',
+        2: 'ghi',
+        3: 'jkl',
+      });
+    });
+
+    it('summarizes objects when bounded cloning fails', () => {
+      const buffer = new LogBuffer({ maxArgSize: 1000 });
+      const throwingObject = {
+        get value() {
+          throw new Error('cannot read value');
+        },
+      };
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [throwingObject]));
 
       expect(buffer.getRecords()[0]?.args[0]).toBe('[object Object]');
     });
