@@ -11,6 +11,12 @@ export interface NormalizedFileTreeState {
   rootPaths: string[];
 }
 
+export interface NormalizedDirectoryChildrenUpdate {
+  children: IFileNode[];
+  loadState?: Extract<DirectoryLoadState, 'loaded'>;
+  path: string;
+}
+
 interface TraversalFrame {
   node: IFileNode;
   parentPath: string | null;
@@ -361,42 +367,74 @@ function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
   };
 }
 
+function replaceDirectoryChildrenInPlace(
+  state: NormalizedFileTreeState,
+  path: string,
+  children: IFileNode[],
+  loadState: DirectoryLoadState = 'loaded'
+): boolean {
+  const currentNode = state.nodeByPath.get(path);
+  if (!(currentNode && currentNode.type === 'directory')) {
+    return false;
+  }
+
+  const { loadError: _loadError, ...directoryNode } = currentNode;
+
+  for (const childPath of state.childPathsByPath.get(path) ?? []) {
+    if (!isPathWithinSubtree(path, childPath)) {
+      continue;
+    }
+    removeSubtree(state, childPath);
+  }
+
+  state.childPathsByPath.set(
+    path,
+    children.map((child) => child.path)
+  );
+  state.nodeByPath.set(path, {
+    ...directoryNode,
+    loadState,
+  });
+
+  for (const child of children) {
+    addSubtree(state, child, path);
+  }
+
+  recomputeDescendantFileCountsFrom(state, path);
+  return true;
+}
+
 export function replaceNormalizedDirectoryChildren(
   state: NormalizedFileTreeState,
   path: string,
   children: IFileNode[],
   loadState: DirectoryLoadState = 'loaded'
 ): NormalizedFileTreeState {
-  const currentNode = state.nodeByPath.get(path);
-  if (!(currentNode && currentNode.type === 'directory')) {
+  const nextState = cloneState(state);
+  return replaceDirectoryChildrenInPlace(nextState, path, children, loadState) ? nextState : state;
+}
+
+export function applyNormalizedDirectoryChildrenUpdates(
+  state: NormalizedFileTreeState,
+  updates: readonly NormalizedDirectoryChildrenUpdate[]
+): NormalizedFileTreeState {
+  if (updates.length === 0) {
     return state;
   }
 
   const nextState = cloneState(state);
-  const { loadError: _loadError, ...directoryNode } = currentNode;
-
-  for (const childPath of nextState.childPathsByPath.get(path) ?? []) {
-    if (!isPathWithinSubtree(path, childPath)) {
-      continue;
-    }
-    removeSubtree(nextState, childPath);
+  let changed = false;
+  for (const update of updates) {
+    const updateApplied = replaceDirectoryChildrenInPlace(
+      nextState,
+      update.path,
+      update.children,
+      update.loadState ?? 'loaded'
+    );
+    changed ||= updateApplied;
   }
 
-  nextState.childPathsByPath.set(
-    path,
-    children.map((child) => child.path)
-  );
-  nextState.nodeByPath.set(path, {
-    ...directoryNode,
-    loadState,
-  });
-
-  for (const child of children) {
-    addSubtree(nextState, child, path);
-  }
-
-  recomputeDescendantFileCountsFrom(nextState, path);
-  return nextState;
+  return changed ? nextState : state;
 }
 
 export function setNormalizedNodeLoadState(

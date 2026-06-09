@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
+import * as normalizedFileTreeModule from '../normalized-file-tree';
 import {
   createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
@@ -16,6 +17,17 @@ import {
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
 } from '../normalized-file-tree';
+
+type NormalizedFileTreeStateForTest = ReturnType<typeof createNormalizedFileTreeState>;
+interface DirectoryChildrenUpdateForTest {
+  children: IFileNode[];
+  loadState?: Extract<NonNullable<IFileNode['loadState']>, 'loaded'>;
+  path: string;
+}
+type BulkDirectoryChildrenApplicator = (
+  state: NormalizedFileTreeStateForTest,
+  updates: DirectoryChildrenUpdateForTest[]
+) => NormalizedFileTreeStateForTest;
 
 function createFileNode(overrides: Partial<IFileNode>): IFileNode {
   return {
@@ -101,6 +113,88 @@ describe('normalized-file-tree', () => {
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
     expect(getNormalizedNode(nextState, '/root/src/nested')).toBeUndefined();
     expect(listNormalizedDescendantFilePaths(nextState, '/root/src')).toEqual(['/root/src/new.ts']);
+  });
+
+  it('bulk applies directory child replacements in one immutable pass', () => {
+    const applyBulkDirectoryChildren = (
+      normalizedFileTreeModule as unknown as {
+        applyNormalizedDirectoryChildrenUpdates?: BulkDirectoryChildrenApplicator;
+      }
+    ).applyNormalizedDirectoryChildrenUpdates;
+
+    expect(applyBulkDirectoryChildren).toBeTypeOf('function');
+    if (!applyBulkDirectoryChildren) {
+      return;
+    }
+
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'root',
+        path: '/root',
+        children: Array.from({ length: 3 }, (_, index) =>
+          createDirectoryNode({
+            name: `dir-${index}`,
+            path: `/root/dir-${index}`,
+            depth: 1,
+            loadState: 'unloaded',
+          })
+        ),
+      }),
+    ]);
+
+    const nextState = applyBulkDirectoryChildren(state, [
+      {
+        path: '/root/dir-0',
+        loadState: 'loaded',
+        children: [
+          createFileNode({
+            name: 'a.ts',
+            path: '/root/dir-0/a.ts',
+            depth: 2,
+          }),
+        ],
+      },
+      {
+        path: '/root/dir-1',
+        loadState: 'loaded',
+        children: [
+          createFileNode({
+            name: 'b.ts',
+            path: '/root/dir-1/b.ts',
+            depth: 2,
+          }),
+        ],
+      },
+      {
+        path: '/root/dir-2',
+        loadState: 'loaded',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/dir-2/nested',
+            depth: 2,
+            children: [
+              createFileNode({
+                name: 'c.ts',
+                path: '/root/dir-2/nested/c.ts',
+                depth: 3,
+              }),
+            ],
+          }),
+        ],
+      },
+    ]);
+
+    expect(nextState).not.toBe(state);
+    expect(getNormalizedDescendantFileCount(nextState, '/root')).toBe(3);
+    expect(listNormalizedDescendantFilePaths(nextState, '/root')).toEqual([
+      '/root/dir-0/a.ts',
+      '/root/dir-1/b.ts',
+      '/root/dir-2/nested/c.ts',
+    ]);
+    expect(getNormalizedNode(nextState, '/root/dir-0')?.loadState).toBe('loaded');
+    expect(getNormalizedNode(state, '/root/dir-0')?.loadState).toBe('unloaded');
+    expect(listNormalizedDescendantFilePaths(state, '/root')).toEqual([]);
   });
 
   it('updates load state without changing descendant file counts', () => {

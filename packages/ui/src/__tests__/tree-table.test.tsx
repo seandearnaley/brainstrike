@@ -13,7 +13,7 @@ const virtualizerMocks = vi.hoisted(() => ({
   measureElement: vi.fn(),
 }));
 
-let virtualizerMode: 'full' | 'empty' = 'full';
+let virtualizerMode: 'full' | 'empty' | 'stale' = 'full';
 
 // Mock @tanstack/react-virtual to avoid JSDOM dimension issues
 vi.mock('@tanstack/react-virtual', () => ({
@@ -21,6 +21,17 @@ vi.mock('@tanstack/react-virtual', () => ({
     getVirtualItems: () => {
       if (virtualizerMode === 'empty') {
         return [];
+      }
+      if (virtualizerMode === 'stale') {
+        return [
+          {
+            index: count + 5,
+            start: (count + 5) * 40,
+            end: (count + 6) * 40,
+            size: 40,
+            key: 'stale-item',
+          },
+        ];
       }
       return Array.from({ length: count }, (_, i) => ({
         index: i,
@@ -378,6 +389,27 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 1')).toBeInTheDocument();
       expect(screen.getByText('File 2')).toBeInTheDocument();
       expect(screen.getByText('File 3')).toBeInTheDocument();
+    });
+
+    it('renders fallback rows when virtualizer returns stale out-of-range indexes', () => {
+      virtualizerMode = 'stale';
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          windowingStrategy="virtual"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
     });
 
     it('does not measure virtual rows when row height is fixed', () => {

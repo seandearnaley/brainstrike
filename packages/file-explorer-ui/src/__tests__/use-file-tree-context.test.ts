@@ -10,6 +10,7 @@ import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileTree } from '../tree/use-file-tree-context';
 import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
+import * as normalizedFileTree from '../utils/normalized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 let requestLoadHandler:
@@ -1103,6 +1104,66 @@ describe('useFileTree (lazy loading version)', () => {
         'loaded',
         'loaded',
       ]);
+    });
+
+    it('bulk-applies worker expand-all children patches in one normalized update', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      mockWorkerPort.expandAll.mockResolvedValueOnce({
+        patches: [
+          {
+            type: 'childrenLoaded',
+            payload: {
+              path: 'mock-root/alpha',
+              children: [],
+              loadState: 'loaded',
+            },
+          },
+          {
+            type: 'childrenLoaded',
+            payload: {
+              path: 'mock-root/beta',
+              children: [],
+              loadState: 'loaded',
+            },
+          },
+          {
+            type: 'childrenLoaded',
+            payload: { path: 'mock-root/gamma', children: [], loadState: 'loaded' },
+          },
+        ],
+        expandedPaths: ['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'],
+        loadedCount: 3,
+      });
+      const applyBulkSpy = vi.spyOn(normalizedFileTree, 'applyNormalizedDirectoryChildrenUpdates');
+
+      try {
+        const TestWrapper = ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+        const { result } = renderHook(() => useFileTree(handle), {
+          wrapper: TestWrapper,
+        });
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        await act(async () => {
+          await result.current.expandAllProgressively(() => new Set());
+        });
+
+        expect(applyBulkSpy).toHaveBeenCalledTimes(1);
+        expect(applyBulkSpy.mock.calls[0]?.[1]).toHaveLength(3);
+
+        expect(result.current.fileTree.map((node) => node.loadState)).toEqual([
+          'loaded',
+          'loaded',
+          'loaded',
+        ]);
+      } finally {
+        applyBulkSpy.mockRestore();
+      }
     });
 
     it('applies worker load-state patches from bulk expand-all results', async () => {
