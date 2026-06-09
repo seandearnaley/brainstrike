@@ -109,15 +109,32 @@ describe('TreeActionButtons', () => {
       expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();
     });
 
-    it('suppresses the indicator during a refresh so it does not double the spinner', () => {
-      // A refresh sets isInitialLoading -> scanningStatus.isScanning, but the
-      // refresh button already spins. Showing the bare-spinner indicator too
-      // crowded the filter row, so it must stay hidden while refreshing.
+    it('during refresh, hides the redundant spinner but keeps the cancel affordance', () => {
+      // A refresh sets isInitialLoading -> scanningStatus.isScanning with
+      // cancellable=true (cancellable === isLoading). The refresh button already
+      // spins, so a second indicator spinner just crowds the row -- but the
+      // operation is genuinely cancellable, so the X must remain reachable.
+      // Suppressing the whole indicator (the prior approach) removed the only
+      // way to cancel a slow/stuck refresh while the refresh button is disabled.
       renderWithTooltips(
         <TreeActionButtons {...defaultProps} isRefreshing scanningStatus={scanning()} />
       );
-      expect(screen.queryByTestId('inline-scanning-indicator')).not.toBeInTheDocument();
+      // No second spinner crowding the filter row.
+      expect(screen.queryByTestId('inline-scanning-spinner')).not.toBeInTheDocument();
+      // ...but a slow/stuck refresh stays cancellable.
+      expect(screen.getByRole('button', { name: /cancel operation/i })).toBeInTheDocument();
       expect(screen.getByTestId('refresh-button-small')).toBeInTheDocument();
+    });
+
+    it('shows the indicator spinner while expanding (not refreshing)', () => {
+      renderWithTooltips(
+        <TreeActionButtons
+          {...defaultProps}
+          isExpandingAll
+          scanningStatus={scanning({ loadedCount: 1, totalCount: 3 })}
+        />
+      );
+      expect(screen.getByTestId('inline-scanning-spinner')).toBeInTheDocument();
     });
 
     it('still shows the count indicator during expand-all even alongside other work', () => {

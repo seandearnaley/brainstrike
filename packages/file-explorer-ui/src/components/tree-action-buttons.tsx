@@ -36,8 +36,16 @@ interface TreeActionButtonsProps {
  * Compact inline scanning indicator that shows progress without causing layout shift.
  */
 const InlineScanningIndicator: React.FC<{
+  /**
+   * Hide the indicator's own spinner. During a refresh the Refresh button
+   * already spins, so a second spinner here just crowds the filter row -- but
+   * the underlying load is still `cancellable`, so the Cancel (X) affordance
+   * must remain reachable (the Refresh button is disabled and can't double as
+   * a cancel). We drop only the redundant spinner, never the cancel button.
+   */
+  hideSpinner?: boolean;
   status: ScanningStatusInfo;
-}> = React.memo(({ status }) => {
+}> = React.memo(({ status, hideSpinner = false }) => {
   const { isCancelling, cancellable, onCancel, currentPath, loadedCount, totalCount } = status;
 
   // Prefer a raw, monotonic directory count over a percentage. `totalCount`
@@ -57,7 +65,12 @@ const InlineScanningIndicator: React.FC<{
       data-testid="inline-scanning-indicator"
       title={currentPath}
     >
-      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+      {!hideSpinner && (
+        <Loader2
+          className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+          data-testid="inline-scanning-spinner"
+        />
+      )}
       {isCancelling ? (
         <span className="text-muted-foreground text-xs">Stopping...</span>
       ) : (
@@ -121,10 +134,12 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
         {/* Inline scanning indicator - shown to the left of action buttons.
             Placed before the (fixed-width) buttons so the filter row's flexible
             search input absorbs its width, keeping the buttons from shifting.
-            Suppressed while refreshing: the refresh button already spins, and a
-            second bare-spinner here just crowded the filter row. */}
-        {scanningStatus?.isScanning && !isRefreshing && (
-          <InlineScanningIndicator status={scanningStatus} />
+            While refreshing we hide only the redundant spinner (the Refresh
+            button already spins), NOT the whole indicator: the reload is
+            cancellable and the X is the user's only way to abort a slow/stuck
+            refresh, since the Refresh button is disabled. */}
+        {scanningStatus?.isScanning && (
+          <InlineScanningIndicator hideSpinner={isRefreshing} status={scanningStatus} />
         )}
 
         <Tooltip>
