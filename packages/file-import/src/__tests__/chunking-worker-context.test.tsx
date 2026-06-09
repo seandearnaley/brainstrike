@@ -477,6 +477,169 @@ describe('ChunkingWorkerProvider', () => {
     );
   });
 
+  it('proxies chunking requests through the desktop chunking host bridge', async () => {
+    const runningStatus = {
+      state: 'running' as const,
+      active: false,
+      lastError: null,
+      runtimeKind: 'chunking-host' as const,
+      runtimeId: 'host-1',
+    };
+    let progressHandler:
+      | ((progress: {
+          channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
+          payload: unknown;
+          requestId: string;
+          runtimeId: string;
+          type: 'progress';
+        }) => void)
+      | null = null;
+    const cleanupProgress = vi.fn();
+    const cleanupStatus = vi.fn();
+    const fileResult: ChunkResult = {
+      type: 'result',
+      id: 'file-result',
+      fileRecordId: 'file-1',
+      chunks: [],
+      strategyUsed: 'sentence',
+      totalTokens: 3,
+      skipped: false,
+    };
+    const batchResult: ChunkResult = {
+      ...fileResult,
+      id: 'batch-result',
+      fileRecordId: 'batch-file-1',
+    };
+    const bridge = {
+      chunkBatch: vi.fn(async (request: { requestId: string }) => {
+        progressHandler?.({
+          type: 'progress',
+          runtimeId: 'host-1',
+          requestId: request.requestId,
+          channel: 'chunk',
+          payload: {
+            fileRecordId: 'batch-file-1',
+            chunksCreated: 2,
+            currentIndex: 0,
+            totalFiles: 1,
+          },
+        });
+        progressHandler?.({
+          type: 'progress',
+          runtimeId: 'host-1',
+          requestId: request.requestId,
+          channel: 'chunk-file-complete',
+          payload: { fileRecordId: 'batch-file-1', result: batchResult },
+        });
+        progressHandler?.({
+          type: 'progress',
+          runtimeId: 'host-1',
+          requestId: request.requestId,
+          channel: 'chunk-file-error',
+          payload: { fileRecordId: 'batch-file-2', errorMessage: 'too large' },
+        });
+        return [batchResult];
+      }),
+      chunkFile: vi.fn(async () => fileResult),
+      ensureStarted: vi.fn(async () => runningStatus),
+      getStatus: vi.fn(async () => runningStatus),
+      onProgress: vi.fn((handler: NonNullable<typeof progressHandler>) => {
+        progressHandler = handler;
+        return cleanupProgress;
+      }),
+      onStatus: vi.fn(() => cleanupStatus),
+      reset: vi.fn(async () => runningStatus),
+    };
+    Object.assign(window, { chunkingHost: bridge });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider mode="host-proxy">{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(result.current.isReady).toBe(true));
+    const port = result.current.port;
+    if (!port?.chunkFileById) {
+      throw new Error('Expected host-proxy port with chunkFileById');
+    }
+
+    await expect(
+      port.chunkFile('file-1', 'const value = 1;', 'file.ts', '/repo/file.ts', {
+        allowLargeFiles: true,
+        forceStrategy: true,
+        ignoreFileTypeRecommendations: true,
+        maxTokens: 100,
+        maxTokensCap: 200,
+        overlap: 10,
+        separators: ['\n'],
+        strategy: 'sentence',
+        tokenTrueSizing: true,
+      })
+    ).resolves.toEqual(fileResult);
+    await expect(port.chunkFileById('file-2', { requestedStrategy: 'sentence' })).resolves.toEqual(
+      fileResult
+    );
+
+    const onProgress = vi.fn();
+    const onFileComplete = vi.fn();
+    const onFileError = vi.fn();
+    await expect(
+      port.chunkBatch(
+        [
+          {
+            fileRecordId: 'batch-file-1',
+            content: 'content',
+            fileName: 'batch.ts',
+            filePath: '/repo/batch.ts',
+          },
+        ],
+        { strategy: 'sentence' },
+        { onFileComplete, onFileError, onProgress }
+      )
+    ).resolves.toEqual([batchResult]);
+
+    expect(bridge.chunkFile).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        kind: 'chunk-file',
+        fileRecordId: 'file-1',
+        content: 'const value = 1;',
+        fileName: 'file.ts',
+        filePath: '/repo/file.ts',
+        options: {
+          requestedStrategy: 'sentence',
+          allowLargeFiles: true,
+          forceStrategy: true,
+          ignoreFileTypeRecommendations: true,
+          maxTokens: 100,
+          maxTokensCap: 200,
+          overlap: 10,
+          separators: ['\n'],
+          tokenTrueSizing: true,
+        },
+      })
+    );
+    expect(bridge.chunkFile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        kind: 'chunk-file-by-id',
+        fileRecordId: 'file-2',
+        options: { requestedStrategy: 'sentence' },
+      })
+    );
+    expect(onProgress).toHaveBeenCalledWith('batch-file-1', 2, 0, 1);
+    expect(onFileComplete).toHaveBeenCalledWith('batch-file-1', batchResult);
+    expect(onFileError).toHaveBeenCalledWith('batch-file-2', 'too large');
+    expect(cleanupProgress).toHaveBeenCalledOnce();
+
+    unmount();
+
+    expect(cleanupStatus).toHaveBeenCalledOnce();
+  });
+
   it('replies to parser-host bridge invokes with an explicit missing-bridge error', async () => {
     const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
       '../chunking-worker-context'
