@@ -197,6 +197,57 @@ describe('normalized-file-tree', () => {
     expect(listNormalizedDescendantFilePaths(state, '/root')).toEqual([]);
   });
 
+  it('bulk applies nested directory replacements parent-first regardless of input order', () => {
+    const applyBulkDirectoryChildren = (
+      normalizedFileTreeModule as unknown as {
+        applyNormalizedDirectoryChildrenUpdates?: BulkDirectoryChildrenApplicator;
+      }
+    ).applyNormalizedDirectoryChildrenUpdates;
+
+    expect(applyBulkDirectoryChildren).toBeTypeOf('function');
+    if (!applyBulkDirectoryChildren) {
+      return;
+    }
+
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'root',
+        path: '/root',
+        children: [],
+      }),
+    ]);
+
+    const nextState = applyBulkDirectoryChildren(state, [
+      {
+        path: '/root/src',
+        loadState: 'loaded',
+        children: [
+          createFileNode({
+            name: 'index.ts',
+            path: '/root/src/index.ts',
+            depth: 2,
+          }),
+        ],
+      },
+      {
+        path: '/root',
+        loadState: 'loaded',
+        children: [
+          createDirectoryNode({
+            name: 'src',
+            path: '/root/src',
+            depth: 1,
+            loadState: 'unloaded',
+          }),
+        ],
+      },
+    ]);
+
+    expect(listNormalizedDescendantFilePaths(nextState, '/root')).toEqual(['/root/src/index.ts']);
+    expect(getNormalizedDescendantFileCount(nextState, '/root')).toBe(1);
+    expect(getNormalizedNode(nextState, '/root/src')?.loadState).toBe('loaded');
+  });
+
   it('updates load state without changing descendant file counts', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({

@@ -424,7 +424,10 @@ export function applyNormalizedDirectoryChildrenUpdates(
 
   const nextState = cloneState(state);
   let changed = false;
-  for (const update of updates) {
+  const parentFirstUpdates = [...updates].sort(
+    (left, right) => left.path.length - right.path.length
+  );
+  for (const update of parentFirstUpdates) {
     const updateApplied = replaceDirectoryChildrenInPlace(
       nextState,
       update.path,
