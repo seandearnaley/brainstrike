@@ -1,5 +1,12 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Wrench } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  CircleDashed,
+  Wrench,
+} from 'lucide-react';
 import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import { Button } from '../button';
@@ -21,7 +28,7 @@ const STATUS_LABELS: Record<DisplayStatus, string> = {
 };
 
 const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
-  running: <Wrench className="size-4 text-muted-foreground" />,
+  running: <CircleDashed className="size-4 text-muted-foreground" />,
   error: <AlertCircle className="size-4 text-destructive" />,
   success: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
   unknown: <CheckCircle className="size-4 text-muted-foreground" />,

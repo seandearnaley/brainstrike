@@ -37,6 +37,9 @@ describe('ToolFallback', () => {
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
       expect(screen.getByLabelText(/Running/)).toBeInTheDocument();
+      expect(
+        screen.getByLabelText(/Running/).querySelector('.lucide-circle-dashed')
+      ).not.toBeNull();
       expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
       expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute(
         'data-tone',
