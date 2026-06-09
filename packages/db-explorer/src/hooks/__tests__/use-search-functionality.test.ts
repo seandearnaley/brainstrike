@@ -492,6 +492,82 @@ describe('useSearchFunctionality', () => {
     });
   });
 
+  it('completes with empty results when no chunk repository is available after embedding', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+
+    const { result } = renderHook(() => useSearchFunctionality(null, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('query without repository');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(generateQueryEmbedding).not.toHaveBeenCalled();
+    expect(result.current.hasSearched).toBe(false);
+    expect(result.current.searchResults).toEqual([]);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('surfaces missing active embedding set model rows through the search toast', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    mockDb.query.mockResolvedValue({ rows: [] });
+    const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('missing model row');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Search Failed',
+        description: 'Select an active embedding set in Vector Status, then retry.',
+        variant: 'destructive',
+      })
+    );
+    expect(result.current.searchResults).toEqual([]);
+  });
+
+  it('surfaces missing local model configuration through the search toast', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    useModelRegistryStore.setState({
+      models: [],
+      providers: [],
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+    });
+    const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('missing local model config');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Search Failed',
+        description:
+          'Embedding set references unknown model: jinaai/jina-embeddings-v3. Available models: none. If the model exists but is disabled, enable it in Settings > Models.',
+        variant: 'destructive',
+      })
+    );
+    expect(initializeWithModel).not.toHaveBeenCalled();
+  });
+
   it('treats non-array repository search responses as empty results', async () => {
     const toast = vi.fn() as unknown as ToastFn;
     const searchSimilar = vi.fn().mockResolvedValue(null);
