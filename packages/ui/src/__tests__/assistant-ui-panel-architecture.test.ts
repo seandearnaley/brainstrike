@@ -48,6 +48,8 @@ describe('assistant UI panel architecture', () => {
 
     expect(panelSource).toContain("from './assistant-thinking-indicator'");
     expect(cssSource).toContain('.bs-streaming-thinking');
+    expect(cssSource).toContain('@media (forced-colors: active)');
+    expect(cssSource).toContain('-webkit-text-fill-color: CanvasText');
     expect(cssSource).not.toContain('--aui-content: "|"');
   });
 
