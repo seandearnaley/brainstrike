@@ -186,7 +186,7 @@ describe('ElectronFileRecordRepository', () => {
     await repo.listManagedCacheEntryMetadata('set-1');
 
     expect(query).toHaveBeenCalledWith(
-      'SELECT id, embedding_set_id, source_root_path, path, content_hash, updated_at FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
+      'SELECT id, embedding_set_id, source_root_path, path, content_hash, size, mtime_ms, updated_at FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
       ['set-1']
     );
   });

@@ -49,6 +49,7 @@ interface RootFolderCacheMutableRecord {
   content: string;
   contentHash: string;
   id: string;
+  mtimeMs: number | null;
   name: string;
   path: string;
   processedAt: string;
@@ -75,6 +76,7 @@ export interface PreparedCacheChange {
   contentHash: string;
   id: string;
   mode: 'import' | 'replace';
+  mtimeMs: number | null;
   name: string;
   relativePath: string;
   request: FileContentRequest;
@@ -83,6 +85,7 @@ export interface PreparedCacheChange {
 }
 
 interface FileBatchPreparation {
+  mtimeMs: number | null;
   relativePath: string;
   request: FileContentRequest;
   size: number;
@@ -98,6 +101,7 @@ export interface PreparedChangesSummary {
 interface DiscoveredPreparedFile {
   compositeKey: string;
   contentHash: string;
+  mtimeMs: number | null;
   name: string;
   relativePath: string;
   request: FileContentRequest;
@@ -168,6 +172,7 @@ async function toMutableRecord(
   const now = new Date().toISOString();
   return {
     id: change.id,
+    mtimeMs: change.mtimeMs,
     name: change.name,
     path: change.relativePath,
     size: change.size,
@@ -199,6 +204,7 @@ async function collectDiscoveredPreparedFiles(args: {
     discoveredFiles.push({
       compositeKey,
       contentHash: await generateContentHash(content),
+      mtimeMs: metadata.mtimeMs,
       name: metadata.request.fileNode.name,
       relativePath: metadata.relativePath,
       request: metadata.request,
@@ -402,6 +408,7 @@ function createFileBatchPreparations(
     });
     const compositeKey = encodeFileSelection(rootPath, relativePath);
     return {
+      mtimeMs: typeof node.lastModified === 'number' ? node.lastModified : null,
       request: {
         compositeKey,
         fileNode: node,
@@ -411,6 +418,58 @@ function createFileBatchPreparations(
       size: node.size ?? 0,
     };
   });
+}
+
+/**
+ * Stat-cache fast-path for change detection: partition prepared files into those
+ * that can be skipped (size AND mtime both match the stored entry, so the content
+ * is unchanged) and those that must be read + hashed.
+ *
+ * This is the git/rsync-style optimization that avoids reading and SHA-256-hashing
+ * every file on every sync. It is deliberately conservative — a skip requires BOTH
+ * stored stats present (size + non-null mtimeMs; mtimeMs is null for rows written
+ * before the mtime column existed) AND the scan to have captured the file's mtime.
+ * Any gap or mismatch falls through to the existing read+hash path, so a stale
+ * stat can only ever cost an extra read, never a missed real change — except the
+ * well-known stat-cache residual (same byte size + preserved mtime + different
+ * content), which self-heals the next time the file's mtime changes.
+ */
+export function partitionPreparationsByStatCache<
+  T extends { mtimeMs: number | null; relativePath: string; size: number },
+>(args: {
+  existingByIdentity: ReadonlyMap<string, ManagedCacheEntryMetadata>;
+  preparations: readonly T[];
+  rootPath: string;
+}): { needsRead: T[]; skippedUnchanged: T[] } {
+  const needsRead: T[] = [];
+  const skippedUnchanged: T[] = [];
+  for (const preparation of args.preparations) {
+    const existing = args.existingByIdentity.get(
+      buildRootFolderCacheIdentityKey(args.rootPath, preparation.relativePath)
+    );
+    if (isStatCacheHit(preparation, existing)) {
+      skippedUnchanged.push(preparation);
+      continue;
+    }
+    needsRead.push(preparation);
+  }
+  return { needsRead, skippedUnchanged };
+}
+
+function isStatCacheHit(
+  preparation: { mtimeMs: number | null; size: number },
+  existing: ManagedCacheEntryMetadata | undefined
+): boolean {
+  if (!existing) {
+    return false;
+  }
+  if (typeof existing.size !== 'number' || typeof existing.mtimeMs !== 'number') {
+    return false;
+  }
+  if (preparation.mtimeMs === null) {
+    return false;
+  }
+  return existing.size === preparation.size && existing.mtimeMs === preparation.mtimeMs;
 }
 
 export async function collectPreparedChangesInBatches(args: {
@@ -443,15 +502,23 @@ export async function collectPreparedChangesInBatches(args: {
     createFileContentProcessor(fileSystemAdapter, {
       concurrency: qosPolicy.contentReadConcurrency,
     });
-  const preparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
+  const allPreparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
   const existingByIdentity = new Map(
     existingEntries.map((entry) => [
       buildRootFolderCacheIdentityKey(entry.sourceRootPath, entry.relativePath),
       entry,
     ])
   );
+  // Stat-cache fast-path: drop files whose size+mtime already match the stored
+  // entry before any content read, so unchanged files cost a stat lookup instead
+  // of a full read + SHA-256 hash. Skipped files count as unchanged directly.
+  const { needsRead: preparations, skippedUnchanged } = partitionPreparationsByStatCache({
+    existingByIdentity,
+    preparations: allPreparations,
+    rootPath,
+  });
   const changes: PreparedCacheChange[] = [];
-  let unchangedCount = 0;
+  let unchangedCount = skippedUnchanged.length;
 
   for (let index = 0; index < preparations.length; index += qosPolicy.contentReadBatchSize) {
     throwIfAborted(abortSignal);

@@ -48,7 +48,14 @@ export interface ManagedCacheEntryMetadata {
   contentHash: string;
   embeddingSetId: string;
   fileRecordId: string;
+  // Persisted filesystem stat used by the background-sync stat-cache fast-path:
+  // when a discovered file's size AND mtime both match the stored values, the
+  // file is treated as unchanged without reading/hashing its content. mtimeMs is
+  // null for rows written before the mtime column existed (self-heals on first
+  // re-hash). Both optional so callers that don't select them still type-check.
+  mtimeMs?: number | null;
   relativePath: string;
+  size?: number;
   sourceRootPath: string;
   updatedAt: string;
 }

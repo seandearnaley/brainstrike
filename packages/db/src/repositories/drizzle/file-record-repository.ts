@@ -236,6 +236,8 @@ export class DrizzleFileRecordRepository {
         sourceRootPath: fileRecords.sourceRootPath,
         relativePath: fileRecords.path,
         contentHash: fileRecords.contentHash,
+        size: fileRecords.size,
+        mtimeMs: fileRecords.mtimeMs,
         updatedAt: fileRecords.updatedAt,
       })
       .from(fileRecords)
@@ -261,6 +263,8 @@ export class DrizzleFileRecordRepository {
           sourceRootPath: row.sourceRootPath,
           relativePath: row.relativePath,
           contentHash: row.contentHash ?? '',
+          size: row.size,
+          mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
           updatedAt: row.updatedAt.toISOString(),
         } satisfies ManagedCacheEntryMetadata,
       ];

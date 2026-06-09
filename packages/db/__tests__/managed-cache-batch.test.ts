@@ -57,6 +57,7 @@ describe('applyManagedCacheBatch', () => {
           mode: 'import',
           record: {
             id: 'file-1',
+            mtimeMs: null,
             name: 'index.ts',
             path: 'src/index.ts',
             size: 12,
@@ -101,6 +102,7 @@ describe('applyManagedCacheBatch', () => {
           mode: 'replace',
           record: {
             id: 'file-2',
+            mtimeMs: null,
             name: 'replace.ts',
             path: 'src/replace.ts',
             size: 16,
@@ -712,5 +714,95 @@ describe('applyManagedCacheBatch', () => {
         contentHash: 'import-only-hash',
       })
     );
+  });
+
+  it('persists mtimeMs on import and surfaces it with size for the stat-cache fast-path', async () => {
+    const now = new Date().toISOString();
+    const mtimeMs = 1_700_000_000_000;
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            id: 'stat-cache-file',
+            name: 'stat.ts',
+            path: 'src/stat.ts',
+            size: 128,
+            mtimeMs,
+            sourceRootPath: '/workspace/root',
+            createdAt: now,
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const value = 1;',
+            contentHash: 'stat-hash',
+            tokenCount: 5,
+          },
+        },
+      ],
+    });
+
+    const entries = await fileRecordRepository.listManagedCacheEntryMetadata('set-1');
+    expect(entries).toEqual([
+      expect.objectContaining({
+        fileRecordId: 'stat-cache-file',
+        relativePath: 'src/stat.ts',
+        size: 128,
+        mtimeMs,
+      }),
+    ]);
+  });
+
+  it('persists mtimeMs on replace so an in-place edit refreshes the stat-cache', async () => {
+    const now = new Date().toISOString();
+
+    await fileRecordRepository.createWithContent({
+      id: 'replace-stat-file',
+      name: 'stat.ts',
+      path: 'src/stat.ts',
+      size: 10,
+      sourceRootPath: '/workspace/root',
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'old-hash',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+    });
+
+    const newMtimeMs = 1_800_000_000_000;
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'replace-stat-file',
+            name: 'stat.ts',
+            path: 'src/stat.ts',
+            size: 20,
+            mtimeMs: newMtimeMs,
+            sourceRootPath: '/workspace/root',
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const version = 2;',
+            contentHash: 'new-hash',
+            tokenCount: 6,
+          },
+        },
+      ],
+    });
+
+    const entries = await fileRecordRepository.listManagedCacheEntryMetadata('set-1');
+    expect(entries).toEqual([
+      expect.objectContaining({
+        fileRecordId: 'replace-stat-file',
+        relativePath: 'src/stat.ts',
+        size: 20,
+        mtimeMs: newMtimeMs,
+      }),
+    ]);
   });
 });

@@ -12,6 +12,25 @@ const logger = createLogger('DB:FileRecordRepository');
 const BULK_IMPORT_INFO_LOG_THRESHOLD = 100;
 
 /**
+ * Coerce a stat column (size INTEGER, mtime_ms BIGINT) from a raw row to a finite
+ * number, or null when absent/invalid. PGlite can surface a BIGINT column as a
+ * string or bigint depending on the driver path, so all three are handled.
+ */
+function parseOptionalStatNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
  * Allowed fields for updates - prevents accidental ID updates
  */
 const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
@@ -229,7 +248,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
-    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, size, mtime_ms, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
     const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
@@ -255,6 +274,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         ) {
           return [];
         }
+        const parsedSize = parseOptionalStatNumber(row['size']);
         return [
           {
             fileRecordId,
@@ -262,6 +282,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
             sourceRootPath,
             relativePath,
             contentHash: contentHash ?? '',
+            ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
+            mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
             updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
           } satisfies ManagedCacheEntryMetadata,
         ];

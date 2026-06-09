@@ -5,6 +5,10 @@ interface ManagedCacheRecordBase {
   content: string;
   contentHash: string;
   id: string;
+  // Persisted filesystem mtime (epoch ms) for the background-sync stat-cache
+  // fast-path. Null when the scan did not capture an mtime; the row then always
+  // falls through to read+hash on the next sync.
+  mtimeMs: number | null;
   name: string;
   path: string;
   processedAt: string;
@@ -86,8 +90,15 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
     return null;
   }
 
+  // mtimeMs is optional best-effort stat metadata: a missing or non-numeric value
+  // means "no mtime available" (→ null), which is a valid state, not malformed
+  // input. The row simply won't benefit from the stat-cache until its next write.
+  const mtimeMsCandidate = candidate['mtimeMs'];
+  const mtimeMs = isFiniteNonNegativeNumber(mtimeMsCandidate) ? mtimeMsCandidate : null;
+
   const parsedBase: ManagedCacheRecordBase = {
     id: candidate['id'],
+    mtimeMs,
     name: candidate['name'],
     path: candidate['path'],
     size: candidate['size'],
@@ -180,6 +191,7 @@ const IMPORT_COLUMNS = [
   'name',
   'path',
   'size',
+  'mtime_ms',
   'source_root_path',
   'created_at',
   'updated_at',
@@ -195,6 +207,7 @@ const REPLACE_VALUE_COLUMNS = [
   'name',
   'path',
   'size',
+  'mtime_ms',
   'source_root_path',
   'updated_at',
   'content',
@@ -292,6 +305,7 @@ async function insertManagedCacheImports(
     record.name,
     record.path,
     record.size,
+    record.mtimeMs,
     record.sourceRootPath,
     record.createdAt,
     record.updatedAt,
@@ -338,6 +352,7 @@ async function applyManagedCacheReplacements(
     record.name,
     record.path,
     record.size,
+    record.mtimeMs,
     record.sourceRootPath,
     record.updatedAt,
     record.content,
@@ -352,6 +367,7 @@ async function applyManagedCacheReplacements(
        SET name = replacement_values.name,
            path = replacement_values.path,
            size = replacement_values.size::integer,
+           mtime_ms = replacement_values.mtime_ms::bigint,
            source_root_path = replacement_values.source_root_path,
            updated_at = replacement_values.updated_at::timestamptz,
            content = replacement_values.content,
@@ -369,6 +385,7 @@ async function applyManagedCacheReplacements(
         name,
         path,
         size,
+        mtime_ms,
         source_root_path,
         updated_at,
         content,
