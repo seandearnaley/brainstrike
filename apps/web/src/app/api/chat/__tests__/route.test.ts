@@ -227,6 +227,33 @@ describe('chat route schema', () => {
     expect(typeof payload.retryAfterMs).toBe('number');
   });
 
+  it('bounds rate limiter state for unique client identifiers', async () => {
+    for (let i = 0; i < 1024; i += 1) {
+      const req = new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': `client-${i}`,
+        },
+        body: '{}',
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+    }
+
+    const limitedReq = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'brainstrike-client-id': 'client-over-limit',
+      },
+      body: '{}',
+    });
+    const limitedRes = await POST(limitedReq);
+
+    expect(limitedRes.status).toBe(429);
+  });
+
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
     const oversizedBody = new ReadableStream<Uint8Array>({
       start(controller) {

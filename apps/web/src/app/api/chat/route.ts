@@ -14,6 +14,7 @@ import { resolveAssistantProviderConfig } from '../../../server/assistant-config
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
+const RATE_LIMIT_MAX_CLIENTS = 1024;
 const logger = createLogger('WebChatRoute');
 const chatRequestBodyLimitBytes = resolveBodyLimit(process.env[BODY_LIMIT_ENV_VAR]);
 
@@ -177,6 +178,10 @@ function applyRateLimit(
   }
 
   if (!existing) {
+    pruneRateLimitState(now);
+    if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS) {
+      return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW_MS };
+    }
     rateLimitState.set(identifier, {
       count: 1,
       windowStartedAt: now,
@@ -204,6 +209,16 @@ function applyRateLimit(
   rateLimitState.set(identifier, existing);
   const retryAfterMs = Math.max(0, blockedUntil - now);
   return { allowed: false, retryAfterMs };
+}
+
+function pruneRateLimitState(now: number): void {
+  for (const [identifier, entry] of rateLimitState) {
+    const windowExpired = now - entry.windowStartedAt >= RATE_LIMIT_WINDOW_MS;
+    const blockExpired = entry.blockedUntil === undefined || now >= entry.blockedUntil;
+    if (windowExpired && blockExpired) {
+      rateLimitState.delete(identifier);
+    }
+  }
 }
 
 function createRateLimitResponse(retryAfterMs: number): Response {
