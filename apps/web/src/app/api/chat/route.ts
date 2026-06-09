@@ -180,7 +180,7 @@ function applyRateLimit(
   if (!existing) {
     pruneRateLimitState(now);
     if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS) {
-      return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW_MS };
+      evictOldestRateLimitEntry();
     }
     rateLimitState.set(identifier, {
       count: 1,
@@ -209,6 +209,13 @@ function applyRateLimit(
   rateLimitState.set(identifier, existing);
   const retryAfterMs = Math.max(0, blockedUntil - now);
   return { allowed: false, retryAfterMs };
+}
+
+function evictOldestRateLimitEntry(): void {
+  const oldestIdentifier = rateLimitState.keys().next().value;
+  if (oldestIdentifier !== undefined) {
+    rateLimitState.delete(oldestIdentifier);
+  }
 }
 
 function pruneRateLimitState(now: number): void {
