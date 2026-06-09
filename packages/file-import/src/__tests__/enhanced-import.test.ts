@@ -949,4 +949,233 @@ describe('runEnhancedImport', () => {
       })
     );
   });
+
+  it('rejects local embedding models when registry SQL access is unavailable', async () => {
+    await expect(
+      runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: createBaseRunner([
+          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        ]),
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        embedding: {
+          enabled: true,
+          model: 'local::requires-sql-model',
+          service: {} as never,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'requires-sql-set',
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+      })
+    ).rejects.toThrow('Database access is required to resolve local embedding models.');
+  });
+
+  it('keeps a matching preferred embedding set without inserting a replacement', async () => {
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+        return Promise.resolve({ rows: [{ modelKey: 'local::preferred-model' }] });
+      }
+      if (sql.includes('FROM models')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'preferred-model',
+              providerId: 'transformers',
+              capabilities: { type: 'embedding', defaultDimension: 512 },
+            },
+          ],
+        });
+      }
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+        )
+      ) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'preferred-set',
+              modelKey: 'local::preferred-model',
+              dimensions: 512,
+              distance: 'cosine',
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const resolvedSetIdSpy = vi.fn();
+    const chunkingImpl = vi.fn().mockResolvedValue([
+      {
+        id: '1',
+        imported: true,
+        existed: false,
+        chunksCreated: 1,
+      } satisfies EnhancedImportResult,
+    ]);
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'local::preferred-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-set',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+      },
+      ports: {
+        sql: {
+          query: sqlPortQuery,
+          runInTransaction: vi.fn(),
+        },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('preferred-set');
+    expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({ targetEmbeddingSetId: 'preferred-set' })
+    );
+    expect(
+      sqlPortQuery.mock.calls.some(
+        ([statement]) =>
+          typeof statement === 'string' && statement.startsWith('INSERT INTO embedding_sets')
+      )
+    ).toBe(false);
+  });
+
+  it('canonicalizes a reused embedding set and exposes transactional queue enqueue options', async () => {
+    const queuePort: EmbeddingJobQueuePort = {
+      enqueueBatch: vi.fn().mockResolvedValue(undefined),
+    };
+    const runInTransaction = vi.fn();
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+        return Promise.resolve({ rows: [{ modelKey: 'local::canonical-tx-model' }] });
+      }
+      if (sql.includes('FROM models')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'canonical-tx-model',
+              providerId: 'transformers',
+              capabilities: { type: 'embedding', defaultDimension: 256 },
+            },
+          ],
+        });
+      }
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+        )
+      ) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({
+          rows: [{ id: 'reused-set', modelKey: 'canonical-tx-model' }],
+        });
+      }
+      if (sql.startsWith('UPDATE embedding_sets SET model_key = $1 WHERE id = $2')) {
+        return Promise.resolve({ rows: [] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const tx = {} as never;
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.enqueueJobsForChunksTx?.(
+        tx,
+        [
+          {
+            id: 'chunk-tx',
+            fileRecordId: '1',
+            content: 'transactional content',
+            contentHash: 'hash-tx',
+          } as never,
+        ],
+        '1'
+      );
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'local::canonical-tx-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-for-reuse',
+      },
+      ports: {
+        embeddingQueue: queuePort,
+        sql: {
+          query: sqlPortQuery,
+          runInTransaction,
+        },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(sqlPortQuery).toHaveBeenCalledWith(
+      'UPDATE embedding_sets SET model_key = $1 WHERE id = $2',
+      ['local::canonical-tx-model', 'reused-set']
+    );
+    expect(queuePort.enqueueBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      '1',
+      expect.objectContaining({
+        transaction: tx,
+        model: 'local::canonical-tx-model',
+        targetEmbeddingSetId: 'reused-set',
+        provider: 'local',
+        targetDimension: 256,
+      })
+    );
+  });
 });
