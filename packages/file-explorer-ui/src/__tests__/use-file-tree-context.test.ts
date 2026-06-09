@@ -712,6 +712,45 @@ describe('useFileTree (lazy loading version)', () => {
       expect(reloadedParent?.children?.some((child) => child.name === 'child')).toBe(true);
     });
 
+    it('loads root and child directories through non-streaming adapters', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const readDirectorySpy = vi.spyOn(mockAdapter, 'readDirectory');
+      const nonStreamingAdapter = {
+        readDirectory: mockAdapter.readDirectory.bind(mockAdapter),
+      } as unknown as MockFileSystemAdapter;
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: nonStreamingAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory before non-streaming child load');
+      }
+
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+
+      expect(readDirectorySpy).toHaveBeenCalledTimes(2);
+
+      const reloadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
+      expect(reloadedParent?.type).toBe('directory');
+      expect(reloadedParent?.loadState).toBe('loaded');
+      expect(reloadedParent?.children?.some((child) => child.name === 'child')).toBe(true);
+    });
+
     it('uses the worker batch loader when restoring multiple paths', async () => {
       const nestedFS = createNestedMockFileSystem();
       mockAdapter.setMockFileSystem(nestedFS);
@@ -733,6 +772,61 @@ describe('useFileTree (lazy loading version)', () => {
 
       expect(mockWorkerPort.loadPaths).toHaveBeenCalledTimes(1);
       expect(mockWorkerPort.loadPaths).toHaveBeenCalledWith(['parent', 'parent/child']);
+    });
+
+    it('skips restoration requests while expand-all is in progress', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const expandAllDeferred = createDeferred<{
+        expandedPaths: string[];
+        loadedCount: number;
+        patches: AccumulatedFileTreePatchMessage[];
+      }>();
+      mockWorkerPort.expandAll.mockReturnValueOnce(expandAllDeferred.promise);
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let expandedPaths = new Set<string>();
+      const expandPromise = result.current.expandAllProgressively((updater) => {
+        expandedPaths = updater(expandedPaths);
+      });
+
+      await waitFor(() => expect(result.current.isExpandingAll).toBe(true));
+
+      const progress = vi.fn();
+      await act(async () => {
+        await result.current.loadSpecificPaths(['mock-root/alpha', 'mock-root/beta'], progress);
+      });
+
+      expect(mockWorkerPort.loadPaths).not.toHaveBeenCalled();
+      expect(progress).not.toHaveBeenCalled();
+
+      await act(async () => {
+        expandAllDeferred.resolve({
+          expandedPaths: ['mock-root/alpha'],
+          loadedCount: 1,
+          patches: [
+            {
+              type: 'childrenLoaded',
+              payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
+            },
+          ],
+        });
+        await expandPromise;
+      });
+
+      expect(expandedPaths).toEqual(
+        new Set(['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'])
+      );
     });
 
     it('ignores empty restoration requests before selecting a worker or serial loader', async () => {
@@ -1316,7 +1410,7 @@ describe('useFileTree (lazy loading version)', () => {
           await result.current.loadSpecificPaths(['mock-root/parent', 'missing-dir']);
         });
 
-        expect(loggedErrors).toContain('loadSpecificPaths failed');
+        await waitFor(() => expect(loggedErrors).toContain('loadSpecificPaths failed'));
         expect(result.current.loadingPaths.size).toBe(0);
       } finally {
         unsubscribe();
@@ -1487,6 +1581,41 @@ describe('useFileTree (lazy loading version)', () => {
         'loaded',
         'loaded',
       ]);
+    });
+
+    it('surfaces worker expand-all failures and clears progress state', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      mockWorkerPort.expandAll.mockRejectedValueOnce(new Error('worker crashed'));
+
+      const loggedErrors: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'ExpandAll' && typeof record.message === 'string') {
+          loggedErrors.push(record.message);
+        }
+      });
+
+      try {
+        const TestWrapper = ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+        const { result } = renderHook(() => useFileTree(handle), {
+          wrapper: TestWrapper,
+        });
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        await act(async () => {
+          await result.current.expandAllProgressively(() => new Set());
+        });
+
+        expect(result.current.expandAllProgress).toBeNull();
+        await waitFor(() => expect(loggedErrors).toContain('expandAllProgressively: error'));
+      } finally {
+        unsubscribe();
+      }
     });
 
     it('bulk-applies worker expand-all children patches in one normalized update', async () => {
