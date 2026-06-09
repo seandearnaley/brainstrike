@@ -1,10 +1,20 @@
 import type { Job } from '@brainstrike/db';
-import { describe, expect, it, vi } from 'vitest';
+import { checkApiKeyAvailability } from '@brainstrike/embeddings';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  calculateLatency,
   createVectorQueueService,
   type VectorQueueDatabase,
   type VectorQueueServiceDependencies,
 } from '../vector-status/vector-queue-service';
+
+vi.mock('@brainstrike/embeddings', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/embeddings')>();
+  return {
+    ...original,
+    checkApiKeyAvailability: vi.fn(),
+  };
+});
 
 interface MockEnqueueJob {
   dedupeKey?: string;
@@ -32,7 +42,32 @@ function createMockEnqueuedJobs(jobs: MockEnqueueJob[]): Job[] {
   }));
 }
 
+function createMinimalDependencies(db: VectorQueueDatabase): VectorQueueServiceDependencies {
+  return {
+    db,
+    jobQueue: {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => []),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+      repairUnclaimableQueued: vi.fn(),
+    },
+    chunkRepository: {
+      getCoverageForSet: vi.fn(async () => ({
+        totalChunks: 0,
+        chunksWithEmbeddingsForSet: 0,
+      })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    },
+  };
+}
+
 describe('vector-queue-service', () => {
+  beforeEach(() => {
+    vi.mocked(checkApiKeyAvailability).mockReset();
+    vi.mocked(checkApiKeyAvailability).mockResolvedValue({ available: true });
+  });
+
   it('refresh aggregates queue metrics and latency', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       enqueueBatch: vi.fn(),
@@ -994,5 +1029,136 @@ describe('vector-queue-service', () => {
     expect(chunkRepository.clearEmbeddingsForSet).toHaveBeenCalledWith('empty-set');
     expect(result.clearedCount).toBe(0);
     expect(result.queueCounts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 0 });
+  });
+
+  it('validates API keys through canonical embedding set metadata', async () => {
+    vi.mocked(checkApiKeyAvailability).mockResolvedValue({ available: true });
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: '1536' }],
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+    const service = createVectorQueueService(createMinimalDependencies(db));
+
+    await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({ valid: true });
+
+    expect(checkApiKeyAvailability).toHaveBeenCalledWith('openai::text-embedding-3-small');
+  });
+
+  it('returns unavailable API key validation details from the provider check', async () => {
+    vi.mocked(checkApiKeyAvailability).mockResolvedValue({
+      available: false,
+      provider: 'openai',
+      reason: 'missing-provider-key',
+      message: 'OpenAI key is missing',
+    });
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: 1536 }],
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+    const service = createVectorQueueService(createMinimalDependencies(db));
+
+    await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({
+      valid: false,
+      reason: 'missing-provider-key',
+      message: 'OpenAI key is missing',
+    });
+  });
+
+  it.each([
+    {
+      name: 'missing row',
+      rows: [],
+      message: 'Embedding set set-1 not found',
+    },
+    {
+      name: 'missing model key',
+      rows: [{ modelKey: '   ', dimensions: 384 }],
+      message: 'Embedding set set-1 is missing model_key metadata',
+    },
+    {
+      name: 'invalid dimensions',
+      rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 0 }],
+      message: 'Embedding set set-1 is missing dimension metadata',
+    },
+  ])('reports validation errors for $name metadata', async ({ rows, message }) => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+    const service = createVectorQueueService(createMinimalDependencies(db));
+
+    await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({
+      valid: false,
+      reason: 'validation-error',
+      message,
+    });
+    expect(checkApiKeyAvailability).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid queue capacity timeout values before querying metadata', async () => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const service = createVectorQueueService(createMinimalDependencies(db));
+
+    await expect(
+      service.backfill('set-1', {
+        onProgress: vi.fn(),
+        queueCapacityTimeoutMs: 0,
+      })
+    ).rejects.toThrow('queueCapacityTimeoutMs must be a positive integer when configured.');
+
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('delegates queue clearing to the embeddings queue with optional states', async () => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const dependencies = createMinimalDependencies(db);
+    const service = createVectorQueueService(dependencies);
+
+    await service.clearQueue(['failed', 'queued']);
+    await service.wipeQueue();
+
+    expect(dependencies.jobQueue.clear).toHaveBeenNthCalledWith(1, 'embeddings', [
+      'failed',
+      'queued',
+    ]);
+    expect(dependencies.jobQueue.clear).toHaveBeenNthCalledWith(2, 'embeddings');
+  });
+
+  it('calculates latency with invalid timestamps clamped to zero milliseconds', () => {
+    expect(calculateLatency([])).toBeNull();
+
+    const latency = calculateLatency([
+      { runAt: 'not-a-date', updatedAt: 'also-not-a-date' },
+      {
+        runAt: new Date('2026-06-09T12:00:00.000Z').toISOString(),
+        updatedAt: new Date('2026-06-09T12:00:02.000Z').toISOString(),
+      },
+    ]);
+
+    expect(latency).toEqual({
+      avgMs: 1000,
+      p50Ms: 2000,
+      p95Ms: 2000,
+    });
   });
 });
