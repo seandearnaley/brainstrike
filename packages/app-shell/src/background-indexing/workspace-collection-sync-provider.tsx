@@ -49,6 +49,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
+import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
   isWorkspaceIndexBlockedError,
@@ -729,6 +730,11 @@ export function WorkspaceCollectionSyncProvider({
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
   }, [triggerSync]);
+
+  // Recovery point for a backfill killed while the window was hidden (e.g. a
+  // top-level navigation mid-backfill): re-sync on return to visibility so the
+  // 0-changes coverage check can re-enqueue any missing embedding work.
+  useResyncOnReturnToVisibility(triggerSync);
 
   return <>{children}</>;
 }
