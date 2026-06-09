@@ -303,6 +303,47 @@ describe('EmbeddingSetsRepository', () => {
     );
   });
 
+  it('returns from set creation without waiting for the dimension index build', async () => {
+    let releaseIndexBuild: (() => void) | null = null;
+    const indexBuildStarted = vi.fn();
+    const indexBuildGate = new Promise<void>((resolve) => {
+      releaseIndexBuild = resolve;
+    });
+    const trackedDb = {
+      exec: vi.fn(async (sql: string): Promise<void> => {
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_')) {
+          indexBuildStarted();
+          await indexBuildGate; // hangs until the test releases it
+          return;
+        }
+        await db.exec(sql);
+      }),
+      query: db.query.bind(db),
+    };
+    const trackedRepo = new EmbeddingSetsRepository(trackedDb);
+
+    // getOrCreateSet must resolve even though the HNSW build is still hanging.
+    // A blocking implementation would await the gated index statement and deadlock.
+    const created = await Promise.race([
+      trackedRepo.getOrCreateSet('local::bge-m3', 'bge-m3', 384, 'cosine'),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('getOrCreateSet blocked on the dimension index build')),
+          2000
+        )
+      ),
+    ]);
+    expect(created.dimensions).toBe(384);
+    expect(indexBuildStarted).toHaveBeenCalledTimes(1);
+
+    // The build is still in flight; drain it via the public awaitable.
+    if (!releaseIndexBuild) {
+      throw new Error('Index build gate was not initialized.');
+    }
+    (releaseIndexBuild as () => void)();
+    await trackedRepo.waitForPendingDimensionIndexBuilds();
+  });
+
   it('keeps regular user-created sets user-owned', async () => {
     const set = await repo.getOrCreateSet(
       'openai::text-embedding-3-small',

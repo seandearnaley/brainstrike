@@ -246,6 +246,58 @@ export async function ensureDimensionIndexExists(
   await createDimensionIndex(db, dimension, params);
 }
 
+export interface DeferredDimensionIndexBuilder {
+  /**
+   * Kick off a best-effort HNSW index build for `dimension` WITHOUT blocking the
+   * caller. Returns immediately and never throws. Deduplicates by dimension: a
+   * second call while a build is in flight is a no-op.
+   */
+  schedule(dimension: number): void;
+  /** Await all in-flight builds. Never rejects (builds are best-effort). */
+  whenSettled(): Promise<void>;
+}
+
+/**
+ * Creates a deferred, deduplicated HNSW-index builder.
+ *
+ * A `CREATE INDEX ... USING hnsw` on a populated `file_chunks` table can take
+ * 5-30s and, on PGlite's single connection, blocks every other query while it
+ * runs. Awaiting it inline during embedding-set creation froze the foreground
+ * flow. This builder decouples the build from the caller: embedding-set creation
+ * returns immediately and search degrades gracefully to a sequential scan until
+ * the index lands. The build is idempotent (`CREATE INDEX IF NOT EXISTS`), so a
+ * build lost to shutdown self-heals on the next `getOrCreate*` call.
+ *
+ * `getDb`/`onError` are read lazily so the builder can be constructed as a field
+ * initializer before the owning repository's `db`/`logger` are assigned.
+ */
+export function createDeferredDimensionIndexBuilder(options: {
+  getDb: () => DimensionIndexDb;
+  onError: (dimension: number, error: unknown) => void;
+}): DeferredDimensionIndexBuilder {
+  const pending = new Map<number, Promise<void>>();
+  return {
+    schedule(dimension: number): void {
+      if (pending.has(dimension)) {
+        return;
+      }
+      const build = (async () => {
+        try {
+          await ensureDimensionIndexExists(options.getDb(), dimension);
+        } catch (error) {
+          options.onError(dimension, error);
+        } finally {
+          pending.delete(dimension);
+        }
+      })();
+      pending.set(dimension, build);
+    },
+    async whenSettled(): Promise<void> {
+      await Promise.allSettled([...pending.values()]);
+    },
+  };
+}
+
 /**
  * Check if an HNSW index exists for a given dimension.
  *

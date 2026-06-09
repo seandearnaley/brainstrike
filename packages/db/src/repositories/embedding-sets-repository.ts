@@ -1,5 +1,8 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { ensureDimensionIndexExists } from '../migrations/dimension-index-helpers.js';
+import {
+  createDeferredDimensionIndexBuilder,
+  type DeferredDimensionIndexBuilder,
+} from '../migrations/dimension-index-helpers.js';
 import {
   type EmbeddingDistance,
   type EmbeddingSet,
@@ -83,7 +86,29 @@ function readOptionalFiniteNumber(
 export class EmbeddingSetsRepository {
   private readonly logger = createLogger('EmbeddingSetsRepository');
 
+  // Deferred so a long HNSW build never blocks embedding-set creation. getDb /
+  // onError read this.db / this.logger lazily (the field initializes before the
+  // constructor parameter property is assigned).
+  private readonly dimensionIndexBuilder: DeferredDimensionIndexBuilder =
+    createDeferredDimensionIndexBuilder({
+      getDb: () => this.db,
+      onError: (dimensions, error) => {
+        this.logger.warn('Failed to ensure dimension index exists', {
+          dimensions,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    });
+
   constructor(private readonly db: EmbeddingSetsDb) {}
+
+  /**
+   * Await any in-flight deferred HNSW index builds. For graceful shutdown and
+   * tests that need the index materialized before asserting on it.
+   */
+  waitForPendingDimensionIndexBuilds(): Promise<void> {
+    return this.dimensionIndexBuilder.whenSettled();
+  }
 
   async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
     const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
@@ -164,11 +189,11 @@ export class EmbeddingSetsRepository {
       if (!row) {
         throw new Error('Failed to create or load the workspace index embedding set.');
       }
-      await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+      this.dimensionIndexBuilder.schedule(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
       return this.readEmbeddingSet(row as Record<string, unknown>);
     }
 
-    await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+    this.dimensionIndexBuilder.schedule(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
 
     return this.readEmbeddingSet(result.rows[0] as Record<string, unknown>);
   }
@@ -246,7 +271,7 @@ export class EmbeddingSetsRepository {
       );
     }
 
-    await this.ensureDimensionIndexBestEffort(dimensions);
+    this.dimensionIndexBuilder.schedule(dimensions);
 
     this.logger.info('Created new embedding set', {
       id,
@@ -467,16 +492,5 @@ export class EmbeddingSetsRepository {
       modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
     };
-  }
-
-  private async ensureDimensionIndexBestEffort(dimensions: number): Promise<void> {
-    try {
-      await ensureDimensionIndexExists(this.db, dimensions);
-    } catch (error) {
-      this.logger.warn('Failed to ensure dimension index exists', {
-        dimensions,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
 }

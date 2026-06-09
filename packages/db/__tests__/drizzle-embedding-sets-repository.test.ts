@@ -52,6 +52,23 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(result.name).toBe('text-embedding-3-small (1536D)');
     });
 
+    it('builds the dimension index off the foreground path, observable via the awaitable', async () => {
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+
+      // The build is deferred; draining it must materialize the HNSW index.
+      await repository.waitForPendingDimensionIndexBuilds();
+
+      const indexes = await client.query<{ indexname: string }>(
+        "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_1536'"
+      );
+      expect(indexes.rows).toHaveLength(1);
+    });
+
     it('seeds a zero-count indexing stats row for new empty sets', async () => {
       const result = await repository.getOrCreateSet(
         'openai::text-embedding-3-small',

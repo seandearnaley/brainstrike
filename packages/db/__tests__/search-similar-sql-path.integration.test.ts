@@ -110,6 +110,27 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
     expect(results[0].similarity).toBeGreaterThanOrEqual(0.99); // ~1
     expect(results[1].similarity).toBeGreaterThan(results[2].similarity);
 
+    // PR3: the DEFAULT now projects the heavy embedding vector away to keep the
+    // search payload off the IPC wire. Ranking is unaffected (distance is in SQL),
+    // and the dimension count is preserved via vector_dims() for UI labels.
+    for (const r of results) {
+      expect(r.chunk.embedding).toBeUndefined();
+      expect(r.chunk.embeddingDimensions).toBe(dim);
+    }
+
+    // Callers that genuinely need the vector must opt in explicitly.
+    const withVector = await repo.searchSimilar(q, {
+      limit: 10,
+      threshold: 0,
+      chunkType: 'text',
+      embeddingSetId: setId,
+      includeEmbedding: true,
+    });
+    for (const r of withVector) {
+      expect(Array.isArray(r.chunk.embedding)).toBe(true);
+      expect(r.chunk.embedding?.length).toBe(dim);
+    }
+
     // Higher threshold should filter to only the most similar one
     const strict = await repo.searchSimilar(q, {
       limit: 10,

@@ -8,7 +8,10 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { eq } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
-import { ensureDimensionIndexExists } from '../../migrations/dimension-index-helpers.js';
+import {
+  createDeferredDimensionIndexBuilder,
+  type DeferredDimensionIndexBuilder,
+} from '../../migrations/dimension-index-helpers.js';
 import {
   type EmbeddingDistance,
   type EmbeddingSet,
@@ -27,7 +30,29 @@ type DrizzleDb = PgliteDatabase;
 export class DrizzleEmbeddingSetsRepository {
   private readonly logger = createLogger('DrizzleEmbeddingSetsRepository');
 
+  // Deferred so a long HNSW build never blocks embedding-set creation. getDb /
+  // onError read this lazily (the field initializes before the constructor
+  // parameter property is assigned).
+  private readonly dimensionIndexBuilder: DeferredDimensionIndexBuilder =
+    createDeferredDimensionIndexBuilder({
+      getDb: () => this.createQueryAdapter(),
+      onError: (dimensions, error) => {
+        this.logger.warn('Failed to ensure dimension index exists', {
+          dimensions,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    });
+
   constructor(private readonly db: DrizzleDb) {}
+
+  /**
+   * Await any in-flight deferred HNSW index builds. For graceful shutdown and
+   * tests that need the index materialized before asserting on it.
+   */
+  waitForPendingDimensionIndexBuilds(): Promise<void> {
+    return this.dimensionIndexBuilder.whenSettled();
+  }
 
   async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
     const dbAdapter = this.createQueryAdapter();
@@ -91,7 +116,7 @@ export class DrizzleEmbeddingSetsRepository {
       return selected;
     });
 
-    await this.ensureDimensionIndexBestEffort(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
+    this.dimensionIndexBuilder.schedule(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
 
     return this.readEmbeddingSet(row);
   }
@@ -143,7 +168,7 @@ export class DrizzleEmbeddingSetsRepository {
       );
     }
 
-    await this.ensureDimensionIndexBestEffort(dimensions);
+    this.dimensionIndexBuilder.schedule(dimensions);
 
     this.logger.info('Created new embedding set', {
       id,
@@ -297,16 +322,5 @@ export class DrizzleEmbeddingSetsRepository {
       modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
     };
-  }
-
-  private async ensureDimensionIndexBestEffort(dimensions: number): Promise<void> {
-    try {
-      await ensureDimensionIndexExists(this.createQueryAdapter(), dimensions);
-    } catch (error) {
-      this.logger.warn('Failed to ensure dimension index exists', {
-        dimensions,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
 }
