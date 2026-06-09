@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type MockFileEntry, MockFileSystemAdapter } from '../adapters/mock-file-system-adapter';
 import type { FileHandle } from '../types';
 
@@ -353,6 +353,146 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
       const exists = await adapter.exists('mock-root/src/components');
       expect(exists).toBe(true);
+    });
+  });
+
+  describe('readDirectoryStreaming', () => {
+    beforeEach(() => {
+      adapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+    });
+
+    it('should throw error when no directory is selected', async () => {
+      const freshAdapter = new MockFileSystemAdapter(
+        MockFileSystemAdapter.createSimpleFileSystem()
+      );
+
+      await expect(
+        freshAdapter.readDirectoryStreaming(
+          {
+            path: 'mock-root',
+            name: 'mock-root',
+            kind: 'directory',
+            platform: 'web',
+          },
+          () => undefined
+        )
+      ).rejects.toThrow('No directory selected');
+    });
+
+    it('should reject when the signal is already aborted', async () => {
+      const rootHandle = await adapter.requestDirectoryAccess();
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        adapter.readDirectoryStreaming(rootHandle, () => undefined, {
+          signal: abortController.signal,
+        })
+      ).rejects.toThrow('Operation was cancelled');
+    });
+
+    it('should emit an empty done batch for missing directories', async () => {
+      await adapter.requestDirectoryAccess();
+      const batches: Array<{ done: boolean; names: string[]; total: number }> = [];
+
+      await adapter.readDirectoryStreaming(
+        {
+          path: 'mock-root/missing',
+          name: 'missing',
+          kind: 'directory',
+          platform: 'web',
+        },
+        (batch, meta) => {
+          batches.push({
+            done: meta.done,
+            names: batch.map((entry) => entry.name),
+            total: meta.total,
+          });
+        }
+      );
+
+      expect(batches).toEqual([{ done: true, names: [], total: 0 }]);
+    });
+
+    it('should emit an empty done batch for empty directories', async () => {
+      adapter.setMockFileSystem({
+        empty: {
+          name: 'empty',
+          type: 'directory',
+          children: {},
+        },
+      });
+      await adapter.requestDirectoryAccess();
+      const batches: Array<{ done: boolean; names: string[]; total: number }> = [];
+
+      await adapter.readDirectoryStreaming(
+        {
+          path: 'mock-root/empty',
+          name: 'empty',
+          kind: 'directory',
+          platform: 'web',
+        },
+        (batch, meta) => {
+          batches.push({
+            done: meta.done,
+            names: batch.map((entry) => entry.name),
+            total: meta.total,
+          });
+        }
+      );
+
+      expect(batches).toEqual([{ done: true, names: [], total: 0 }]);
+    });
+
+    it('should stream sorted entries in configured batches with delay', async () => {
+      vi.useFakeTimers();
+      try {
+        const rootHandle = await adapter.requestDirectoryAccess();
+        adapter.setStreamingDelay(25);
+        const batches: Array<{ done: boolean; names: string[]; total: number }> = [];
+
+        const streamPromise = adapter.readDirectoryStreaming(
+          rootHandle,
+          (batch, meta) => {
+            batches.push({
+              done: meta.done,
+              names: batch.map((entry) => entry.name),
+              total: meta.total,
+            });
+          },
+          { batchSize: 2 }
+        );
+
+        expect(batches).toEqual([{ done: false, names: ['src', 'package.json'], total: 3 }]);
+
+        await vi.advanceTimersByTimeAsync(25);
+        await streamPromise;
+
+        expect(batches).toEqual([
+          { done: false, names: ['src', 'package.json'], total: 3 },
+          { done: true, names: ['README.md'], total: 3 },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should reject when aborted between streaming batches', async () => {
+      const rootHandle = await adapter.requestDirectoryAccess();
+      const abortController = new AbortController();
+
+      await expect(
+        adapter.readDirectoryStreaming(
+          rootHandle,
+          () => {
+            abortController.abort();
+          },
+          {
+            batchSize: 1,
+            signal: abortController.signal,
+          }
+        )
+      ).rejects.toThrow('Operation was cancelled');
     });
   });
 
