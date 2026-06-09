@@ -7,11 +7,17 @@ interface FileFilterBarProps {
   isFiltering?: boolean;
   onChange: (value: string) => void;
   onClear: () => void;
+  /**
+   * Optional controls rendered between the filter input and the syntax-help
+   * (info) button. Used to host the tree action buttons (refresh / expand /
+   * collapse) inline in this row instead of as a floating overlay.
+   */
+  trailing?: React.ReactNode;
   value: string;
 }
 
 export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
-  ({ value, onChange, onClear, isFiltering }) => (
+  ({ value, onChange, onClear, isFiltering, trailing }) => (
     <div className="relative flex w-full items-center gap-2">
       <div className="relative min-w-0 flex-1">
         <Search
@@ -45,6 +51,7 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
           </Button>
         )}
       </div>
+      {trailing}
       <Popover>
         <PopoverTrigger asChild>
           <Button

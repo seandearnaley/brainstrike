@@ -788,12 +788,25 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* Quick filter input - always visible */}
+              {/* Quick filter input - always visible. The tree action buttons
+                  (refresh / expand / collapse) live inline in this row, next to
+                  the syntax-help button, instead of floating over the tree. */}
               <div className="px-2 py-2">
                 <FileFilterBar
                   isFiltering={isQuickFiltering}
                   onChange={setQuickFilter}
                   onClear={clearQuickFilter}
+                  trailing={
+                    <TreeActionButtons
+                      isExpandingAll={isExpandingAll}
+                      isLoading={isLoading}
+                      isRefreshing={isRefreshing}
+                      onCollapseAll={collapseAll}
+                      onExpandAll={expandAll}
+                      onRefresh={handleRefresh}
+                      scanningStatus={scanningStatusProps}
+                    />
+                  }
                   value={quickFilter}
                 />
               </div>
@@ -803,19 +816,6 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
 
         {/* Scrollable Middle Content - File Tree */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          {/* Fixed buttons overlay - outside scrollable area */}
-          {rootDirectoryHandle && (
-            <TreeActionButtons
-              isExpandingAll={isExpandingAll}
-              isLoading={isLoading}
-              isRefreshing={isRefreshing}
-              onCollapseAll={collapseAll}
-              onExpandAll={expandAll}
-              onRefresh={handleRefresh}
-              scanningStatus={scanningStatusProps}
-            />
-          )}
-
           {/* Scrollable content */}
           <div className="h-full overflow-y-auto">
             <Suspense fallback={<LoadingFallback />}>

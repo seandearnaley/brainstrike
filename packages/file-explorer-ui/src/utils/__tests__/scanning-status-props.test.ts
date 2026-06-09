@@ -81,7 +81,7 @@ describe('computeScanningStatusProps', () => {
       });
     });
 
-    it('should return scanning props with progress when expandAllProgress is provided', () => {
+    it('should return scanning props with monotonic counts when expandAllProgress is provided', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
         isExpandingAll: true,
@@ -94,18 +94,23 @@ describe('computeScanningStatusProps', () => {
         isCancelling: false,
         onCancel: mockCancelExpandAll,
         currentPath: 'Loading 5/10 directories',
-        percentage: 50,
+        loadedCount: 5,
+        totalCount: 10,
       });
     });
 
-    it('should calculate percentage correctly', () => {
+    it('should expose raw loaded/total counts (never a percentage)', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
         isExpandingAll: true,
         expandAllProgress: { loaded: 3, total: 4 },
       });
 
-      expect(result?.percentage).toBe(75);
+      expect(result?.loadedCount).toBe(3);
+      expect(result?.totalCount).toBe(4);
+      // The percentage was non-monotonic (total grows as lazy dirs are
+      // discovered) and caused the flashing — it must be gone entirely.
+      expect(result).not.toHaveProperty('percentage');
     });
 
     it('should use cancelExpandAll as onCancel when expanding all', () => {
@@ -127,13 +132,15 @@ describe('computeScanningStatusProps', () => {
       expect(result?.cancellable).toBe(true);
     });
 
-    it('should not include percentage when total is 0', () => {
+    it('should not include counts when total is 0', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
         isExpandingAll: true,
         expandAllProgress: { loaded: 0, total: 0 },
       });
 
+      expect(result).not.toHaveProperty('loadedCount');
+      expect(result).not.toHaveProperty('totalCount');
       expect(result).not.toHaveProperty('percentage');
       expect(result?.currentPath).toBe('Preparing to expand directories...');
     });
