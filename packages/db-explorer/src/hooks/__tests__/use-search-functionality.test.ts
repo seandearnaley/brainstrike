@@ -316,6 +316,201 @@ describe('useSearchFunctionality', () => {
     });
   });
 
+  it.each([
+    [
+      'google',
+      'text-embedding-004',
+      {
+        runtime: 'hosted',
+        provider: 'google',
+        modelId: 'text-embedding-004',
+        outputDimensionality: 768,
+      },
+    ],
+    [
+      'cohere',
+      'embed-v4.0',
+      {
+        runtime: 'hosted',
+        provider: 'cohere',
+        modelId: 'embed-v4.0',
+        inputType: 'search_query',
+      },
+    ],
+    [
+      'voyage',
+      'voyage-3-large',
+      {
+        runtime: 'hosted',
+        provider: 'voyage',
+        modelId: 'voyage-3-large',
+        inputType: 'query',
+      },
+    ],
+  ] as const)('builds %s hosted embedding config for semantic search', async (provider, modelId, expectedConfig) => {
+    const toast = vi.fn() as unknown as ToastFn;
+    const embed = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { embedding: [0.7, 0.8] },
+    });
+    vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
+      ok: true,
+      value: { embed },
+    } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
+    mockDb.query.mockResolvedValue({
+      rows: [
+        {
+          modelKey: `${provider}::${modelId}`,
+          dimensions: 768,
+        },
+      ],
+    });
+    const searchSimilar = vi.fn().mockResolvedValue([]);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery(`${provider} query`);
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(EmbeddingProviderFactory.createProvider).toHaveBeenCalledWith(expectedConfig);
+    expect(embed).toHaveBeenCalledWith({
+      text: `${provider} query`,
+      modelId,
+    });
+  });
+
+  it('surfaces hosted provider initialization failures through the search toast', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
+      ok: false,
+      error: { type: 'api_key_missing' },
+    } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
+    mockDb.query.mockResolvedValue({
+      rows: [
+        {
+          modelKey: 'openai::text-embedding-3-small',
+          dimensions: 1536,
+        },
+      ],
+    });
+    const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('hosted failure');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Search Failed',
+        description: 'Failed to initialize hosted provider: api_key_missing',
+        variant: 'destructive',
+      })
+    );
+  });
+
+  it('surfaces hosted embedding failures with original provider error messages', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    const embed = vi.fn().mockResolvedValue({
+      ok: false,
+      error: {
+        type: 'provider_error',
+        originalError: new Error('provider is unavailable'),
+      },
+    });
+    vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
+      ok: true,
+      value: { embed },
+    } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
+    mockDb.query.mockResolvedValue({
+      rows: [
+        {
+          modelKey: 'openai::text-embedding-3-small',
+          dimensions: 1536,
+        },
+      ],
+    });
+    const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('embed failure');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: 'Embedding failed: provider is unavailable',
+      })
+    );
+  });
+
+  it('uses synthesized file records when search runs without a file repository', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    const chunk = {
+      id: 'chunk-without-repo',
+      fileRecordId: 'file-without-repo',
+      chunkIndex: 0,
+      content: 'searchable content',
+      tokenCount: 10,
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    } as unknown as FileChunk;
+    const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.8 }]);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('searchable content');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(result.current.searchResults[0]?.fileRecord).toMatchObject({
+      id: 'file-without-repo',
+      name: 'Unknown file',
+      path: '(unavailable)',
+      size: 0,
+    });
+  });
+
+  it('treats non-array repository search responses as empty results', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    const searchSimilar = vi.fn().mockResolvedValue(null);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('non array response');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(result.current.searchResults).toEqual([]);
+    expect(result.current.hasSearched).toBe(true);
+  });
+
   it('surfaces a friendly toast when embeddingSetId is required', async () => {
     const toast = vi.fn() as unknown as ToastFn;
     const searchSimilar = vi.fn().mockRejectedValue(new Error('requires embeddingSetId'));
