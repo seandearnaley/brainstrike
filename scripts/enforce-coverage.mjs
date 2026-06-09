@@ -81,6 +81,14 @@ const OVERRIDES = new Map([
   ],
 ]);
 
+// DB coverage is intentionally split into dedicated test:coverage:db:* lanes
+// because running it in the normal workspace coverage pass is too slow for PR
+// gates. If DB coverage artifacts exist, they are still enforced below.
+// Embeddings is not exempt: the supported split/nightly coverage flows run its
+// dedicated coverage lane before enforcement, so a missing artifact is a real
+// orchestration failure rather than an allowed split-lane omission.
+const ALLOW_MISSING_COVERAGE_ARTIFACT = new Set(['@brainstrike/db']);
+
 // Discover all coverage files under packages/* and apps/*
 function* walk(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -104,11 +112,50 @@ function findPkgName(fromDir) {
         if (name) {
           return name;
         }
-      } catch {}
+      } catch (error) {
+        throw new Error(`Failed to parse coverage package metadata at ${pkgPath}`, {
+          cause: error,
+        });
+      }
     }
     curr = path.dirname(curr);
   }
   return path.basename(fromDir);
+}
+
+function discoverCoverageScriptPackages() {
+  const packages = [];
+  for (const root of ['packages', 'apps']) {
+    if (!fs.existsSync(root)) {
+      continue;
+    }
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const pkgDir = path.join(root, entry.name);
+      const pkgPath = path.join(pkgDir, 'package.json');
+      if (!fs.existsSync(pkgPath)) {
+        continue;
+      }
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        const name = typeof pkg.name === 'string' ? pkg.name : path.basename(pkgDir);
+        const hasCoverageScript =
+          typeof pkg.scripts === 'object' &&
+          pkg.scripts !== null &&
+          typeof pkg.scripts['test:coverage'] === 'string';
+        if (hasCoverageScript && !ALLOW_MISSING_COVERAGE_ARTIFACT.has(name)) {
+          packages.push({ dir: pkgDir, name });
+        }
+      } catch (error) {
+        throw new Error(`Failed to parse coverage package metadata at ${pkgPath}`, {
+          cause: error,
+        });
+      }
+    }
+  }
+  return packages.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 const coverageFiles = [];
@@ -194,7 +241,23 @@ if (coverageFiles.length === 0) {
     if (hints.length) {
       console.error('Found coverage directories (no final json yet):', hints.join(', '));
     }
-  } catch {}
+  } catch (error) {
+    console.error('Failed to inspect coverage directory hints:', error);
+  }
+  process.exit(1);
+}
+
+const coveredPackageNames = new Set(
+  coverageFiles.map((file) => findPkgName(path.dirname(path.dirname(file))))
+);
+const missingCoveragePackages = discoverCoverageScriptPackages().filter(
+  ({ name }) => !coveredPackageNames.has(name)
+);
+if (missingCoveragePackages.length > 0) {
+  console.error('❌ Missing coverage artifacts for packages with test:coverage scripts:');
+  for (const { dir, name } of missingCoveragePackages) {
+    console.error(`  - ${name} (${path.relative(process.cwd(), dir)})`);
+  }
   process.exit(1);
 }
 
