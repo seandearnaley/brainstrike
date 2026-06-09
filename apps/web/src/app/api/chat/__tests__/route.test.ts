@@ -260,6 +260,63 @@ describe('chat route schema', () => {
     expect(limitedRes.status).toBe(200);
   });
 
+  it('keeps actively blocked clients rate-limited when evicting full state', async () => {
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'Hello from mock stream' })
+    );
+    const blockedHeaders = {
+      'Content-Type': 'application/json',
+      'brainstrike-client-id': 'blocked-client',
+    };
+    const validBody = JSON.stringify({
+      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+    });
+
+    for (let i = 0; i < 10; i += 1) {
+      const res = await POST(
+        new Request('http://localhost/api/chat', {
+          method: 'POST',
+          headers: blockedHeaders,
+          body: validBody,
+        })
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+    }
+
+    const blockedRes = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: blockedHeaders,
+        body: validBody,
+      })
+    );
+    expect(blockedRes.status).toBe(429);
+
+    for (let i = 0; i < 1024; i += 1) {
+      await POST(
+        new Request('http://localhost/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'brainstrike-client-id': `churn-client-${i}`,
+          },
+          body: '{}',
+        })
+      );
+    }
+
+    const stillBlockedRes = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: blockedHeaders,
+        body: validBody,
+      })
+    );
+
+    expect(stillBlockedRes.status).toBe(429);
+  });
+
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
     const oversizedBody = new ReadableStream<Uint8Array>({
       start(controller) {

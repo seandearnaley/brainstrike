@@ -178,9 +178,11 @@ function applyRateLimit(
   }
 
   if (!existing) {
-    pruneRateLimitState(now);
     if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS) {
-      evictOldestRateLimitEntry();
+      pruneRateLimitState(now);
+    }
+    if (rateLimitState.size >= RATE_LIMIT_MAX_CLIENTS && !evictOldestRateLimitEntry(now)) {
+      return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW_MS };
     }
     rateLimitState.set(identifier, {
       count: 1,
@@ -211,11 +213,14 @@ function applyRateLimit(
   return { allowed: false, retryAfterMs };
 }
 
-function evictOldestRateLimitEntry(): void {
-  const oldestIdentifier = rateLimitState.keys().next().value;
-  if (oldestIdentifier !== undefined) {
-    rateLimitState.delete(oldestIdentifier);
+function evictOldestRateLimitEntry(now: number): boolean {
+  for (const [identifier, entry] of rateLimitState) {
+    if (entry.blockedUntil === undefined || now >= entry.blockedUntil) {
+      rateLimitState.delete(identifier);
+      return true;
+    }
   }
+  return false;
 }
 
 function pruneRateLimitState(now: number): void {
