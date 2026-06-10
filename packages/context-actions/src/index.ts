@@ -6,6 +6,7 @@ export {
   createActionRegistry,
   type GroupedActions,
 } from './registry';
+export { createTestActionRegistry } from './testing';
 export {
   type ActionGroup,
   type ActionOutcome,
