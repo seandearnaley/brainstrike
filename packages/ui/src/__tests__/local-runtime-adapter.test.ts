@@ -1736,6 +1736,33 @@ describe('createLocalModelAdapter', () => {
     expect(onUsage).toHaveBeenCalledWith({ inputTokens: 50, outputTokens: 20 });
   });
 
+  it('calls onUsage after browser backend generation completes', async () => {
+    const backend = {
+      dispose: vi.fn(async () => {}),
+      generate: vi.fn(async () =>
+        createGenerationResult({
+          text: 'Browser token-counted answer.',
+          usage: { promptTokens: 50, completionTokens: 20, totalTokens: 70 },
+        })
+      ),
+      initialize: vi.fn(async () => {}),
+      isReady: vi.fn(() => false),
+    } satisfies LocalLlmBackend;
+    const onUsage = vi.fn();
+
+    const adapter = createLocalModelAdapter({
+      loadBackend: vi.fn(async () => backend),
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onUsage,
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(backend.generate).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 50, outputTokens: 20 });
+  });
+
   it('calls onUsage with the last generation result usage in a tool-call turn (desktop)', async () => {
     const warmup = vi.fn().mockResolvedValue(undefined);
     const generate = vi
@@ -1824,12 +1851,13 @@ describe('createLocalModelAdapter', () => {
 
   it('skips onUsage when the generation result has no usage field', async () => {
     const warmup = vi.fn().mockResolvedValue(undefined);
-    // The contract type requires `usage`, but the adapter guards against hosts
-    // that omit it (`if (result.usage)`), so the skip path must stay covered.
-    const { usage: _usage, ...resultWithoutUsage } = createGenerationResult({
+    // `usage` is optional at the IPC boundary: a host implementation may omit
+    // it, and the adapter must skip the callback rather than report garbage.
+    const resultWithoutUsage: LocalLlmGenerationResult = {
+      finishReason: 'stop',
       text: 'Answer without usage data.',
-    });
-    const generate = vi.fn().mockResolvedValue(resultWithoutUsage as LocalLlmGenerationResult);
+    };
+    const generate = vi.fn().mockResolvedValue(resultWithoutUsage);
     const onUsage = vi.fn();
 
     Object.assign(window as Window & { llmHost?: unknown }, {
