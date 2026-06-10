@@ -13,6 +13,7 @@ import {
 
 type VectorExtension = Extension;
 type LiveExtension = Extension;
+type TrgmExtension = Extension;
 const WORKER_STARTUP_DISPOSED_MESSAGE =
   'PGlite worker client startup was disposed before completion';
 
@@ -40,7 +41,7 @@ interface PendingBrowserWorkerStartup {
 
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
 let cachedLivePromise: Promise<LiveExtension> | null = null;
-let cachedTrgmPromise: Promise<VectorExtension> | null = null;
+let cachedTrgmPromise: Promise<TrgmExtension> | null = null;
 
 async function loadVectorExtension(): Promise<VectorExtension> {
   if (!cachedVectorPromise) {
@@ -76,7 +77,7 @@ async function loadLiveExtension(): Promise<LiveExtension> {
   return cachedLivePromise;
 }
 
-async function loadTrgmExtension(): Promise<VectorExtension> {
+async function loadTrgmExtension(): Promise<TrgmExtension> {
   if (!cachedTrgmPromise) {
     cachedTrgmPromise = (async () => {
       try {
