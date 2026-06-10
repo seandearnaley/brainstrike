@@ -7,6 +7,7 @@ import type {
 import { useLocalRuntime } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/utils/logger';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+import type { AssistantStreamChunk } from 'assistant-stream';
 import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
@@ -49,6 +50,12 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   onResponse?: (response: Response) => Promise<void> | void;
+  /**
+   * Called when a finish-message chunk reports provider token usage.
+   * The callback contract requires non-throwing consumers — our consumer
+   * is a zustand setState which is safe.
+   */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
 } & Omit<LocalRuntimeOptionsBase, 'adapters'> & {
     adapters?: Omit<LocalRuntimeOptionsBase['adapters'], 'chatModel'>;
   };
@@ -419,8 +426,30 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 
       await this.options.onResponse?.(response);
 
+      const onUsage = this.options.onUsage;
+      // Pass-through tap that intercepts "message-finish" chunks to surface
+      // provider token usage. The DataStreamDecoder outputs AssistantStreamChunk
+      // (type: "message-finish") — not the raw DataStreamChunk (type: "d") —
+      // because the decoder translates wire codes to semantic chunk types.
+      // (Wire code reference: DataStreamCode.finishMessage = 'd' in packages/agent.)
+      const usageTap = new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+        transform(chunk, controller) {
+          if (chunk.type === 'message-finish') {
+            const { usage } = chunk;
+            if (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number') {
+              onUsage?.({
+                inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : 0,
+                outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : 0,
+              });
+            }
+          }
+          controller.enqueue(chunk);
+        },
+      });
+
       const stream = response.body
         .pipeThrough(new DataStreamDecoder())
+        .pipeThrough(usageTap)
         .pipeThrough(
           unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
             throw new Error('Tool interrupt is not supported in data stream runtime');
@@ -450,6 +479,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+  readonly onUsage: BrainstrikeDataStreamRuntimeOptions['onUsage'];
 }): BrainstrikeDataStreamRuntimeOptions {
   return {
     api: input.api,
@@ -461,6 +491,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+    ...(input.onUsage === undefined ? {} : { onUsage: input.onUsage }),
   };
 }
 
@@ -477,6 +508,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onError,
     onFinish,
     onResponse,
+    onUsage,
     unstable_humanToolNames,
   } = options;
   const requestOptions = createRuntimeRequestOptionsSnapshot({
@@ -489,6 +521,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onError,
     onFinish,
     onResponse,
+    onUsage,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
   optionsRef.current = requestOptions;

@@ -38,6 +38,7 @@ import {
   type ModelPickerModel,
   type ModelPickerProvider,
   type ProviderGroupConfig,
+  useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -1454,11 +1455,24 @@ export function AssistantUiPanelWrapper({
   );
   const disabledReason = memoryDisabledReason ?? providerDisabledReason;
 
+  // Record provider token usage keyed by the active memory thread id.
+  // Falls back to a stable per-panel constant when no thread is identified
+  // (non-memory-backed sessions) so usage is still captured for the current
+  // panel and cleared on the next turn or session.
+  const handleUsage = useCallback(
+    (usage: { inputTokens: number; outputTokens: number }) => {
+      const threadId = selectedMemoryThreadId ?? 'active';
+      useContextUsageStore.getState().recordUsage(threadId, usage);
+    },
+    [selectedMemoryThreadId]
+  );
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}
+      onUsage={handleUsage}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       prepareRequestData={prepareRequestData}

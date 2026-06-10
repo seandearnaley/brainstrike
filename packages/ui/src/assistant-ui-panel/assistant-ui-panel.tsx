@@ -200,6 +200,8 @@ export interface AssistantUiPanelProps {
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
+  /** Called with the provider's exact token counts from a finish-message chunk. */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
@@ -549,6 +551,7 @@ interface ChatThreadProps {
     | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
+  onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
@@ -699,6 +702,7 @@ const DataStreamRuntimeChat: FC<
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onUsage,
   disabled,
   disabledReason,
   api,
@@ -757,6 +761,7 @@ const DataStreamRuntimeChat: FC<
     onFinish: () => {
       void completeLatestPreparedRequest('completed');
     },
+    ...(onUsage ? { onUsage } : {}),
   });
 
   return (
@@ -975,6 +980,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onUsage,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1091,6 +1097,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onProviderSettingsChange={onProviderSettingsChange}
           onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
+          {...(onUsage ? { onUsage } : {})}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           prepareRequestData={prepareRequestData}
