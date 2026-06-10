@@ -1,0 +1,45 @@
+{
+  "name": "@brainstrike/agent-hub",
+  "description": "Multi-agent MCP hub: agent registry, channels, and token-aware messaging.",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "rimraf": "^6.1.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "private": true,
+  "scripts": {
+    "build": "tsup --config ./tsup.config.ts",
+    "clean": "rimraf dist",
+    "dev": "tsup --config ./tsup.config.ts --watch",
+    "lint": "pnpm -w lint --filter @brainstrike/agent-hub",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "sideEffects": false,
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
+}
