@@ -9,6 +9,14 @@ const ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT =
 const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT =
   'assistant:workspace-context-tapestry-update' as const;
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated' as const;
+const AGENT_HUB_APPLY_CONFIG_CHANNEL = 'agent-hub:apply-config' as const;
+const AGENT_HUB_GET_SNAPSHOT_CHANNEL = 'agent-hub:get-snapshot' as const;
+const AGENT_HUB_GET_STATUS_CHANNEL = 'agent-hub:get-status' as const;
+const AGENT_HUB_POST_MESSAGE_CHANNEL = 'agent-hub:post-message' as const;
+const AGENT_HUB_SNAPSHOT_EVENT = 'agent-hub:snapshot' as const;
+const AGENT_HUB_START_CHANNEL = 'agent-hub:start' as const;
+const AGENT_HUB_STATUS_EVENT = 'agent-hub:status' as const;
+const AGENT_HUB_STOP_CHANNEL = 'agent-hub:stop' as const;
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 const DB_CLEAR_ALL_CHANNEL = 'db:clearAll' as const;
@@ -543,6 +551,31 @@ contextBridge.exposeInMainWorld('agent', {
 });
 
 // MCP Config API (desktop-only)
+contextBridge.exposeInMainWorld('agentHub', {
+  applyConfig: (config: unknown): Promise<unknown> =>
+    ipcRenderer.invoke(AGENT_HUB_APPLY_CONFIG_CHANNEL, config),
+  getSnapshot: (): Promise<unknown> => ipcRenderer.invoke(AGENT_HUB_GET_SNAPSHOT_CHANNEL),
+  getStatus: (): Promise<unknown> => ipcRenderer.invoke(AGENT_HUB_GET_STATUS_CHANNEL),
+  onSnapshot: (callback: (snapshot: unknown) => void) => {
+    const listener = (_event: unknown, snapshot: unknown) => callback(snapshot);
+    ipcRenderer.on(AGENT_HUB_SNAPSHOT_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(AGENT_HUB_SNAPSHOT_EVENT, listener);
+    };
+  },
+  onStatus: (callback: (status: unknown) => void) => {
+    const listener = (_event: unknown, status: unknown) => callback(status);
+    ipcRenderer.on(AGENT_HUB_STATUS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(AGENT_HUB_STATUS_EVENT, listener);
+    };
+  },
+  postMessage: (input: { channel?: string; text: string }): Promise<void> =>
+    ipcRenderer.invoke(AGENT_HUB_POST_MESSAGE_CHANNEL, input),
+  start: (): Promise<unknown> => ipcRenderer.invoke(AGENT_HUB_START_CHANNEL),
+  stop: (): Promise<unknown> => ipcRenderer.invoke(AGENT_HUB_STOP_CHANNEL),
+});
+
 contextBridge.exposeInMainWorld('mcp', {
   getConfig: () => ipcRenderer.invoke(MCP_CONFIG_GET_CHANNEL),
   watch: () => ipcRenderer.invoke(MCP_CONFIG_WATCH_CHANNEL),

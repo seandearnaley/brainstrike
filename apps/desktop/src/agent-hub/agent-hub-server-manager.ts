@@ -142,7 +142,11 @@ export function createAgentHubServerManager(
         removeSession(sessionId);
       }
     };
-    await mcpServer.connect(transport);
+    // The SDK's Transport interface declares `sessionId?: string` without
+    // `| undefined`, which is incompatible with this app's
+    // exactOptionalPropertyTypes main build even though the runtime contract
+    // is identical. Single localized cast until the SDK types are eOPT-clean.
+    await mcpServer.connect(transport as unknown as Parameters<typeof mcpServer.connect>[0]);
     await transport.handleRequest(req, res, body);
   }
 

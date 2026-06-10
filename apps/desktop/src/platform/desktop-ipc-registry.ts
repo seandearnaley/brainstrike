@@ -2,6 +2,7 @@ import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } fro
 
 export type DesktopIpcDomain =
   | 'agent'
+  | 'agent-hub'
   | 'chunking-host'
   | 'db'
   | 'diagnostics'

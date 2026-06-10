@@ -3,12 +3,12 @@ export type AgentColorKey = 'chart-1' | 'chart-2' | 'chart-3' | 'chart-4' | 'cha
 export type AgentStatus = 'offline' | 'online';
 
 export interface RegisterAgentInput {
-  capabilities?: string[];
+  capabilities?: string[] | undefined;
   name: string;
-  program?: string;
+  program?: string | undefined;
   /** MCP session id, or 'builtin' for the Brainstrike participant. */
   sessionKey: string;
-  worktree?: string;
+  worktree?: string | undefined;
 }
 
 export interface HubAgent {
@@ -73,18 +73,18 @@ export interface AgentHubOptions {
 }
 
 export interface PostMessageInput {
-  channel?: string;
-  mentions?: string[];
+  channel?: string | undefined;
+  mentions?: string[] | undefined;
   sessionKey: string;
   text: string;
 }
 
 export interface ReadMessagesInput {
-  channel?: string;
-  limit?: number;
-  maxTokens?: number;
+  channel?: string | undefined;
+  limit?: number | undefined;
+  maxTokens?: number | undefined;
   sessionKey: string;
-  sinceId?: number;
+  sinceId?: number | undefined;
 }
 
 export interface AgentHub {

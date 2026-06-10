@@ -7,6 +7,16 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
+  agentHub: {
+    applyConfig: 'agent-hub:apply-config',
+    getSnapshot: 'agent-hub:get-snapshot',
+    getStatus: 'agent-hub:get-status',
+    postMessage: 'agent-hub:post-message',
+    snapshotEvent: 'agent-hub:snapshot',
+    start: 'agent-hub:start',
+    statusEvent: 'agent-hub:status',
+    stop: 'agent-hub:stop',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',

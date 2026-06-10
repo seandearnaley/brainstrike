@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createAgentHub } from '@brainstrike/agent-hub';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { LogBuffer } from '@brainstrike/utils/log-buffer';
@@ -13,9 +14,14 @@ import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
 } from '@brainstrike/utils/logging-preferences';
-import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import {
+  type AgentHubServerManager,
+  createAgentHubServerManager,
+  DEFAULT_AGENT_HUB_CONFIG,
+} from './agent-hub';
 import { startAssistantServer } from './assistant-server';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -33,6 +39,7 @@ import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerAgentHubIpcHandlers } from './ipc-agent-hub';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
@@ -602,6 +609,8 @@ let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
 let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
+let unregisterAgentHubIpcHandlers: null | (() => void) = null;
+let agentHubServerManager: AgentHubServerManager | null = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -668,53 +677,47 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
   gracefulShutdownPromise = (async () => {
     const failures: Record<string, string | undefined>[] = [];
+    const runStep = async (stepName: string, step: () => Promise<void>): Promise<void> => {
+      const failure = await runShutdownStep(stepName, step);
+      if (failure) {
+        failures.push(failure);
+      }
+    };
 
     if (stopAssistantServer) {
-      const failure = await runShutdownStep('assistant-server', async () => {
+      await runStep('assistant-server', async () => {
         if (stopAssistantServer) {
           await stopAssistantServer();
           stopAssistantServer = null;
         }
       });
-      if (failure) {
-        failures.push(failure);
-      }
     }
 
-    const mcpFailure = await runShutdownStep('mcp-runtime', cleanupMcpRuntimeForShutdown);
-    if (mcpFailure) {
-      failures.push(mcpFailure);
+    await runStep('mcp-runtime', cleanupMcpRuntimeForShutdown);
+
+    if (agentHubServerManager) {
+      await runStep('agent-hub-server', async () => {
+        await agentHubServerManager?.stop();
+      });
     }
 
-    const chunkingFailure = await runShutdownStep('chunking-host', async () => {
+    await runStep('chunking-host', async () => {
       await chunkingHostManager.dispose();
     });
-    if (chunkingFailure) {
-      failures.push(chunkingFailure);
-    }
 
-    const parserFailure = await runShutdownStep('parser-host', async () => {
+    await runStep('parser-host', async () => {
       await parserHostManager.stop();
     });
-    if (parserFailure) {
-      failures.push(parserFailure);
-    }
 
-    const embeddingFailure = await runShutdownStep('embedding-host', async () => {
+    await runStep('embedding-host', async () => {
       await embeddingHostManager.dispose();
     });
-    if (embeddingFailure) {
-      failures.push(embeddingFailure);
-    }
 
-    const llmFailure = await runShutdownStep('llm-host', async () => {
+    await runStep('llm-host', async () => {
       await llmHostManager.dispose();
     });
-    if (llmFailure) {
-      failures.push(llmFailure);
-    }
 
-    const databaseFailure = await runShutdownStep('database', async () => {
+    await runStep('database', async () => {
       desktopDatabaseMaintenanceScheduler?.stop();
       desktopDatabaseMaintenanceScheduler = null;
       await cleanupDesktopLiveSubscriptionsForShutdown();
@@ -722,9 +725,6 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       await cleanupDesktopLiveSubscriptionsForShutdown();
       await closeDatabase();
     });
-    if (databaseFailure) {
-      failures.push(databaseFailure);
-    }
 
     if (failures.length > 0) {
       logger.warn('Graceful shutdown completed with cleanup failures', {
@@ -1109,6 +1109,23 @@ if (singleInstanceLockAcquired) {
         noteNextWindowReload,
       });
 
+      // Agent Hub MCP server: constructed eagerly but NOT auto-started. The
+      // renderer owns the persisted settings (localStorage-backed store) and
+      // drives start/stop via the window.agentHub bridge once it hydrates.
+      const agentHub = createAgentHub();
+      agentHubServerManager = createAgentHubServerManager({
+        config: DEFAULT_AGENT_HUB_CONFIG,
+        hub: agentHub,
+      });
+      unregisterAgentHubIpcHandlers = registerAgentHubIpcHandlers({
+        getBroadcastTargets: () =>
+          BrowserWindow.getAllWindows().map((window) => window.webContents),
+        hub: agentHub,
+        ipcMain,
+        manager: agentHubServerManager,
+      });
+      logger.debug('Agent hub server manager constructed (renderer-driven start)');
+
       const createMainWindow = async () => {
         // Store is guaranteed to exist after app.whenReady()
         const store = getSettingsStore();
@@ -1394,6 +1411,17 @@ app.on('will-quit', () => {
   if (unregisterMcpIpcHandlers) {
     unregisterMcpIpcHandlers();
     unregisterMcpIpcHandlers = null;
+  }
+  if (unregisterAgentHubIpcHandlers) {
+    unregisterAgentHubIpcHandlers();
+    unregisterAgentHubIpcHandlers = null;
+  }
+  if (agentHubServerManager) {
+    const manager = agentHubServerManager;
+    agentHubServerManager = null;
+    manager.stop().catch((error: unknown) => {
+      logger.warn('Agent hub stop failed during will-quit', { error: String(error) });
+    });
   }
   removeLogBufferListener();
 });
