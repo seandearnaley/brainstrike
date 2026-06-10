@@ -1,3 +1,4 @@
+import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { EmbeddingSet } from '@brainstrike/db';
 import {
   getRegisteredEmbeddingQueueFactory,
@@ -13,17 +14,26 @@ import {
 } from '@brainstrike/preferences';
 import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { TooltipProvider } from '@brainstrike/ui';
+import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel } from '../database-demo-panel';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
-// Helper to wrap renders with TooltipProvider
+// Helper to wrap renders with TooltipProvider and the context-action registry
+// (CollectionBrowserView mounts the shared ActionContextMenu, whose
+// useActionRegistry throws without a provider).
 const renderWithProviders = (ui: React.ReactElement) =>
-  render(<TooltipProvider>{ui}</TooltipProvider>);
+  render(
+    <ActionRegistryProvider
+      registry={createTestActionRegistry({ actions: collectionActions }).registry}
+    >
+      <TooltipProvider>{ui}</TooltipProvider>
+    </ActionRegistryProvider>
+  );
 
 const { ensureStartedMock } = vi.hoisted(() => ({
   ensureStartedMock: vi.fn(async () => ({

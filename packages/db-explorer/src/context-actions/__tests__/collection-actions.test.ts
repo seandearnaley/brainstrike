@@ -67,4 +67,10 @@ describe('collection actions', () => {
     await copyContentAction.run(chunkTarget, services);
     expect(services.clipboard.writeText).toHaveBeenCalledWith('hello world');
   });
+
+  it('copy-content is hidden for chunks with empty content', () => {
+    const emptyChunk: ContextTarget = { kind: 'chunk', id: 'c-2', content: '' };
+    expect(copyContentAction.isVisible?.(emptyChunk)).toBe(false);
+    expect(copyContentAction.isVisible?.(chunkTarget)).toBe(true);
+  });
 });

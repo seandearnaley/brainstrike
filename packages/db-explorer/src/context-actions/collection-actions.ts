@@ -35,6 +35,9 @@ export const copyContentAction = defineContextAction({
   group: 'copy',
   appliesTo: ['chunk'] as const,
   requiredCapabilities: ['clipboard'] as const,
+  // Data-shaped gating: a chunk with no materialized content has nothing to
+  // copy — hide the item rather than copying an empty string.
+  isVisible: (target) => target.content.length > 0,
   run: (target, services) => copyToClipboard(services, target.content, 'Content copied'),
 });
 
