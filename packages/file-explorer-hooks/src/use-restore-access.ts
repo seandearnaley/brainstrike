@@ -202,26 +202,6 @@ async function loadStoredHandles({
   }
 }
 
-/**
- * Return the authoritative folderId for a restore operation.
- *
- * Previously this function compared the stored folderId against `rawHandle.name`
- * and deleted the handle on mismatch. Under RootId keying (v2), `storedFolderId`
- * is a UUID — it will never equal `rawHandle.name`, so the name-equality cleanup
- * would delete every stored root. The collision it guarded against is structurally
- * impossible with UUID keys, so the check is removed entirely.
- *
- * NotFoundError and permission failures are still handled by their respective
- * callers (`requestPermissionAndRestore` and the `beginRestore` callback).
- */
-function getValidatedFolderIdAndCleanup(
-  _rawHandle: FileSystemDirectoryHandle,
-  storedFolderId: string,
-  _handleCache: WebHandleCacheShape | null
-): string {
-  return storedFolderId;
-}
-
 /** Request permission and return DirectoryHandle if granted */
 async function requestPermissionAndRestore(
   rawHandle: FileSystemDirectoryHandle,
@@ -415,14 +395,12 @@ export function useRestoreAccess(): RestoreAccessState {
     if (pendingRestore?.rawHandle) {
       const { rawHandle, folderId, permissionState } = pendingRestore;
 
-      // Use validated folderId to prevent state corruption from stale cache entries
-      // Also cleans up any stale cache entries if folderId doesn't match handle name
-      const validatedFolderId = getValidatedFolderIdAndCleanup(rawHandle, folderId, handleCache);
+      // folderId is the stored RootId (UUID); it is canonical under v2 keying.
 
       // If already granted, just return it
       if (permissionState === 'granted') {
         logger.info('beginRestore: permission already granted');
-        await handleCache?.markHandleRestored?.(validatedFolderId);
+        await handleCache?.markHandleRestored?.(folderId);
         setPendingRestore(null);
         return toDirectoryHandle(rawHandle);
       }
@@ -438,7 +416,7 @@ export function useRestoreAccess(): RestoreAccessState {
       logger.info('beginRestore: requesting permission synchronously');
       const result = await requestPermissionAndRestore(
         rawHandle,
-        validatedFolderId,
+        folderId,
         handleCache,
         setPendingRestore
       );

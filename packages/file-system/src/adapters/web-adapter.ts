@@ -254,12 +254,16 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     }
     const dirHandle = await window.showDirectoryPicker();
     const rootId = crypto.randomUUID();
+    let persisted = true;
     try {
       await this.ensurePersistentStorage();
       await this.handleCache.storeRootHandle(rootId, dirHandle);
       logger.info('Stored root handle to IndexedDB', { name: dirHandle.name, rootId });
     } catch (err) {
       // Best-effort persistence; ignore failures (matches requestDirectoryAccess).
+      // persisted:false signals that this rootId won't survive reload and must
+      // not be registered in the DB.
+      persisted = false;
       logger.warn('Failed to store root handle', { error: err });
     }
     this.lastRootFolderId = rootId;
@@ -267,7 +271,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       displayName: dirHandle.name,
       handle: this.toDirectoryHandle(dirHandle),
       kind: 'fsa',
+      // granted implicitly by showDirectoryPicker for this session
       permissionState: 'granted',
+      persisted,
       rootId,
     };
   }
@@ -280,8 +286,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
   /**
    * Multi-root: return every persisted root with its current permission state.
-   * Never prompts (`queryPermission` only); never throws on individual stale
-   * roots — stale entries are omitted.
+   * Never prompts (`queryPermission` only). Dead handles are returned with
+   * permissionState 'unknown' — callers decide whether to surface or ignore
+   * them; nothing is pruned.
    */
   async restoreRoots(): Promise<RootDescriptor[]> {
     const stored = await this.handleCache.getAllRootHandles();
@@ -293,6 +300,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         handle: this.toDirectoryHandle(record.handle),
         kind: 'fsa',
         permissionState,
+        // Read FROM the persistence layer, so by definition persisted.
+        persisted: true,
         rootId: record.folderId,
       });
     }

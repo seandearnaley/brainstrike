@@ -1064,9 +1064,28 @@ describe('multi-root API', () => {
     expect(descriptor.kind).toBe('fsa');
     expect(descriptor.displayName).toBe('my-project');
     expect(descriptor.permissionState).toBe('granted');
+    expect(descriptor.persisted).toBe(true);
     expect(descriptor.rootId).toMatch(/^[0-9a-f-]{36}$/);
     expect(descriptor.handle.platform).toBe('web');
     expect(handleCache.storeRootHandle).toHaveBeenCalledWith(descriptor.rootId, dirHandle);
+  });
+
+  it('addRoot returns persisted: false without throwing when handle storage fails', async () => {
+    const dirHandle = makeDirHandle('quota-folder');
+    (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker = vi.fn().mockResolvedValue(dirHandle);
+    const handleCache = createHandleCache({
+      storeRootHandle: vi.fn().mockRejectedValue(new Error('QuotaExceededError')),
+    });
+    const adapter = new WebFileSystemAdapter({ handleCache });
+
+    const descriptor = await adapter.addRoot();
+
+    expect(descriptor.persisted).toBe(false);
+    expect(descriptor.displayName).toBe('quota-folder');
+    expect(descriptor.permissionState).toBe('granted');
+    expect(descriptor.rootId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('requestDirectoryAccess delegates to addRoot (same storage path, legacy return shape)', async () => {
@@ -1089,6 +1108,8 @@ describe('multi-root API', () => {
     expect(roots).toHaveLength(2);
     expect(roots.find((r) => r.rootId === 'id-granted')?.permissionState).toBe('granted');
     expect(roots.find((r) => r.rootId === 'id-prompt')?.permissionState).toBe('prompt');
+    // Restored roots came FROM the persistence layer, so persisted is true.
+    expect(roots.every((r) => r.persisted)).toBe(true);
     // requestPermission must never have been called on either handle
   });
 });

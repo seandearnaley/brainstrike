@@ -210,8 +210,7 @@ describe('useRestoreAccess', () => {
       _internal: mockRawHandle,
     });
     // Under RootId keying, the stored folderId ('root') is the authoritative
-    // identity — not the handle name ('Root'). getValidatedFolderIdAndCleanup
-    // no longer re-keys by name.
+    // identity — not the handle name ('Root'). No name-based re-keying occurs.
     expect(handleCache.markHandleRestored).toHaveBeenCalledWith('root');
     expect(mockRawHandle.requestPermission).not.toHaveBeenCalled();
     expect(result.current.pendingRestore).toBeNull();
