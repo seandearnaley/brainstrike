@@ -56,6 +56,7 @@ const lanes = {
     'drizzle-pglite-spike.test.ts',
     'frontier-models-migration.test.ts',
     'gemma-local-llm-migration.test.ts',
+    'migration-038-roots-table.test.ts',
     'migration-authority-guard.test.ts',
     'migration-integration.test.ts',
     'migration-runner-types.test.ts',
