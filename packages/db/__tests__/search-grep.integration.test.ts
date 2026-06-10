@@ -124,8 +124,7 @@ describe('grep search (integration)', () => {
   it('supports regex mode end-to-end with literal prefilter', async () => {
     const result = await service.search({ pattern: 'create\\w+\\(\\)', isRegex: true });
     const keys = result.matches.map((m) => `${m.path}:${m.line}`);
-    expect(keys).toContain('src/alpha.ts:1');
-    expect(keys).toContain('src/alpha.ts:5');
+    expect(keys).toEqual(['src/alpha.ts:1', 'src/alpha.ts:5']);
     expect(result.scanLimited).toBe(false);
   });
 
