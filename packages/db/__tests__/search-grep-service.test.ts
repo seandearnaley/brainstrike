@@ -92,6 +92,7 @@ describe('GrepSearchService', () => {
     const service = new GrepSearchService(stubRepository(overlapping));
     const result = await service.search({ pattern: 'needle' });
     expect(result.matches.map((m) => `${m.path}:${m.line}`)).toEqual(['src/a.ts:1', 'src/b.ts:5']);
+    expect(result.totalMatches).toBe(2); // 3 raw hits, deduped to 2 unique (path, line) pairs
   });
 
   it('caps results at maxResults and reports truncation + totalMatches', async () => {

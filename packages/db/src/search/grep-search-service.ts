@@ -54,8 +54,9 @@ export interface GrepSearchResult {
   scanLimited: boolean;
   /** Chunks that matched but lack startLine metadata (cannot report path:line). */
   skippedMissingLineMetadata: number;
-  /** Matches found across scanned candidates before the maxResults cap. */
+  /** Unique (path, line) matches found before the maxResults cap (post-deduplication). */
   totalMatches: number;
+  /** true when unique matches exceeded maxResults and some were discarded. */
   truncated: boolean;
 }
 
@@ -78,6 +79,8 @@ function buildLiteralMatcher(pattern: string, caseSensitive: boolean): LineMatch
 function buildRegexMatcher(pattern: string, caseSensitive: boolean): LineMatcher {
   let regex: RegExp;
   try {
+    // Never include 'g': the same regex instance is called per-line, and
+    // the 'g' flag makes test() stateful (lastIndex), breaking per-line matching.
     regex = new RegExp(pattern, caseSensitive ? '' : 'i');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
