@@ -295,9 +295,15 @@ export function createDeferredDimensionIndexBuilder(options: {
   onError: (dimension: number, error: unknown) => void;
 }): DeferredDimensionIndexBuilder {
   const pending = new Map<number, Promise<void>>();
+  // Dimensions that built successfully this session. Read-path re-arms (e.g.
+  // getById) call schedule() on every access; without this memo each call would
+  // dispatch a CREATE INDEX IF NOT EXISTS round-trip onto the single
+  // connection. A FAILED build is deliberately not memoized so the next
+  // schedule retries it.
+  const completed = new Set<number>();
   return {
     schedule(dimension: number): void {
-      if (pending.has(dimension)) {
+      if (completed.has(dimension) || pending.has(dimension)) {
         return;
       }
       const build = (async () => {
@@ -306,6 +312,7 @@ export function createDeferredDimensionIndexBuilder(options: {
           // queries before dispatching the long CREATE INDEX.
           await delay(DIMENSION_INDEX_BUILD_START_DELAY_MS);
           await ensureDimensionIndexExists(options.getDb(), dimension);
+          completed.add(dimension);
         } catch (error) {
           options.onError(dimension, error);
         } finally {

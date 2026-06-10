@@ -69,6 +69,29 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(indexes.rows).toHaveLength(1);
     });
 
+    it('re-arms a lost dimension index build when an existing set is read by a fresh session', async () => {
+      const created = await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+      await repository.waitForPendingDimensionIndexBuilds();
+      // Simulate the build lost to app quit: drop the index that was created.
+      await client.exec('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_1536');
+
+      // Fresh repo simulates a new app session (no in-memory builder state).
+      const reopened = new DrizzleEmbeddingSetsRepository(db);
+      const fetched = await reopened.getById(created.id);
+      expect(fetched?.dimensions).toBe(1536);
+
+      await reopened.waitForPendingDimensionIndexBuilds();
+      const indexes = await client.query<{ indexname: string }>(
+        "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_1536'"
+      );
+      expect(indexes.rows).toHaveLength(1);
+    });
+
     it('seeds a zero-count indexing stats row for new empty sets', async () => {
       const result = await repository.getOrCreateSet(
         'openai::text-embedding-3-small',

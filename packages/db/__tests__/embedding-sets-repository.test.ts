@@ -352,6 +352,31 @@ describe('EmbeddingSetsRepository', () => {
     expect(indexBuildStarted).toHaveBeenCalledTimes(1);
   });
 
+  it('re-arms a lost dimension index build when an existing set is read by a fresh session', async () => {
+    // A set created just before app quit can lose its deferred build (250ms
+    // delay + a 5-30s CREATE INDEX window on a populated table). Re-opening
+    // the set must re-arm the build, or a unique-dimension set's searches
+    // seq-scan indefinitely (only same-dimension creates re-schedule).
+    const created = await repo.getOrCreateSet('local::bge-m3', 'bge-m3', 512, 'cosine');
+    await repo.waitForPendingDimensionIndexBuilds();
+
+    const trackedDb = {
+      exec: vi.fn(async (sql: string): Promise<void> => {
+        await db.exec(sql);
+      }),
+      query: db.query.bind(db),
+    };
+    // Fresh repo simulates a new app session (no in-memory builder state).
+    const reopenedRepo = new EmbeddingSetsRepository(trackedDb);
+    const fetched = await reopenedRepo.getById(created.id);
+    expect(fetched?.dimensions).toBe(512);
+
+    await reopenedRepo.waitForPendingDimensionIndexBuilds();
+    expect(trackedDb.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_512')
+    );
+  });
+
   it('keeps regular user-created sets user-owned', async () => {
     const set = await repo.getOrCreateSet(
       'openai::text-embedding-3-small',

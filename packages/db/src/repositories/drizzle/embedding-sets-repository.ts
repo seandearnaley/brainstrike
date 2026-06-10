@@ -51,10 +51,11 @@ export class DrizzleEmbeddingSetsRepository {
    * Used by tests that need the index materialized before asserting on it, and
    * available for future shutdown coordination — production shutdown does NOT
    * currently drain builds: a build lost to shutdown is benign because
-   * CREATE INDEX IF NOT EXISTS self-heals on the next getOrCreate* call. The
-   * workspace dimension re-schedules on every launch; a user-created set on a
-   * unique dimension only re-schedules when another same-dimension set is
-   * created, so its searches stay on a seq scan until then (slower, correct).
+   * CREATE INDEX IF NOT EXISTS self-heals on the next getOrCreate* OR getById
+   * call. The workspace dimension re-schedules on every launch, and getById
+   * re-arms the build whenever an existing set is read, so a unique-dimension
+   * set recovers the next time it is actually used (the builder memoizes
+   * per-session successes, keeping the re-arm free after the first build).
    */
   waitForPendingDimensionIndexBuilds(): Promise<void> {
     return this.dimensionIndexBuilder.whenSettled();
@@ -190,7 +191,17 @@ export class DrizzleEmbeddingSetsRepository {
   async getById(id: string): Promise<EmbeddingSet | null> {
     const [row] = await this.db.select().from(embeddingSets).where(eq(embeddingSets.id, id));
 
-    return row ? this.readEmbeddingSet(row) : null;
+    if (!row) {
+      return null;
+    }
+    const set = await this.readEmbeddingSet(row);
+    // Read-path re-arm: a deferred build lost to app quit (the 250ms delay +
+    // 5-30s CREATE INDEX window) would otherwise leave a unique-dimension set
+    // seq-scanning indefinitely — only same-dimension CREATES re-schedule. The
+    // builder memoizes per-session successes, so this is a no-op after the
+    // first successful build.
+    this.dimensionIndexBuilder.schedule(set.dimensions);
+    return set;
   }
 
   async getByModelKey(modelKey: string): Promise<EmbeddingSet[]> {
