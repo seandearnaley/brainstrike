@@ -84,6 +84,7 @@ import {
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderModelSelection,
+  type SelectedModelBudgetDef,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -353,9 +354,31 @@ export function AssistantUiPanelWrapper({
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
+  // Resolve the selected model's budget definition from the runtime model list.
+  // Using the runtime list (not getLlmModelDefinition) covers both static registry
+  // models AND dynamically-discovered ollama/lmstudio models, which have a conservative
+  // contextWindow floor set by toRuntimeProviderModels.
+  const selectedModelBudgetDef = useMemo<SelectedModelBudgetDef | undefined>(() => {
+    if (!(selectedProvider && resolvedModelName)) {
+      return;
+    }
+    const modelDef = getProviderLlmModels(selectedProvider).find(
+      (m: LlmProviderModelDefinition) => m.id === resolvedModelName
+    );
+    if (!modelDef) {
+      return;
+    }
+    return {
+      contextWindow: modelDef.contextWindow,
+      ...(modelDef.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: modelDef.maxOutputTokens }),
+    };
+  }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
+
   const agentLoopSettings = useMemo(
-    () => buildAgentLoopSettings(selectedProviderSettings),
-    [selectedProviderSettings]
+    () => buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
+    [selectedModelBudgetDef, selectedProviderSettings]
   );
   const assistantMemoryOptions = useMemo(
     () => buildAssistantMemoryOptions(selectedProviderSettings),
@@ -1365,14 +1388,15 @@ export function AssistantUiPanelWrapper({
         }
 
         models.push({
-          id: model.id,
-          providerId,
-          name: model.label ?? model.id,
-          description: null, // LLM models don't have descriptions in the agent definitions
           capabilities: {
-            type: 'llm',
             streaming: model.supportsStreaming ?? false,
+            type: 'llm',
           },
+          contextWindow: model.contextWindow,
+          description: null, // LLM models don't have descriptions in the agent definitions
+          id: model.id,
+          name: model.label ?? model.id,
+          providerId,
         });
       }
     }
