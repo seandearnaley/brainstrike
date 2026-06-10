@@ -1,8 +1,8 @@
 # Dependency version update report
 
-**Generated:** 2026-06-10
-**Monorepo:** brainstrike (pnpm workspaces + Turborepo)
-**Tooling:** `pnpm@11.5.1+sha512.93f7b57422ea7068257235b4c16eb60762eb68e1dc23723199cc739043ea9be2c4143274a399d8c6defa2b1176226d9ca1c4b63482d6200c1a8fbaa78c1d1485` (see root `package.json` `packageManager`)
+**Generated:** 2026-06-10\
+**Monorepo:** brainstrike (pnpm workspaces + Turborepo)\
+**Tooling:** `pnpm@11.5.1+sha512.93f7b57422ea7068257235b4c16eb60762eb68e1dc23723199cc739043ea9be2c4143274a399d8c6defa2b1176226d9ca1c4b63482d6200c1a8fbaa78c1d1485` (see root `package.json` `packageManager`)\
 **Node engine (declared):** `24.x` (root `package.json` `engines`)
 
 ## Methodology
