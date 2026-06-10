@@ -29,6 +29,13 @@ import {
   drainPendingUpdate,
   mergeToolCallParts,
 } from './local-runtime-content-parts';
+import {
+  createDesktopGenerationOptions,
+  createGeneratingMessage,
+  createReadyMessage,
+  getDesktopLlmHost,
+  handleDesktopProgressEvent,
+} from './local-runtime-desktop-host';
 import { convertMessages } from './local-runtime-message-conversion';
 import {
   buildLocalToolDefinitions,
@@ -156,40 +163,6 @@ async function yieldToUi(): Promise<void> {
   await Promise.resolve();
 }
 
-interface LlmHostProgressEvent {
-  payload: {
-    clientRequestId?: string;
-    file?: string;
-    kind?: 'loading' | 'reasoning' | 'stage' | 'text';
-    message?: string;
-    progress?: number;
-    reasoningText?: string;
-    text?: string;
-  };
-  requestId: string;
-  type: 'progress';
-}
-
-function isLlmHostProgressEvent(value: unknown): value is LlmHostProgressEvent {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as { type?: unknown; payload?: unknown; requestId?: unknown };
-  return (
-    candidate.type === 'progress' &&
-    typeof candidate.requestId === 'string' &&
-    Boolean(candidate.payload && typeof candidate.payload === 'object')
-  );
-}
-
-function createGeneratingMessage(stage: string | undefined): string {
-  return stage === 'reasoning' ? 'Thinking...' : 'Generating answer...';
-}
-
-function createReadyMessage(): string {
-  return 'Response complete.';
-}
-
 async function executeToolCalls(
   toolCalls: readonly LocalLlmToolCall[],
   runtimeData: Record<string, unknown> | undefined
@@ -243,37 +216,6 @@ async function executeToolCalls(
     messages: toolMessages,
     parts: toolParts,
   };
-}
-
-function getDesktopLlmHost(): {
-  cancel?: (requestId: string) => Promise<void>;
-  generate?: (payload: {
-    requestId?: string;
-    modelId: string;
-    messages: LocalLlmMessage[];
-    options?: LocalLlmGenerationOptions;
-  }) => Promise<LocalLlmGenerationResult>;
-  onProgress?: (callback: (progress: unknown) => void) => () => void;
-  onStatus?: (callback: (status: { runtimeKind: 'llm-host'; state: string }) => void) => () => void;
-  warmup?: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
-} | null {
-  const hostWindow = window as Window & {
-    llmHost?: {
-      cancel?: (requestId: string) => Promise<void>;
-      generate?: (payload: {
-        requestId?: string;
-        modelId: string;
-        messages: LocalLlmMessage[];
-        options?: LocalLlmGenerationOptions;
-      }) => Promise<LocalLlmGenerationResult>;
-      onProgress?: (callback: (progress: unknown) => void) => () => void;
-      onStatus?: (
-        callback: (status: { runtimeKind: 'llm-host'; state: string }) => void
-      ) => () => void;
-      warmup?: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
-    };
-  };
-  return hostWindow.llmHost ?? null;
 }
 
 let desktopHostStatusSyncInstalled = false;
@@ -431,13 +373,6 @@ async function ensureDesktopModelWarmed(
   await waitForAbortableDesktopWarmup(nextWarmupPromise, abortSignal);
 }
 
-function createDesktopGenerationOptions(
-  options: LocalLlmGenerationOptions
-): Omit<LocalLlmGenerationOptions, 'signal'> {
-  const { signal: _signal, ...cloneableOptions } = options;
-  return cloneableOptions;
-}
-
 function getToolExecutor(): {
   execute?: (
     toolId: string,
@@ -467,50 +402,10 @@ function getToolExecutor(): {
   return toolWindow.tools ?? null;
 }
 
-function handleDesktopProgressEvent(
-  progress: unknown,
-  requestId: string,
-  onLoadingProgress: LocalRuntimeAdapterOptions['onLoadingProgress'] | undefined,
-  onReasoningSnapshot: (reasoningText: string) => void,
-  onTextSnapshot: (text: string) => void
-): void {
-  if (!isLlmHostProgressEvent(progress) || progress.payload.clientRequestId !== requestId) {
-    return;
-  }
-
-  if (progress.payload.kind === 'loading') {
-    onLoadingProgress?.({
-      stage: 'loading',
-      progress: progress.payload.progress ?? 0,
-      message: progress.payload.message ?? 'Loading Gemma local model',
-      ...(progress.payload.file ? { file: progress.payload.file } : {}),
-    });
-    return;
-  }
-
-  if (progress.payload.kind === 'stage') {
-    onLoadingProgress?.({
-      stage: 'generating',
-      progress: 0,
-      message: createGeneratingMessage(progress.payload.message),
-    });
-    return;
-  }
-
-  if (progress.payload.kind === 'reasoning' && progress.payload.reasoningText) {
-    onReasoningSnapshot(progress.payload.reasoningText);
-    return;
-  }
-
-  if (progress.payload.kind === 'text' && progress.payload.text) {
-    onTextSnapshot(progress.payload.text);
-  }
-}
-
 /**
  * Create a ChatModelAdapter for local browser-based LLM inference.
  * This adapter uses LocalLlmBackend which runs entirely in the browser
- * using transformers.js with WebGPU or WASM acceleration.
+ * through the browser WebGPU runtime.
  */
 export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): ChatModelAdapter {
   const {
