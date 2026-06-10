@@ -42,7 +42,9 @@ export function useSearchFunctionality(
   const [searchThreshold, setSearchThreshold] = useState(getDefaultSearchThreshold());
   const [hasSearched, setHasSearched] = useState(false);
   const db = usePGliteDatabase();
-  const { models } = useModelRegistryStore();
+  // Selector-scoped: only `models` is consumed; a bare store call would
+  // re-render the host on every registry update (e.g. download progress).
+  const models = useModelRegistryStore((state) => state.models);
   const devicePref = useVectorPreferencesStore((state) => state.devicePref);
 
   // Maintain an internal service wrapper

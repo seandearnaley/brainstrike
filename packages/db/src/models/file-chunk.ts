@@ -84,11 +84,13 @@ export interface ChunkSearchOptions {
   filePaths?: readonly string[];
   fileRecordId?: string;
   /**
-   * When `false`, returned rows omit the heavy embedding vector and instead
-   * carry `embeddingDimensions` (via a cheap `vector_dims()` projection). Use
-   * for large fan-out reads (e.g. hybrid RRF source pools) where the vector
-   * values are never used — only ids, scores, and the dimension count.
-   * Default `true` (full vector returned).
+   * When `false` (the default), returned rows omit the heavy embedding vector
+   * (~6KB/row over IPC) and instead carry `embeddingDimensions` (via a cheap
+   * `vector_dims()` projection). No search consumer needs the vector values —
+   * only ids, scores, and the dimension count — so the vector is projected away
+   * by default. Pass `true` only when a caller genuinely needs the raw vector
+   * (e.g. client-side re-embedding); ranking is unaffected either way because
+   * the distance is computed in SQL.
    */
   includeEmbedding?: boolean;
   limit?: number;
@@ -116,10 +118,9 @@ export interface FTSSearchOptions {
   /** Filter by specific file record ID */
   fileRecordId?: string;
   /**
-   * When `false`, returned rows omit the heavy embedding vector and instead
-   * carry `embeddingDimensions` (via a cheap `vector_dims()` projection). FTS
-   * never needs the vector, so hybrid source-pool reads pass `false`.
-   * Default `true` (full vector returned).
+   * When `false` (the default), returned rows omit the heavy embedding vector
+   * and instead carry `embeddingDimensions` (via a cheap `vector_dims()`
+   * projection). FTS never needs the vector, so it is projected away by default.
    */
   includeEmbedding?: boolean;
   /**

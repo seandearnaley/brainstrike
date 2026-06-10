@@ -38,7 +38,8 @@ vi.mock('@brainstrike/utils/logger', async () => {
   };
 });
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', () => {
+vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
   const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
     const foregroundYielding =
       inputs.foregroundQueryActive ||
@@ -78,6 +79,7 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', () => {
     (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => createMockQosPolicy(inputs)
   );
   return {
+    ...actual,
     resolveWorkspaceIndexingQosPolicy: resolveWorkspaceIndexingQosPolicyMock,
   };
 });
@@ -221,6 +223,24 @@ describe('createEmbeddingWorkerConfig', () => {
     } finally {
       Reflect.deleteProperty(window, 'power');
     }
+  });
+
+  it('logs a QoS transition once across repeated claim-size reads under unchanged conditions', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+
+    const transitionLogs = loggerInfoMock.mock.calls.filter(
+      ([message]) => message === 'Workspace indexing QoS state changed'
+    );
+    expect(transitionLogs).toHaveLength(1);
+    expect(transitionLogs[0]?.[1]).toMatchObject({
+      from: null,
+      to: { reason: 'balanced', state: 'balanced' },
+    });
   });
 
   it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {

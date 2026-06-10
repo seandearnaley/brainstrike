@@ -5,6 +5,11 @@ interface ManagedCacheRecordBase {
   content: string;
   contentHash: string;
   id: string;
+  // Persisted filesystem mtime (epoch ms) for the background-sync stat-cache
+  // fast-path. Null when the scan did not capture an mtime; such rows fall
+  // through to read+hash until a later sync stamps real stats via
+  // updateStatMetadata (hash-confirmed unchanged) or a write persists them.
+  mtimeMs: number | null;
   name: string;
   path: string;
   processedAt: string;
@@ -43,6 +48,19 @@ const POSTGRES_PARAMETER_LIMIT = 65_535;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Coerce a filesystem mtime to a BIGINT-safe integer. The OS stat (and thus
+ * IFileNode.lastModified) carries sub-millisecond fractional precision, e.g.
+ * 1757381225844.767, which Postgres rejects for a BIGINT column with 22P02.
+ * 1ms resolution is ample for change detection. Applied at the value boundary so
+ * EVERY applyManagedCacheBatch caller is covered, not just the IPC-parsed path.
+ */
+function toBigIntMtime(value: number | null | undefined): number | null {
+  // Same non-negative gate as parseManagedCacheRecordBase so the two mtime
+  // boundaries stay consistent (a negative stat time is treated as absent).
+  return isFiniteNonNegativeNumber(value) ? Math.floor(value) : null;
 }
 
 function isFiniteNonNegativeNumber(value: unknown): value is number {
@@ -86,8 +104,18 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
     return null;
   }
 
+  // mtimeMs is optional best-effort stat metadata: a missing or non-numeric value
+  // means "no mtime available" (→ null), which is a valid state, not malformed
+  // input. The row simply won't benefit from the stat-cache until its next write.
+  // Floor to an integer: the `mtime_ms` column is BIGINT but the OS stat carries
+  // sub-millisecond fractional precision (e.g. 1757381225844.767), which Postgres
+  // rejects as a bigint. 1ms resolution is ample for change detection.
+  const mtimeMsCandidate = candidate['mtimeMs'];
+  const mtimeMs = isFiniteNonNegativeNumber(mtimeMsCandidate) ? Math.floor(mtimeMsCandidate) : null;
+
   const parsedBase: ManagedCacheRecordBase = {
     id: candidate['id'],
+    mtimeMs,
     name: candidate['name'],
     path: candidate['path'],
     size: candidate['size'],
@@ -180,6 +208,7 @@ const IMPORT_COLUMNS = [
   'name',
   'path',
   'size',
+  'mtime_ms',
   'source_root_path',
   'created_at',
   'updated_at',
@@ -195,6 +224,7 @@ const REPLACE_VALUE_COLUMNS = [
   'name',
   'path',
   'size',
+  'mtime_ms',
   'source_root_path',
   'updated_at',
   'content',
@@ -292,6 +322,7 @@ async function insertManagedCacheImports(
     record.name,
     record.path,
     record.size,
+    toBigIntMtime(record.mtimeMs),
     record.sourceRootPath,
     record.createdAt,
     record.updatedAt,
@@ -338,6 +369,7 @@ async function applyManagedCacheReplacements(
     record.name,
     record.path,
     record.size,
+    toBigIntMtime(record.mtimeMs),
     record.sourceRootPath,
     record.updatedAt,
     record.content,
@@ -352,6 +384,7 @@ async function applyManagedCacheReplacements(
        SET name = replacement_values.name,
            path = replacement_values.path,
            size = replacement_values.size::integer,
+           mtime_ms = replacement_values.mtime_ms::bigint,
            source_root_path = replacement_values.source_root_path,
            updated_at = replacement_values.updated_at::timestamptz,
            content = replacement_values.content,
@@ -369,6 +402,7 @@ async function applyManagedCacheReplacements(
         name,
         path,
         size,
+        mtime_ms,
         source_root_path,
         updated_at,
         content,

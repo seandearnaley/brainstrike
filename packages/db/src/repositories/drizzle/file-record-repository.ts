@@ -22,6 +22,8 @@ type DrizzleDb = PgliteDatabase;
 
 const logger = createLogger('DrizzleFileRecordRepository');
 const BULK_IMPORT_INFO_LOG_THRESHOLD = 100;
+// 3 parameters per row; stays far below the 65,535 Postgres parameter limit.
+const STAT_METADATA_UPDATE_BATCH_SIZE = 5000;
 
 /**
  * Allowed fields for updates - prevents accidental ID updates
@@ -236,6 +238,8 @@ export class DrizzleFileRecordRepository {
         sourceRootPath: fileRecords.sourceRootPath,
         relativePath: fileRecords.path,
         contentHash: fileRecords.contentHash,
+        size: fileRecords.size,
+        mtimeMs: fileRecords.mtimeMs,
         updatedAt: fileRecords.updatedAt,
       })
       .from(fileRecords)
@@ -261,10 +265,61 @@ export class DrizzleFileRecordRepository {
           sourceRootPath: row.sourceRootPath,
           relativePath: row.relativePath,
           contentHash: row.contentHash ?? '',
+          size: row.size,
+          mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
           updatedAt: row.updatedAt.toISOString(),
         } satisfies ManagedCacheEntryMetadata,
       ];
     });
+  }
+
+  /**
+   * Batch-stamp filesystem stat metadata (size + floored mtime) WITHOUT
+   * rewriting content — how pre-migration rows (NULL mtime_ms) join the
+   * stat-cache fast-path, since hash-unchanged files never take a write path.
+   *
+   * One UNNEST statement per batch, mirroring BaseFileRecordRepository: the
+   * stamp fires for every pre-migration row on the first post-upgrade sync, and
+   * N serial round-trips would contend on PGlite's single connection with the
+   * foreground work the rest of the QoS stack protects.
+   */
+  async updateStatMetadata(
+    entries: ReadonlyArray<{ fileRecordId: string; mtimeMs: number; size: number }>
+  ): Promise<void> {
+    // Drizzle's sql-template serializes JS arrays as records, not PG arrays,
+    // so the batched UNNEST goes through the raw PGlite client (same pattern as
+    // DrizzleEmbeddingSetsRepository's query adapter, same SQL as the base repo).
+    const rawDb =
+      '$client' in this.db
+        ? (this.db.$client as {
+            query: (text: string, params?: unknown[]) => Promise<unknown>;
+          })
+        : null;
+    for (let offset = 0; offset < entries.length; offset += STAT_METADATA_UPDATE_BATCH_SIZE) {
+      const batch = entries.slice(offset, offset + STAT_METADATA_UPDATE_BATCH_SIZE);
+      // Floor defensively: stat.mtimeMs is fractional and mtime_ms is BIGINT.
+      const ids = batch.map((entry) => entry.fileRecordId);
+      const mtimes = batch.map((entry) => Math.floor(entry.mtimeMs));
+      const sizes = batch.map((entry) => Math.floor(entry.size));
+      if (rawDb) {
+        await rawDb.query(
+          `UPDATE file_records AS fr
+              SET mtime_ms = t.mtime_ms,
+                  size = t.size
+             FROM unnest($1::text[], $2::bigint[], $3::integer[]) AS t(id, mtime_ms, size)
+            WHERE fr.id::text = t.id`,
+          [ids, mtimes, sizes]
+        );
+        continue;
+      }
+      // Degraded path without a raw client: per-row updates within the batch.
+      for (const entry of batch) {
+        await this.db
+          .update(fileRecords)
+          .set({ mtimeMs: Math.floor(entry.mtimeMs), size: Math.floor(entry.size) })
+          .where(eq(fileRecords.id, entry.fileRecordId));
+      }
+    }
   }
 
   async update(id: string, updates: FileRecordUpdate): Promise<void> {

@@ -132,9 +132,11 @@ describe('window-state', () => {
       isMaximized: vi.fn().mockReturnValue(false),
       getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
       getNormalBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
+      isDestroyed: vi.fn().mockReturnValue(false),
       on: vi.fn((event: string, cb: () => void) => {
         listeners[event] = cb;
       }),
+      removeListener: vi.fn(),
     } as unknown as BrowserWindow;
 
     const set = vi.fn();
@@ -152,5 +154,88 @@ describe('window-state', () => {
 
     listeners['close']?.();
     expect(set).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns a disposer that removes every listener and clears the pending debounce', () => {
+    vi.useFakeTimers();
+
+    const listeners: Record<string, () => void> = {};
+    const removeListener = vi.fn();
+    const win = {
+      isFullScreen: vi.fn().mockReturnValue(false),
+      isMaximized: vi.fn().mockReturnValue(false),
+      getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
+      getNormalBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
+      isDestroyed: vi.fn().mockReturnValue(false),
+      on: vi.fn((event: string, cb: () => void) => {
+        listeners[event] = cb;
+      }),
+      removeListener,
+    } as unknown as BrowserWindow;
+
+    const set = vi.fn();
+    const store = { get: vi.fn(), set } as unknown as {
+      get: () => unknown;
+      set: (key: string, value: unknown) => void;
+    };
+
+    const dispose = registerWindowStatePersistence(win, store as never);
+    expect(typeof dispose).toBe('function');
+
+    // Queue a debounced persist, then dispose before the timer fires.
+    listeners['resize']?.();
+    dispose();
+
+    for (const event of [
+      'resize',
+      'move',
+      'maximize',
+      'unmaximize',
+      'enter-full-screen',
+      'leave-full-screen',
+      'close',
+    ]) {
+      expect(removeListener).toHaveBeenCalledWith(event, expect.any(Function));
+    }
+
+    // The pending debounce must not fire after disposal.
+    vi.advanceTimersByTime(500);
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('does not capture state from a window destroyed before the debounce fires', () => {
+    vi.useFakeTimers();
+
+    const listeners: Record<string, () => void> = {};
+    const isDestroyed = vi.fn().mockReturnValue(false);
+    const isFullScreen = vi.fn().mockReturnValue(false);
+    const win = {
+      isFullScreen,
+      isMaximized: vi.fn().mockReturnValue(false),
+      getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
+      getNormalBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
+      isDestroyed,
+      on: vi.fn((event: string, cb: () => void) => {
+        listeners[event] = cb;
+      }),
+      removeListener: vi.fn(),
+    } as unknown as BrowserWindow;
+
+    const set = vi.fn();
+    const store = { get: vi.fn(), set } as unknown as {
+      get: () => unknown;
+      set: (key: string, value: unknown) => void;
+    };
+
+    registerWindowStatePersistence(win, store as never);
+
+    listeners['resize']?.();
+    // The window is destroyed before the debounced persist runs.
+    isDestroyed.mockReturnValue(true);
+    vi.advanceTimersByTime(250);
+
+    // Guarded: no state capture (win.isFullScreen would throw on a destroyed window).
+    expect(isFullScreen).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
   });
 });

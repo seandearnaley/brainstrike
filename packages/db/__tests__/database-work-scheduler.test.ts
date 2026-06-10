@@ -7,6 +7,23 @@ import {
 } from '../src/database-work-scheduler';
 
 describe('DatabaseWorkScheduler', () => {
+  it('throws when run is called without an explicit priority', () => {
+    const scheduler = createDatabaseWorkScheduler();
+    const untypedRun = scheduler.run.bind(scheduler) as (
+      work: () => Promise<unknown>,
+      options?: unknown
+    ) => Promise<unknown>;
+    const work = vi.fn(async () => 'value');
+
+    expect(() => untypedRun(work)).toThrow(
+      'DatabaseWorkScheduler.run requires an explicit priority'
+    );
+    expect(() => untypedRun(work, { label: 'no priority' })).toThrow(
+      'DatabaseWorkScheduler.run requires an explicit priority'
+    );
+    expect(work).not.toHaveBeenCalled();
+  });
+
   it('stamps snapshots with the scheduler clock', () => {
     let now = 1000;
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });

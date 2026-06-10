@@ -11,7 +11,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import {
-  ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS,
+  ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
@@ -1662,18 +1662,43 @@ describe('AssistantUiPanelWrapper', () => {
 
     try {
       const onExpired = vi.fn();
-      const release = acquireAssistantForegroundActivity({ onExpired });
+      const lease = acquireAssistantForegroundActivity({ onExpired });
 
-      expect(ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS).toBeGreaterThan(10 * 120_000);
       expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      // A leaked lease produces no stream activity, so the idle fuse fires.
       act(() => {
-        vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_LEASE_MS);
+        vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS);
       });
       expect(getAssistantForegroundActivitySnapshot()).toBe(false);
       expect(onExpired).toHaveBeenCalledTimes(1);
 
-      release();
+      lease.release();
       expect(onExpired).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('stream activity keeps a legitimate long run from being expired', () => {
+    vi.useFakeTimers();
+
+    try {
+      const onExpired = vi.fn();
+      const lease = acquireAssistantForegroundActivity({ onExpired });
+
+      // A 30-minute run that streams chunks stays alive indefinitely.
+      act(() => {
+        for (let i = 0; i < 30; i++) {
+          vi.advanceTimersByTime(60_000);
+          lease.renew();
+        }
+      });
+      expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+      expect(onExpired).not.toHaveBeenCalled();
+
+      lease.release();
+      expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+      expect(onExpired).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

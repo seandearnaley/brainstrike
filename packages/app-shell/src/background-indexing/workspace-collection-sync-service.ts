@@ -96,7 +96,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: FileImportFileRecordRepository &
-    Pick<IFileRecordRepository, 'listManagedCacheEntryMetadata'>;
+    Pick<IFileRecordRepository, 'listManagedCacheEntryMetadata' | 'updateStatMetadata'>;
   fileSystemAdapter: FileSystemAdapter;
   getBackfillsInFlight: () => Promise<
     Array<{
@@ -596,6 +596,29 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  /**
+   * Stamp scanned (size, mtime) onto hash-confirmed-unchanged rows whose stored
+   * stats are missing/stale, so the NEXT sync stat-skips them. Pre-migration
+   * rows never write otherwise, which would leave them re-read + re-hashed on
+   * every sync forever. Best-effort: the stamp is an optimization, so a failure
+   * must not fail the sync — but it is logged loudly, never swallowed.
+   */
+  private async persistStatRefreshes(
+    statRefreshes: PreparedChangesSummary['statRefreshes']
+  ): Promise<void> {
+    if (statRefreshes.length === 0) {
+      return;
+    }
+    try {
+      await this.deps.fileRecordRepository.updateStatMetadata(statRefreshes);
+    } catch (error) {
+      this.deps.log?.warn('Failed to persist stat-cache refreshes', {
+        count: statRefreshes.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async collectionNeedsBackfill(collectionId: string): Promise<boolean> {
     const coverage = await this.deps.chunkRepository.getCoverageForSet(collectionId);
     return needsEmbeddingBackfill(coverage);
@@ -917,6 +940,7 @@ export class WorkspaceCollectionSyncService {
       qosPolicy: scanQosPolicy,
     });
     this.setScanSummary(args.context, prepared);
+    await this.persistStatRefreshes(prepared.statRefreshes);
 
     if (prepared.changes.length === 0) {
       if (await this.collectionNeedsBackfill(args.context.collection.id)) {

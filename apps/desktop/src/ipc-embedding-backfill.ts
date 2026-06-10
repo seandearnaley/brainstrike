@@ -312,7 +312,36 @@ export async function runDesktopEmbeddingBackfill(params: {
           : {}),
       }
     );
+    logger.info('Desktop embedding backfill completed', {
+      embeddingSetId: normalizedEmbeddingSetId,
+      requestId: backfillRequestId,
+      source,
+    });
     return { requestId: backfillRequestId };
+  } catch (error) {
+    // This invocation's IPC rejection is silently discarded by Electron when the
+    // requesting renderer has been torn down (e.g. a top-level navigation
+    // mid-backfill), so main MUST log the terminal outcome itself or the
+    // backfill vanishes from the logs without a trace.
+    const message = error instanceof Error ? error.message : String(error);
+    // Classify canceled-vs-failed from the authoritative canceled set (still
+    // populated here; the finally below clears it), not the error message —
+    // a wrapped cancellation must not be logged at error level as a failure.
+    if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
+      logger.info('Desktop embedding backfill canceled', {
+        embeddingSetId: normalizedEmbeddingSetId,
+        requestId: backfillRequestId,
+        source,
+      });
+    } else {
+      logger.error('Desktop embedding backfill failed', {
+        embeddingSetId: normalizedEmbeddingSetId,
+        error: message,
+        requestId: backfillRequestId,
+        source,
+      });
+    }
+    throw error;
   } finally {
     embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
     embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
@@ -324,12 +353,29 @@ export async function runDesktopEmbeddingBackfill(params: {
 
 export function cancelAllDesktopEmbeddingBackfills(): void {
   for (const embeddingSetId of embeddingBackfillsInFlight.keys()) {
+    logCancellationRequested(embeddingSetId);
     embeddingBackfillsCanceled.add(embeddingSetId);
   }
 }
 
 export function cancelDesktopEmbeddingBackfill(embeddingSetId: string): void {
+  logCancellationRequested(embeddingSetId);
   embeddingBackfillsCanceled.add(embeddingSetId);
+}
+
+function logCancellationRequested(embeddingSetId: string): void {
+  const inFlight = embeddingBackfillsInFlight.get(embeddingSetId);
+  logger.info('Desktop embedding backfill cancellation requested', {
+    embeddingSetId,
+    inFlight: Boolean(inFlight),
+    ...(inFlight
+      ? {
+          progress: inFlight.progress,
+          requestId: inFlight.requestId,
+          source: inFlight.source,
+        }
+      : {}),
+  });
 }
 
 export function getDesktopEmbeddingBackfillsInFlight(): Array<{
