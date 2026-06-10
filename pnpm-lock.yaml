@@ -139,6 +139,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../../packages/platform-utils
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
