@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { FILE_EXPLORER_STORAGE_VERSION } from '../persistence/persistence-constants';
 
 describe('store version/type guard', () => {
   beforeEach(() => {
@@ -20,5 +21,11 @@ describe('store version/type guard', () => {
 
     // And it should not be the dummy object
     expect(anyStore.foo).toBeUndefined();
+  });
+
+  it('FILE_EXPLORER_STORAGE_VERSION is pinned at 4 (storage v4 greenfield reset)', () => {
+    // This assertion intentionally pins the version to catch accidental bumps.
+    // The v3→v4 bump was intentional (phase 4 forest-UI greenfield reset).
+    expect(FILE_EXPLORER_STORAGE_VERSION).toBe(4);
   });
 });

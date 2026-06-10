@@ -118,7 +118,8 @@ describe('state-migration coverage', () => {
       },
     };
 
-    const result = migrateState(serializedState, 3, true);
+    // Storage version was bumped to 4 (phase-4 forest-UI reset).
+    const result = migrateState(serializedState, 4, true);
 
     expect(result.selectionModel).toEqual({
       mode: 'explicit',
@@ -156,11 +157,12 @@ describe('state-migration coverage', () => {
       lastActiveTab: 'files',
     };
 
-    const result = migrateState(serializedState, 4, true);
+    // Pass a future version (5) which is higher than the current VERSION (4).
+    const result = migrateState(serializedState, 5, true);
 
     expectEmptySerializedState(result);
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrate - Future persisted version 4 is not supported, discarding.'
+      'Migrate - Future persisted version 5 is not supported, discarding.'
     );
   });
 

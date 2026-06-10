@@ -4,6 +4,7 @@ import type {
   SelectionModel,
   SerializedSelectionModel,
   SerializedState,
+  StoredRootDescriptor,
 } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -62,6 +63,49 @@ function coerceBoolean(value: unknown, fallback: boolean): boolean {
 
 function coerceNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Validate and coerce a persisted StoredRootDescriptor entry.
+ * Returns null if the value is malformed (missing required string fields).
+ */
+function coerceStoredRootDescriptor(value: unknown): StoredRootDescriptor | null {
+  if (!(value && typeof value === 'object')) {
+    return null;
+  }
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v['rootId'] !== 'string' ||
+    typeof v['displayName'] !== 'string' ||
+    typeof v['path'] !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    rootId: v['rootId'],
+    displayName: v['displayName'],
+    path: v['path'],
+  };
+}
+
+/**
+ * Coerce a persisted rootDescriptors map — drop any malformed entries.
+ */
+function coerceRootDescriptors(
+  value: unknown,
+  fallback: Record<string, StoredRootDescriptor>
+): Record<string, StoredRootDescriptor> {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return fallback;
+  }
+  const result: Record<string, StoredRootDescriptor> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const coerced = coerceStoredRootDescriptor(entry);
+    if (coerced) {
+      result[key] = coerced;
+    }
+  }
+  return result;
 }
 
 function deserializeQueryDescriptor(value: unknown): SerializedSelectionModel['queryDescriptor'] {
@@ -192,6 +236,8 @@ export function serializeState(state: FileExplorerState): SerializedState {
   }
 
   const serialized: SerializedState = {
+    activeRootIds: state.activeRootIds,
+    rootDescriptors: state.rootDescriptors,
     currentFolderId: state.currentFolderId,
     folderStates: Object.fromEntries(
       Object.entries(folderStatesToSerialize || {}).map(([id, folderState]) => [
@@ -322,6 +368,12 @@ export function mergeState(
     isFiltersExpanded: coerceBoolean(
       persistedSerialized.isFiltersExpanded,
       current.isFiltersExpanded
+    ),
+    // Multi-root (Phase 4) fields — coerced safely from persisted data
+    activeRootIds: coerceStringArray(persistedSerialized.activeRootIds),
+    rootDescriptors: coerceRootDescriptors(
+      persistedSerialized.rootDescriptors,
+      current.rootDescriptors
     ),
   };
 

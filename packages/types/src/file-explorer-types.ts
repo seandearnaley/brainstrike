@@ -135,6 +135,11 @@ export interface SerializedFolderState {
 }
 
 export interface SerializedState {
+  /**
+   * Ordered list of active root IDs (sidebar order).
+   * Optional for backward compatibility — older snapshots lack this field.
+   */
+  activeRootIds?: string[];
   currentFolderId: string | null;
   devInlineFixtureEnabled: boolean;
   excludeFilters: string[];
@@ -156,6 +161,11 @@ export interface SerializedState {
   lastActiveTab: string;
   maxSelectionCount: number;
   quickFilter: string;
+  /**
+   * Map of rootId → StoredRootDescriptor for all active roots.
+   * Optional for backward compatibility — older snapshots lack this field.
+   */
+  rootDescriptors?: Record<string, StoredRootDescriptor>;
   selectedFilePaths: string[];
   /**
    * Selection model for rule-based selection.
@@ -196,8 +206,29 @@ export interface FolderState {
   viewFilterPresetId: string | null;
 }
 
+// ============================================================================
+// Multi-root types (Phase 4)
+// ============================================================================
+
+/**
+ * A SERIALIZABLE projection of a root directory descriptor.
+ * This is the persisted form — it never holds the live DirectoryHandle
+ * (handles are ephemeral and live in useFileSystem state only).
+ */
+export interface StoredRootDescriptor {
+  displayName: string;
+  path: string;
+  rootId: string;
+}
+
 // Data types
 export interface FileExplorerData {
+  /**
+   * Ordered list of active root IDs (sidebar order).
+   * RootId strings that index into rootDescriptors.
+   * Phase-4 initial state is empty (single-root compat).
+   */
+  activeRootIds: string[];
   currentFolderId: string | null;
   /** Whether the inline dev fixture should be used instead of native FS access. */
   devInlineFixtureEnabled: boolean;
@@ -242,6 +273,12 @@ export interface FileExplorerData {
    * Persisting this improves UX across unmounts and reloads.
    */
   quickFilter: string;
+  /**
+   * Map of rootId → StoredRootDescriptor for all active roots.
+   * Keyed by rootId (same strings as activeRootIds).
+   * A SERIALIZABLE projection — never holds live handles.
+   */
+  rootDescriptors: Record<string, StoredRootDescriptor>;
   selectedFilePaths: Set<string>;
   /**
    * Selection model supporting both explicit paths and rule-based selection.
@@ -273,6 +310,12 @@ export interface CacheStats {
 
 // Store interface extends data with actions
 export interface FileExplorerState extends FileExplorerData {
+  // Multi-root actions (Phase 4)
+  /**
+   * Append a new root if absent by rootId; if the rootId already exists,
+   * update its descriptor (displayName/path refresh) without appending again.
+   */
+  addActiveRoot: (root: StoredRootDescriptor) => void;
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   addMultipleSelectedFilesChunked: (
     folderId: string,
@@ -307,6 +350,12 @@ export interface FileExplorerState extends FileExplorerData {
 
   // Ephemeral handle for current root directory. Not serialized.
   rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
+  /**
+   * Replace both activeRootIds and rootDescriptors atomically.
+   * activeRootIds = roots.map(r => r.rootId) (ordered).
+   * rootDescriptors = keyed by rootId.
+   */
+  setActiveRoots: (roots: StoredRootDescriptor[]) => void;
   // Folder state management
   setCurrentFolderId: (folderId: string | null) => void;
   setDevInlineFixtureEnabled: (value: boolean) => void;
@@ -380,6 +429,9 @@ export const DEFAULT_MAX_SELECTION_COUNT = 10;
 export const DEFAULT_TOKEN_BUDGET = 100_000;
 
 export const DEFAULT_STATE = {
+  // Multi-root (Phase 4) — empty initial state (single-root compat)
+  activeRootIds: [] as string[],
+  rootDescriptors: {} as Record<string, StoredRootDescriptor>,
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
   includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'] as string[],

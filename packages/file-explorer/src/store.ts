@@ -15,6 +15,7 @@ import { setupHMR } from '@brainstrike/utils/hmr-utils';
 import type { StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createActiveRootActions } from './actions/active-root-actions';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
 import { createFileContentActions } from './actions/file-content-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
@@ -43,6 +44,9 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     rootDirectoryHandle: null,
     // Ephemeral access loading state (not persisted)
     isAccessLoading: false,
+    // Multi-root (Phase 4) initial state
+    activeRootIds: [] as string[],
+    rootDescriptors: {} as FileExplorerState['rootDescriptors'],
   };
 
   const actions = {
@@ -52,6 +56,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createSettingsActions(set, get),
     ...createFileContentActions(set, get),
     ...createSelectionModelActions(set, get),
+    ...createActiveRootActions(set, get),
     setQuickFilter: (value: string) => {
       set({ quickFilter: value });
     },
