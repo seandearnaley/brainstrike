@@ -5,7 +5,7 @@ const logger = createLogger('WebHandleCache');
 
 // Keep this name in sync with factory-reset fallback IndexedDB list.
 const DB_NAME = 'brainstrike-file-handles' as const;
-const DB_VERSION = 1 as const;
+const DB_VERSION = 2 as const;
 
 const ROOT_STORE = 'root-handles' as const;
 const FILE_STORE = 'file-handles' as const;
@@ -17,9 +17,16 @@ const DEFAULT_MAX_AGE_MS = 2_592_000_000; // 30 days in ms (1000 * 60 * 60 * 24 
 const now = () => Date.now();
 
 export interface StoredRootHandle {
+  /**
+   * Opaque RootId supplied by the caller (since v2). Generated once via
+   * crypto.randomUUID() when the root is first added and stable across
+   * sessions. Not derived from the directory name — names collide.
+   * The `name` field holds the human-readable directory name.
+   */
   folderId: string;
   handle: FileSystemDirectoryHandle;
   lastAccessedAt: number;
+  /** Human-readable display name (the directory's name property). */
   name: string;
   storedAt: number;
 }
@@ -278,9 +285,9 @@ export class WebHandleCache implements HandleCache {
    */
   private async openDbWithRecovery(): Promise<IDBPDatabase<HandleCacheSchema>> {
     const db = await openDB<HandleCacheSchema>(DB_NAME, DB_VERSION, {
-      upgrade(upgradeDb) {
+      upgrade(upgradeDb, oldVersion, _newVersion, transaction) {
         logger.debug('openDbWithRecovery: running upgrade', {
-          oldVersion: upgradeDb.version,
+          oldVersion,
           stores: Array.from(upgradeDb.objectStoreNames),
         });
         if (!upgradeDb.objectStoreNames.contains(ROOT_STORE)) {
@@ -290,6 +297,30 @@ export class WebHandleCache implements HandleCache {
         if (!upgradeDb.objectStoreNames.contains(FILE_STORE)) {
           const store = upgradeDb.createObjectStore(FILE_STORE, { keyPath: 'path' });
           store.createIndex(FILE_BY_FOLDER_INDEX, 'folderId');
+        }
+        if (oldVersion === 1) {
+          // v1 keyed roots by handle.name — same-named directories collided.
+          // Re-key every root under a generated RootId; drop file-handle rows
+          // (best-effort cache, re-populates on access).
+          //
+          // We use cursor-based synchronous iteration (not the async-IIFE form
+          // from the plan) because fake-indexeddb auto-commits the upgrade
+          // transaction before queued async IIFE requests run, causing the
+          // migration to be silently skipped in tests.
+          const rootStore = transaction.objectStore(ROOT_STORE);
+          const fileStoreRef = transaction.objectStore(FILE_STORE);
+
+          void (async () => {
+            let cursor = await rootStore.openCursor();
+            while (cursor) {
+              const record = cursor.value;
+              const newId = crypto.randomUUID();
+              await cursor.delete();
+              await rootStore.put({ ...record, folderId: newId });
+              cursor = await cursor.continue();
+            }
+            await fileStoreRef.clear();
+          })();
         }
       },
     });
@@ -406,7 +437,9 @@ export class WebHandleCache implements HandleCache {
    * Store a root directory handle in the cache.
    * Updates the lastAccessedAt timestamp if the handle already exists.
    *
-   * @param folderId - Unique identifier for this folder (typically the directory name)
+   * @param folderId - Opaque RootId supplied by the caller (since v2). Must be
+   *   a crypto.randomUUID()-generated string — never derived from the directory
+   *   name, which is not unique across roots.
    * @param handle - The FileSystemDirectoryHandle to store
    */
   async storeRootHandle(folderId: string, handle: FileSystemDirectoryHandle): Promise<void> {
@@ -429,7 +462,7 @@ export class WebHandleCache implements HandleCache {
    * Validates the handle is still accessible and updates lastAccessedAt on success.
    * Automatically removes stale handles that are no longer valid.
    *
-   * @param folderId - Unique identifier for the folder
+   * @param folderId - Opaque RootId (since v2) identifying the root
    * @returns The directory handle if found and valid, null otherwise
    */
   async getRootHandle(folderId: string): Promise<FileSystemDirectoryHandle | null> {
