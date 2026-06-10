@@ -49,6 +49,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
+import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
@@ -288,6 +289,12 @@ export function WorkspaceCollectionSyncProvider({
   const { isAccessLoading, rootDirectoryHandle } = useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
+
+  // Root registry: ensure a DB roots row exists for every adapter root.
+  // Runs once per boot, before the first sync cycle writes file records.
+  // Errors are logged and swallowed — must never block boot.
+  useRootsReconciliation({ adapter: fileSystemAdapter, db });
+
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
   const waitForBackgroundPermit = useMemo(
     () => (backgroundDb ? createWaitForBackgroundPermit(backgroundDb) : null),
