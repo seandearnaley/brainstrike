@@ -325,6 +325,32 @@ function withTransportCompactionMetadata(
   };
 }
 
+/**
+ * Pass-through tap that intercepts "message-finish" chunks to surface provider
+ * token usage. The DataStreamDecoder outputs AssistantStreamChunk
+ * (type: "message-finish") — not the raw DataStreamChunk (type: "d") — because
+ * the decoder translates wire codes to semantic chunk types.
+ * (Wire code reference: DataStreamCode.finishMessage = 'd' in packages/agent.)
+ */
+function buildUsageTap(
+  onUsage: (usage: { inputTokens: number; outputTokens: number }) => void
+): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
+  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+    transform(chunk, controller) {
+      if (chunk.type === 'message-finish') {
+        const { usage } = chunk;
+        if (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number') {
+          onUsage({
+            inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : 0,
+            outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : 0,
+          });
+        }
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   constructor(private readonly optionsSource: BrainstrikeDataStreamRuntimeOptionsSource) {}
 
@@ -426,30 +452,13 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 
       await this.options.onResponse?.(response);
 
+      // Only insert the usage tap when a consumer is wired; the common
+      // no-onUsage path keeps the original decoder → tool-result pipeline.
       const onUsage = this.options.onUsage;
-      // Pass-through tap that intercepts "message-finish" chunks to surface
-      // provider token usage. The DataStreamDecoder outputs AssistantStreamChunk
-      // (type: "message-finish") — not the raw DataStreamChunk (type: "d") —
-      // because the decoder translates wire codes to semantic chunk types.
-      // (Wire code reference: DataStreamCode.finishMessage = 'd' in packages/agent.)
-      const usageTap = new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
-        transform(chunk, controller) {
-          if (chunk.type === 'message-finish') {
-            const { usage } = chunk;
-            if (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number') {
-              onUsage?.({
-                inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : 0,
-                outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : 0,
-              });
-            }
-          }
-          controller.enqueue(chunk);
-        },
-      });
+      const decoded = response.body.pipeThrough(new DataStreamDecoder());
+      const tapped = onUsage ? decoded.pipeThrough(buildUsageTap(onUsage)) : decoded;
 
-      const stream = response.body
-        .pipeThrough(new DataStreamDecoder())
-        .pipeThrough(usageTap)
+      const stream = tapped
         .pipeThrough(
           unstable_toolResultStream(context.tools ?? {}, abortSignal, () => {
             throw new Error('Tool interrupt is not supported in data stream runtime');
