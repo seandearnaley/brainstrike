@@ -91,6 +91,25 @@ async function openMenuOnRow(): Promise<void> {
   await screen.findByRole('menu');
 }
 
+/**
+ * Deterministic teardown for Radix's FocusScope: its effect cleanup defers
+ * focus-restore in a setTimeout(0). A test that returns with the menu still
+ * open (or just closed) leaks that timer; it then fires during the NEXT test,
+ * focuses body, and the new menu's onFocusOutside dismisses it mid-assertion.
+ * Close the menu while still mounted, then flush the 0ms timer.
+ */
+async function closeMenuAndFlushFocusRestore(): Promise<void> {
+  if (screen.queryByRole('menu')) {
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 describe('ActionContextMenu', () => {
   const logRecords: LogRecord[] = [];
   let removeLogListener: () => void;
@@ -105,7 +124,11 @@ describe('ActionContextMenu', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Runs BEFORE RTL auto-cleanup (vitest afterEach hooks run in reverse
+    // registration order; auto-cleanup registers in the setup file), so the
+    // menu is still mounted here and can be closed deterministically.
+    await closeMenuAndFlushFocusRestore();
     removeLogListener();
   });
 
@@ -214,10 +237,7 @@ describe('ActionContextMenu', () => {
   it('does not reopen on a background right-click after closing (stale target stays inert)', async () => {
     renderHarness();
     await openMenuOnRow();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
-    await waitFor(() => {
-      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    });
+    await closeMenuAndFlushFocusRestore();
     fireEvent.contextMenu(screen.getByTestId('background'), { clientX: 10, clientY: 10 });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
