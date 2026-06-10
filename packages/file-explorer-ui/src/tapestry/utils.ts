@@ -27,7 +27,7 @@ const CODE_FRAGMENTS = [
   "import React, { useState, useEffect } from 'react';",
   'export const Component = ({ props }) => {',
   '  const [state, setState] = useState(null);',
-  '  // TODO: Refactor this logic',
+  '  // Note: Refactor this branch when requirements change',
   '  if (!data) return <Loading />;',
   '  return (',
   "    <div className='container'>",
@@ -59,7 +59,7 @@ const COMMENTS = [
   '// This function handles the user authentication flow',
   '// Optimize this loop for large datasets',
   '/**\n * Helper utility for formatting dates\n * @param date Date object\n */',
-  '// FIXME: Potential memory leak here',
+  '// Review: Subscription cleanup is handled by the caller',
 ] as const;
 
 // Auto-assign palette derived from the single source of truth in

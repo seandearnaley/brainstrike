@@ -169,8 +169,8 @@ function tryNormalizeCachePath(folderId: string, filePath: string): string | nul
   }
 }
 
-// Temporary diagnostics: surface hot-cache hits/misses for a single file to confirm UI read path.
-// NOTE: keep scoped to a single key to avoid noisy logs; remove after validation.
+// Opt-in diagnostics: surface hot-cache hits/misses for one file when debugging
+// cache-key mismatches. Keep scoped to a single key to avoid noisy logs.
 const DIAG_KEY = (process.env['TOKEN_CACHE_DIAG_KEY'] as string | undefined) ?? '';
 const diagLogger = DIAG_KEY ? createLogger('TokenCacheDiag') : null;
 
