@@ -151,12 +151,13 @@ describe('grep-first search orientation', () => {
 
   it('mentions grep tool before semantic-search guidance and contains exact-string usage phrase', () => {
     const instructions = buildDefaultInstructions(WITH_GREP_MAP);
-    const grepName = 'grepSearch';
-    const queryEmbeddingSpaceName = 'queryEmbeddingSpace';
 
     expect(instructions).toContain('exact strings, identifiers, and error messages');
-    expect(instructions.indexOf(grepName)).toBeLessThan(
-      instructions.indexOf(queryEmbeddingSpaceName)
+    // Compare substrings unique to the GUIDANCE sentences (not the tool-name
+    // listing line, where both names also appear and would order-match
+    // regardless of where the instruction sentences sit).
+    expect(instructions.indexOf('FIRST —')).toBeLessThan(
+      instructions.indexOf('When you do NOT know the exact wording')
     );
   });
 
