@@ -316,4 +316,51 @@ export const migrations = [
 
     assert.deepEqual(result.failures, []);
   });
+
+  it('requires static provider registry models to exist in the final DB catalog', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+];
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-old', 'openai', 'GPT Old', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerRegistrySource: `
+const PROVIDER_DEFINITIONS = [
+  {
+    id: 'openai',
+    models: [
+      { id: 'gpt-next', type: 'llm' },
+    ],
+  },
+  {
+    id: 'ollama',
+    models: [],
+  },
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/assistant-contract/src/provider-registry.ts',
+        message:
+          'Static provider-registry model openai::gpt-next is missing from the final DB model catalog.',
+      },
+    ]);
+  });
 });

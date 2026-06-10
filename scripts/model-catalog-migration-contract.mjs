@@ -80,8 +80,40 @@ function findConstObjectLiteral(source, constName, fileName) {
 }
 
 function stringLiteralInitializerValue(node) {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-    return node.text;
+  const value = unwrapExpression(node);
+  if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+    return value.text;
+  }
+  return null;
+}
+
+function unwrapExpression(node) {
+  if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+    return unwrapExpression(node.expression);
+  }
+  return node;
+}
+
+function stringLiteralOrConstValue(node, constants) {
+  const value = unwrapExpression(node);
+  if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+    return value.text;
+  }
+  if (ts.isIdentifier(value)) {
+    return constants.get(value.text) ?? null;
+  }
+  return null;
+}
+
+function getObjectProperty(objectLiteral, propertyName) {
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) {
+      continue;
+    }
+
+    if (getPropertyNameText(property.name) === propertyName) {
+      return property.initializer;
+    }
   }
   return null;
 }
@@ -167,6 +199,95 @@ function extractMigrationUpSql(file) {
 
   visit(sourceFile);
   return upSql;
+}
+
+function extractStringConstExports(source, fileName) {
+  const sourceFile = parseTypeScriptSource(source, fileName);
+  const constants = new Map();
+
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      node.parent &&
+      ts.isVariableDeclarationList(node.parent) &&
+      node.parent.parent &&
+      ts.isVariableStatement(node.parent.parent) &&
+      node.parent.parent.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      const value = stringLiteralInitializerValue(node.initializer);
+      if (value !== null) {
+        constants.set(node.name.text, value);
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return constants;
+}
+
+function extractProviderRegistryModels(source, constants = new Map()) {
+  const initializer = findConstObjectLiteral(source, 'PROVIDER_DEFINITIONS', 'provider-registry.ts');
+  const sourceFile = parseTypeScriptSource(source, 'provider-registry.ts');
+  let providerDefinitions = null;
+
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'PROVIDER_DEFINITIONS' &&
+      node.initializer
+    ) {
+      providerDefinitions = unwrapExpression(node.initializer);
+      return;
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  if (!initializer) {
+    visit(sourceFile);
+  }
+
+  const definitions = providerDefinitions ?? initializer;
+  if (!definitions || !ts.isArrayLiteralExpression(definitions)) {
+    return [];
+  }
+
+  const rows = [];
+  for (const providerNode of definitions.elements) {
+    const provider = unwrapExpression(providerNode);
+    if (!ts.isObjectLiteralExpression(provider)) {
+      continue;
+    }
+
+    const providerIdNode = getObjectProperty(provider, 'id');
+    const modelsNode = unwrapExpression(getObjectProperty(provider, 'models') ?? provider);
+    const providerId = providerIdNode ? stringLiteralOrConstValue(providerIdNode, constants) : null;
+    if (!providerId || !ts.isArrayLiteralExpression(modelsNode)) {
+      continue;
+    }
+
+    for (const modelNode of modelsNode.elements) {
+      const model = unwrapExpression(modelNode);
+      if (!ts.isObjectLiteralExpression(model)) {
+        continue;
+      }
+
+      const modelIdNode = getObjectProperty(model, 'id');
+      const modelTypeNode = getObjectProperty(model, 'type');
+      const id = modelIdNode ? stringLiteralOrConstValue(modelIdNode, constants) : null;
+      const type = modelTypeNode ? stringLiteralOrConstValue(modelTypeNode, constants) : null;
+      if (id && type) {
+        rows.push({ id, providerId, type });
+      }
+    }
+  }
+
+  return rows;
 }
 
 function summarizeMigrationFile(file) {
@@ -482,6 +603,62 @@ function collectDeletedRowsRequiringRemaps(migrationSummaries) {
   return deletedRows.filter((row) => !rowRemainsInFinalSnapshot(row, snapshot));
 }
 
+function buildFinalCatalogSnapshot(migrationSummaries) {
+  const snapshot = new Map();
+
+  for (const migration of migrationSummaries) {
+    for (const operation of migration.operations) {
+      if (operation.kind === 'delete-ids') {
+        for (const id of operation.ids) {
+          snapshot.delete(id);
+        }
+        continue;
+      }
+
+      if (operation.kind === 'delete-providers') {
+        for (const row of [...snapshot.values()]) {
+          if (operation.providerIds.includes(row.providerId)) {
+            snapshot.delete(row.id);
+          }
+        }
+        continue;
+      }
+
+      if (operation.kind === 'insert-models') {
+        for (const row of operation.rows) {
+          snapshot.set(row.id, row);
+        }
+      }
+    }
+  }
+
+  return snapshot;
+}
+
+function findStaticProviderRegistryFailures(input, migrationSummaries) {
+  if (!input.providerRegistrySource) {
+    return [];
+  }
+
+  const constants = new Map(Object.entries(input.providerRegistryConstants ?? {}));
+  const finalCatalog = buildFinalCatalogSnapshot(migrationSummaries);
+  const failures = [];
+
+  for (const row of extractProviderRegistryModels(input.providerRegistrySource, constants)) {
+    const catalogRow = finalCatalog.get(row.id);
+    if (catalogRow?.providerId === row.providerId) {
+      continue;
+    }
+
+    failures.push({
+      file: 'packages/assistant-contract/src/provider-registry.ts',
+      message: `Static provider-registry model ${modelKey(row)} is missing from the final DB model catalog.`,
+    });
+  }
+
+  return failures;
+}
+
 function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
   if (!(input.assistantPreferencesSource && input.memoryPreferencesSource)) {
     return [];
@@ -577,6 +754,7 @@ export function analyzeModelCatalogMigrationContract(input) {
   }
 
   failures.push(...findRemovedAssistantModelRemapFailures(input, migrationSummaries));
+  failures.push(...findStaticProviderRegistryFailures(input, migrationSummaries));
 
   return {
     catalogMutatingMigrations: migrationSummaries
@@ -612,6 +790,8 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     drizzleMigrateSource,
     assistantPreferencesSource,
     memoryPreferencesSource,
+    providerRegistrySource,
+    localLlmSource,
   ] = await Promise.all([
     readMigrationFiles(rootDir),
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
@@ -621,6 +801,8 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
       path.join(rootDir, 'packages/preferences/src/stores/assistant-memory-preferences-store.ts'),
       'utf8'
     ),
+    readFile(path.join(rootDir, 'packages/assistant-contract/src/provider-registry.ts'), 'utf8'),
+    readFile(path.join(rootDir, 'packages/assistant-contract/src/local-llm.ts'), 'utf8'),
   ]);
 
   return analyzeModelCatalogMigrationContract({
@@ -629,6 +811,10 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     memoryPreferencesSource,
     migrationFiles,
     migrationIndexSource,
+    providerRegistryConstants: Object.fromEntries(
+      extractStringConstExports(localLlmSource, 'packages/assistant-contract/src/local-llm.ts')
+    ),
+    providerRegistrySource,
   });
 }
 
