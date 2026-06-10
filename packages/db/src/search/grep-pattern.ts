@@ -72,7 +72,7 @@ function dropLastAndEndRun(state: ScanState): void {
   endRun(state);
 }
 
-/** Returns the updated position after processing one character token. */
+/** Returns the updated source position after consuming one logical token (may span multiple characters). */
 function processToken(source: string, i: number, state: ScanState): number {
   const ch = source[i] ?? '';
   if (ch === '\\') {
