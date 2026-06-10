@@ -40,7 +40,9 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
 
   const result = await query('SELECT id, path FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
-  const dbByPath = new Map(dbRows.filter((r) => r.path !== null).map((r) => [r.path, r]));
+  const dbByPath = new Map(
+    dbRows.filter((r): r is DbRootRow & { path: string } => r.path !== null).map((r) => [r.path, r])
+  );
 
   for (const root of adapterRoots) {
     if (!root.persisted || root.permissionState === 'unknown') {
@@ -64,6 +66,8 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
        ON CONFLICT (id) DO NOTHING`,
       [root.rootId, platformKind, root.displayName, root.handle.path]
     );
+    // Keep dbByPath current so a subsequent root with the same path maps to this id
+    dbByPath.set(root.handle.path, { id: root.rootId, path: root.handle.path });
     mapping.set(root.rootId, root.rootId);
     logger.info('Registered new root', { rootId: root.rootId, kind: platformKind });
   }

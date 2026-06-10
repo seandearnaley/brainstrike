@@ -69,6 +69,26 @@ describe('reconcileRoots', () => {
     );
   });
 
+  it('issues exactly one INSERT for two same-path roots in one call; second maps to the first id', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-a', 'shared-folder'), fsaRoot('adapter-b', 'shared-folder')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    const insertCalls = query.mock.calls.filter(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0]?.[1]).toEqual(expect.arrayContaining(['adapter-a']));
+    expect(result.dbRootIdByAdapterRootId.get('adapter-a')).toBe('adapter-a');
+    expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-a');
+  });
+
   it('leaves unmatched legacy DB rows untouched', async () => {
     const dbRows = [{ id: 'db-orphan', path: 'gone-folder' }];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
