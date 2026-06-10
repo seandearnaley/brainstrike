@@ -439,8 +439,14 @@ function createFileBatchPreparations(
  * before the mtime column existed) AND the scan to have captured the file's mtime.
  * Any gap or mismatch falls through to the existing read+hash path, so a stale
  * stat can only ever cost an extra read, never a missed real change — except the
- * well-known stat-cache residual (same byte size + preserved mtime + different
- * content), which self-heals the next time the file's mtime changes.
+ * well-known stat-cache residual: same byte size + preserved mtime + different
+ * content. Note this residual is NOT always transient — mtime-preserving tools
+ * (`cp -p`, `rsync --times`, archive restores, some VCS checkouts) hit it
+ * deterministically, and a restored same-size revision keeps its past mtime, so
+ * it is never re-embedded by sync alone. Recovery today is re-creating the
+ * collection (or factory reset); a targeted force-rehash affordance is a known,
+ * deliberate follow-up (a periodic full rehash was considered and declined for
+ * this change's scope).
  */
 export function partitionPreparationsByStatCache<
   T extends { mtimeMs: number | null; relativePath: string; size: number },
