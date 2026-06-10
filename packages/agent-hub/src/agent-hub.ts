@@ -1,8 +1,20 @@
+import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
 import { AGENT_COLOR_KEYS, BUILTIN_AGENT_COLOR, colorForIndex } from './agent-colors';
-import type { AgentHub, AgentHubOptions, HubAgent, RegisterAgentInput } from './types';
+import type {
+  AgentHub,
+  AgentHubOptions,
+  HubAgent,
+  HubMessage,
+  PostMessageInput,
+  ReadMessagesInput,
+  ReadMessagesResult,
+  RegisterAgentInput,
+} from './types';
 
 export const BUILTIN_SESSION_KEY = 'builtin';
 export const BUILTIN_AGENT_NAME = 'brainstrike';
+export const DEFAULT_CHANNEL = '#general';
+const DEFAULT_MAX_MESSAGES_PER_CHANNEL = 1000;
 
 export class AgentHubError extends Error {
   constructor(message: string) {
@@ -13,7 +25,10 @@ export class AgentHubError extends Error {
 
 interface HubState {
   agentsById: Map<string, HubAgent>;
+  channels: Map<string, HubMessage[]>;
   colorCursor: number;
+  maxMessagesPerChannel: number;
+  nextMessageId: number;
   now: () => number;
   sessionToAgentId: Map<string, string>;
 }
@@ -50,7 +65,10 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
   const now = options.now ?? (() => Date.now());
   const state: HubState = {
     agentsById: new Map(),
+    channels: new Map([[DEFAULT_CHANNEL, []]]),
     colorCursor: 0,
+    maxMessagesPerChannel: options.maxMessagesPerChannel ?? DEFAULT_MAX_MESSAGES_PER_CHANNEL,
+    nextMessageId: 1,
     now,
     sessionToAgentId: new Map(),
   };
@@ -114,6 +132,93 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     return [...state.agentsById.values()].map((agent) => ({ ...agent }));
   }
 
+  function requireSender(sessionKey: string): HubAgent {
+    const agent = getAgentBySessionKey(sessionKey);
+    if (!agent) {
+      throw new AgentHubError('Not registered. Call hub_register first.');
+    }
+    return agent;
+  }
+
+  function postMessage(input: PostMessageInput): HubMessage {
+    const sender = requireSender(input.sessionKey);
+    const text = input.text.trim();
+    if (text.length === 0) {
+      throw new AgentHubError('Message text must not be empty.');
+    }
+    const channel = input.channel ?? DEFAULT_CHANNEL;
+    const message: HubMessage = {
+      channel,
+      fromAgentId: sender.agentId,
+      fromColor: sender.color,
+      fromName: sender.name,
+      id: state.nextMessageId,
+      mentions: input.mentions ?? [],
+      postedAt: now(),
+      text,
+      tokenCount: countTokensHeuristic(text),
+    };
+    state.nextMessageId += 1;
+
+    const existing = state.channels.get(channel);
+    const messages = existing ?? [];
+    if (!existing) {
+      state.channels.set(channel, messages);
+    }
+    messages.push(message);
+    if (messages.length > state.maxMessagesPerChannel) {
+      messages.splice(0, messages.length - state.maxMessagesPerChannel);
+    }
+
+    sender.tokensSent += message.tokenCount;
+    sender.lastSeenAt = message.postedAt;
+    return message;
+  }
+
+  function readMessages(input: ReadMessagesInput): ReadMessagesResult {
+    const reader = requireSender(input.sessionKey);
+    const channel = input.channel ?? DEFAULT_CHANNEL;
+    const all = state.channels.get(channel) ?? [];
+    const candidates =
+      input.sinceId === undefined
+        ? all
+        : all.filter((message) => message.id > (input.sinceId ?? 0));
+
+    const selected: HubMessage[] = [];
+    let tokensUsed = 0;
+    let truncated = false;
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const message = candidates[index];
+      if (!message) {
+        continue;
+      }
+      const overBudget =
+        input.maxTokens !== undefined && tokensUsed + message.tokenCount > input.maxTokens;
+      const overLimit = input.limit !== undefined && selected.length >= input.limit;
+      if (overBudget || overLimit) {
+        truncated = true;
+        break;
+      }
+      selected.push(message);
+      tokensUsed += message.tokenCount;
+    }
+    selected.reverse();
+
+    reader.tokensReceived += tokensUsed;
+    reader.lastSeenAt = now();
+    const lastMessage = all.at(-1);
+    return {
+      latestId: lastMessage ? lastMessage.id : 0,
+      messages: selected,
+      tokensUsed,
+      truncated,
+    };
+  }
+
+  function listChannels(): string[] {
+    return [...state.channels.keys()];
+  }
+
   return {
     disconnectAgent,
     getAgentBySessionKey,
@@ -121,18 +226,12 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
       throw new AgentHubError('Not implemented yet.');
     },
     listAgents,
-    listChannels: () => {
-      throw new AgentHubError('Not implemented yet.');
-    },
+    listChannels,
     on: () => {
       throw new AgentHubError('Not implemented yet.');
     },
-    postMessage: () => {
-      throw new AgentHubError('Not implemented yet.');
-    },
-    readMessages: () => {
-      throw new AgentHubError('Not implemented yet.');
-    },
+    postMessage,
+    readMessages,
     registerAgent,
   };
 }

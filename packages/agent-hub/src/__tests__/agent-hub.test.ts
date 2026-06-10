@@ -65,3 +65,100 @@ describe('agent registry', () => {
     expect(() => hub.disconnectAgent('missing')).not.toThrow();
   });
 });
+
+describe('messaging', () => {
+  it('posts to #general by default with heuristic token count and monotonic ids', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    const message = hub.postMessage({ sessionKey: 's1', text: 'x'.repeat(20) });
+    expect(message.channel).toBe('#general');
+    expect(message.tokenCount).toBe(5);
+    expect(message.id).toBe(1);
+    expect(message.fromName).toBe('a');
+    const second = hub.postMessage({ sessionKey: 's1', text: 'hello' });
+    expect(second.id).toBe(2);
+  });
+
+  it('rejects empty text and unregistered senders', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    expect(() => hub.postMessage({ sessionKey: 's1', text: '   ' })).toThrow(AgentHubError);
+    expect(() => hub.postMessage({ sessionKey: 'ghost', text: 'hi' })).toThrow(/register/i);
+  });
+
+  it('creates channels on demand and lists them', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    expect(hub.listChannels()).toEqual(['#general']);
+    hub.postMessage({ channel: '#dev', sessionKey: 's1', text: 'hi' });
+    expect(hub.listChannels()).toEqual(['#general', '#dev']);
+  });
+
+  it('evicts oldest messages beyond maxMessagesPerChannel', () => {
+    const hub = createAgentHub({ maxMessagesPerChannel: 2, now: () => 1000 });
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'one' });
+    hub.postMessage({ sessionKey: 's1', text: 'two' });
+    hub.postMessage({ sessionKey: 's1', text: 'three' });
+    const result = hub.readMessages({ sessionKey: 's1' });
+    expect(result.messages.map((message) => message.text)).toEqual(['two', 'three']);
+  });
+});
+
+describe('readMessages token budget', () => {
+  it('returns newest messages fitting maxTokens in chronological order', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    // 20 chars => 5 tokens each
+    hub.postMessage({ sessionKey: 's1', text: 'a'.repeat(20) });
+    hub.postMessage({ sessionKey: 's1', text: 'b'.repeat(20) });
+    hub.postMessage({ sessionKey: 's1', text: 'c'.repeat(20) });
+    const result = hub.readMessages({ maxTokens: 10, sessionKey: 's1' });
+    expect(result.messages.map((message) => message.text[0])).toEqual(['b', 'c']);
+    expect(result.tokensUsed).toBe(10);
+    expect(result.truncated).toBe(true);
+    expect(result.latestId).toBe(3);
+  });
+
+  it('sinceId returns only newer messages and is not truncated when all fit', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'first' });
+    const second = hub.postMessage({ sessionKey: 's1', text: 'second' });
+    const result = hub.readMessages({ sessionKey: 's1', sinceId: 1 });
+    expect(result.messages.map((message) => message.id)).toEqual([second.id]);
+    expect(result.truncated).toBe(false);
+    expect(result.latestId).toBe(second.id);
+  });
+
+  it('reading an unknown channel returns an empty result with latestId 0', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    const result = hub.readMessages({ channel: '#nope', sessionKey: 's1' });
+    expect(result.messages).toEqual([]);
+    expect(result.latestId).toBe(0);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('accumulates tokensSent on poster and tokensReceived on reader', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'poster', sessionKey: 's1' });
+    hub.registerAgent({ name: 'reader', sessionKey: 's2' });
+    hub.postMessage({ sessionKey: 's1', text: 'x'.repeat(40) }); // 10 tokens
+    hub.readMessages({ sessionKey: 's2' });
+    const roster = hub.listAgents();
+    expect(roster.find((agent) => agent.name === 'poster')?.tokensSent).toBe(10);
+    expect(roster.find((agent) => agent.name === 'reader')?.tokensReceived).toBe(10);
+  });
+
+  it('limit caps the number of returned messages from the newest end', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'one' });
+    hub.postMessage({ sessionKey: 's1', text: 'two' });
+    hub.postMessage({ sessionKey: 's1', text: 'three' });
+    const result = hub.readMessages({ limit: 2, sessionKey: 's1' });
+    expect(result.messages.map((message) => message.text)).toEqual(['two', 'three']);
+    expect(result.truncated).toBe(true);
+  });
+});
