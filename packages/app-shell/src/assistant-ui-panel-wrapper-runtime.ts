@@ -755,18 +755,6 @@ export interface SelectedModelBudgetDef {
   maxOutputTokens?: number;
 }
 
-/** Safe wrapper around deriveEffectiveInputBudget; returns undefined on throw (e.g. window too small). */
-export function safeEffectiveBudget(def: SelectedModelBudgetDef | undefined): number | undefined {
-  if (!def) {
-    return;
-  }
-  try {
-    return deriveEffectiveInputBudget(def.contextWindow, def.maxOutputTokens);
-  } catch {
-    return;
-  }
-}
-
 export function buildAgentLoopSettings(
   settings: AssistantProviderSettings | undefined,
   selectedModelDef?: SelectedModelBudgetDef
