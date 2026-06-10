@@ -13,6 +13,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
     vi.clearAllMocks();
   });
 
+  it('declares platform "electron" (roots registry derives kind "path" from this)', () => {
+    expect(adapter.platform).toBe('electron');
+  });
+
   describe('requestDirectoryAccess', () => {
     it('should call electronAPI.fileSystem.requestDirectoryAccess', async () => {
       const result = await adapter.requestDirectoryAccess();

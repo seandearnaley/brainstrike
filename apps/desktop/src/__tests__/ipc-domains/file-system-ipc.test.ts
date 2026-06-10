@@ -329,6 +329,48 @@ describe('fs:addRoot', () => {
     }>;
     expect(lastRootsList.filter((e) => e.rootId === existingRootId)).toHaveLength(1);
   });
+
+  it('returns persisted: false and warns (without throwing) when the rootsList write fails', async () => {
+    const pickedPath = path.resolve('/users/test/unpersisted-project');
+    fileSystem = createFileSystem(pickedPath);
+    storage = createStorage();
+    vi.mocked(storage.setItem).mockImplementation(async (key: string) => {
+      if (key === 'rootsList') {
+        throw new Error('disk full');
+      }
+    });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    setLogLevel(LogLevel.WARN);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'FileSystemIpc') {
+        captured.push(record);
+      }
+    });
+
+    let result: unknown;
+    try {
+      result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+    } finally {
+      removeListener();
+    }
+
+    expect(result).toMatchObject({
+      displayName: 'unpersisted-project',
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: false,
+    });
+    // lastFolderPath shim write still happens despite the rootsList failure
+    expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', pickedPath);
+    expect(
+      captured.some(
+        (record) =>
+          record.level === LogLevel.WARN && record.message === 'addRoot: failed to write rootsList'
+      )
+    ).toBe(true);
+  });
 });
 
 describe('fs:saveLastFolder (legacy shim)', () => {

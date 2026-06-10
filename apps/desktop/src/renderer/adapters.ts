@@ -11,6 +11,8 @@ function requireElectronAPI(): ElectronAPI {
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
+  public readonly platform = 'electron' as const;
+
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     const api = requireElectronAPI().fileSystem;
     const handle = await api.requestDirectoryAccess();
