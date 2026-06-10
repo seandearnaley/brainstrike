@@ -105,6 +105,68 @@ describe('messaging', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('setMaxMessagesPerChannel trims existing history and applies to new posts', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'one' });
+    hub.postMessage({ sessionKey: 's1', text: 'two' });
+    hub.postMessage({ sessionKey: 's1', text: 'three' });
+    hub.setMaxMessagesPerChannel(2);
+    expect(hub.readMessages({ sessionKey: 's1' }).messages.map((message) => message.text)).toEqual([
+      'two',
+      'three',
+    ]);
+    hub.postMessage({ sessionKey: 's1', text: 'four' });
+    expect(hub.readMessages({ sessionKey: 's1' }).messages.map((message) => message.text)).toEqual([
+      'three',
+      'four',
+    ]);
+    expect(() => hub.setMaxMessagesPerChannel(0)).toThrow(AgentHubError);
+  });
+
+  it('re-registering a name held by an offline agent reclaims it instead of suffixing', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'claude', sessionKey: 's1' });
+    hub.disconnectAgent('s1');
+    const reconnected = hub.registerAgent({ name: 'claude', sessionKey: 's2' });
+    expect(reconnected.name).toBe('claude');
+    expect(hub.listAgents().filter((agent) => agent.name === 'claude')).toHaveLength(1);
+  });
+
+  it('caps retained offline agents so reconnect churn stays bounded', () => {
+    const hub = makeHub();
+    for (let index = 0; index < 30; index += 1) {
+      hub.registerAgent({ name: `agent-${index}`, sessionKey: `s${index}` });
+      hub.disconnectAgent(`s${index}`);
+    }
+    const offline = hub.listAgents().filter((agent) => agent.status === 'offline');
+    expect(offline.length).toBeLessThanOrEqual(25);
+    expect(offline.some((agent) => agent.name === 'agent-29')).toBe(true);
+    expect(offline.some((agent) => agent.name === 'agent-0')).toBe(false);
+  });
+
+  it('an oversized newest message is still delivered once so polling advances', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'x'.repeat(400) }); // 100 tokens
+    const result = hub.readMessages({ maxTokens: 10, sessionKey: 's1' });
+    expect(result.messages).toHaveLength(1);
+    expect(result.tokensUsed).toBe(100);
+    expect(result.truncated).toBe(false);
+    expect(result.latestId).toBe(1);
+  });
+
+  it('rejects agent names that break VFS paths', () => {
+    const hub = makeHub();
+    expect(() => hub.registerAgent({ name: 'foo/bar', sessionKey: 's1' })).toThrow(AgentHubError);
+    expect(() => hub.registerAgent({ name: 'a'.repeat(65), sessionKey: 's2' })).toThrow(
+      AgentHubError
+    );
+    expect(() => hub.registerAgent({ name: 'ok name_1.x-y', sessionKey: 's3' })).not.toThrow();
+  });
+});
+
 describe('readMessages token budget', () => {
   it('returns newest messages fitting maxTokens in chronological order', () => {
     const hub = makeHub();

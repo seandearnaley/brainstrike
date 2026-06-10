@@ -134,6 +134,7 @@
       "title": "Shared UI, types, filesystem, hooks, and utilities",
       "owner": "foundation",
       "packages": [
+        "@brainstrike/agent-hub",
         "@brainstrike/assistant-contract",
         "@brainstrike/file-system",
         "@brainstrike/hooks",

@@ -18,6 +18,20 @@ export const BUILTIN_SESSION_KEY = 'builtin';
 export const BUILTIN_AGENT_NAME = 'brainstrike';
 export const DEFAULT_CHANNEL = '#general';
 const DEFAULT_MAX_MESSAGES_PER_CHANNEL = 1000;
+/** Disconnected agents kept for dashboard history; oldest evicted beyond this. */
+const MAX_OFFLINE_AGENTS = 25;
+const MAX_AGENT_NAME_LENGTH = 64;
+
+/** Names appear in VFS paths, so no slashes or control characters. */
+function isValidAgentName(name: string): boolean {
+  if (name.length === 0 || name.length > MAX_AGENT_NAME_LENGTH) {
+    return false;
+  }
+  if (name.includes('/')) {
+    return false;
+  }
+  return [...name].every((char) => char.charCodeAt(0) >= 0x20);
+}
 
 export class AgentHubError extends Error {
   constructor(message: string) {
@@ -66,6 +80,49 @@ function createBuiltinAgent(now: () => number): HubAgent {
 
 const SNAPSHOT_RECENT_MESSAGE_LIMIT = 100;
 
+interface BudgetedSelection {
+  selected: HubMessage[];
+  tokensUsed: number;
+  truncated: boolean;
+}
+
+function selectNewestWithinBudget(
+  candidates: HubMessage[],
+  maxTokens: number | undefined,
+  limit: number | undefined
+): BudgetedSelection {
+  const selected: HubMessage[] = [];
+  let tokensUsed = 0;
+  let truncated = false;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const message = candidates[index];
+    if (!message) {
+      continue;
+    }
+    const overBudget = maxTokens !== undefined && tokensUsed + message.tokenCount > maxTokens;
+    const overLimit = limit !== undefined && selected.length >= limit;
+    if (overBudget || overLimit) {
+      truncated = true;
+      break;
+    }
+    selected.push(message);
+    tokensUsed += message.tokenCount;
+  }
+  // Forward progress guarantee: when even the newest message exceeds the
+  // budget, deliver it anyway - otherwise a fixed-budget poller using
+  // sinceId would receive empty results forever.
+  if (selected.length === 0 && candidates.length > 0) {
+    const newest = candidates.at(-1);
+    if (newest) {
+      selected.push(newest);
+      tokensUsed += newest.tokenCount;
+      truncated = candidates.length > 1;
+    }
+  }
+  selected.reverse();
+  return { selected, tokensUsed, truncated };
+}
+
 type HubListeners = {
   [E in keyof HubEventMap]: Set<(payload: HubEventMap[E]) => void>;
 };
@@ -113,10 +170,27 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     return agentId === undefined ? undefined : state.agentsById.get(agentId);
   }
 
+  function evictStaleOfflineAgents(): void {
+    const offline = [...state.agentsById.values()]
+      .filter((agent) => agent.status === 'offline')
+      .sort((a, b) => a.lastSeenAt - b.lastSeenAt);
+    while (offline.length > MAX_OFFLINE_AGENTS) {
+      const oldest = offline.shift();
+      if (oldest) {
+        state.agentsById.delete(oldest.agentId);
+      }
+    }
+  }
+
   function registerAgent(input: RegisterAgentInput): HubAgent {
     const requestedName = input.name.trim();
     if (requestedName.length === 0) {
       throw new AgentHubError('Agent name must not be blank.');
+    }
+    if (!isValidAgentName(requestedName)) {
+      throw new AgentHubError(
+        'Agent name must be 1-64 characters with no slashes or control characters (it becomes a VFS path segment).'
+      );
     }
     if (input.sessionKey === BUILTIN_SESSION_KEY) {
       throw new AgentHubError(`Session key '${BUILTIN_SESSION_KEY}' is reserved.`);
@@ -126,6 +200,15 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     if (previous) {
       state.agentsById.delete(previous.agentId);
       state.sessionToAgentId.delete(input.sessionKey);
+    }
+
+    // A reconnecting agent reclaims its name from its own offline ghost
+    // instead of drifting to name-2, name-3, ...
+    const offlineHolder = [...state.agentsById.values()].find(
+      (agent) => agent.status === 'offline' && agent.name === requestedName
+    );
+    if (offlineHolder) {
+      state.agentsById.delete(offlineHolder.agentId);
     }
 
     const agent: HubAgent = {
@@ -158,6 +241,7 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     agent.status = 'offline';
     agent.lastSeenAt = now();
     state.sessionToAgentId.delete(sessionKey);
+    evictStaleOfflineAgents();
     emit('agent-left', { ...agent });
   }
 
@@ -219,25 +303,11 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
         ? all
         : all.filter((message) => message.id > (input.sinceId ?? 0));
 
-    const selected: HubMessage[] = [];
-    let tokensUsed = 0;
-    let truncated = false;
-    for (let index = candidates.length - 1; index >= 0; index -= 1) {
-      const message = candidates[index];
-      if (!message) {
-        continue;
-      }
-      const overBudget =
-        input.maxTokens !== undefined && tokensUsed + message.tokenCount > input.maxTokens;
-      const overLimit = input.limit !== undefined && selected.length >= input.limit;
-      if (overBudget || overLimit) {
-        truncated = true;
-        break;
-      }
-      selected.push(message);
-      tokensUsed += message.tokenCount;
-    }
-    selected.reverse();
+    const { selected, tokensUsed, truncated } = selectNewestWithinBudget(
+      candidates,
+      input.maxTokens,
+      input.limit
+    );
 
     reader.tokensReceived += tokensUsed;
     reader.lastSeenAt = now();
@@ -255,6 +325,20 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
 
   function listChannels(): string[] {
     return [...state.channels.keys()];
+  }
+
+  function setMaxMessagesPerChannel(value: number): void {
+    if (!Number.isInteger(value) || value < 1) {
+      throw new AgentHubError(
+        `maxMessagesPerChannel must be a positive integer, received ${JSON.stringify(value)}.`
+      );
+    }
+    state.maxMessagesPerChannel = value;
+    for (const messages of state.channels.values()) {
+      if (messages.length > value) {
+        messages.splice(0, messages.length - value);
+      }
+    }
   }
 
   const vfs = createHubVfs({
@@ -287,6 +371,7 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     postMessage,
     readMessages,
     registerAgent,
+    setMaxMessagesPerChannel,
     vfsList: vfs.list,
     vfsRead: vfs.read,
     vfsWrite: vfs.write,

@@ -140,6 +140,35 @@ describe('AgentHubPanel', () => {
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
   });
 
+  it('scopes the chat room to #general and excludes other channels', async () => {
+    installBridge({
+      getSnapshot: vi.fn().mockResolvedValue({
+        ...snapshot,
+        recentMessages: [
+          ...snapshot.recentMessages,
+          {
+            channel: '#dev',
+            fromAgentId: 'alpha-id',
+            fromColor: 'chart-1',
+            fromName: 'alpha',
+            id: 2,
+            mentions: [],
+            postedAt: 2600,
+            text: 'dev-only chatter',
+            tokenCount: 4,
+          },
+        ],
+        totalMessages: 2,
+        totalTokens: 7,
+      }),
+    });
+    render(<AgentHubPanel />);
+    expect(await screen.findByText('hello room')).toBeInTheDocument();
+    expect(screen.queryByText('dev-only chatter')).not.toBeInTheDocument();
+    // Header counts reflect the visible #general room, not all channels.
+    expect(screen.getByText(/1 messages · 3 tokens/)).toBeInTheDocument();
+  });
+
   it('updates when a snapshot event arrives', async () => {
     const holder: { push: ((next: HubSnapshot) => void) | null } = { push: null };
     installBridge({

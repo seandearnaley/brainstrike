@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import type { AgentHub } from '@brainstrike/agent-hub';
 import { createLogger } from '@brainstrike/utils';
@@ -101,7 +101,11 @@ export function createAgentHubServerManager(
     if (config.authToken === null) {
       return true;
     }
-    return req.headers.authorization === `Bearer ${config.authToken}`;
+    const provided = Buffer.from(req.headers.authorization ?? '', 'utf8');
+    const expected = Buffer.from(`Bearer ${config.authToken}`, 'utf8');
+    // Length-checked constant-time compare: the token is the only protection
+    // on non-loopback binds, so avoid a remote timing side-channel.
+    return provided.length === expected.length && timingSafeEqual(provided, expected);
   }
 
   function removeSession(sessionId: string): void {
@@ -280,6 +284,7 @@ export function createAgentHubServerManager(
     const validated = assertAgentHubConfig(next);
     await stop();
     config = validated;
+    hub.setMaxMessagesPerChannel(validated.maxMessagesPerChannel);
     state = 'stopped';
     lastError = null;
     if (validated.enabled) {

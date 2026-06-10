@@ -216,6 +216,16 @@ describe('agent hub server manager', () => {
     expect(readPayload.nextOffsetTokens).toBe(10);
   });
 
+  it('applyConfig propagates the history cap to the hub', async () => {
+    const { hub, manager } = await startManager();
+    await manager.applyConfig(testConfig({ maxMessagesPerChannel: 10 }));
+    hub.registerAgent({ name: 'chatty', sessionKey: 'local' });
+    for (let index = 0; index < 12; index += 1) {
+      hub.postMessage({ sessionKey: 'local', text: `message ${index}` });
+    }
+    expect(hub.readMessages({ sessionKey: 'local' }).messages).toHaveLength(10);
+  });
+
   it('registers context_search when a provider is supplied', async () => {
     const hub = createAgentHub();
     const manager = createAgentHubServerManager({

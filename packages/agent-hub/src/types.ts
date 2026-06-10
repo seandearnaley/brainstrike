@@ -131,6 +131,8 @@ export interface AgentHub {
   postMessage(input: PostMessageInput): HubMessage;
   readMessages(input: ReadMessagesInput): ReadMessagesResult;
   registerAgent(input: RegisterAgentInput): HubAgent;
+  /** Applies immediately: existing channel history beyond the cap is trimmed. */
+  setMaxMessagesPerChannel(value: number): void;
   vfsList(): VfsEntry[];
   vfsRead(input: VfsReadInput): VfsReadResult;
   vfsWrite(input: VfsWriteInput): VfsEntry;

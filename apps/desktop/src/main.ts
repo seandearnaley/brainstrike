@@ -1112,7 +1112,9 @@ if (singleInstanceLockAcquired) {
       // Agent Hub MCP server: constructed eagerly but NOT auto-started. The
       // renderer owns the persisted settings (localStorage-backed store) and
       // drives start/stop via the window.agentHub bridge once it hydrates.
-      const agentHub = createAgentHub();
+      const agentHub = createAgentHub({
+        maxMessagesPerChannel: DEFAULT_AGENT_HUB_CONFIG.maxMessagesPerChannel,
+      });
       agentHubServerManager = createAgentHubServerManager({
         config: DEFAULT_AGENT_HUB_CONFIG,
         hub: agentHub,

@@ -130,9 +130,15 @@ export function AgentHubPanel() {
   const bridge = getAgentHubBridge();
   const { snapshot, status } = useAgentHubLiveState(bridge);
   const [draft, setDraft] = useState('');
+  // The room shows DEFAULT_CHANNEL only; snapshots merge every channel, so
+  // filter here and derive header counts from the visible messages.
+  const roomMessages = (snapshot?.recentMessages ?? []).filter(
+    (message) => message.channel === DEFAULT_CHANNEL
+  );
+  const roomTokens = roomMessages.reduce((sum, message) => sum + message.tokenCount, 0);
   // Keyed by the latest message id so a new message remounts the sentinel and
   // the ref callback scrolls it into view — no message-count effect needed.
-  const latestMessageId = snapshot?.recentMessages.at(-1)?.id ?? 0;
+  const latestMessageId = roomMessages.at(-1)?.id ?? 0;
   const scrollSentinelRef = useCallback((node: HTMLDivElement | null) => {
     if (node && typeof node.scrollIntoView === 'function') {
       node.scrollIntoView({ block: 'end' });
@@ -199,13 +205,11 @@ export function AgentHubPanel() {
         <header className="flex items-center gap-2 border-b px-4 py-2">
           <span className="font-semibold text-sm">{DEFAULT_CHANNEL}</span>
           <span className="text-muted-foreground text-xs">
-            {snapshot
-              ? `${snapshot.totalMessages} messages · ${formatTokenCount(snapshot.totalTokens)}`
-              : ''}
+            {snapshot ? `${roomMessages.length} messages · ${formatTokenCount(roomTokens)}` : ''}
           </span>
         </header>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
-          {snapshot?.recentMessages.map((message) => (
+          {roomMessages.map((message) => (
             <MessageRow key={message.id} message={message} />
           ))}
           <div key={latestMessageId} ref={scrollSentinelRef} />

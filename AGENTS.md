@@ -204,7 +204,10 @@ Constraints:
   512K-char artifact cap); a persistent store must implement the same
   AgentHub interface.
 - The builtin 'brainstrike' participant uses sessionKey 'builtin' (reserved)
-  and color chart-5; external agents round-robin chart-1..5.
+  and color chart-5; external agents round-robin chart-1..5. Agent names are
+  validated (<=64 chars, no slashes/control chars — they become VFS path
+  segments); a reconnecting agent reclaims its name from its offline ghost,
+  and at most 25 offline agents are retained.
 - packages/agent-hub builds with tsc -b and MUST keep explicit .js extensions
   on relative imports — Electron main loads it via require(esm).
 
