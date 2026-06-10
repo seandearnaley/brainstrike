@@ -89,6 +89,8 @@ describe('migration 038: roots table', () => {
     return migration;
   }
 
+  // Migration 001 creates created_at/updated_at as TEXT NOT NULL with no
+  // DEFAULT on the numbered-runner path, so seeds must supply them.
   async function seedFileRecord(
     id: string,
     path: string,
@@ -96,9 +98,16 @@ describe('migration 038: roots table', () => {
     embeddingSetId: string | null
   ): Promise<void> {
     await db.query(
-      `INSERT INTO file_records (id, name, path, size, source_root_path, embedding_set_id)
-       VALUES ($1, $2, $3, 0, $4, $5)`,
-      [id, path.split('/').pop() ?? path, path, sourceRootPath, embeddingSetId]
+      `INSERT INTO file_records (id, name, path, size, source_root_path, embedding_set_id, created_at, updated_at)
+       VALUES ($1, $2, $3, 0, $4, $5, $6, $6)`,
+      [
+        id,
+        path.split('/').pop() ?? path,
+        path,
+        sourceRootPath,
+        embeddingSetId,
+        '2026-06-09T00:00:00.000Z',
+      ]
     );
   }
 
@@ -110,6 +119,7 @@ describe('migration 038: roots table', () => {
       await seedFileRecord('f2', 'src/index.ts', '/Users/alice/personal-docs', 'set-a');
       await seedFileRecord('f3', 'notes.md', '/Users/alice/work-docs', 'set-a');
       await seedFileRecord('f4', 'orphan.md', null, null);
+      await seedFileRecord('f5', 'rootfile.md', '/', 'set-a');
 
       await runner.runMigration(getMigration038());
 
@@ -124,6 +134,12 @@ describe('migration 038: roots table', () => {
           status: row.status,
         }))
       ).toEqual([
+        {
+          display_name: '/',
+          kind: 'legacy',
+          path: '/',
+          status: 'live',
+        },
         {
           display_name: 'personal-docs',
           kind: 'legacy',
@@ -148,6 +164,8 @@ describe('migration 038: roots table', () => {
       expect(byId.get('f2')?.root_id).toBe(personalRoot?.id);
       expect(byId.get('f3')?.root_id).toBe(workRoot?.id);
       expect(byId.get('f4')?.root_id).toBeNull();
+      const slashRoot = roots.rows.find((row) => row.path === '/');
+      expect(byId.get('f5')?.root_id).toBe(slashRoot?.id);
     }
   );
 
@@ -173,10 +191,12 @@ describe('migration 038: roots table', () => {
         )
       ).rows[0]?.root_id;
       expect(workRootId).toBeTruthy();
+      // created_at/updated_at supplied: NOT NULL fires before unique
+      // constraints, which would mask the duplicate-key assertion.
       await expect(
         db.query(
-          `INSERT INTO file_records (id, name, path, size, source_root_path, embedding_set_id, root_id)
-           VALUES ('f-dup', 'index.ts', 'src/index.ts', 0, '/Users/alice/work-docs', 'set-a', $1)`,
+          `INSERT INTO file_records (id, name, path, size, source_root_path, embedding_set_id, root_id, created_at, updated_at)
+           VALUES ('f-dup', 'index.ts', 'src/index.ts', 0, '/Users/alice/work-docs', 'set-a', $1, '2026-06-09T00:00:00.000Z', '2026-06-09T00:00:00.000Z')`,
           [workRootId]
         )
       ).rejects.toThrow(/duplicate key/);
@@ -258,6 +278,8 @@ import type { Migration } from './migration-runner';
  *
  * display_name strips everything up to the last '/' or '\\'; web legacy
  * values are bare folder names (no separator) and pass through unchanged.
+ * Degenerate roots ('/' or 'C:\') would strip to '' — NULLIF/COALESCE
+ * falls back to the full path so display_name is never empty.
  *
  * The 029 index (embedding_set_id, source_root_path, path) stays in place
  * until writes populate root_id (phase 3); both identities are enforced
@@ -284,6 +306,7 @@ export const migration038RootsTable: Migration = {
       WHERE path IS NOT NULL;
     --> statement-breakpoint
 
+    -- cascade intentional: root removal is a full workspace wipe
     ALTER TABLE IF EXISTS file_records
       ADD COLUMN IF NOT EXISTS root_id TEXT REFERENCES roots(id) ON DELETE CASCADE;
     --> statement-breakpoint
@@ -291,7 +314,10 @@ export const migration038RootsTable: Migration = {
     INSERT INTO roots (kind, display_name, path)
     SELECT
       'legacy',
-      regexp_replace(s.source_root_path, '^.*[/\\\\]', ''),
+      COALESCE(
+        NULLIF(regexp_replace(s.source_root_path, '^.*[/\\\\]', ''), ''),
+        s.source_root_path
+      ),
       s.source_root_path
     FROM (
       SELECT DISTINCT source_root_path
@@ -455,6 +481,13 @@ and add to the index array (after line 150):
 ```
 
 (The existing schema models the 029 unique index as a plain descriptive index only; follow that precedent — do not introduce `uniqueIndex` here.)
+
+Also add to the `TYPE EXPORTS` block at the bottom of the file (house convention — every table exports its inferred pair):
+
+```typescript
+export type Root = typeof roots.$inferSelect;
+export type NewRoot = typeof roots.$inferInsert;
+```
 
 - [ ] **Step 3: Build and type-check the package**
 
