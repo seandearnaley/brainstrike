@@ -4,7 +4,11 @@
  * This hook provides file system functionality using the context-based store.
  */
 
-import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
+import {
+  useAdapters,
+  useFileSystem as useCoreFileSystem,
+  useFileSystemWatcher,
+} from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
@@ -87,6 +91,9 @@ async function selectDirectoryWithErrorMapping(
     throw new Error(errorMessage);
   }
 }
+
+/** Custom event dispatched to all listeners when a watched root reports changes. */
+const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
 
 export function useFileSystem() {
   const store = useFileExplorerStoreContext();
@@ -215,6 +222,30 @@ export function useFileSystem() {
   useEffect(() => {
     setStoreIsAccessLoading(coreApi.isAccessLoading);
   }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
+
+  // Per-root file watcher lifecycle (multi-root, Phase 4+).
+  // Dispatches the file-explorer refresh event whenever any root reports changes,
+  // which triggers the sync provider to pick up new / deleted files.
+  const { fileSystemAdapter } = useAdapters();
+
+  const watcherRoots = useMemo(
+    () =>
+      coreApi.rootDirectoryHandles.map((handle) => ({
+        rootId: coreApi.rootIdByPath.get(handle.path) ?? handle.path,
+        handle,
+      })),
+    [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
+  );
+
+  const handleWatcherChanges = useCallback((_rootId: string): void => {
+    window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
+  }, []);
+
+  useFileSystemWatcher({
+    adapter: fileSystemAdapter,
+    roots: watcherRoots,
+    onChanges: handleWatcherChanges,
+  });
 
   // Memoize the return object with stable primitive/reference dependencies only
   // Functions are recreated each render but the object identity changes only when

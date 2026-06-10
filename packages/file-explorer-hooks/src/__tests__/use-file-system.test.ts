@@ -812,7 +812,6 @@ describe('useFileSystem', () => {
       // addActiveRoot called with synthetic descriptor (uuid rootId, handle.name as displayName)
       expect(mockAddActiveRoot).toHaveBeenCalledTimes(1);
       // We just verified it was called once above, so the first call exists.
-      // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveBeenCalledTimes(1)
       const calledWith = mockAddActiveRoot.mock.calls[0]![0] as {
         displayName: string;
         path: string;

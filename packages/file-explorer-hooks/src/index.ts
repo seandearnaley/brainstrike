@@ -7,6 +7,7 @@ export * from './use-file-content-loading';
 export * from './use-file-explorer';
 export * from './use-file-loading-manager';
 export * from './use-file-system';
+export * from './use-file-system-watcher';
 export * from './use-file-tree';
 export * from './use-restore-access';
 export * from './use-selection-manager';
