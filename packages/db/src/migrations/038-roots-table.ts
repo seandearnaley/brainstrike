@@ -9,6 +9,8 @@ import type { Migration } from './migration-runner';
  *
  * display_name strips everything up to the last '/' or '\\'; web legacy
  * values are bare folder names (no separator) and pass through unchanged.
+ * Degenerate roots ('/' or 'C:\\') would strip to '' — NULLIF/COALESCE
+ * falls back to the full path so display_name is never empty.
  *
  * The 029 index (embedding_set_id, source_root_path, path) stays in place
  * until writes populate root_id (phase 3); both identities are enforced
@@ -35,6 +37,7 @@ export const migration038RootsTable: Migration = {
       WHERE path IS NOT NULL;
     --> statement-breakpoint
 
+    -- cascade intentional: root removal is a full workspace wipe
     ALTER TABLE IF EXISTS file_records
       ADD COLUMN IF NOT EXISTS root_id TEXT REFERENCES roots(id) ON DELETE CASCADE;
     --> statement-breakpoint
@@ -42,7 +45,10 @@ export const migration038RootsTable: Migration = {
     INSERT INTO roots (kind, display_name, path)
     SELECT
       'legacy',
-      regexp_replace(s.source_root_path, '^.*[/\\\\]', ''),
+      COALESCE(
+        NULLIF(regexp_replace(s.source_root_path, '^.*[/\\\\]', ''), ''),
+        s.source_root_path
+      ),
       s.source_root_path
     FROM (
       SELECT DISTINCT source_root_path

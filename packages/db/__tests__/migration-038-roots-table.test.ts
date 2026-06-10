@@ -75,6 +75,7 @@ describe('migration 038: roots table', () => {
     await seedFileRecord('f2', 'src/index.ts', '/Users/alice/personal-docs', 'set-a');
     await seedFileRecord('f3', 'notes.md', '/Users/alice/work-docs', 'set-a');
     await seedFileRecord('f4', 'orphan.md', null, null);
+    await seedFileRecord('f5', 'rootfile.md', '/', 'set-a');
 
     await runner.runMigration(getMigration038());
 
@@ -89,6 +90,12 @@ describe('migration 038: roots table', () => {
         status: row.status,
       }))
     ).toEqual([
+      {
+        display_name: '/',
+        kind: 'legacy',
+        path: '/',
+        status: 'live',
+      },
       {
         display_name: 'personal-docs',
         kind: 'legacy',
@@ -113,6 +120,8 @@ describe('migration 038: roots table', () => {
     expect(byId.get('f2')?.root_id).toBe(personalRoot?.id);
     expect(byId.get('f3')?.root_id).toBe(workRoot?.id);
     expect(byId.get('f4')?.root_id).toBeNull();
+    const slashRoot = roots.rows.find((row) => row.path === '/');
+    expect(byId.get('f5')?.root_id).toBe(slashRoot?.id);
   });
 
   it('enforces per-root cache identity and cascades file deletion on root removal', {
