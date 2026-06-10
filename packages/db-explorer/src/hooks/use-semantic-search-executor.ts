@@ -481,7 +481,11 @@ export function useSemanticSearchExecutor({
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
   const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = usePGliteDatabase();
-  const { models } = useModelRegistryStore();
+  // Selector-scoped subscription: this hook only consumes `models`. A bare
+  // useModelRegistryStore() would re-render the host component (the whole
+  // collection-browser panel) on every store update — including per-tick
+  // setDownloadProgress during model downloads.
+  const models = useModelRegistryStore((state) => state.models);
   const devicePref = useVectorPreferencesStore((state) => state.devicePref);
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);

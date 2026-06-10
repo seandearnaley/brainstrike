@@ -15,7 +15,7 @@ import {
   type LogRecord,
   setLogLevel,
 } from '@brainstrike/utils';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
 
@@ -707,6 +707,36 @@ describe('useSemanticSearchExecutor', () => {
       'test query',
       expect.objectContaining({ includeHeadline: false })
     );
+  });
+
+  describe('store subscription scope (perf)', () => {
+    it('does not re-render when unrelated model-registry state (download progress) changes', () => {
+      const chunkRepo = createMockChunkRepository();
+      const fileRepo = createMockFileRepository();
+      let renderCount = 0;
+
+      const { result } = renderHook(() => {
+        renderCount += 1;
+        return useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        });
+      });
+
+      const initialRenderCount = renderCount;
+      const executorBefore = result.current;
+      expect(executorBefore).toBeDefined();
+
+      // Model downloads fire setDownloadProgress per progress tick. The hook
+      // only consumes `models`, so a progress tick must not re-render the
+      // (large) component that calls this hook.
+      act(() => {
+        useModelRegistryStore.getState().setDownloadProgress('jinaai/jina-embeddings-v3', 42);
+      });
+
+      expect(renderCount).toBe(initialRenderCount);
+      expect(result.current).toBe(executorBefore);
+    });
   });
 
   describe('retrieval filters (BST-172) - vector mode', () => {

@@ -1,7 +1,7 @@
 /**
  * Grep Search Integration Tests (real PGlite + pg_trgm)
  *
- * Proves: migration 037 creates the pg_trgm extension and trigram GIN index,
+ * Proves: migration 038 creates the pg_trgm extension and trigram GIN index,
  * and GrepSearchService returns line-accurate matches end-to-end through the
  * raw FileChunkRepository candidate query.
  */
@@ -93,7 +93,7 @@ describe('grep search (integration)', () => {
     await db.close();
   });
 
-  it('registers the pg_trgm extension via migration 037', async () => {
+  it('registers the pg_trgm extension via migration 038', async () => {
     const res = await db.query(`SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'`);
     expect(res.rows).toHaveLength(1);
   });

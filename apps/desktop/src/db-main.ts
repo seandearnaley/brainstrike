@@ -374,7 +374,7 @@ async function createVectorDatabase(
   // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
   const instance: any = new Ctor({
     dataDir,
-    // pg_trgm has no runtime pg_extension check below (unlike vector): migration 037
+    // pg_trgm has no runtime pg_extension check below (unlike vector): migration 038
     // runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and fails loudly if the module
     // isn't loaded here. The vector check predates the migration-based approach.
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time

@@ -24,6 +24,9 @@ import {
   type LocalLlmToolDefinition,
 } from '@brainstrike/assistant-contract';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+
+const logger = createLogger('LocalRuntimeAdapter');
 
 /**
  * JSON types compatible with assistant-ui's ReadonlyJSONObject.
@@ -352,6 +355,12 @@ export interface LocalRuntimeAdapterOptions {
   ) => Promise<void> | void;
   loadBackend?: LocalLlmBackendFactory;
   modelId: string;
+  /**
+   * Called for each streamed snapshot while local generation is in flight.
+   * Used as a liveness signal (e.g. renewing foreground-activity leases).
+   * Hook failures are logged and must never break the stream.
+   */
+  onActivity?: () => void;
   onError?: (error: Error) => void;
   onLoadingProgress?: (progress: {
     stage: 'downloading' | 'generating' | 'loading' | 'ready';
@@ -845,12 +854,31 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
     loadBackend,
     modelId,
     thinkingEnabled,
-    onLoadingProgress,
+    onActivity,
+    onLoadingProgress: onLoadingProgressOption,
     onError,
     prepareRuntimeData,
     runtimeData,
     tools,
   } = options;
+  const notifyActivity = (): void => {
+    try {
+      onActivity?.();
+    } catch (callbackError) {
+      // A liveness hook failure must never break local generation.
+      logger.warn('Local runtime onActivity callback failed', { error: callbackError });
+    }
+  };
+  // Loading/warmup progress must renew the liveness hook too: the foreground
+  // lease is acquired before the model loads, and a first download can outlive
+  // the 5-minute foreground-activity fuse. Without renewal here, background
+  // indexing would resume mid-run while the model is still downloading.
+  const onLoadingProgress: NonNullable<LocalRuntimeAdapterOptions['onLoadingProgress']> = (
+    progress
+  ) => {
+    notifyActivity();
+    onLoadingProgressOption?.(progress);
+  };
   const toolExecutor = getToolExecutor();
   const toolDefinitions = buildLocalToolDefinitions(
     tools,
@@ -977,6 +1005,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             queueResolver = null;
           };
           const enqueueUpdate = (content: AssistantContentPart[]) => {
+            notifyActivity();
             pendingUpdate = { content };
             notifyQueue();
           };

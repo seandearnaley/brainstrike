@@ -2,7 +2,7 @@
 
 **Companion document:** This pairs with [`dependency-version-updates-report.md`](./dependency-version-updates-report.md), which lists **current → latest** versions for **direct** dependencies across the pnpm workspace (`pnpm outdated -r`).
 
-**Generated:** 2026-04-19 (same generation window as the companion report; re-run both after changing dependencies.)
+**Generated:** 2026-06-10 (same generation window as the companion report; re-run both after changing dependencies.)
 
 **Scope:** Focus is on **semver-major** jumps and a small set of **high-impact minors** (databases, native/Electron, syntax highlighting, or tools that changed defaults). Patch-level updates are generally omitted unless they are called out upstream as behavior-changing.
 
@@ -21,16 +21,16 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 | Package | Current | Latest | Primary risk area |
 | --- | --- | --- | --- |
 | `typescript` | 5.9.3 | 6.0.3 | Compiler defaults, `tsconfig`, editor/CI alignment |
-| `electron` | 40.6.1 | 41.2.1 | Desktop shell, PDF/cookies/WebContents lifecycle |
-| `vercel` (CLI) | 50.23.2 | 51.7.0 | Deploy scripts, `vercel blob` CLI usage |
-| `knip` | 5.85.0 | 6.4.1 | Unused-code analysis, JSON reporters, Node engine |
-| `jsdom` | 28.1.0 | 29.0.2 | JSDOM-backed tests, CSS/DOM edge cases |
-| `shiki` | 3.23.0 | 4.0.2 | Syntax highlighting pipeline |
-| `@shikijs/langs` | 3.23.0 | 4.0.2 | Bundled language grammars |
-| `@shikijs/themes` | 3.23.0 | 4.0.2 | Theme assets |
+| `electron` | 41.2.1 | 42.3.3 | Desktop shell, Chromium/Node runtime changes, packaging |
+| `vercel` (CLI) | 50.44.0 | 54.10.2 | Deploy scripts, CLI flags, remote project behavior |
+| `knip` | 5.88.1 | 6.16.1 | Unused-code analysis, JSON reporters, Node engine |
 | `@codecov/vite-plugin` | 1.9.1 | 2.0.1 | Vite build + Codecov upload wiring |
 | `react-helmet-async` | 2.0.5 | 3.0.0 | SSR helmet types / peer range (React 19) |
-| `lucide-react` | 0.575.0 | 1.8.0 | Icon imports (brand icons removed in v1) |
+| `@commitlint/cli` | 20.5.0 | 21.0.2 | Git hook / CI commit-message validation |
+| `@commitlint/config-conventional` | 20.5.0 | 21.0.2 | Conventional commit rule defaults |
+| `@commitlint/types` | 20.5.0 | 21.0.1 | Commitlint TypeScript API consumers |
+| `concurrently` | 9.2.1 | 10.0.3 | Local script orchestration |
+| `syncpack` | 14.3.0 | 15.3.1 | Dependency lint/fix commands and config schema |
 
 ---
 
@@ -51,7 +51,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## Electron (`electron` 40.x → 41.x)
+## Electron (`electron` 41.x → 42.x)
 
 **Why it matters:** Electron majors track Chromium/Node bumps and occasionally change behavior of `BrowserWindow`, `WebContents`, sessions, and PDF handling.
 
@@ -64,19 +64,19 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 **Pointers**
 
 - Electron breaking-change catalog: [Breaking changes](https://www.electronjs.org/docs/latest/breaking-changes).
-- Release blog / notes for the target line: [Electron 41 blog](https://www.electronjs.org/blog).
+- Release blog / notes for the target line: [Electron release blog](https://www.electronjs.org/blog).
 
 ---
 
-## Vercel CLI (`vercel` 50.x → 51.x)
+## Vercel CLI (`vercel` 50.x → 54.x)
 
 **Why it matters:** CLI majors often adjust subcommands and flags—especially for **Blob** workflows.
 
 **What to verify**
 
-- If you use `vercel blob` in scripts or CI: **`--access` is required** for several subcommands (no implicit default).
-- Replace removed flags (e.g. `--force` on `blob put`) with the documented successor (`--allow-overwrite` where applicable).
-- Deprecated `vercel blob store …` flows: migrate to the replacement commands listed in the release notes.
+- Re-check every scripted `vercel` invocation, including deploy, env, pull, link, and blob commands; this is now a multi-major jump.
+- If you use `vercel blob` in scripts or CI, verify required flags and replacement flags against the release notes for each crossed major.
+- Run a claimable preview deploy before changing production deploy automation.
 
 **Pointers**
 
@@ -101,13 +101,60 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## jsdom (`jsdom` 28.x → 29.x)
+## Commitlint (`@commitlint/*` 20.x → 21.x)
 
-**Why it matters:** jsdom 29 includes a large CSSOM rework; tests that assert on CSS/DOM edge cases may shift.
+**Why it matters:** Commitlint majors can change parser presets, default rules, and TypeScript-facing types used by local hooks or CI checks.
 
 **What to verify**
 
-- Confirm **Node version policy** for jsdom 29 (upstream release notes mention stricter minimums on supported Node lines).
+- Run the commitlint configuration against representative valid and invalid commit messages before bumping.
+- If any local scripts import `@commitlint/types`, compile those scripts against the new type surface.
+- Check lefthook/CI output formatting so failed commit messages remain actionable.
+
+**Pointers**
+
+- Releases: [commitlint releases](https://github.com/conventional-changelog/commitlint/releases).
+
+---
+
+## concurrently (`concurrently` 9.x → 10.x)
+
+**Why it matters:** Local development scripts depend on process orchestration semantics, signal handling, and output prefixes.
+
+**What to verify**
+
+- Run scripts that spawn multiple long-lived processes, especially desktop/web dev commands.
+- Confirm Ctrl-C and child-process failure behavior still stops the expected process group.
+- Check any script that depends on output prefix formatting.
+
+**Pointers**
+
+- Releases: [concurrently releases](https://github.com/open-cli-tools/concurrently/releases).
+
+---
+
+## syncpack (`syncpack` 14.x → 15.x)
+
+**Why it matters:** Dependency lint/fix behavior is part of the repo hygiene gate.
+
+**What to verify**
+
+- Run `pnpm deps:lint` and `pnpm deps:update:check` before and after the bump.
+- Check whether `syncpack` config keys or command output changed before updating CI expectations.
+
+**Pointers**
+
+- Releases: [syncpack releases](https://github.com/JamieMason/syncpack/releases).
+
+---
+
+## jsdom (`jsdom` 29.0.x → 29.1.x)
+
+**Why it matters:** The v28 → v29 major transition is already crossed in this repo. The current companion report shows a 29.0.x → 29.1.x minor update, which can still affect tests that assert on CSS/DOM edge cases.
+
+**What to verify**
+
+- Keep the jsdom 29 **Node version policy** in mind when changing test runtime configuration.
 - Re-run suites that touch `getComputedStyle`, stylesheet metadata, media queries, or fetch edge cases.
 
 **Pointers**
@@ -116,14 +163,14 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## Shiki / `@shikijs/*` (`shiki` / `@shikijs/langs` / `@shikijs/themes` 3.x → 4.x)
+## Shiki / `@shikijs/*` (`shiki` / `@shikijs/langs` / `@shikijs/themes` 4.0.x → 4.2.x)
 
-**Why it matters:** v4 removes previously deprecated APIs and tightens Node support.
+**Why it matters:** The v3 → v4 major transition is already crossed in this repo. The current companion report shows a 4.0.x → 4.2.x minor update, which can still affect syntax highlighting output and bundled grammar/theme behavior.
 
 **What to verify**
 
-- **Node:** Shiki v4 expects a supported Node baseline (≥ 20 per upstream v4 blog—confirm exact wording in the migration guide).
-- **Renames:** Replace misspelled APIs (`createdBundledHighlighter*` → `createBundledHighlighter*`, options type spellings) if still present.
+- **Node:** Keep the v4 Node baseline in mind when changing the repo engine or docs build runtime.
+- **Renames:** The v4 API rename risk should already be handled; re-run code search for removed v3 names if syntax-highlighting code changes.
 - **Themes/langs packages:** Keep `shiki`, `@shikijs/langs`, and `@shikijs/themes` on compatible major lines together.
 
 **Pointers**
@@ -164,13 +211,14 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## lucide-react (`lucide-react` 0.x → 1.x)
+## lucide-react (`lucide-react` 1.8.x → 1.17.x)
 
-**Why it matters:** v1 removes **brand** icons from the package; builds will fail if those imports remain.
+**Why it matters:** The v0 → v1 major transition is already crossed in this repo. The current companion report shows a 1.x minor update, so treat this as an icon output/import audit rather than a brand-icon migration.
 
 **What to verify**
 
-- Search imports for removed brand icons (GitHub, Figma, Slack, etc.) and replace with approved assets or a different icon strategy.
+- Search imports for renamed or removed icons before bumping.
+- Re-run UI snapshot or component tests for surfaces with dense icon usage.
 
 **Pointers**
 

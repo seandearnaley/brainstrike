@@ -48,6 +48,7 @@ describe('Drizzle + PGlite Spike', () => {
         "path" text NOT NULL,
         "source_root_path" text,
         "size" integer NOT NULL,
+        "mtime_ms" bigint,
         "created_at" timestamp with time zone DEFAULT now() NOT NULL,
         "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
         "content" text,

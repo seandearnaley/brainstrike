@@ -454,17 +454,52 @@ export class EmbeddingHostManager {
 
   private stopPowerSaveBlocker(): void {
     this.clearPendingIdleStop();
-    if (this.powerSaveBlockerId === null) {
+    const blockerId = this.powerSaveBlockerId;
+    if (blockerId === null) {
       return;
     }
-    if (powerSaveBlocker.isStarted(this.powerSaveBlockerId)) {
-      powerSaveBlocker.stop(this.powerSaveBlockerId);
-      logger.info('powerSaveBlocker stopped for idle embedding host', {
-        id: this.powerSaveBlockerId,
+    try {
+      if (powerSaveBlocker.isStarted(blockerId)) {
+        powerSaveBlocker.stop(blockerId);
+        logger.info('powerSaveBlocker stopped for idle embedding host', {
+          id: blockerId,
+          runtimeId: this.getStatus().runtimeId,
+        });
+      }
+      this.powerSaveBlockerId = null;
+    } catch (stopError) {
+      // stop() throwing has two distinct failure directions:
+      // - The id is stale (already stopped/invalid — the common case): keeping
+      //   it would permanently wedge syncPowerSaveBlocker, so clear it.
+      // - The OS block is verifiably STILL ACTIVE: clearing would discard the
+      //   only handle to an unstoppable blocker (machine never sleeps). Keep
+      //   the id so the next stop cycle retries; the start path guards on a
+      //   non-null id, so no duplicate blocker can start meanwhile.
+      if (this.isPowerSaveBlockerStillActive(blockerId)) {
+        logger.warn('powerSaveBlocker stop failed; blocker still active, keeping id to retry', {
+          error: stopError,
+          id: blockerId,
+          runtimeId: this.getStatus().runtimeId,
+        });
+        return;
+      }
+      logger.warn('powerSaveBlocker stop failed; clearing stale blocker id', {
+        error: stopError,
+        id: blockerId,
         runtimeId: this.getStatus().runtimeId,
       });
+      this.powerSaveBlockerId = null;
     }
-    this.powerSaveBlockerId = null;
+  }
+
+  private isPowerSaveBlockerStillActive(blockerId: number): boolean {
+    try {
+      return powerSaveBlocker.isStarted(blockerId);
+    } catch {
+      // The recheck itself failing means the id is unusable either way;
+      // treat it as stale so the manager cannot wedge.
+      return false;
+    }
   }
 
   private assertNotDisposed(

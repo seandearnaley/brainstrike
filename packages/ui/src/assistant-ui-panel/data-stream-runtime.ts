@@ -39,6 +39,12 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   body?: (() => Promise<Record<string, unknown> | undefined>) | Record<string, unknown>;
   credentials?: RequestCredentials;
   headers?: (() => Promise<HeadersValue>) | HeadersValue;
+  /**
+   * Called once per streamed chunk while the assistant response is in flight.
+   * Used as a liveness signal (e.g. renewing foreground-activity leases).
+   * Hook failures are logged and must never break the stream.
+   */
+  onActivity?: () => void;
   onCancel?: () => void;
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
@@ -328,6 +334,15 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     }
   }
 
+  private notifyActivity(): void {
+    try {
+      this.options.onActivity?.();
+    } catch (callbackError) {
+      // A liveness hook failure must never break the assistant stream.
+      logger.warn('Assistant runtime onActivity callback failed', { error: callbackError });
+    }
+  }
+
   async *run({
     messages,
     runConfig,
@@ -413,7 +428,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         )
         .pipeThrough(new AssistantMessageAccumulator());
 
-      yield* asAsyncIterableStream(stream);
+      for await (const accumulatedMessage of asAsyncIterableStream(stream)) {
+        this.notifyActivity();
+        yield accumulatedMessage;
+      }
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
       this.reportError(error);
@@ -427,6 +445,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly body: BrainstrikeDataStreamRuntimeOptions['body'];
   readonly credentials: BrainstrikeDataStreamRuntimeOptions['credentials'];
   readonly headers: BrainstrikeDataStreamRuntimeOptions['headers'];
+  readonly onActivity: BrainstrikeDataStreamRuntimeOptions['onActivity'];
   readonly onCancel: BrainstrikeDataStreamRuntimeOptions['onCancel'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
@@ -437,6 +456,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.body === undefined ? {} : { body: input.body }),
     ...(input.credentials === undefined ? {} : { credentials: input.credentials }),
     ...(input.headers === undefined ? {} : { headers: input.headers }),
+    ...(input.onActivity === undefined ? {} : { onActivity: input.onActivity }),
     ...(input.onCancel === undefined ? {} : { onCancel: input.onCancel }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
@@ -452,6 +472,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     credentials,
     headers,
     maxSteps,
+    onActivity,
     onCancel,
     onError,
     onFinish,
@@ -463,6 +484,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     body,
     credentials,
     headers,
+    onActivity,
     onCancel,
     onError,
     onFinish,

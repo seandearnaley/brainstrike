@@ -267,7 +267,7 @@ corresponding `CREATE EXTENSION` migration fails with a cryptic "could not open
 extension control file" error on that path only:
 
 - `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
-- `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 037)
+- `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
 - `live` (client-side reactive queries — loaded everywhere EXCEPT `pglite-worker-entry.ts`, where the PGliteWorker client installs it)
 
 Construction sites (keep in sync when adding extensions or new sites):

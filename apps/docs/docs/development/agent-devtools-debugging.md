@@ -17,7 +17,7 @@ The launcher prints:
 
 - The isolated user data directory.
 - The CDP endpoint, usually `http://127.0.0.1:9222`.
-- A temporary MCP config for `chrome-devtools-mcp`.
+- A session-scoped MCP config for `chrome-devtools-mcp`.
 
 ## Codex MCP Config
 

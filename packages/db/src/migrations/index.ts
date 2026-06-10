@@ -35,7 +35,8 @@ import { migration033UpdateProviderModels2026Frontier } from './033-update-provi
 import { migration034TsvectorGeneratedColumn } from './034-tsvector-generated-column.js';
 import { migration035Uuidv7PrimaryKeys } from './035-uuidv7-primary-keys.js';
 import { migration036WorkspaceIndexSystemRole } from './036-workspace-index-system-role.js';
-import { migration037PgTrgmGrepIndex } from './037-pg-trgm-grep-index.js';
+import { migration037FileRecordMtimeMs } from './037-file-record-mtime-ms.js';
+import { migration038PgTrgmGrepIndex } from './038-pg-trgm-grep-index.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -77,7 +78,8 @@ export const migrations: Migration[] = [
   migration034TsvectorGeneratedColumn,
   migration035Uuidv7PrimaryKeys,
   migration036WorkspaceIndexSystemRole,
-  migration037PgTrgmGrepIndex,
+  migration037FileRecordMtimeMs,
+  migration038PgTrgmGrepIndex,
 ];
 
 // Export base migrations (without chunks table) for test environments

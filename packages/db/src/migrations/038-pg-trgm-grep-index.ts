@@ -1,7 +1,7 @@
 import type { Migration } from './migration-runner';
 
 /**
- * Migration 037: Enable pg_trgm and add a trigram GIN index for grep-style search
+ * Migration 038: Enable pg_trgm and add a trigram GIN index for grep-style search
  *
  * Powers the brainstrike.grepSearch tool: substring (ILIKE '%...%') and
  * regex-literal prefilter queries on file_chunks.content become index scans
@@ -10,8 +10,8 @@ import type { Migration } from './migration-runner';
  * apps/desktop/src/db-main.ts) before CREATE EXTENSION can succeed.
  */
 
-export const migration037PgTrgmGrepIndex: Migration = {
-  version: 37,
+export const migration038PgTrgmGrepIndex: Migration = {
+  version: 38,
   name: 'pg_trgm_grep_index',
   up: `
     CREATE EXTENSION IF NOT EXISTS pg_trgm;

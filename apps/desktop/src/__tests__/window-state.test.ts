@@ -20,9 +20,11 @@ type WindowHandlers = Map<string, (...args: unknown[]) => void>;
 interface MockBrowserWindow {
   getBounds: () => DesktopWindowBounds;
   getNormalBounds: () => DesktopWindowBounds;
+  isDestroyed: () => boolean;
   isFullScreen: () => boolean;
   isMaximized: () => boolean;
   on: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 const createMockStore = () => {
@@ -50,12 +52,16 @@ const createMockWindow = (options: {
     ({ width: 1200, height: 800, x: 15.6, y: 25.4 } satisfies DesktopWindowBounds);
 
   const win: MockBrowserWindow = {
+    isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => options.fullScreen),
     isMaximized: vi.fn(() => options.maximized),
     getBounds: vi.fn(() => bounds),
     getNormalBounds: vi.fn(() => normalBounds),
     on: vi.fn((event, handler) => {
       handlers.set(event, handler);
+    }),
+    removeListener: vi.fn((event) => {
+      handlers.delete(event);
     }),
   };
 

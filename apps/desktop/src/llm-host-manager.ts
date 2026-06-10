@@ -161,8 +161,24 @@ export class LlmHostManager {
       await this.stop();
     } finally {
       this.disposed = true;
+      this.clearAllPreCancelledRequests();
       this.lifecycle.dispose();
     }
+  }
+
+  /**
+   * Clear all pre-cancelled request bookkeeping: the TTL timers and the
+   * requester `'destroyed'` listeners. `stop()`/`rejectPendingRequests` only
+   * drain `pendingRequests`, so without this a `dispose()` leaks every
+   * outstanding pre-cancelled cleanup timer (and its listener).
+   */
+  private clearAllPreCancelledRequests(): void {
+    for (const cleanup of this.preCancelledRequestCleanups.values()) {
+      clearTimeout(cleanup.timeoutId);
+      cleanup.cleanupRequesterListener?.();
+    }
+    this.preCancelledRequestCleanups.clear();
+    this.preCancelledRequestIds.clear();
   }
 
   acceptStatusReport(senderId: number, report: LlmHostStatusReport): void {

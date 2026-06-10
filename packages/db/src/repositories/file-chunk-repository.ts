@@ -337,7 +337,7 @@ export class FileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
-      includeEmbedding = true,
+      includeEmbedding = false,
     } = options;
 
     // Enforce set scoping to avoid dimension mismatch hazards with pgvector
@@ -499,7 +499,7 @@ export class FileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
-      includeEmbedding = true,
+      includeEmbedding = false,
       includeHeadline = true,
     } = options;
 

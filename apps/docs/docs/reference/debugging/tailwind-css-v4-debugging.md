@@ -11,7 +11,7 @@ sidebar_position: 6
 
 **Impact**: Deployed site looks completely different from local development - appears to be missing critical CSS classes from monorepo packages.
 
-**Environment**: 
+**Environment at investigation time**:
 - Turborepo monorepo with 13+ packages
 - React 19 + Vite 7 + TypeScript 5
 - Tailwind CSS v4.1.13 with @tailwindcss/vite plugin
@@ -141,7 +141,7 @@ tailwindcss({
 |---------|------------|-------------|-------|
 | Baseline | ~53KB | ~25KB | Original issue |
 | @source directives | ~53KB | ~25KB | No change |
-| source("../../") | ~53KB | 44KB | Temporary improvement |
+| source("../../") | ~53KB | 44KB | Short-lived improvement |
 | Explicit sourcing | ~53KB | ~24KB | Regression with PostCSS errors |
 | Package path fix | ~53KB | 24KB | Build failures |
 
@@ -158,9 +158,9 @@ tailwindcss({
 2. **Package Imports**: Conflicting Tailwind imports across packages
 3. **Environment Detection**: VERCEL/CI environment variables not reliable for config switching
 
-## Known Workarounds (Unimplemented)
+## Potential Remediation Options From Investigation
 
-Based on research, potential solutions include:
+Based on the investigation, candidate solutions included:
 
 ### 1. Disable Automatic Detection Completely
 ```css
@@ -202,7 +202,7 @@ Use content array in tailwind.config.js instead of @source directives (if suppor
 4. **Monitor Tailwind v4 issues** - this appears to be a known limitation
 
 ### Alternative Approaches
-1. **Consider Tailwind v3** temporarily if v4 monorepo support is insufficient
+1. **Consider a pinned Tailwind v3 rollback** if v4 monorepo support is insufficient
 2. **Restructure CSS architecture** to avoid cross-package dependencies
 3. **Use build-time CSS generation** instead of runtime processing
 
@@ -215,7 +215,7 @@ Use content array in tailwind.config.js instead of @source directives (if suppor
 - `tailwind.config.js` (root) - Created for root-level builds
 - `packages/ui/src/globals.css` - Removed duplicate Tailwind import
 
-## Current State
+## Investigation State
 
 - **CSS Size**: 25.28KB (still significantly smaller than 53KB target)
 - **PostCSS Errors**: None (clean build)

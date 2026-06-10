@@ -147,6 +147,28 @@ describe('LlmHostManager', () => {
     await expect(requestPromise).resolves.toEqual({ text: 'done' });
   });
 
+  it('clears pre-cancelled request timers and listeners on dispose', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(501);
+
+    // Force the not-running path so cancel() records a pre-cancelled request
+    // (a TTL setTimeout + a requester 'destroyed' listener) instead of dispatching.
+    lifecycleState.getHostWindow.mockReturnValue(null);
+
+    await manager.cancel(requester, 'req-1');
+
+    expect(manager.preCancelledRequestIds.size).toBe(1);
+    expect(requester.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+    expect(requester.removeListener).not.toHaveBeenCalled();
+
+    await manager.dispose();
+
+    // dispose must clear the pre-cancelled bookkeeping: empty the id set, clear
+    // the TTL timer, and remove the requester 'destroyed' listener.
+    expect(manager.preCancelledRequestIds.size).toBe(0);
+    expect(requester.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
+  });
+
   it('exposes platform status with pending request count and disposed state', async () => {
     const manager = new LlmHostManager();
 

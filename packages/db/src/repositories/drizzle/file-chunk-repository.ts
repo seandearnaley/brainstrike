@@ -352,7 +352,7 @@ export class DrizzleFileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
-      includeEmbedding = true,
+      includeEmbedding = false,
     } = options;
 
     // Validate limit to prevent memory exhaustion from excessive requests
@@ -510,7 +510,7 @@ export class DrizzleFileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
-      includeEmbedding = true,
+      includeEmbedding = false,
       includeHeadline = true,
     } = options;
 

@@ -132,6 +132,83 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStopMock).toHaveBeenCalledWith(101);
   });
 
+  it('clears a stale id and can start a fresh blocker after stop throws on a dead blocker', async () => {
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/utils/logger');
+    setLogLevel(LogLevel.WARN);
+    const warnings: string[] = [];
+    const removeLogListener = addLogListener((entry) => {
+      if (entry.level === 'warn') {
+        warnings.push(entry.message ?? '');
+      }
+    });
+
+    try {
+      powerSaveBlockerStopMock.mockImplementationOnce(() => {
+        throw new Error('stop failed');
+      });
+      // Pre-stop check sees the blocker as started; the post-failure recheck
+      // reports it dead — the id is stale, so clearing avoids the wedge.
+      powerSaveBlockerIsStartedMock.mockReturnValueOnce(true).mockReturnValueOnce(false);
+      const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+
+      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      expect(() =>
+        manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' })
+      ).not.toThrow();
+      expect(warnings.some((message) => message.includes('powerSaveBlocker stop failed'))).toBe(
+        true
+      );
+
+      // The failed stop must not wedge the manager: the next active phase
+      // must be able to start a brand-new blocker.
+      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+
+      expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(2);
+    } finally {
+      removeLogListener();
+    }
+  });
+
+  it('keeps the id and retries when stop throws but the blocker is still active at the OS', async () => {
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/utils/logger');
+    setLogLevel(LogLevel.WARN);
+    const warnings: string[] = [];
+    const removeLogListener = addLogListener((entry) => {
+      if (entry.level === 'warn') {
+        warnings.push(entry.message ?? '');
+      }
+    });
+
+    try {
+      powerSaveBlockerStopMock.mockImplementationOnce(() => {
+        throw new Error('stop failed');
+      });
+      // isStarted stays true throughout: the OS block survived the failed stop.
+      // Discarding the id here would leak an unstoppable blocker (machine never
+      // sleeps); the manager must keep the handle and retry.
+      const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+
+      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' });
+      expect(warnings.some((message) => message.includes('keeping id to retry'))).toBe(true);
+
+      // The kept id means no duplicate blocker can start meanwhile...
+      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(1);
+
+      // ...and the next stop cycle retries with the SAME id and succeeds.
+      manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' });
+      expect(powerSaveBlockerStopMock).toHaveBeenCalledTimes(2);
+      expect(powerSaveBlockerStopMock).toHaveBeenLastCalledWith(101);
+
+      // After the successful retry the id is cleared and a fresh start works.
+      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(2);
+    } finally {
+      removeLogListener();
+    }
+  });
+
   it('stops the blocker immediately when the host leaves the running state', () => {
     const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
 

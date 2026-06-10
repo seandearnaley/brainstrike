@@ -128,6 +128,10 @@ export const fileRecords = pgTable(
     path: text('path').notNull(),
     sourceRootPath: text('source_root_path'),
     size: integer('size').notNull(),
+    // Nullable epoch-ms stat used by the background-sync stat-cache fast-path
+    // (migration 037). BIGINT mirrors file_token_cache.mtime_ms. Null for rows
+    // written before the column existed; self-heals on next write.
+    mtimeMs: bigint('mtime_ms', { mode: 'number' }),
     createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
     updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
     content: text('content'),

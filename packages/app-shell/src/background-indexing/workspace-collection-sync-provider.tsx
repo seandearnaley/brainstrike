@@ -33,6 +33,7 @@ import {
   type WorkspaceIndexingPowerSnapshot,
 } from '@brainstrike/utils/workspace-indexing-power-snapshot';
 import {
+  createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
   type WorkspaceIndexingQosPolicy,
@@ -48,6 +49,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
+import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
   isWorkspaceIndexBlockedError,
@@ -392,13 +394,20 @@ export function WorkspaceCollectionSyncProvider({
     }
   }, [runtimeController]);
 
+  // useState lazy initializer guarantees one transition tracker per provider
+  // instance: the sync loop re-resolves the QoS policy every cycle, and the
+  // tracker logs only (state, reason) transitions instead of every resolution.
+  const [observeQosTransition] = useState(() =>
+    createWorkspaceIndexingQosTransitionLogger('app-shell-sync')
+  );
+
   const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
     if (!readDatabasePressure) {
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
     }
     const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
     const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
-    return resolveWorkspaceIndexingQosPolicy({
+    const policy = resolveWorkspaceIndexingQosPolicy({
       dbPressure: await readDatabasePressure(),
       // Coarse app-shell signal: this spans the full assistant turn so background
       // indexing yields while tool/LLM work is active. The desktop hidden-host
@@ -415,7 +424,9 @@ export function WorkspaceCollectionSyncProvider({
       thermalState: powerSnapshot?.thermalState ?? 'unknown',
       windowVisible: windowVisibleRef.current,
     });
-  }, [readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
+    observeQosTransition(policy);
+    return policy;
+  }, [observeQosTransition, readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
 
   const service = useMemo(() => {
     if (
@@ -721,6 +732,11 @@ export function WorkspaceCollectionSyncProvider({
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
   }, [triggerSync]);
+
+  // Recovery point for a backfill killed while the window was hidden (e.g. a
+  // top-level navigation mid-backfill): re-sync on return to visibility so the
+  // 0-changes coverage check can re-enqueue any missing embedding work.
+  useResyncOnReturnToVisibility(triggerSync);
 
   return <>{children}</>;
 }

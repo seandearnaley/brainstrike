@@ -136,10 +136,10 @@ function main() {
   const packageManager = rootPkg.packageManager ?? 'unknown';
   let md = '';
   md += '# Dependency version update report\n\n';
-  md += `**Generated:** ${date}  \n`;
-  md += '**Monorepo:** brainstrike (pnpm workspaces + Turborepo)  \n';
-  md += `**Tooling:** \`${packageManager}\` (see root \`package.json\` \`packageManager\`)  \n`;
-  md += `**Node engine (declared):** \`${nodeEngine}\` (root \`package.json\` \`engines\`)  \n\n`;
+  md += `**Generated:** ${date}\\\n`;
+  md += '**Monorepo:** brainstrike (pnpm workspaces + Turborepo)\\\n';
+  md += `**Tooling:** \`${packageManager}\` (see root \`package.json\` \`packageManager\`)\\\n`;
+  md += `**Node engine (declared):** \`${nodeEngine}\` (root \`package.json\` \`engines\`)\n\n`;
 
   md += '## Methodology\n\n';
   md +=

@@ -24,6 +24,7 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
@@ -33,6 +34,8 @@ import {
   buildNormalizedChunkingProgress,
   throwIfAborted,
 } from './workspace-collection-sync-progress';
+
+const logger = createLogger('WorkspaceCollectionSyncImport');
 
 type WorkspaceIndexingImportQosPolicy = Pick<
   WorkspaceIndexingQosPolicy,
@@ -49,6 +52,7 @@ interface RootFolderCacheMutableRecord {
   content: string;
   contentHash: string;
   id: string;
+  mtimeMs: number | null;
   name: string;
   path: string;
   processedAt: string;
@@ -75,6 +79,7 @@ export interface PreparedCacheChange {
   contentHash: string;
   id: string;
   mode: 'import' | 'replace';
+  mtimeMs: number | null;
   name: string;
   relativePath: string;
   request: FileContentRequest;
@@ -83,14 +88,28 @@ export interface PreparedCacheChange {
 }
 
 interface FileBatchPreparation {
+  mtimeMs: number | null;
   relativePath: string;
   request: FileContentRequest;
+  size: number;
+}
+
+export interface StatMetadataRefresh {
+  fileRecordId: string;
+  mtimeMs: number;
   size: number;
 }
 
 export interface PreparedChangesSummary {
   changes: PreparedCacheChange[];
   excludedEntries: number;
+  /**
+   * Hash-confirmed-unchanged rows whose stored (size, mtimeMs) are missing or
+   * stale. Unchanged files never take a write path, so without this stamp a
+   * pre-migration row (NULL mtime_ms) would be re-read + re-hashed on EVERY
+   * sync forever — persisting these lets the next sync stat-skip them.
+   */
+  statRefreshes: StatMetadataRefresh[];
   totalFiles: number;
   unchangedCount: number;
 }
@@ -98,6 +117,7 @@ export interface PreparedChangesSummary {
 interface DiscoveredPreparedFile {
   compositeKey: string;
   contentHash: string;
+  mtimeMs: number | null;
   name: string;
   relativePath: string;
   request: FileContentRequest;
@@ -168,6 +188,7 @@ async function toMutableRecord(
   const now = new Date().toISOString();
   return {
     id: change.id,
+    mtimeMs: change.mtimeMs,
     name: change.name,
     path: change.relativePath,
     size: change.size,
@@ -199,9 +220,15 @@ async function collectDiscoveredPreparedFiles(args: {
     discoveredFiles.push({
       compositeKey,
       contentHash: await generateContentHash(content),
+      mtimeMs: metadata.mtimeMs,
       name: metadata.request.fileNode.name,
       relativePath: metadata.relativePath,
       request: metadata.request,
+      // The content.length fallback (UTF-16 code units, not bytes) deliberately
+      // diverges from the scan's byte size: a file imported without a stat size
+      // will mismatch the stat-cache comparison on later syncs and re-hash every
+      // time. That is the SAFE direction (extra read, never a false skip) — do
+      // not "fix" this by making the comparison tolerate the fallback value.
       size: metadata.size > 0 ? metadata.size : content.length,
       sourceRootPath: args.rootPath,
     });
@@ -213,6 +240,7 @@ function applyDiscoveredPreparedFiles(args: {
   changes: PreparedCacheChange[];
   discoveredFiles: ReadonlyArray<DiscoveredPreparedFile | null>;
   existingByIdentity: Map<string, ManagedCacheEntryMetadata>;
+  statRefreshes: StatMetadataRefresh[];
   unchangedCount: number;
 }): number {
   let unchangedCount = args.unchangedCount;
@@ -235,6 +263,18 @@ function applyDiscoveredPreparedFiles(args: {
     }
     if (existing.contentHash === discovered.contentHash) {
       unchangedCount += 1;
+      // Unchanged rows never write, so stamp missing/stale stats here or
+      // pre-migration rows miss the stat-cache on every future sync.
+      if (
+        discovered.mtimeMs !== null &&
+        (existing.mtimeMs !== discovered.mtimeMs || existing.size !== discovered.size)
+      ) {
+        args.statRefreshes.push({
+          fileRecordId: existing.fileRecordId,
+          mtimeMs: discovered.mtimeMs,
+          size: discovered.size,
+        });
+      }
       continue;
     }
     args.changes.push({
@@ -402,6 +442,10 @@ function createFileBatchPreparations(
     });
     const compositeKey = encodeFileSelection(rootPath, relativePath);
     return {
+      // Floor to integer ms: stat.mtimeMs is fractional, but the persisted
+      // mtime_ms is a BIGINT (stored floored). Flooring here keeps the stat-cache
+      // comparison consistent with the stored value AND keeps the DB write valid.
+      mtimeMs: typeof node.lastModified === 'number' ? Math.floor(node.lastModified) : null,
       request: {
         compositeKey,
         fileNode: node,
@@ -411,6 +455,68 @@ function createFileBatchPreparations(
       size: node.size ?? 0,
     };
   });
+}
+
+/**
+ * Stat-cache fast-path for change detection: partition prepared files into those
+ * that can be skipped (size AND mtime both match the stored entry, so the content
+ * is unchanged) and those that must be read + hashed.
+ *
+ * This is the git/rsync-style optimization that avoids reading and SHA-256-hashing
+ * every file on every sync. It is deliberately conservative — a skip requires BOTH
+ * stored stats present (size + non-null mtimeMs; mtimeMs is null for rows written
+ * before the mtime column existed) AND the scan to have captured the file's mtime.
+ * Any gap or mismatch falls through to the existing read+hash path, so a stale
+ * stat can only ever cost an extra read, never a missed real change — except the
+ * stat-cache residual. Be precise about its shape: the skip requires the disk
+ * (size, floored-mtime) pair to EQUAL the values stored at index time, so
+ * restoring an older same-size revision via `cp -p`/`rsync --times`/archive
+ * restore is CAUGHT (the restored file carries the other revision's mtime, which
+ * differs from the indexed one), and stock `git checkout` writes fresh mtimes —
+ * also caught. The residual bites only when new content lands with the indexed
+ * pair exactly: `touch -r` against the indexed state, in-place tools that
+ * restore the original mtime after writing, or a same-size rewrite within the
+ * same floored millisecond. Such a file is never re-embedded by sync alone;
+ * recovery today is re-creating the collection (or factory reset), and a
+ * targeted force-rehash affordance is tracked as follow-up work (a periodic
+ * full rehash was considered and declined for this change's scope).
+ */
+export function partitionPreparationsByStatCache<
+  T extends { mtimeMs: number | null; relativePath: string; size: number },
+>(args: {
+  existingByIdentity: ReadonlyMap<string, ManagedCacheEntryMetadata>;
+  preparations: readonly T[];
+  rootPath: string;
+}): { needsRead: T[]; skippedUnchanged: T[] } {
+  const needsRead: T[] = [];
+  const skippedUnchanged: T[] = [];
+  for (const preparation of args.preparations) {
+    const existing = args.existingByIdentity.get(
+      buildRootFolderCacheIdentityKey(args.rootPath, preparation.relativePath)
+    );
+    if (isStatCacheHit(preparation, existing)) {
+      skippedUnchanged.push(preparation);
+      continue;
+    }
+    needsRead.push(preparation);
+  }
+  return { needsRead, skippedUnchanged };
+}
+
+function isStatCacheHit(
+  preparation: { mtimeMs: number | null; size: number },
+  existing: ManagedCacheEntryMetadata | undefined
+): boolean {
+  if (!existing) {
+    return false;
+  }
+  if (typeof existing.size !== 'number' || typeof existing.mtimeMs !== 'number') {
+    return false;
+  }
+  if (preparation.mtimeMs === null) {
+    return false;
+  }
+  return existing.size === preparation.size && existing.mtimeMs === preparation.mtimeMs;
 }
 
 export async function collectPreparedChangesInBatches(args: {
@@ -443,15 +549,32 @@ export async function collectPreparedChangesInBatches(args: {
     createFileContentProcessor(fileSystemAdapter, {
       concurrency: qosPolicy.contentReadConcurrency,
     });
-  const preparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
+  const allPreparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
   const existingByIdentity = new Map(
     existingEntries.map((entry) => [
       buildRootFolderCacheIdentityKey(entry.sourceRootPath, entry.relativePath),
       entry,
     ])
   );
+  // Stat-cache fast-path: drop files whose size+mtime already match the stored
+  // entry before any content read, so unchanged files cost a stat lookup instead
+  // of a full read + SHA-256 hash. Skipped files count as unchanged directly.
+  const { needsRead: preparations, skippedUnchanged } = partitionPreparationsByStatCache({
+    existingByIdentity,
+    preparations: allPreparations,
+    rootPath,
+  });
+  if (skippedUnchanged.length > 0) {
+    // One line per scan: without this, a stat-skipped file leaves no trace at
+    // all, which makes "why didn't my edit get indexed" undiagnosable.
+    logger.info('Stat-cache skipped unchanged files without re-reading', {
+      statCacheSkipped: skippedUnchanged.length,
+      totalFiles: allPreparations.length,
+    });
+  }
   const changes: PreparedCacheChange[] = [];
-  let unchangedCount = 0;
+  const statRefreshes: StatMetadataRefresh[] = [];
+  let unchangedCount = skippedUnchanged.length;
 
   for (let index = 0; index < preparations.length; index += qosPolicy.contentReadBatchSize) {
     throwIfAborted(abortSignal);
@@ -478,6 +601,7 @@ export async function collectPreparedChangesInBatches(args: {
       changes,
       discoveredFiles,
       existingByIdentity,
+      statRefreshes,
       unchangedCount,
     });
   }
@@ -485,6 +609,7 @@ export async function collectPreparedChangesInBatches(args: {
   return {
     changes,
     excludedEntries: 0,
+    statRefreshes,
     totalFiles: fileNodes.length,
     unchangedCount,
   };

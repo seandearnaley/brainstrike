@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { addLogListener, configureLogger, LogLevel, type LogRecord, setLogLevel } from '../logger';
 import {
+  createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingQosInputs,
 } from '../workspace-indexing-qos';
@@ -142,5 +144,83 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
       state: 'balanced',
       workerClaimBatchSize: 16,
     });
+  });
+});
+
+describe('createWorkspaceIndexingQosTransitionLogger', () => {
+  let captured: LogRecord[];
+  let removeListener: () => void;
+
+  beforeEach(() => {
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.INFO);
+    captured = [];
+    removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceIndexingQos') {
+        captured.push(record);
+      }
+    });
+    return () => {
+      removeListener();
+    };
+  });
+
+  it('logs the initial policy observation with a null from', () => {
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
+
+    observe(resolve());
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.message).toBe('Workspace indexing QoS state changed');
+    expect(captured[0]?.args).toContainEqual(
+      expect.objectContaining({
+        from: null,
+        // Two independent loops (desktop host-claim + app-shell sync) share this
+        // scope and message; the loop discriminator keeps their streams separable.
+        loop: 'test-loop',
+        to: { reason: 'window-visible', state: 'balanced' },
+      })
+    );
+  });
+
+  it('does not log when the same state and reason are observed again', () => {
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
+
+    observe(resolve());
+    observe(resolve());
+    observe(resolve());
+
+    expect(captured).toHaveLength(1);
+  });
+
+  it('logs a from/to transition when the state changes', () => {
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
+
+    observe(resolve());
+    observe(resolve({ foregroundQueryActive: true }));
+
+    expect(captured).toHaveLength(2);
+    expect(captured[1]?.args).toContainEqual(
+      expect.objectContaining({
+        from: { reason: 'window-visible', state: 'balanced' },
+        to: { reason: 'foreground-query', state: 'foreground-yielding' },
+      })
+    );
+  });
+
+  it('logs a reason change even when the state is unchanged', () => {
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
+
+    // Both resolve to system-constrained, but for different reasons.
+    observe(resolve({ powerSource: 'battery' }));
+    observe(resolve({ thermalState: 'serious' }));
+
+    expect(captured).toHaveLength(2);
+    expect(captured[1]?.args).toContainEqual(
+      expect.objectContaining({
+        from: { reason: 'battery', state: 'system-constrained' },
+        to: { reason: 'thermal-serious', state: 'system-constrained' },
+      })
+    );
   });
 });

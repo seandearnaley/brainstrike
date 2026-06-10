@@ -1,0 +1,215 @@
+import { createDatabaseWorkScheduler } from '@brainstrike/db';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
+import type { IpcMainInvokeEvent } from 'electron';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { enqueueEmbeddingBackfillMock, getDatabaseMock } = vi.hoisted(() => ({
+  enqueueEmbeddingBackfillMock: vi.fn(),
+  getDatabaseMock: vi.fn(async () => ({ query: vi.fn(async () => ({ rows: [] })) })),
+}));
+
+vi.mock('../db-main', () => ({
+  getDatabase: getDatabaseMock,
+}));
+
+vi.mock('../embedding-backfill', () => ({
+  enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
+}));
+
+import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from '../embedding-host-shared';
+import {
+  cancelDesktopEmbeddingBackfill,
+  runDesktopEmbeddingBackfill,
+} from '../ipc-embedding-backfill';
+
+interface EnqueueOptions {
+  assertCanContinue: () => void;
+}
+
+function createHostManager(): EmbeddingHostManager {
+  const status = {
+    active: true,
+    lastError: null,
+    state: 'running' as const,
+  };
+  return {
+    ensureStarted: vi.fn(async () => status),
+    getStatus: vi.fn(() => status),
+  } as unknown as EmbeddingHostManager;
+}
+
+function createDeadSenderEvent(): IpcMainInvokeEvent {
+  // Simulates the renderer that requested the backfill being torn down by a
+  // top-level navigation: the IPC rejection it would receive is discarded.
+  return {
+    sender: {
+      isDestroyed: vi.fn(() => true),
+      send: vi.fn(),
+    },
+  } as unknown as IpcMainInvokeEvent;
+}
+
+function createRunParams(embeddingSetId: string) {
+  return {
+    databaseWorkScheduler: createDatabaseWorkScheduler({ foregroundQuietMs: 0 }),
+    event: createDeadSenderEvent(),
+    flushPendingLiveUpdates: vi.fn(),
+    gpuMemoryReclaimConfig: {
+      enabled: false,
+      itemThreshold: 500,
+      minimumIntervalMs: 15_000,
+      mode: 'reset' as const,
+    },
+    hostManager: createHostManager(),
+    isBackgrounded: () => true,
+    normalizedEmbeddingSetId: embeddingSetId,
+    source: 'background-indexing' as const,
+  };
+}
+
+describe('desktop embedding backfill termination logging', () => {
+  let captured: LogRecord[];
+  let removeListener: () => void;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setLogLevel(LogLevel.INFO);
+    captured = [];
+    removeListener = addLogListener((record) => {
+      if (record.scope === 'DesktopEmbeddingBackfillIpc') {
+        captured.push(record);
+      }
+    });
+  });
+
+  afterEach(() => {
+    removeListener();
+  });
+
+  it('logs the cancellation and rethrows when a backfill is canceled mid-run', async () => {
+    enqueueEmbeddingBackfillMock.mockImplementation(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        embeddingSetId: string,
+        _onProgress: unknown,
+        options: EnqueueOptions
+      ) => {
+        // The renderer teardown cancels while the loop is mid-flight.
+        cancelDesktopEmbeddingBackfill(embeddingSetId);
+        options.assertCanContinue();
+      }
+    );
+
+    await expect(runDesktopEmbeddingBackfill(createRunParams('set-canceled'))).rejects.toThrow(
+      EMBEDDING_BACKFILL_CANCELED_MESSAGE
+    );
+
+    const canceled = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill canceled'
+    );
+    expect(canceled).toHaveLength(1);
+    expect(canceled[0]?.level).toBe('info');
+    expect(canceled[0]?.args).toContainEqual(
+      expect.objectContaining({ embeddingSetId: 'set-canceled' })
+    );
+  });
+
+  it('logs a request-scoped record when a cancel is registered', async () => {
+    enqueueEmbeddingBackfillMock.mockImplementation(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        embeddingSetId: string,
+        _onProgress: unknown,
+        options: EnqueueOptions
+      ) => {
+        cancelDesktopEmbeddingBackfill(embeddingSetId);
+        options.assertCanContinue();
+      }
+    );
+
+    await expect(runDesktopEmbeddingBackfill(createRunParams('set-cancel-log'))).rejects.toThrow(
+      EMBEDDING_BACKFILL_CANCELED_MESSAGE
+    );
+
+    const cancelRequested = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill cancellation requested'
+    );
+    expect(cancelRequested).toHaveLength(1);
+    expect(cancelRequested[0]?.args).toContainEqual(
+      expect.objectContaining({ embeddingSetId: 'set-cancel-log' })
+    );
+  });
+
+  it('classifies a WRAPPED cancellation as canceled, not failed', async () => {
+    // Cancellation is tracked authoritatively in the canceled set; the log
+    // classification must not depend on the error message text surviving
+    // unwrapped through every layer.
+    enqueueEmbeddingBackfillMock.mockImplementation(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        embeddingSetId: string,
+        _onProgress: unknown,
+        options: EnqueueOptions
+      ) => {
+        cancelDesktopEmbeddingBackfill(embeddingSetId);
+        try {
+          options.assertCanContinue();
+        } catch (cause) {
+          throw new Error(
+            `backfill aborted: ${cause instanceof Error ? cause.message : String(cause)}`
+          );
+        }
+      }
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill(createRunParams('set-wrapped-cancel'))
+    ).rejects.toThrow('backfill aborted');
+
+    const canceled = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill canceled'
+    );
+    expect(canceled).toHaveLength(1);
+    const failed = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill failed'
+    );
+    expect(failed).toHaveLength(0);
+  });
+
+  it('logs an error and rethrows when a backfill fails for any other reason', async () => {
+    enqueueEmbeddingBackfillMock.mockRejectedValue(new Error('disk exploded'));
+
+    await expect(runDesktopEmbeddingBackfill(createRunParams('set-failed'))).rejects.toThrow(
+      'disk exploded'
+    );
+
+    const failed = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill failed'
+    );
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.level).toBe('error');
+    expect(failed[0]?.args).toContainEqual(
+      expect.objectContaining({ embeddingSetId: 'set-failed', error: 'disk exploded' })
+    );
+  });
+
+  it('logs completion so a backfill that outlives its requester still leaves a trace', async () => {
+    enqueueEmbeddingBackfillMock.mockResolvedValue(undefined);
+
+    await expect(
+      runDesktopEmbeddingBackfill(createRunParams('set-completed'))
+    ).resolves.toMatchObject({ requestId: expect.any(String) });
+
+    const completed = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill completed'
+    );
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.args).toContainEqual(
+      expect.objectContaining({ embeddingSetId: 'set-completed' })
+    );
+  });
+});

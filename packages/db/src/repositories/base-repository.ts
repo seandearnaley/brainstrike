@@ -10,6 +10,27 @@ import type { IDatabase, IFileRecordRepository } from './interfaces.js';
 
 const logger = createLogger('DB:FileRecordRepository');
 const BULK_IMPORT_INFO_LOG_THRESHOLD = 100;
+// 3 parameters per row; stays far below the 65,535 Postgres parameter limit.
+const STAT_METADATA_UPDATE_BATCH_SIZE = 5000;
+
+/**
+ * Coerce a stat column (size INTEGER, mtime_ms BIGINT) from a raw row to a finite
+ * number, or null when absent/invalid. PGlite can surface a BIGINT column as a
+ * string or bigint depending on the driver path, so all three are handled.
+ */
+function parseOptionalStatNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
 
 /**
  * Allowed fields for updates - prevents accidental ID updates
@@ -229,7 +250,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
-    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, size, mtime_ms, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
     const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
@@ -255,6 +276,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         ) {
           return [];
         }
+        const parsedSize = parseOptionalStatNumber(row['size']);
         return [
           {
             fileRecordId,
@@ -262,6 +284,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
             sourceRootPath,
             relativePath,
             contentHash: contentHash ?? '',
+            ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
+            mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
             updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
           } satisfies ManagedCacheEntryMetadata,
         ];
@@ -285,6 +309,33 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
     const sql = `UPDATE ${this.tableName} SET ${setClause} WHERE id = $${fields.length + 1}`;
     await this.db.query(sql, values);
+  }
+
+  /**
+   * Batch-stamp filesystem stat metadata (size + floored mtime) WITHOUT
+   * rewriting content. This is how rows written before migration 037 (NULL
+   * mtime_ms) join the stat-cache fast-path: a hash-confirmed-unchanged file
+   * never goes through the import/replace write path, so without this stamp it
+   * would be re-read + re-hashed on every sync indefinitely.
+   */
+  async updateStatMetadata(
+    entries: ReadonlyArray<{ fileRecordId: string; mtimeMs: number; size: number }>
+  ): Promise<void> {
+    for (let offset = 0; offset < entries.length; offset += STAT_METADATA_UPDATE_BATCH_SIZE) {
+      const batch = entries.slice(offset, offset + STAT_METADATA_UPDATE_BATCH_SIZE);
+      const ids = batch.map((entry) => entry.fileRecordId);
+      // Floor defensively: stat.mtimeMs is fractional and mtime_ms is BIGINT.
+      const mtimes = batch.map((entry) => Math.floor(entry.mtimeMs));
+      const sizes = batch.map((entry) => Math.floor(entry.size));
+      const sql = `UPDATE ${this.tableName} AS fr
+         SET mtime_ms = t.mtime_ms,
+             size = t.size
+        FROM unnest($1::text[], $2::bigint[], $3::integer[]) AS t(id, mtime_ms, size)
+        -- Text-form comparison matches the managed-cache batch path until the
+        -- legacy text-id surfaces are retired.
+       WHERE fr.id::text = t.id`;
+      await this.db.query(sql, [ids, mtimes, sizes]);
+    }
   }
 
   async updateContent(
