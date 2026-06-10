@@ -582,3 +582,6 @@ export type NewModel = typeof models.$inferInsert;
 
 export type EmbeddingCacheEntry = typeof embeddingCache.$inferSelect;
 export type NewEmbeddingCacheEntry = typeof embeddingCache.$inferInsert;
+
+export type Root = typeof roots.$inferSelect;
+export type NewRoot = typeof roots.$inferInsert;
