@@ -62,6 +62,43 @@ describe('createAppActionRegistry', () => {
     });
   });
 
+  it('maps bridge results to action outcomes (defaults, passthrough error, success)', async () => {
+    const openPath = vi
+      .fn<(absolutePath: string) => Promise<{ ok: boolean; error?: string }>>()
+      .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValueOnce({ ok: false, error: 'x' })
+      .mockResolvedValueOnce({ ok: true });
+    const showItemInFolder = vi
+      .fn<(absolutePath: string) => Promise<{ ok: boolean; error?: string }>>()
+      .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValueOnce({ ok: false, error: 'x' })
+      .mockResolvedValueOnce({ ok: true });
+    (window as MutableWindow).platform = { openPath, showItemInFolder };
+
+    const registry = createAppActionRegistry();
+    const platformFs = registry.services.platformFs;
+    if (!platformFs) {
+      throw new Error('platformFs service should be defined for a fully-formed bridge');
+    }
+
+    await expect(platformFs.openPath('/a')).resolves.toEqual({
+      ok: false,
+      error: 'Open failed',
+    });
+    await expect(platformFs.openPath('/a')).resolves.toEqual({ ok: false, error: 'x' });
+    await expect(platformFs.openPath('/a')).resolves.toEqual({ ok: true });
+
+    await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({
+      ok: false,
+      error: 'Reveal failed',
+    });
+    await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({ ok: false, error: 'x' });
+    await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({ ok: true });
+
+    expect(openPath).toHaveBeenCalledWith('/a');
+    expect(showItemInFolder).toHaveBeenCalledWith('/a');
+  });
+
   it('includes the composed global actions', () => {
     const registry = createAppActionRegistry();
     const grouped = registry.actionsFor({ kind: 'chunk', id: 'c', content: 'x' });

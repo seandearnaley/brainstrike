@@ -41,6 +41,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./context-actions": {
+      "types": "./dist/context-actions/index.d.ts",
+      "import": "./dist/context-actions/index.js"
+    },
     "./indexing": {
       "types": "./dist/indexing/index.d.ts",
       "import": "./dist/indexing/index.js"

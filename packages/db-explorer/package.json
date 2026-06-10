@@ -45,6 +45,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./context-actions": {
+      "types": "./dist/context-actions/index.d.ts",
+      "import": "./dist/context-actions/index.js"
+    },
     "./database-demo-panel": {
       "types": "./dist/database-demo-panel.d.ts",
       "import": "./dist/database-demo-panel.js"

@@ -5,8 +5,10 @@ import {
   createActionRegistry,
   createClipboardService,
 } from '@brainstrike/context-actions';
-import { collectionActions } from '@brainstrike/db-explorer';
-import { fileEntryActions } from '@brainstrike/file-explorer-ui';
+// Subpath imports keep the heavy db-explorer/file-explorer-ui root barrels out
+// of this always-mounted module so their lazy-loaded graphs stay code-split.
+import { collectionActions } from '@brainstrike/db-explorer/context-actions';
+import { fileEntryActions } from '@brainstrike/file-explorer-ui/context-actions';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('ContextActionRegistry');
