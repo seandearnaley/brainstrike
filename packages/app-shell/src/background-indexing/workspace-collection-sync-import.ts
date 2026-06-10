@@ -24,6 +24,7 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
@@ -33,6 +34,8 @@ import {
   buildNormalizedChunkingProgress,
   throwIfAborted,
 } from './workspace-collection-sync-progress';
+
+const logger = createLogger('WorkspaceCollectionSyncImport');
 
 type WorkspaceIndexingImportQosPolicy = Pick<
   WorkspaceIndexingQosPolicy,
@@ -439,14 +442,18 @@ function createFileBatchPreparations(
  * before the mtime column existed) AND the scan to have captured the file's mtime.
  * Any gap or mismatch falls through to the existing read+hash path, so a stale
  * stat can only ever cost an extra read, never a missed real change — except the
- * well-known stat-cache residual: same byte size + preserved mtime + different
- * content. Note this residual is NOT always transient — mtime-preserving tools
- * (`cp -p`, `rsync --times`, archive restores, some VCS checkouts) hit it
- * deterministically, and a restored same-size revision keeps its past mtime, so
- * it is never re-embedded by sync alone. Recovery today is re-creating the
- * collection (or factory reset); a targeted force-rehash affordance is a known,
- * deliberate follow-up (a periodic full rehash was considered and declined for
- * this change's scope).
+ * stat-cache residual. Be precise about its shape: the skip requires the disk
+ * (size, floored-mtime) pair to EQUAL the values stored at index time, so
+ * restoring an older same-size revision via `cp -p`/`rsync --times`/archive
+ * restore is CAUGHT (the restored file carries the other revision's mtime, which
+ * differs from the indexed one), and stock `git checkout` writes fresh mtimes —
+ * also caught. The residual bites only when new content lands with the indexed
+ * pair exactly: `touch -r` against the indexed state, in-place tools that
+ * restore the original mtime after writing, or a same-size rewrite within the
+ * same floored millisecond. Such a file is never re-embedded by sync alone;
+ * recovery today is re-creating the collection (or factory reset), and a
+ * targeted force-rehash affordance is tracked as follow-up work (a periodic
+ * full rehash was considered and declined for this change's scope).
  */
 export function partitionPreparationsByStatCache<
   T extends { mtimeMs: number | null; relativePath: string; size: number },
@@ -531,6 +538,14 @@ export async function collectPreparedChangesInBatches(args: {
     preparations: allPreparations,
     rootPath,
   });
+  if (skippedUnchanged.length > 0) {
+    // One line per scan: without this, a stat-skipped file leaves no trace at
+    // all, which makes "why didn't my edit get indexed" undiagnosable.
+    logger.info('Stat-cache skipped unchanged files without re-reading', {
+      statCacheSkipped: skippedUnchanged.length,
+      totalFiles: allPreparations.length,
+    });
+  }
   const changes: PreparedCacheChange[] = [];
   let unchangedCount = skippedUnchanged.length;
 

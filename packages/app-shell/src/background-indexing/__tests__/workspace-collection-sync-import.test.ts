@@ -2,6 +2,7 @@ import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
 import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it, vi } from 'vitest';
 import { buildRootFolderCacheIdentityKey } from '../root-folder-cache-reconciliation';
 import {
@@ -226,6 +227,43 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect(result.unchangedCount).toBe(1);
     expect(result.changes.map((change) => change.relativePath)).toEqual(['fresh.ts']);
     expect(result.totalFiles).toBe(2);
+  });
+
+  it('logs the stat-cache skip count so skipped files leave a diagnostic trace', async () => {
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
+
+    try {
+      const { processor } = createRecordingProcessor();
+      await collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        existingEntries: [existingEntry('unchanged.ts', { size: 42, mtimeMs: 1000 })],
+        fileContentProcessor: processor,
+        fileNodes: [makeFileNode('unchanged.ts', 42, 1000), makeFileNode('fresh.ts', 10, 2000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootPath: ROOT,
+      });
+
+      const skipLogs = captured.filter((record) => record.message?.includes('Stat-cache skipped'));
+      expect(skipLogs).toHaveLength(1);
+      expect(skipLogs[0]?.args).toContainEqual(
+        expect.objectContaining({ statCacheSkipped: 1, totalFiles: 2 })
+      );
+    } finally {
+      removeListener();
+    }
   });
 
   it('floors sub-millisecond mtime so a stored integer mtime still hits the stat-cache', async () => {
