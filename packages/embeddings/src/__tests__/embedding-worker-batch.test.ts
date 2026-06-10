@@ -853,6 +853,22 @@ describe('Embedding Worker Batch Optimization', () => {
     );
   });
 
+  it('allows explicit reinitEveryN zero to disable scheduled reinitialization', async () => {
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      reinitEveryN: 0,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    });
+
+    await controller.stop();
+  });
+
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';

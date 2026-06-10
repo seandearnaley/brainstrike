@@ -153,6 +153,9 @@ function resolveOptionalPositiveIntegerRuntimeConfig(
 }
 
 function resolveReinitEveryN(configuredValue: number | undefined): number {
+  if (configuredValue === 0) {
+    return 0;
+  }
   if (configuredValue !== undefined) {
     return parsePositiveIntegerConfig({
       name: 'reinitEveryN',
