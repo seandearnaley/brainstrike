@@ -374,6 +374,9 @@ async function createVectorDatabase(
   // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
   const instance: any = new Ctor({
     dataDir,
+    // pg_trgm has no runtime pg_extension check below (unlike vector): migration 037
+    // runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and fails loudly if the module
+    // isn't loaded here. The vector check predates the migration-based approach.
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
     extensions: { vector: vector as any, live: live as any, pg_trgm: pgTrgm as any },
   });
@@ -984,7 +987,7 @@ function formatOpenDatabaseFailureMessage(
   details: string
 ): string {
   if (category === 'missing-extension') {
-    return `pgvector extension is required and failed to initialize via PGlite: ${details}.`;
+    return `A required PGlite extension failed to initialize: ${details}.`;
   }
   if (category === 'wasm-runtime') {
     return `PGlite runtime aborted while opening the desktop database: ${details}.`;

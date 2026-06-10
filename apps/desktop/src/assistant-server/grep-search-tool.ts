@@ -35,6 +35,18 @@ export async function runGrepSearch(
     });
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: input.pattern.slice(0, 100) });
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    // Rethrow only known-safe service validation messages; everything else
+    // (raw PGlite/SQL errors) maps to a generic message so internal details
+    // never reach the model (same convention as retrieval-tool.ts).
+    const knownSafeMessages = [
+      /^Invalid regular expression pattern:/,
+      /^Grep pattern must be at least \d+ characters/,
+      /^findGrepCandidates filePaths limit exceeded/,
+    ];
+    if (knownSafeMessages.some((re) => re.test(message))) {
+      throw error;
+    }
+    throw new Error('Unable to perform grep search right now. Try again.');
   }
 }

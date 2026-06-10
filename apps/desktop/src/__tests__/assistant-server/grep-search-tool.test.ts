@@ -61,4 +61,11 @@ describe('grep search tool', () => {
     );
     expect(queryMock).not.toHaveBeenCalled();
   });
+
+  it('sanitizes raw repository/db errors to a generic message', async () => {
+    queryMock.mockRejectedValue(new Error('relation "file_chunks" does not exist'));
+    const promise = runGrepSearch({ pattern: 'needle' }, undefined);
+    await expect(promise).rejects.toThrow(/Unable to perform grep search/);
+    await expect(promise).rejects.not.toThrow(/file_chunks/);
+  });
 });
