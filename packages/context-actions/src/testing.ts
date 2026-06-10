@@ -4,6 +4,10 @@ import type { ActionServices, AnyContextAction, CapabilityKey } from './types';
 /**
  * Registry for component tests: all capabilities granted, services recorded
  * in-memory. Pass `actions` to exercise real definitions.
+ *
+ * @param options.services - Override all services; when provided,
+ * `writtenTexts` is not populated (the default in-memory clipboard is
+ * bypassed).
  */
 export function createTestActionRegistry(
   options: {
