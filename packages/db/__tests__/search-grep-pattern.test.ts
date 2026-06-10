@@ -62,6 +62,12 @@ describe('extractTrigramLiteral', () => {
     expect(extractTrigramLiteral('(?<!skip)needle')).toBeNull();
   });
 
+  it('returns null for unparsed group prefixes (non-capturing, named, lookahead)', () => {
+    expect(extractTrigramLiteral('(?:foo)bar')).toBeNull();
+    expect(extractTrigramLiteral('(?=foo)bar')).toBeNull();
+    expect(extractTrigramLiteral('(?<name>foo)bar')).toBeNull();
+  });
+
   it('returns null when a group is optionalized (cannot attribute runs safely)', () => {
     expect(extractTrigramLiteral('(prefix)?suffix')).toBeNull();
   });

@@ -17,8 +17,15 @@ export function escapeLikeLiteral(literal: string): string {
   return literal.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
-/** Regex constructs we refuse to reason about — bail to bounded scan. */
-const UNSUPPORTED_CONSTRUCTS = ['|', '(?!', '(?<!'];
+/**
+ * Regex constructs we refuse to reason about — bail to bounded scan.
+ * '(?'  — any (?...) group form: non-capturing (?:), lookahead (?=), negative
+ *          lookahead (?!), lookbehind (?<=), negative lookbehind (?<!), and
+ *          named capture (?<name>). We don't parse them, so we can't attribute
+ *          their contents safely; bail to bounded scan (surfaced via scanLimited).
+ * '|'   — alternation: no single literal is guaranteed across all branches.
+ */
+const UNSUPPORTED_CONSTRUCTS = ['(?', '|'];
 
 function skipCharacterClass(source: string, openIndex: number): number {
   let i = openIndex + 1;
