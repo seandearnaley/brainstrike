@@ -141,4 +141,61 @@ export const migrations = [];
       },
     ]);
   });
+
+  it('requires preference remaps for removed assistant model IDs', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
+  customMigration('custom-033-update-provider-models-2026-frontier', migration033UpdateProviderModels2026Frontier),
+];
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/032-previous-catalog.ts',
+          'migration032PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/033-update-provider-models-2026-frontier.ts',
+          'migration033UpdateProviderModels2026Frontier',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-4.5');
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.6', 'openrouter', 'Claude Sonnet 4.6', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration032PreviousCatalog,
+  migration033UpdateProviderModels2026Frontier,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        message:
+          'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
+      },
+      {
+        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        message:
+          'Removed assistant memory model target openrouter/anthropic/claude-sonnet-4.5 is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
+      },
+    ]);
+  });
 });
