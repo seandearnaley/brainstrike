@@ -36,9 +36,9 @@ export class DrizzleEmbeddingSetsRepository {
   private readonly dimensionIndexBuilder: DeferredDimensionIndexBuilder =
     createDeferredDimensionIndexBuilder({
       getDb: () => this.createQueryAdapter(),
-      onError: (dimensions, error) => {
+      onError: (dimension, error) => {
         this.logger.warn('Failed to ensure dimension index exists', {
-          dimensions,
+          dimension,
           error: error instanceof Error ? error.message : String(error),
         });
       },
