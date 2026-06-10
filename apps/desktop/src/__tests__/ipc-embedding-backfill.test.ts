@@ -143,6 +143,43 @@ describe('desktop embedding backfill termination logging', () => {
     );
   });
 
+  it('classifies a WRAPPED cancellation as canceled, not failed', async () => {
+    // Cancellation is tracked authoritatively in the canceled set; the log
+    // classification must not depend on the error message text surviving
+    // unwrapped through every layer.
+    enqueueEmbeddingBackfillMock.mockImplementation(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        embeddingSetId: string,
+        _onProgress: unknown,
+        options: EnqueueOptions
+      ) => {
+        cancelDesktopEmbeddingBackfill(embeddingSetId);
+        try {
+          options.assertCanContinue();
+        } catch (cause) {
+          throw new Error(
+            `backfill aborted: ${cause instanceof Error ? cause.message : String(cause)}`
+          );
+        }
+      }
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill(createRunParams('set-wrapped-cancel'))
+    ).rejects.toThrow('backfill aborted');
+
+    const canceled = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill canceled'
+    );
+    expect(canceled).toHaveLength(1);
+    const failed = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill failed'
+    );
+    expect(failed).toHaveLength(0);
+  });
+
   it('logs an error and rethrows when a backfill fails for any other reason', async () => {
     enqueueEmbeddingBackfillMock.mockRejectedValue(new Error('disk exploded'));
 

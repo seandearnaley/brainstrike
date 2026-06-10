@@ -324,7 +324,10 @@ export async function runDesktopEmbeddingBackfill(params: {
     // mid-backfill), so main MUST log the terminal outcome itself or the
     // backfill vanishes from the logs without a trace.
     const message = error instanceof Error ? error.message : String(error);
-    if (message === EMBEDDING_BACKFILL_CANCELED_MESSAGE) {
+    // Classify canceled-vs-failed from the authoritative canceled set (still
+    // populated here; the finally below clears it), not the error message —
+    // a wrapped cancellation must not be logged at error level as a failure.
+    if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
       logger.info('Desktop embedding backfill canceled', {
         embeddingSetId: normalizedEmbeddingSetId,
         requestId: backfillRequestId,
