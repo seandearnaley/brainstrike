@@ -65,6 +65,19 @@ const mockElectronAPI = {
     getAllKeys: vi.fn().mockResolvedValue([]),
   },
   fileSystem: {
+    addRoot: vi.fn().mockResolvedValue({
+      displayName: 'mock-directory',
+      handle: {
+        kind: 'directory',
+        name: 'mock-directory',
+        path: '/mock/path',
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'mock-root-id',
+    }),
     requestDirectoryAccess: vi.fn().mockResolvedValue({
       path: '/mock/path',
       name: 'mock-directory',
@@ -76,6 +89,7 @@ const mockElectronAPI = {
     readFileByPath: vi.fn().mockResolvedValue('mock file content by path'),
     exists: vi.fn().mockResolvedValue(true),
     restoreLastFolder: vi.fn().mockResolvedValue(null),
+    restoreRoots: vi.fn().mockResolvedValue([]),
     saveLastFolder: vi.fn().mockResolvedValue(undefined),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),

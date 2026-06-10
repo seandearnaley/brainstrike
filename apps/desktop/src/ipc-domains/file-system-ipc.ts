@@ -4,6 +4,7 @@ import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import {
@@ -34,9 +35,62 @@ interface ElectronE2eFileSystemFixture {
 }
 
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
+const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const MOCK_PATH_PREFIX = '/mock/' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
+
+interface StoredRootEntry {
+  addedAt: number;
+  path: string;
+  rootId: string;
+}
+
+function isStoredRootEntry(value: unknown): value is StoredRootEntry {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['addedAt'] === 'number' &&
+    typeof candidate['path'] === 'string' &&
+    typeof candidate['rootId'] === 'string'
+  );
+}
+
+async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+  try {
+    const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      logger.warn('rootsList storage value is not an array — treating as empty', {
+        key: ROOTS_LIST_STORAGE_KEY,
+      });
+      return [];
+    }
+    const valid = parsed.filter(isStoredRootEntry);
+    if (valid.length !== parsed.length) {
+      logger.warn('rootsList contained malformed entries — discarding invalid items', {
+        total: parsed.length,
+        valid: valid.length,
+      });
+    }
+    return valid;
+  } catch (error) {
+    logger.warn('Failed to parse rootsList — treating as empty', { error });
+    return [];
+  }
+}
+
+async function writeRootsList(
+  storage: ElectronStorageAdapter,
+  entries: StoredRootEntry[]
+): Promise<void> {
+  await storage.setItem(ROOTS_LIST_STORAGE_KEY, JSON.stringify(entries));
+}
 
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
@@ -327,6 +381,17 @@ export function registerFileSystemIpcHandlers({
       try {
         const resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
         await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
+        // Upsert into rootsList so the two stores stay in sync
+        const entries = await readRootsList(storage);
+        const existing = entries.find((e) => e.path === resolvedPath);
+        if (!existing) {
+          const newEntry: StoredRootEntry = {
+            addedAt: Date.now(),
+            path: resolvedPath,
+            rootId: crypto.randomUUID(),
+          };
+          await writeRootsList(storage, [...entries, newEntry]);
+        }
       } catch (error) {
         if (process.env['NODE_ENV'] === 'development') {
           logger.debug('Failed to save last folder', { error });
@@ -334,6 +399,107 @@ export function registerFileSystemIpcHandlers({
       }
     }
   );
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
+    const entries = await readRootsList(storage);
+    if (entries.length === 0) {
+      return [];
+    }
+
+    const survivors: StoredRootEntry[] = [];
+    const descriptors: RootDescriptor[] = [];
+
+    for (const entry of entries) {
+      try {
+        const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
+        const exists = await fileSystem.exists(resolvedPath);
+        if (!exists) {
+          logger.debug('Pruning stale root from rootsList', { path: entry.path });
+          continue;
+        }
+        const basename = path.basename(resolvedPath);
+        survivors.push(entry);
+        descriptors.push({
+          displayName: basename,
+          handle: {
+            kind: 'directory',
+            name: basename,
+            path: resolvedPath,
+            platform: 'electron',
+          },
+          kind: 'path',
+          permissionState: 'granted',
+          persisted: true,
+          rootId: entry.rootId,
+        });
+      } catch (error) {
+        logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
+      }
+    }
+
+    if (survivors.length !== entries.length) {
+      await writeRootsList(storage, survivors);
+    }
+
+    return descriptors;
+  });
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
+    const handle = await fileSystem.requestDirectoryAccess();
+    const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
+    const basename = path.basename(resolvedPath);
+
+    // Upsert into rootsList keyed by resolved path
+    const entries = await readRootsList(storage);
+    const existing = entries.find((e) => e.path === resolvedPath);
+
+    let rootId: string;
+    let persisted = true;
+
+    if (existing) {
+      rootId = existing.rootId;
+      const updated: StoredRootEntry[] = entries.map((e) =>
+        e.path === resolvedPath ? { ...e, addedAt: Date.now() } : e
+      );
+      try {
+        await writeRootsList(storage, updated);
+      } catch (error) {
+        logger.warn('addRoot: failed to update rootsList', { error });
+        persisted = false;
+      }
+    } else {
+      rootId = crypto.randomUUID();
+      const newEntry: StoredRootEntry = { addedAt: Date.now(), path: resolvedPath, rootId };
+      try {
+        await writeRootsList(storage, [...entries, newEntry]);
+      } catch (error) {
+        logger.warn('addRoot: failed to write rootsList', { error });
+        persisted = false;
+      }
+    }
+
+    // Shim parity: keep writing lastFolderPath
+    try {
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
+    } catch (error) {
+      logger.warn('addRoot: failed to write lastFolderPath', { error });
+    }
+
+    const descriptor: RootDescriptor = {
+      displayName: basename,
+      handle: {
+        kind: 'directory',
+        name: basename,
+        path: resolvedPath,
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted,
+      rootId,
+    };
+    return descriptor;
+  });
 
   return () => registry.unregisterAll();
 }

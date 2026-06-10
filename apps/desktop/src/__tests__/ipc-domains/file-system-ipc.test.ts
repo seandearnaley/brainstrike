@@ -32,34 +32,38 @@ import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc
 
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 
-function createFileSystem(): ElectronFileSystemAdapter {
+function makeDirHandle(dirPath: string): DirectoryHandle {
+  return {
+    kind: 'directory',
+    name: path.basename(dirPath),
+    path: dirPath,
+    platform: 'electron',
+  };
+}
+
+function createFileSystem(pickedPath = '/real-dir'): ElectronFileSystemAdapter {
   return {
     exists: vi.fn(async () => true),
     readDirectory: vi.fn(async () => []),
     readFile: vi.fn(async () => 'file content'),
     readFileByPath: vi.fn(async () => 'path content'),
-    requestDirectoryAccess: vi.fn(
-      async () =>
-        ({
-          id: 'real-dir',
-          kind: 'directory',
-          name: 'real-dir',
-          path: '/real-dir',
-          platform: 'electron',
-          type: 'directory',
-        }) as DirectoryHandle
-    ),
+    requestDirectoryAccess: vi.fn(async () => makeDirHandle(pickedPath)),
     watchDirectory: vi.fn(),
   } as unknown as ElectronFileSystemAdapter;
 }
 
-function createStorage(): ElectronStorageAdapter {
+function createStorage(storedItems: Record<string, string> = {}): ElectronStorageAdapter {
+  const store: Record<string, string> = { ...storedItems };
   return {
     clear: vi.fn(async () => undefined),
-    getAllKeys: vi.fn(async () => []),
-    getItem: vi.fn(async () => null),
-    removeItem: vi.fn(async () => undefined),
-    setItem: vi.fn(async () => undefined),
+    getAllKeys: vi.fn(async () => Object.keys(store)),
+    getItem: vi.fn(async (key: string) => store[key] ?? null),
+    removeItem: vi.fn(async (key: string) => {
+      delete store[key];
+    }),
+    setItem: vi.fn(async (key: string, value: string) => {
+      store[key] = value;
+    }),
   } as unknown as ElectronStorageAdapter;
 }
 
@@ -191,5 +195,163 @@ describe('file system IPC domain', () => {
     expect(removeHandler).toHaveBeenCalledWith('fs:requestDirectoryAccess');
     expect(removeHandler).toHaveBeenCalledWith('fs:readFileByPath');
     expect(removeHandler).toHaveBeenCalledWith('fs:restoreLastFolder');
+  });
+});
+
+describe('fs:restoreRoots', () => {
+  let fileSystem: ElectronFileSystemAdapter;
+  let storage: ElectronStorageAdapter;
+
+  beforeEach(() => {
+    handlers.clear();
+    removeHandler.mockClear();
+  });
+
+  it('returns roots from rootsList, validating each path and pruning stale entries', async () => {
+    const goodPath = path.resolve('/users/test/good-project');
+    const badPath = path.resolve('/users/test/gone-project');
+    const entry1 = { addedAt: 1000, path: goodPath, rootId: 'root-id-1' };
+    const entry2 = { addedAt: 2000, path: badPath, rootId: 'root-id-2' };
+    const rootsList = JSON.stringify([entry1, entry2]);
+
+    fileSystem = {
+      exists: vi.fn(async (p: string) => p === goodPath),
+      readDirectory: vi.fn(async () => []),
+      readFile: vi.fn(async () => ''),
+      readFileByPath: vi.fn(async () => ''),
+      requestDirectoryAccess: vi.fn(async () => makeDirHandle(goodPath)),
+      watchDirectory: vi.fn(),
+    } as unknown as ElectronFileSystemAdapter;
+
+    storage = createStorage({ rootsList });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toEqual([
+      {
+        displayName: 'good-project',
+        handle: {
+          kind: 'directory',
+          name: 'good-project',
+          path: goodPath,
+          platform: 'electron',
+        },
+        kind: 'path',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-id-1',
+      },
+    ]);
+
+    // Pruned list (only survivor) must have been written back
+    expect(storage.setItem).toHaveBeenCalledWith('rootsList', JSON.stringify([entry1]));
+  });
+
+  it('returns [] when rootsList is absent (legacy lastFolderPath is NOT consulted — greenfield)', async () => {
+    fileSystem = createFileSystem();
+    // storage has no rootsList key but does have lastFolderPath (should be ignored)
+    storage = createStorage({ lastFolderPath: '/some/old/path' });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toEqual([]);
+    expect(fileSystem.exists).not.toHaveBeenCalled();
+  });
+});
+
+describe('fs:addRoot', () => {
+  let fileSystem: ElectronFileSystemAdapter;
+  let storage: ElectronStorageAdapter;
+
+  beforeEach(() => {
+    handlers.clear();
+    removeHandler.mockClear();
+  });
+
+  it('opens the directory dialog, generates a rootId, appends to rootsList, returns the descriptor', async () => {
+    const pickedPath = path.resolve('/users/test/new-project');
+    fileSystem = createFileSystem(pickedPath);
+    storage = createStorage();
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toMatchObject({
+      displayName: 'new-project',
+      handle: {
+        kind: 'directory',
+        name: 'new-project',
+        path: pickedPath,
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+    });
+
+    const descriptor = result as {
+      rootId: string;
+      persisted: boolean;
+    };
+    expect(descriptor.rootId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+
+    // rootsList should have been written
+    expect(storage.setItem).toHaveBeenCalledWith('rootsList', expect.stringContaining(pickedPath));
+    // lastFolderPath shim parity
+    expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', pickedPath);
+  });
+
+  it('re-uses the existing rootId when the picked path is already in rootsList', async () => {
+    const existingPath = path.resolve('/users/test/existing-project');
+    const existingRootId = 'existing-root-id-abc123';
+    const existingEntry = { addedAt: 1000, path: existingPath, rootId: existingRootId };
+    storage = createStorage({ rootsList: JSON.stringify([existingEntry]) });
+    fileSystem = createFileSystem(existingPath);
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    const descriptor = result as { rootId: string };
+    expect(descriptor.rootId).toBe(existingRootId);
+
+    // Verify only one entry in rootsList (no duplicate)
+    const setItemCalls = vi
+      .mocked(storage.setItem)
+      .mock.calls.filter(([key]) => key === 'rootsList');
+    expect(setItemCalls.length).toBeGreaterThan(0);
+    const lastRootsList = JSON.parse(setItemCalls.at(-1)?.[1] ?? '[]') as Array<{
+      rootId: string;
+    }>;
+    expect(lastRootsList.filter((e) => e.rootId === existingRootId)).toHaveLength(1);
+  });
+});
+
+describe('fs:saveLastFolder (legacy shim)', () => {
+  let fileSystem: ElectronFileSystemAdapter;
+  let storage: ElectronStorageAdapter;
+
+  beforeEach(() => {
+    handlers.clear();
+    removeHandler.mockClear();
+  });
+
+  it('still writes lastFolderPath AND upserts the path into rootsList', async () => {
+    const folderPath = '/users/test/my-project';
+    const resolvedPath = path.resolve(folderPath);
+    fileSystem = createFileSystem();
+    storage = createStorage();
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, folderPath);
+
+    expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
+    expect(storage.setItem).toHaveBeenCalledWith(
+      'rootsList',
+      expect.stringContaining(resolvedPath)
+    );
   });
 });
