@@ -352,6 +352,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         description: 'Exact text (default) or JavaScript regex to find',
         required: true,
         minLength: 2,
+        maxLength: 500,
       },
       {
         name: 'isRegex',
@@ -372,6 +373,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         type: 'array',
         description: 'Restrict the search to specific indexed file paths',
         required: false,
+        arrayItemType: 'string',
       },
       {
         name: 'contextLines',
