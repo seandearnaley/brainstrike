@@ -73,7 +73,10 @@ declare global {
   interface FileSystemObserverRecord {
     readonly changedHandle: FileSystemHandle;
     readonly relativePathComponents: readonly string[];
-    readonly type: 'appeared' | 'disappeared' | 'errored' | 'modified' | 'moved';
+    /** For 'moved' records: the previous path relative to root, else null. */
+    readonly relativePathMovedFrom: readonly string[] | null;
+    readonly root: FileSystemDirectoryHandle;
+    readonly type: 'appeared' | 'disappeared' | 'errored' | 'modified' | 'moved' | 'unknown';
   }
 
   type FileSystemObserverCallback = (
@@ -629,18 +632,24 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
    * When `typeof FileSystemObserver !== 'undefined'` (feature gate passes):
    *   - Constructs a `FileSystemObserver` with a callback that maps WICG observer
    *     records to the existing `FileSystemChange[]` shape expected by callers.
-   *   - Calls `observe(handle._internal, { recursive: true })`.
+   *     `moved` records map to a removed+added pair (old path from
+   *     `relativePathMovedFrom`); `errored`/`unknown` records are dropped.
+   *   - Calls `observe(handle._internal, { recursive: true })`. In shipping
+   *     Chrome `observe()` returns a Promise — a rejection (e.g. permission
+   *     revoked asynchronously) is caught, warn-logged, and the observer is
+   *     disconnected so no phantom watcher lingers behind the disposer.
    *   - Returns a disposer that calls `observer.disconnect()`.
    *
-   * If `observe()` throws (e.g. permission revoked): logs a warn and returns a
-   * no-op disposer so callers always receive a valid cleanup function. The warn
-   * is intentionally visible — this is a capability failure, not a silent path.
+   * If `observe()` throws synchronously: logs a warn and returns a no-op
+   * disposer so callers always receive a valid cleanup function. The warn is
+   * intentionally visible — this is a capability failure, not a silent path.
    *
-   * When `FileSystemObserver` is unavailable: the method is present but returns a
-   * no-op disposer. The interface marks `watchDirectory` optional, so adapters
-   * that cannot watch at all may leave it unimplemented. This implementation
-   * keeps the method present so callers don't need an extra undefined-check when
-   * the feature detection itself succeeds.
+   * DESIGN: this method is ALWAYS present on the web adapter and no-ops
+   * (returns a no-op disposer) when `FileSystemObserver` is unavailable. This
+   * is deliberate: callers get a uniform call-site with no undefined-check.
+   * Callers that need a capability signal (e.g. to surface "live re-index
+   * unsupported" UI) should feature-detect `typeof FileSystemObserver`
+   * themselves rather than probing for this method.
    */
   watchDirectory(
     handle: DirectoryHandle,
@@ -649,27 +658,48 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     // Feature gate: FileSystemObserver is only available in Chrome 133+ with the
     // experimental flag or Origin Trial enabled. When absent, return a no-op
     // disposer — no polling, no silent fallback, callers should treat the folder
-    // as unwatched (same semantics as if the method were absent).
+    // as unwatched.
     if (typeof FileSystemObserver === 'undefined') {
       return () => {};
     }
 
     const observer = new FileSystemObserver((records) => {
-      const changes: FileSystemChange[] = records
-        .filter(
-          (r): r is FileSystemObserverRecord & { type: 'appeared' | 'disappeared' | 'modified' } =>
-            r.type === 'appeared' || r.type === 'disappeared' || r.type === 'modified'
-        )
-        .map((r) => {
-          // Build a path by joining the root handle path with the relative components.
-          const relPath = r.relativePathComponents.join('/');
-          const fullPath = relPath ? `${handle.path}/${relPath}` : handle.path;
-          const type: FileSystemChange['type'] =
-            r.type === 'appeared' ? 'added' : r.type === 'disappeared' ? 'removed' : 'modified';
-          const kind: FileSystemChange['kind'] =
-            r.changedHandle.kind === 'directory' ? 'directory' : 'file';
-          return { type, path: fullPath, kind };
-        });
+      const changes: FileSystemChange[] = records.flatMap((r): FileSystemChange[] => {
+        // Build a path by joining the root handle path with the relative components.
+        const relPath = r.relativePathComponents.join('/');
+        const fullPath = relPath ? `${handle.path}/${relPath}` : handle.path;
+        const kind: FileSystemChange['kind'] =
+          r.changedHandle.kind === 'directory' ? 'directory' : 'file';
+
+        switch (r.type) {
+          case 'appeared':
+            return [{ type: 'added', path: fullPath, kind }];
+          case 'disappeared':
+            return [{ type: 'removed', path: fullPath, kind }];
+          case 'modified':
+            return [{ type: 'modified', path: fullPath, kind }];
+          case 'moved': {
+            // A rename is a removed+added pair so consumers re-index both the
+            // vacated and the new path. When the observer didn't report the
+            // old location (null/empty relativePathMovedFrom), emit only the
+            // added event — there is no old path to invalidate.
+            const movedFrom = r.relativePathMovedFrom;
+            if (movedFrom && movedFrom.length > 0) {
+              const oldFullPath = `${handle.path}/${movedFrom.join('/')}`;
+              return [
+                { type: 'removed', path: oldFullPath, kind },
+                { type: 'added', path: fullPath, kind },
+              ];
+            }
+            return [{ type: 'added', path: fullPath, kind }];
+          }
+          default:
+            // 'errored' and 'unknown' have no FileSystemChange equivalent;
+            // errored conditions are surfaced via the observe() rejection
+            // handler below, not as change events.
+            return [];
+        }
+      });
 
       if (changes.length > 0) {
         callback(changes);
@@ -685,11 +715,25 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     }
 
     try {
-      // observe() is synchronous on the current draft; the result (void |
-      // Promise<void>) is intentionally not awaited — the callback fires
-      // asynchronously on every FS mutation and the caller does not need to
-      // know when observation starts.
-      void observer.observe(internalHandle as FileSystemDirectoryHandle, { recursive: true });
+      // MDN/shipping Chrome define observe() as Promise-returning. A rejection
+      // (e.g. permission revoked after setup) means observation never started:
+      // warn visibly and disconnect so the disposer isn't holding a phantom
+      // watcher. The sync try/catch still covers engines/stubs that throw.
+      const observeResult = observer.observe(internalHandle as FileSystemDirectoryHandle, {
+        recursive: true,
+      });
+      if (observeResult instanceof Promise) {
+        observeResult.catch((err: unknown) => {
+          logger.warn(
+            'watchDirectory: FileSystemObserver.observe() rejected, folder is unwatched',
+            {
+              path: handle.path,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          );
+          observer.disconnect();
+        });
+      }
     } catch (err) {
       // Permission revoked or handle invalid: log a visible warn and return a
       // no-op disposer. This is a capability failure — it must not be silent.

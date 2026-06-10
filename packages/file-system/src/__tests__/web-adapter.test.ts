@@ -1002,11 +1002,15 @@ describe('WebFileSystemAdapter', () => {
 /**
  * Minimal stub type for the FileSystemObserver WICG draft.
  * Mirrors the ambient declaration in web-adapter.ts.
+ * `relativePathMovedFrom`/`root` are optional in the stub for test brevity —
+ * the adapter only reads `relativePathMovedFrom` on 'moved' records.
  */
 interface StubFSORecord {
   changedHandle: FileSystemHandle;
   relativePathComponents: string[];
-  type: 'appeared' | 'disappeared' | 'modified' | 'moved' | 'errored';
+  relativePathMovedFrom?: string[] | null;
+  root?: FileSystemDirectoryHandle;
+  type: 'appeared' | 'disappeared' | 'modified' | 'moved' | 'errored' | 'unknown';
 }
 
 type FSOCallback = (records: StubFSORecord[], observer: unknown) => void;
@@ -1125,7 +1129,7 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
     expect(capturedObserver!.disconnected).toBe(true);
   });
 
-  it('returns a no-op disposer (watchDirectory absent/undefined) when FileSystemObserver is unavailable', () => {
+  it('is always present and returns a no-op disposer when FileSystemObserver is unavailable', () => {
     // biome-ignore lint/performance/noDelete: removing stub to simulate absent API
     delete (globalThis as GlobalWithFSO)['FileSystemObserver'];
 
@@ -1140,18 +1144,141 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
     const adapter = new WebFileSystemAdapter();
 
-    // When FSO is unavailable watchDirectory is not present or returns safely
-    if (adapter.watchDirectory) {
+    // The method is ALWAYS present by design (see watchDirectory JSDoc) — it
+    // no-ops without FileSystemObserver; capability detection is the caller's
+    // job via `typeof FileSystemObserver`.
+    expect(adapter.watchDirectory).toBeDefined();
+    const callback = vi.fn();
+    const disposer = adapter.watchDirectory(dirHandle, callback);
+    expect(typeof disposer).toBe('function');
+    // calling the disposer must not throw
+    expect(() => disposer()).not.toThrow();
+    // no spurious change events
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('maps a moved record with relativePathMovedFrom to a removed+added pair', () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      path: 'project',
+      name: 'project',
+      kind: 'directory',
+      platform: 'web',
+      _internal: internalHandle,
+    };
+
+    let capturedObserver: StubFileSystemObserver | null = null;
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class extends StubFileSystemObserver {
+      constructor(cb: FSOCallback) {
+        super(cb);
+        capturedObserver = this;
+      }
+    };
+
+    const adapter = new WebFileSystemAdapter();
+    const callback = vi.fn();
+    adapter.watchDirectory(dirHandle, callback);
+
+    capturedObserver!.emit([
+      {
+        type: 'moved',
+        changedHandle: { kind: 'file', name: 'renamed.ts' } as unknown as FileSystemHandle,
+        relativePathComponents: ['src', 'renamed.ts'],
+        relativePathMovedFrom: ['src', 'original.ts'],
+      },
+    ]);
+
+    expect(callback).toHaveBeenCalledOnce();
+    const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
+    expect(changes).toEqual([
+      { type: 'removed', path: 'project/src/original.ts', kind: 'file' },
+      { type: 'added', path: 'project/src/renamed.ts', kind: 'file' },
+    ]);
+  });
+
+  it('maps a moved record with null relativePathMovedFrom to only an added event', () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      path: 'project',
+      name: 'project',
+      kind: 'directory',
+      platform: 'web',
+      _internal: internalHandle,
+    };
+
+    let capturedObserver: StubFileSystemObserver | null = null;
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class extends StubFileSystemObserver {
+      constructor(cb: FSOCallback) {
+        super(cb);
+        capturedObserver = this;
+      }
+    };
+
+    const adapter = new WebFileSystemAdapter();
+    const callback = vi.fn();
+    adapter.watchDirectory(dirHandle, callback);
+
+    capturedObserver!.emit([
+      {
+        type: 'moved',
+        changedHandle: { kind: 'directory', name: 'moved-in' } as unknown as FileSystemHandle,
+        relativePathComponents: ['moved-in'],
+        relativePathMovedFrom: null,
+      },
+    ]);
+
+    expect(callback).toHaveBeenCalledOnce();
+    const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
+    expect(changes).toEqual([{ type: 'added', path: 'project/moved-in', kind: 'directory' }]);
+  });
+
+  it('logs a warn and disconnects when observe() returns a rejected promise (async failure path)', async () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      path: 'project',
+      name: 'project',
+      kind: 'directory',
+      platform: 'web',
+      _internal: internalHandle,
+    };
+
+    const warnRecords: Array<{ level: string; message: string | undefined }> = [];
+    const removeListener = addLogListener((record) => {
+      if (record.level === 'warn') {
+        warnRecords.push({ level: String(record.level), message: record.message });
+      }
+    });
+
+    const disconnectSpy = vi.fn();
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class {
+      observe() {
+        return Promise.reject(new Error('NotAllowedError: permission revoked mid-flight'));
+      }
+      disconnect() {
+        disconnectSpy();
+      }
+    };
+
+    try {
+      const adapter = new WebFileSystemAdapter();
       const callback = vi.fn();
+
+      // Setup itself must not throw — the rejection is async.
       const disposer = adapter.watchDirectory(dirHandle, callback);
       expect(typeof disposer).toBe('function');
-      // calling the disposer must not throw
-      expect(() => disposer()).not.toThrow();
-      // no spurious change events
+
+      // Flush microtasks so the rejection handler runs.
+      await vi.waitFor(() => {
+        expect(disconnectSpy).toHaveBeenCalled();
+      });
+      expect(
+        warnRecords.some((r) => r.message?.includes('FileSystemObserver.observe() rejected'))
+      ).toBe(true);
       expect(callback).not.toHaveBeenCalled();
-    } else {
-      // watchDirectory is optional — its absence IS the no-FSO fallback
-      expect(adapter.watchDirectory).toBeUndefined();
+      // The disposer remains safely callable (idempotent disconnect).
+      expect(() => disposer()).not.toThrow();
+    } finally {
+      removeListener();
     }
   });
 
