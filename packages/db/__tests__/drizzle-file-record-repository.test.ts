@@ -5,6 +5,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,11 +20,14 @@ describe('DrizzleFileRecordRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector },
+      extensions: { vector, pg_trgm: pgTrgm },
     });
 
     // Run migrations to set up schema
-    await runMigrations(client);
+    const migrationResult = await runMigrations(client);
+    if (!migrationResult.success) {
+      throw new Error(`Migrations failed: ${migrationResult.error}`);
+    }
 
     // Create Drizzle instance
     db = drizzle(client, { schema });
