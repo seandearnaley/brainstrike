@@ -71,6 +71,13 @@ const PREVIEW_CHECKBOX_HEADER_CLASS = 'h-10 w-8 bg-background px-0 py-2';
 const PREVIEW_STANDARD_HEADER_CLASS = 'h-10 px-4 py-2';
 const PREVIEW_TREE_HEADER_CLASS = 'h-10 pr-4 pl-[38px] py-2';
 const EMPTY_EXPANDED_NODE_IDS = new Set<string>();
+const UNGROUPED_SORTABLE_COLUMN_IDS = new Set<string>([
+  'rootFolderId',
+  'path',
+  'type',
+  'tokens',
+  'size',
+]);
 
 function resolveCheckboxState(
   isFullySelected: boolean,
@@ -901,6 +908,17 @@ function buildPreviewColumns(
   return columns;
 }
 
+function markUngroupedSortableColumns(
+  columns: TreeTableColumn<PreviewTreeNodeData>[]
+): TreeTableColumn<PreviewTreeNodeData>[] {
+  return columns.map((column) => {
+    if (!UNGROUPED_SORTABLE_COLUMN_IDS.has(column.id)) {
+      return column;
+    }
+    return { ...column, showSortIndicator: false, sortable: true };
+  });
+}
+
 export const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
   const {
     columnVisibility,
@@ -1100,6 +1118,14 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       sortField,
     ]
   );
+  const ungroupedPreviewColumns = useMemo(
+    () => markUngroupedSortableColumns(previewColumns),
+    [previewColumns]
+  );
+  const ungroupedSortState = useMemo(
+    () => ({ columnId: String(sortField), direction: sortDirection }),
+    [sortDirection, sortField]
+  );
 
   const ungroupedTreeNodes = useMemo(
     () => buildUngroupedTreeNodes(currentPageData),
@@ -1139,7 +1165,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
           ariaLabel="Context explorer table"
           className="w-full"
           columnSizes={columnSizes}
-          columns={previewColumns}
+          columns={ungroupedPreviewColumns}
           expandedIds={EMPTY_EXPANDED_NODE_IDS}
           maxHeight="none"
           nodes={ungroupedTreeNodes}
@@ -1147,6 +1173,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
           onToggleExpand={onUngroupedTreeToggleExpand}
           rowClassName={rowClassName}
           selectionMode="none"
+          sortState={ungroupedSortState}
           windowingStrategy="none"
         />
       </div>

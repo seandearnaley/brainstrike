@@ -952,6 +952,17 @@ describe('PreviewTable ungrouped mode', () => {
     expect(within(itemRow as HTMLTableRowElement).getByText('0')).toBeInTheDocument();
     expect(within(itemRow as HTMLTableRowElement).queryByText('—')).not.toBeInTheDocument();
   });
+
+  it('exposes the active sort direction on ungrouped sortable column headers', () => {
+    renderUngroupedPreviewTable();
+
+    const pathHeader = screen.getByRole('button', { name: 'Sort by File Path' }).closest('th');
+    const typeHeader = screen.getByRole('button', { name: 'Sort by Type' }).closest('th');
+
+    expect(pathHeader).toHaveAttribute('aria-sort', 'ascending');
+    expect(typeHeader).not.toHaveAttribute('aria-sort');
+    expect(pathHeader?.textContent?.match(/↑/g) ?? []).toHaveLength(1);
+  });
 });
 
 describe('PreviewTable readiness signal', () => {
