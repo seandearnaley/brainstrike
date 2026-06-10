@@ -134,10 +134,12 @@ describe('migration 038: roots table', () => {
       await db.query<{ root_id: string }>(`SELECT root_id FROM file_records WHERE id = 'f1'`)
     ).rows[0]?.root_id;
     expect(workRootId).toBeTruthy();
+    // created_at/updated_at supplied: NOT NULL fires before unique
+    // constraints, which would mask the duplicate-key assertion.
     await expect(
       db.query(
-        `INSERT INTO file_records (id, name, path, size, source_root_path, embedding_set_id, root_id)
-           VALUES ('f-dup', 'index.ts', 'src/index.ts', 0, '/Users/alice/work-docs', 'set-a', $1)`,
+        `INSERT INTO file_records (id, name, path, size, source_root_path, embedding_set_id, root_id, created_at, updated_at)
+           VALUES ('f-dup', 'index.ts', 'src/index.ts', 0, '/Users/alice/work-docs', 'set-a', $1, '2026-06-09T00:00:00.000Z', '2026-06-09T00:00:00.000Z')`,
         [workRootId]
       )
     ).rejects.toThrow(/duplicate key/);
