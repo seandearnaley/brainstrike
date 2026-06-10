@@ -1821,4 +1821,41 @@ describe('createLocalModelAdapter', () => {
 
     await expect(collectRun(adapter.run(createRunOptions()))).resolves.toBeDefined();
   });
+
+  it('skips onUsage when the generation result has no usage field', async () => {
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    // The contract type requires `usage`, but the adapter guards against hosts
+    // that omit it (`if (result.usage)`), so the skip path must stay covered.
+    const { usage: _usage, ...resultWithoutUsage } = createGenerationResult({
+      text: 'Answer without usage data.',
+    });
+    const generate = vi.fn().mockResolvedValue(resultWithoutUsage as LocalLlmGenerationResult);
+    const onUsage = vi.fn();
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onUsage,
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(onUsage).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        {
+          type: 'text',
+          text: 'Answer without usage data.',
+        },
+      ]),
+    });
+  });
 });
