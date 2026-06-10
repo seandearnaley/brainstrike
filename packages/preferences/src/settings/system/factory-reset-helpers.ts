@@ -64,6 +64,26 @@ export interface ClearPersistentUiStateResult {
   readonly success: boolean;
 }
 
+export class ClearPersistentUiStateIncompleteError extends Error {
+  readonly result: ClearPersistentUiStateResult;
+
+  constructor(result: ClearPersistentUiStateResult) {
+    super(`Factory reset storage cleanup incomplete: ${formatResetFailures(result.failures)}`);
+    this.name = 'ClearPersistentUiStateIncompleteError';
+    this.result = result;
+  }
+}
+
+function formatResetFailures(failures: readonly ClearPersistentUiStateFailure[]): string {
+  return failures.map(formatResetFailure).join('; ');
+}
+
+function formatResetFailure(failure: ClearPersistentUiStateFailure): string {
+  const target = failure.name ? `${failure.target}:${failure.name}` : failure.target;
+  const reason = failure.error instanceof Error ? failure.error.message : String(failure.error);
+  return `${target} ${failure.operation} failed (${reason})`;
+}
+
 /**
  * Desktop bridges expose storage, secrets, and settings stores via IPC.
  * Nuclear option: clear ALL electron stores without exceptions.
@@ -194,8 +214,8 @@ const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
  *
  * Enumerates the OPFS root when supported (clearing every versioned/older pglite
  * dir, scoped to the base pattern so unrelated entries are never swept); falls back
- * to the known names otherwise. Best-effort per entry: a held handle or absent dir
- * must not fail the reset.
+ * to the known names otherwise. Missing dirs are idempotent; other OPFS failures
+ * are collected and surfaced so factory reset can fail instead of leaving phantom data.
  */
 async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]> {
   if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
@@ -368,16 +388,14 @@ async function clearCacheStorage(): Promise<void> {
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
  * If any storage survives, the user gets phantom data. This is a true nuke.
  *
- * Throws when CacheStorage cannot be fully cleared or verified. The legacy void API intentionally
- * keeps OPFS cleanup failures non-fatal; callers that need full reset integrity must use
- * clearPersistentUiStateWithResult and inspect every failure.
+ * Throws when any required storage target cannot be fully cleared or verified. Factory reset
+ * callers must treat an incomplete storage result as a failed reset, not a best-effort warning.
  */
 export async function clearPersistentUiState(
   options: ClearPersistentUiStateOptions = {}
 ): Promise<void> {
   const result = await clearPersistentUiStateWithResult(options);
-  const cacheStorageFailure = result.failures.find((failure) => failure.target === 'cache-storage');
-  if (cacheStorageFailure) {
-    throw cacheStorageFailure.error;
+  if (!result.success) {
+    throw new ClearPersistentUiStateIncompleteError(result);
   }
 }
