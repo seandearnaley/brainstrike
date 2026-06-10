@@ -285,6 +285,9 @@ export class WebHandleCache implements HandleCache {
    */
   private async openDbWithRecovery(): Promise<IDBPDatabase<HandleCacheSchema>> {
     const db = await openDB<HandleCacheSchema>(DB_NAME, DB_VERSION, {
+      blocked() {
+        logger.warn('openDbWithRecovery: v2 upgrade blocked by an open connection in another tab');
+      },
       upgrade(upgradeDb, oldVersion, _newVersion, transaction) {
         logger.debug('openDbWithRecovery: running upgrade', {
           oldVersion,
@@ -303,24 +306,21 @@ export class WebHandleCache implements HandleCache {
           // Re-key every root under a generated RootId; drop file-handle rows
           // (best-effort cache, re-populates on access).
           //
-          // We use cursor-based synchronous iteration (not the async-IIFE form
-          // from the plan) because fake-indexeddb auto-commits the upgrade
-          // transaction before queued async IIFE requests run, causing the
-          // migration to be silently skipped in tests.
+          // Synchronous request-chaining is REQUIRED here: real Chrome
+          // auto-commits the upgrade transaction the moment no IDB request is
+          // pending and the stack is clear, so a detached `void (async ...)`
+          // (or any non-IDB await) silently skips the migration. getAll()
+          // keeps the transaction alive; inside .then() every delete/put/clear
+          // is queued synchronously with no yield point. A cursor would also
+          // risk re-visiting re-inserted UUID keys that sort after the cursor.
           const rootStore = transaction.objectStore(ROOT_STORE);
-          const fileStoreRef = transaction.objectStore(FILE_STORE);
-
-          void (async () => {
-            let cursor = await rootStore.openCursor();
-            while (cursor) {
-              const record = cursor.value;
-              const newId = crypto.randomUUID();
-              await cursor.delete();
-              await rootStore.put({ ...record, folderId: newId });
-              cursor = await cursor.continue();
+          rootStore.getAll().then((existing) => {
+            for (const record of existing) {
+              rootStore.delete(record.folderId);
+              rootStore.put({ ...record, folderId: crypto.randomUUID() });
             }
-            await fileStoreRef.clear();
-          })();
+            transaction.objectStore(FILE_STORE).clear();
+          });
         }
       },
     });
@@ -354,6 +354,11 @@ export class WebHandleCache implements HandleCache {
 
       // Recreate with fresh stores
       return openDB<HandleCacheSchema>(DB_NAME, DB_VERSION, {
+        blocked() {
+          logger.warn(
+            'openDbWithRecovery: v2 upgrade blocked by an open connection in another tab'
+          );
+        },
         upgrade(upgradeDb) {
           logger.debug('openDbWithRecovery: recreating stores after delete');
           const rootStore = upgradeDb.createObjectStore(ROOT_STORE, { keyPath: 'folderId' });
