@@ -1,6 +1,12 @@
 import type { ActionServices, ContextTarget } from '@brainstrike/context-actions';
 import { describe, expect, it, vi } from 'vitest';
-import { collectionActions, copyContentAction, copyIdAction } from '../collection-actions';
+import {
+  collectionActions,
+  copyContentAction,
+  copyFileNameAction,
+  copyFilePathAction,
+  copyIdAction,
+} from '../collection-actions';
 import { browserNodeToTarget } from '../collection-target';
 
 function makeServices() {
@@ -46,12 +52,52 @@ describe('browserNodeToTarget', () => {
 
 describe('collection actions', () => {
   const chunkTarget: ContextTarget = { kind: 'chunk', id: 'c-1', content: 'hello world' };
+  const fileTarget: ContextTarget = {
+    kind: 'collection-file',
+    id: 'file-1',
+    name: 'notes.md',
+    path: 'docs/notes.md',
+  };
+  const fileTargetNoPath: ContextTarget = {
+    kind: 'collection-file',
+    id: 'file-2',
+    name: 'unnamed.md',
+    path: null,
+  };
 
-  it('exports copy-id and copy-content', () => {
+  it('exports copy-name, copy-path, copy-id and copy-content in array order', () => {
     expect(collectionActions.map((action) => action.id)).toEqual([
+      'collection.copy-name',
+      'collection.copy-path',
       'collection.copy-id',
       'collection.copy-content',
     ]);
+  });
+
+  it('copy-name writes file name with Name copied', async () => {
+    const services = makeServices();
+    const outcome = await copyFileNameAction.run(fileTarget, services);
+    expect(services.clipboard.writeText).toHaveBeenCalledWith('notes.md');
+    expect(outcome).toEqual({ ok: true, message: 'Name copied' });
+  });
+
+  it('copy-path writes file path with Path copied', async () => {
+    const services = makeServices();
+    const outcome = await copyFilePathAction.run(fileTarget, services);
+    expect(services.clipboard.writeText).toHaveBeenCalledWith('docs/notes.md');
+    expect(outcome).toEqual({ ok: true, message: 'Path copied' });
+  });
+
+  it('copy-path isVisible is false when path is null', () => {
+    expect(copyFilePathAction.isVisible?.(fileTargetNoPath)).toBe(false);
+    expect(copyFilePathAction.isVisible?.(fileTarget)).toBe(true);
+  });
+
+  it('copy-path run returns ok:false when path is null', async () => {
+    const services = makeServices();
+    const outcome = await copyFilePathAction.run(fileTargetNoPath, services);
+    expect(outcome).toEqual({ ok: false, error: 'No recorded path for this file' });
+    expect(services.clipboard.writeText).not.toHaveBeenCalled();
   });
 
   it('copy-id applies to all collection-browser kinds and writes the id', async () => {

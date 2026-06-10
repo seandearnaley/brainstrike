@@ -1,2 +1,8 @@
-export { collectionActions, copyContentAction, copyIdAction } from './collection-actions';
+export {
+  collectionActions,
+  copyContentAction,
+  copyFileNameAction,
+  copyFilePathAction,
+  copyIdAction,
+} from './collection-actions';
 export { type BrowserNodeDescriptor, browserNodeToTarget } from './collection-target';

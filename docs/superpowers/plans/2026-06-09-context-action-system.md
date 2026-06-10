@@ -2930,3 +2930,4 @@ git commit -m "docs: document the context action system in AGENTS.md"
 - **Deferred:** "Open in Default App" action (bridge support ships; action does not), cmdk command palette, keybinding registry.
 - **If Radix ContextMenu fights jsdom** in any component test, prefer switching that test to the vitest browser project (`pnpm --filter @brainstrike/ui test:browser`) over weakening assertions.
 - The spec is the arbiter for behavior questions: `docs/superpowers/specs/2026-06-09-context-action-system-design.md`.
+- Follow-up applied post-review: collection-file rows gained Copy Name / Copy Path (spec v1 table parity); labeled "Copy Path" because recorded-path relativity depends on import source.
