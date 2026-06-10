@@ -293,7 +293,9 @@ export function WorkspaceCollectionSyncProvider({
   // Root registry: ensure a DB roots row exists for every adapter root.
   // Runs once per boot, before the first sync cycle writes file records.
   // Errors are logged and swallowed — must never block boot.
-  useRootsReconciliation({ adapter: fileSystemAdapter, db });
+  // The returned callback is ref-stable: identity does not change when the
+  // reconciliation map resolves, so the service useMemo is not reconstructed.
+  const { resolveDbRootId } = useRootsReconciliation({ adapter: fileSystemAdapter, db });
 
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
   const waitForBackgroundPermit = useMemo(
@@ -481,6 +483,7 @@ export function WorkspaceCollectionSyncProvider({
           setManagedCollectionId(null);
         }
       },
+      resolveDbRootId,
       resolveQosPolicy,
       // Background indexing must NOT raise the foreground `isImporting` pause flag:
       // that flag gates the collection selector + count live queries
@@ -500,6 +503,7 @@ export function WorkspaceCollectionSyncProvider({
     ensureEmbeddingRuntimeStarted,
     ensureChunkingWorker,
     fileSystemAdapter,
+    resolveDbRootId,
     resolveQosPolicy,
     runtimeController,
     setManagedCollectionId,
