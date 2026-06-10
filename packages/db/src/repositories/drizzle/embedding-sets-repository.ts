@@ -47,8 +47,11 @@ export class DrizzleEmbeddingSetsRepository {
   constructor(private readonly db: DrizzleDb) {}
 
   /**
-   * Await any in-flight deferred HNSW index builds. For graceful shutdown and
-   * tests that need the index materialized before asserting on it.
+   * Await any in-flight deferred HNSW index builds (snapshot at call time).
+   * Used by tests that need the index materialized before asserting on it, and
+   * available for future shutdown coordination — production shutdown does NOT
+   * currently drain builds: a build lost to shutdown is benign because
+   * CREATE INDEX IF NOT EXISTS self-heals on the next getOrCreate* call.
    */
   waitForPendingDimensionIndexBuilds(): Promise<void> {
     return this.dimensionIndexBuilder.whenSettled();
