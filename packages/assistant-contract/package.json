@@ -37,6 +37,11 @@
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
     },
+    "./context-budget": {
+      "types": "./dist/context-budget.d.ts",
+      "import": "./dist/context-budget.js",
+      "require": "./dist/context-budget.js"
+    },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
       "import": "./dist/context-packer.js",
