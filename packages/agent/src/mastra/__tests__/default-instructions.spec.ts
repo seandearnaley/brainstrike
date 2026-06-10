@@ -54,6 +54,7 @@ const FULL_TOOL_MAP = new Map<string, string>([
   ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
   ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
   ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
+  ['grepSearch', 'brainstrike.grepSearch'],
 ]);
 
 describe('buildDefaultInstructions', () => {
@@ -132,5 +133,44 @@ describe('buildDefaultInstructions', () => {
       ])
     );
     expect(prompt).not.toContain('findWorkspaceSymbol');
+  });
+});
+
+describe('grep-first search orientation', () => {
+  const WITH_GREP_MAP = new Map<string, string>([
+    ['listWorkspaceContext', 'brainstrike.listWorkspaceContext'],
+    ['readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
+    ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
+    ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
+    ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+    ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
+    ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+    ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
+    ['grepSearch', 'brainstrike.grepSearch'],
+  ]);
+
+  it('mentions grep tool before semantic-search guidance and contains exact-string usage phrase', () => {
+    const instructions = buildDefaultInstructions(WITH_GREP_MAP);
+    const grepName = 'grepSearch';
+    const queryEmbeddingSpaceName = 'queryEmbeddingSpace';
+
+    expect(instructions).toContain('exact strings, identifiers, and error messages');
+    expect(instructions.indexOf(grepName)).toBeLessThan(
+      instructions.indexOf(queryEmbeddingSpaceName)
+    );
+  });
+
+  it('positions semantic search as fallback when grep is registered', () => {
+    const instructions = buildDefaultInstructions(WITH_GREP_MAP);
+    expect(instructions).toContain('When you do NOT know the exact wording');
+  });
+
+  it('states exact-text grep search is unavailable when grepSearch is not registered', () => {
+    const noGrep = new Map<string, string>([
+      ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
+      ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+    ]);
+    const instructions = buildDefaultInstructions(noGrep);
+    expect(instructions).toContain('Exact-text grep search is unavailable in this run.');
   });
 });

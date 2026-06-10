@@ -2,18 +2,20 @@ const HARNESS_FRAMING =
   'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
 
 const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
+  findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
+  grepSearch: 'brainstrike.grepSearch',
+  listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
+  queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
-  listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
-  queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
-  findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
 } as const;
 
 interface ModelFacingToolNames {
   findWorkspaceSymbol: string | null;
+  grepSearch: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   queryEmbeddingSpace: string | null;
@@ -46,6 +48,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     findWorkspaceSymbol: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.findWorkspaceSymbol
+    ),
+    grepSearch: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.grepSearch
     ),
     listEmbeddingSpaces: resolveModelFacingToolName(
       originalToModelFacing,
@@ -88,9 +94,12 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
   const workspaceInspectionInstruction = names.listWorkspaceContext
     ? `First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}.`
     : 'Workspace-selection inspection is unavailable in this run.';
+  const grepSearchInstruction = names.grepSearch
+    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content and returns path:line matches with context. Prefer it over semantic search whenever you know the exact wording.`
+    : 'Exact-text grep search is unavailable in this run.';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
-      ? `For broad codebase questions, call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.`
+      ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.`
       : 'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.';
   const readContextInstruction =
     names.readWorkspaceContext && names.readWorkspaceFile
@@ -143,7 +152,7 @@ ${HARNESS_FRAMING}
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${semanticSearchInstruction} ${readContextInstruction}
+When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${grepSearchInstruction} ${semanticSearchInstruction} ${readContextInstruction}
 ${curationInstruction}
 ${selectionLine}
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
