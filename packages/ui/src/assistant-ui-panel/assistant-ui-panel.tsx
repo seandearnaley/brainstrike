@@ -197,6 +197,8 @@ export interface AssistantUiPanelProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  /** Liveness signal fired for each streamed assistant chunk/snapshot. */
+  onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
@@ -545,6 +547,7 @@ interface ChatThreadProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
@@ -575,6 +578,7 @@ const LocalRuntimeChat: FC<
   selectedProvider,
   selectedModel,
   onModelChange,
+  onStreamActivity,
   onThreadRunStart,
   disabled,
   disabledReason,
@@ -605,6 +609,7 @@ const LocalRuntimeChat: FC<
           ...((await prepareRequestData?.()) ?? {}),
         }),
         ...(completePreparedRequest ? { completeRuntimeData: completePreparedRequest } : {}),
+        ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
         ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
         onLoadingProgress: (progress: LocalModelLoadingState) => {
           onLoadingStateChange(progress);
@@ -622,6 +627,7 @@ const LocalRuntimeChat: FC<
       loadLocalLlmBackend,
       modelId,
       onLoadingStateChange,
+      onStreamActivity,
       prepareRequestData,
       requestData,
       thinkingEnabled,
@@ -691,6 +697,7 @@ const DataStreamRuntimeChat: FC<
   selectedProvider,
   selectedModel,
   onModelChange,
+  onStreamActivity,
   onThreadRunStart,
   disabled,
   disabledReason,
@@ -740,6 +747,7 @@ const DataStreamRuntimeChat: FC<
         },
       };
     },
+    ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
     onCancel: () => {
       void completeLatestPreparedRequest('cancelled');
     },
@@ -965,6 +973,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   requestData,
   prepareRequestData,
   onModelChange,
+  onStreamActivity,
   onThreadRunStart,
   toolMenu,
   disabled = false,
@@ -1057,6 +1066,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onLoadingStateChange={handleLocalLoadingStateChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
@@ -1079,6 +1089,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           modelName={modelName}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}

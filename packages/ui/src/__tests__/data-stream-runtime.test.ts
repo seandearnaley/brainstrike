@@ -865,6 +865,87 @@ describe('assistant-stream integration', () => {
     expect(cancelCalled).toBe(true);
   });
 
+  it('invokes onActivity for each streamed chunk', async () => {
+    const onActivity = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Hello"',
+            '0:" world"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onActivity,
+    });
+
+    let yieldedCount = 0;
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: {
+        callSettings: {},
+        config: {},
+        tools: {},
+      },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({
+        metadata: {},
+      }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      yieldedCount += 1;
+    }
+
+    expect(yieldedCount).toBeGreaterThan(0);
+    expect(onActivity).toHaveBeenCalledTimes(yieldedCount);
+  });
+
+  it('does not break the stream when onActivity throws', async () => {
+    const onActivity = vi.fn(() => {
+      throw new Error('activity hook failed');
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onActivity,
+    });
+
+    const yielded: unknown[] = [];
+    for await (const nextMessage of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: {
+        callSettings: {},
+        config: {},
+        tools: {},
+      },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({
+        metadata: {},
+      }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      yielded.push(nextMessage);
+    }
+
+    expect(onActivity).toHaveBeenCalled();
+    expect(yielded.length).toBeGreaterThan(0);
+    const lastMessage = yielded.at(-1) as { status?: { type?: string } };
+    expect(lastMessage.status).toMatchObject({ type: 'complete' });
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',

@@ -39,7 +39,7 @@ function buildSparklinePoints(
   const padding = 4;
   let maxValue = Math.max(1, budget);
   let minValue = 0;
-  // Keep this defensive range logic in case upstream usage metrics emit temporary negatives.
+  // Keep this defensive range logic in case upstream usage metrics emit transient negatives.
   for (const value of history) {
     if (value > maxValue) {
       maxValue = value;

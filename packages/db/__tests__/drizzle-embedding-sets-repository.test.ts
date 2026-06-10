@@ -5,6 +5,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,11 +20,14 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector },
+      extensions: { vector, pg_trgm: pgTrgm },
     });
 
     // Run migrations to set up schema
-    await runMigrations(client);
+    const migrationResult = await runMigrations(client);
+    if (!migrationResult.success) {
+      throw new Error(`Migrations failed: ${migrationResult.error}`);
+    }
 
     // Create Drizzle instance
     db = drizzle(client, { schema });
@@ -50,6 +54,46 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(result.dimensions).toBe(1536);
       expect(result.distance).toBe('cosine');
       expect(result.name).toBe('text-embedding-3-small (1536D)');
+    });
+
+    it('builds the dimension index off the foreground path, observable via the awaitable', async () => {
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+
+      // The build is deferred; draining it must materialize the HNSW index.
+      await repository.waitForPendingDimensionIndexBuilds();
+
+      const indexes = await client.query<{ indexname: string }>(
+        "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_1536'"
+      );
+      expect(indexes.rows).toHaveLength(1);
+    });
+
+    it('re-arms a lost dimension index build when an existing set is read by a fresh session', async () => {
+      const created = await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+      await repository.waitForPendingDimensionIndexBuilds();
+      // Simulate the build lost to app quit: drop the index that was created.
+      await client.exec('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_1536');
+
+      // Fresh repo simulates a new app session (no in-memory builder state).
+      const reopened = new DrizzleEmbeddingSetsRepository(db);
+      const fetched = await reopened.getById(created.id);
+      expect(fetched?.dimensions).toBe(1536);
+
+      await reopened.waitForPendingDimensionIndexBuilds();
+      const indexes = await client.query<{ indexname: string }>(
+        "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_1536'"
+      );
+      expect(indexes.rows).toHaveLength(1);
     });
 
     it('seeds a zero-count indexing stats row for new empty sets', async () => {
@@ -150,6 +194,9 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       await expect(repository.getById(created.id)).resolves.toEqual(
         expect.objectContaining({ id: created.id })
       );
+      // The build dispatch is deferred off the creation flow; drain it before
+      // asserting the (failing) CREATE INDEX was attempted.
+      await repository.waitForPendingDimensionIndexBuilds();
       expect(exec).toHaveBeenCalledWith(
         expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
       );

@@ -331,7 +331,7 @@ export class ElectronFileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
-      includeEmbedding = true,
+      includeEmbedding = false,
     } = options;
 
     if (!embeddingSetId) {
@@ -490,7 +490,7 @@ export class ElectronFileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
-      includeEmbedding = true,
+      includeEmbedding = false,
       includeHeadline = true,
     } = options;
 

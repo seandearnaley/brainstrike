@@ -5,6 +5,16 @@ export interface DatabaseWorkOptions {
   readonly priority?: DatabaseWorkPriority;
 }
 
+/**
+ * Options for direct scheduler.run calls. Unlike handle-level DatabaseWorkOptions
+ * (where a deliberate default priority comes from the handle), direct scheduler
+ * work must declare its priority explicitly — there is no safe default.
+ */
+export interface DatabaseWorkRunOptions {
+  readonly label?: string;
+  readonly priority: DatabaseWorkPriority;
+}
+
 export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaiting: boolean;
   readonly backgroundWaitingSince: number | null;
@@ -45,7 +55,7 @@ export interface DatabaseWorkSchedulerOptions {
 
 export interface DatabaseWorkScheduler {
   readonly getSnapshot: () => DatabaseWorkSchedulerSnapshot;
-  readonly run: <T>(work: () => Promise<T>, options?: DatabaseWorkOptions) => Promise<T>;
+  readonly run: <T>(work: () => Promise<T>, options: DatabaseWorkRunOptions) => Promise<T>;
   readonly subscribe: (listener: (snapshot: DatabaseWorkSchedulerSnapshot) => void) => () => void;
 }
 
@@ -241,8 +251,15 @@ function patchPriorityStat(
   };
 }
 
-function normalizePriority(priority: DatabaseWorkPriority | undefined): DatabaseWorkPriority {
-  return priority ?? 'foreground';
+function requireExplicitPriority(priority: DatabaseWorkPriority | undefined): DatabaseWorkPriority {
+  if (priority === 'foreground' || priority === 'normal' || priority === 'background') {
+    return priority;
+  }
+  // No silent default: an unprioritized caller jumping the foreground queue is
+  // exactly the bug this guard exists to surface.
+  throw new Error(
+    "DatabaseWorkScheduler.run requires an explicit priority ('foreground' | 'normal' | 'background')."
+  );
 }
 
 function hasQueuedWork(queues: Record<DatabaseWorkPriority, readonly QueuedTask[]>): boolean {
@@ -304,8 +321,10 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     };
   }
 
-  run<T>(work: () => Promise<T>, options: DatabaseWorkOptions = {}): Promise<T> {
-    const priority = normalizePriority(options.priority);
+  run<T>(work: () => Promise<T>, options: DatabaseWorkRunOptions): Promise<T> {
+    // options?. because untyped JS callers can still omit the argument entirely;
+    // requireExplicitPriority turns that into a loud failure instead of a default.
+    const priority = requireExplicitPriority(options?.priority);
     const enqueuedAt = this.#now();
     if (priority === 'foreground') {
       this.#lastForegroundAt = enqueuedAt;
@@ -327,7 +346,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     return new Promise<T>((resolve, reject) => {
       this.#queues[priority].push({
         enqueuedAt,
-        label: options.label ?? null,
+        label: options?.label ?? null,
         priority,
         reject,
         resolve: resolve as (value: unknown) => void,
@@ -554,7 +573,7 @@ function getDefaultPriorityFromHandle(handle: unknown): DatabaseWorkPriority | n
 function mergeOptions(
   defaultPriority: DatabaseWorkPriority,
   options: DatabaseWorkOptions | undefined
-): DatabaseWorkOptions {
+): DatabaseWorkRunOptions {
   return {
     ...(options ?? {}),
     priority: options?.priority ?? defaultPriority,

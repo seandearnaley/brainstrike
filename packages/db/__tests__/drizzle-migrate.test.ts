@@ -6,6 +6,7 @@
 
 import { addLogListener } from '@brainstrike/utils';
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -25,7 +26,7 @@ describe('Drizzle Migration Runner', () => {
 
   beforeEach(async () => {
     db = new PGlite({
-      extensions: { vector },
+      extensions: { vector, pg_trgm: pgTrgm },
     });
   });
 

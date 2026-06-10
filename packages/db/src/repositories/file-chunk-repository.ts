@@ -9,6 +9,7 @@ import type {
   FTSSearchOptions,
   FTSSearchResult,
 } from '../models/file-chunk';
+import type { GrepCandidate, GrepCandidateOptions } from '../models/grep';
 import {
   appendColumn,
   appendColumnIfDefined,
@@ -336,7 +337,7 @@ export class FileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
-      includeEmbedding = true,
+      includeEmbedding = false,
     } = options;
 
     // Enforce set scoping to avoid dimension mismatch hazards with pgvector
@@ -498,7 +499,7 @@ export class FileChunkRepository {
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
-      includeEmbedding = true,
+      includeEmbedding = false,
       includeHeadline = true,
     } = options;
 
@@ -586,6 +587,65 @@ export class FileChunkRepository {
     }
 
     return results;
+  }
+
+  /**
+   * Candidate selection for grep search: trigram-accelerated ILIKE/LIKE
+   * prefilter (idx_file_chunks_content_trgm), or a bounded unfiltered scan
+   * when likePattern is null. Joins file_records for the path so the grep
+   * service can emit path:line results without a second lookup.
+   *
+   * filePaths is an allowlist: `undefined` means no path filter (all files),
+   * while an EMPTY array means nothing is allowed and returns no candidates.
+   * Allowlists larger than MAX_INLINE_FILE_PATHS throw (matching
+   * fullTextSearch/searchSimilar).
+   */
+  async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
+    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit } = options;
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (likePattern !== null) {
+      params.push(`%${likePattern}%`);
+      const operator = caseSensitive ? 'LIKE' : 'ILIKE';
+      conditions.push(`fc.content ${operator} $${params.length} ESCAPE '\\'`);
+    }
+    if (embeddingSetId !== undefined) {
+      params.push(embeddingSetId);
+      conditions.push(`fc.embedding_set_id = $${params.length}`);
+    }
+    if (filePaths !== undefined) {
+      if (filePaths.length === 0) {
+        return []; // empty allowlist = nothing allowed
+      }
+      if (filePaths.length > MAX_INLINE_FILE_PATHS) {
+        throw new Error(
+          `findGrepCandidates filePaths limit exceeded (${filePaths.length} > ${MAX_INLINE_FILE_PATHS}).`
+        );
+      }
+      params.push(Array.from(filePaths));
+      conditions.push(`fr.path = ANY($${params.length}::text[])`);
+    }
+    params.push(limit);
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await this.db.query(
+      `SELECT fc.content, fc.start_line, fr.path
+         FROM file_chunks fc
+         JOIN file_records fr ON fr.id = fc.file_record_id
+         ${whereClause}
+        ORDER BY fr.path, fc.chunk_index
+        LIMIT $${params.length}`,
+      params
+    );
+
+    return (result.rows as Array<{ content: string; path: string; start_line: number | null }>).map(
+      (row) => ({
+        content: row.content,
+        filePath: row.path,
+        startLine: row.start_line,
+      })
+    );
   }
 
   /**

@@ -246,6 +246,103 @@ export async function ensureDimensionIndexExists(
   await createDimensionIndex(db, dimension, params);
 }
 
+export interface DeferredDimensionIndexBuilder {
+  /**
+   * Kick off a best-effort HNSW index build for `dimension` WITHOUT blocking the
+   * caller. Returns immediately and never throws. Deduplicates by dimension: a
+   * second call while a build is in flight is a no-op.
+   */
+  schedule(dimension: number): void;
+  /**
+   * Await the builds in flight AT CALL TIME (snapshot semantics — a build
+   * scheduled after this call is not awaited). Never rejects (best-effort).
+   */
+  whenSettled(): Promise<void>;
+}
+
+/**
+ * Delay before a scheduled build dispatches its CREATE INDEX. PGlite runs on a
+ * single connection, so dispatching in the same turn as `schedule()` would queue
+ * the caller's own follow-up queries (create set → immediately search/open the
+ * collection) behind a 5-30s index build. This window lets that flow — including
+ * its IPC round trips on desktop — reach the connection first; the build is
+ * idempotent, so the late start is free.
+ */
+export const DIMENSION_INDEX_BUILD_START_DELAY_MS = 250;
+
+/**
+ * Per-session cap on build attempts per dimension. Read-path re-arms (getById)
+ * fire on every status poll, so a persistently-failing build (HNSW OOM, driver
+ * error) must not become a sustained loop of 5-30s connection-blocking
+ * CREATE INDEX attempts. Transient failures still get retries below the cap; a
+ * fresh session resets the count.
+ */
+export const MAX_DIMENSION_INDEX_BUILD_ATTEMPTS = 3;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Creates a deferred, deduplicated HNSW-index builder.
+ *
+ * A `CREATE INDEX ... USING hnsw` on a populated `file_chunks` table can take
+ * 5-30s and, on PGlite's single connection, blocks every other query while it
+ * runs. Awaiting it inline during embedding-set creation froze the foreground
+ * flow. This builder decouples the build from the caller: embedding-set creation
+ * returns immediately and search degrades gracefully to a sequential scan until
+ * the index lands. The build is idempotent (`CREATE INDEX IF NOT EXISTS`), so a
+ * build lost to shutdown self-heals on the next `getOrCreate*` call.
+ *
+ * `getDb`/`onError` are read lazily so the builder can be constructed as a field
+ * initializer before the owning repository's `db`/`logger` are assigned.
+ */
+export function createDeferredDimensionIndexBuilder(options: {
+  getDb: () => DimensionIndexDb;
+  onError: (dimension: number, error: unknown) => void;
+}): DeferredDimensionIndexBuilder {
+  const pending = new Map<number, Promise<void>>();
+  // Dimensions that built successfully this session. Read-path re-arms (e.g.
+  // getById) call schedule() on every access; without this memo each call would
+  // dispatch a CREATE INDEX IF NOT EXISTS round-trip onto the single
+  // connection. A FAILED build is retried on later schedules — but only up to
+  // MAX_DIMENSION_INDEX_BUILD_ATTEMPTS per session, so a persistently-failing
+  // build can't turn polled reads into a connection-blocking retry storm.
+  const completed = new Set<number>();
+  const failureCounts = new Map<number, number>();
+  return {
+    schedule(dimension: number): void {
+      if (
+        completed.has(dimension) ||
+        pending.has(dimension) ||
+        (failureCounts.get(dimension) ?? 0) >= MAX_DIMENSION_INDEX_BUILD_ATTEMPTS
+      ) {
+        return;
+      }
+      const build = (async () => {
+        try {
+          // Yield the single connection to the scheduling flow's own follow-up
+          // queries before dispatching the long CREATE INDEX.
+          await delay(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+          await ensureDimensionIndexExists(options.getDb(), dimension);
+          completed.add(dimension);
+        } catch (error) {
+          failureCounts.set(dimension, (failureCounts.get(dimension) ?? 0) + 1);
+          options.onError(dimension, error);
+        } finally {
+          pending.delete(dimension);
+        }
+      })();
+      pending.set(dimension, build);
+    },
+    async whenSettled(): Promise<void> {
+      await Promise.allSettled([...pending.values()]);
+    },
+  };
+}
+
 /**
  * Check if an HNSW index exists for a given dimension.
  *

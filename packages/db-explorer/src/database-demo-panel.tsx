@@ -217,8 +217,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
 
-  // Get enabled models from model registry
-  const { models, providers, isLoading: isRegistryLoading } = useModelRegistryStore();
+  // Get enabled models from model registry. Selector-scoped subscriptions:
+  // a bare useModelRegistryStore() re-renders this entire panel on every
+  // store update — including per-tick setDownloadProgress during downloads.
+  const models = useModelRegistryStore((s) => s.models);
+  const providers = useModelRegistryStore((s) => s.providers);
+  const isRegistryLoading = useModelRegistryStore((s) => s.isLoading);
   useEnsureModelRegistry({ db: dbContext });
   const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
     useLocalRuntimeEmbeddingModelCatalog({

@@ -5,9 +5,10 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleFileRecordRepository } from '../src/repositories/drizzle/file-record-repository.js';
 import * as schema from '../src/schema/index.js';
@@ -19,11 +20,14 @@ describe('DrizzleFileRecordRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector },
+      extensions: { vector, pg_trgm: pgTrgm },
     });
 
     // Run migrations to set up schema
-    await runMigrations(client);
+    const migrationResult = await runMigrations(client);
+    if (!migrationResult.success) {
+      throw new Error(`Migrations failed: ${migrationResult.error}`);
+    }
 
     // Create Drizzle instance
     db = drizzle(client, { schema });
@@ -260,6 +264,66 @@ describe('DrizzleFileRecordRepository', () => {
           contentHash: 'hash-1',
         }),
       ]);
+    });
+  });
+
+  describe('updateStatMetadata', () => {
+    it('stamps stats for many rows in a single batched statement', async () => {
+      const now = new Date().toISOString();
+      for (const suffix of ['a', 'b', 'c']) {
+        await repository.createWithContent({
+          id: `00000000-0000-0000-0000-00000000004${suffix}`,
+          name: `${suffix}.ts`,
+          path: `src/${suffix}.ts`,
+          size: 10,
+          sourceRootPath: '/workspace/a',
+          createdAt: now,
+          updatedAt: now,
+          content: `export const ${suffix} = 1;`,
+          contentHash: `hash-${suffix}`,
+          tokenCount: 5,
+          embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        });
+      }
+
+      // The stamp fires for EVERY pre-migration row on the first post-upgrade
+      // sync — thousands of rows on PGlite's single connection — so it must be
+      // one batched statement, not N serial round-trips.
+      const querySpy = vi.spyOn(client, 'query');
+      await repository.updateStatMetadata([
+        { fileRecordId: '00000000-0000-0000-0000-00000000004a', mtimeMs: 1000.7, size: 11 },
+        { fileRecordId: '00000000-0000-0000-0000-00000000004b', mtimeMs: 2000, size: 12 },
+        { fileRecordId: '00000000-0000-0000-0000-00000000004c', mtimeMs: 3000, size: 13 },
+      ]);
+      expect(querySpy).toHaveBeenCalledTimes(1);
+      querySpy.mockRestore();
+
+      const entries = await repository.listManagedCacheEntryMetadata(
+        '00000000-0000-0000-0000-000000000101'
+      );
+      expect(entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fileRecordId: '00000000-0000-0000-0000-00000000004a',
+            mtimeMs: 1000,
+            size: 11,
+          }),
+          expect.objectContaining({
+            fileRecordId: '00000000-0000-0000-0000-00000000004b',
+            mtimeMs: 2000,
+            size: 12,
+          }),
+          expect.objectContaining({
+            fileRecordId: '00000000-0000-0000-0000-00000000004c',
+            mtimeMs: 3000,
+            size: 13,
+          }),
+        ])
+      );
+    });
+
+    it('no-ops on an empty batch', async () => {
+      await expect(repository.updateStatMetadata([])).resolves.toBeUndefined();
     });
   });
 

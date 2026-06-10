@@ -47,6 +47,7 @@ interface ErrorDetails {
 interface ExtensionModuleShape {
   default?: unknown;
   live?: unknown;
+  pg_trgm?: unknown;
   vector?: unknown;
 }
 
@@ -55,7 +56,7 @@ interface GitProfileContext {
   workspaceSeed: string;
 }
 
-function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unknown {
+function extractExtensionExport(module: unknown, field: 'vector' | 'live' | 'pg_trgm'): unknown {
   if (module && typeof module === 'object') {
     const record = module as ExtensionModuleShape;
     if (record[field]) {
@@ -223,13 +224,32 @@ async function loadPgLiveExtension(): Promise<unknown> {
   }
 }
 
+async function loadPgTrgmExtension(): Promise<unknown> {
+  try {
+    const trgmModule = await import('@electric-sql/pglite/contrib/pg_trgm');
+    const pgTrgm = extractExtensionExport(trgmModule, 'pg_trgm');
+    if (!pgTrgm) {
+      throw new Error('pg_trgm export missing from module');
+    }
+    logger.debug('pg_trgm extension loaded successfully (ESM)');
+    return pgTrgm;
+  } catch (error) {
+    const details = getErrorDetails(error);
+    logger.error('pg_trgm extension failed to load.', details);
+    throw new Error(
+      `pg_trgm extension is required and failed to load via ESM import. (${details.message})`
+    );
+  }
+}
+
 // Dynamic imports for ESM packages
 const getPGlite = async () => {
   const { PGlite } = await import('@electric-sql/pglite');
   const { migrate } = await import('@brainstrike/db');
   const vector = await loadPgVectorExtension();
   const live = await loadPgLiveExtension();
-  return { PGlite, migrate, vector, live };
+  const pgTrgm = await loadPgTrgmExtension();
+  return { PGlite, migrate, vector, live, pgTrgm };
 };
 
 // Database instance for main process
@@ -346,15 +366,19 @@ async function createVectorDatabase(
   PGliteCtor: unknown,
   dataDir: string,
   vector: unknown,
-  live: unknown
+  live: unknown,
+  pgTrgm: unknown
 ) {
   // biome-ignore lint/suspicious/noExplicitAny: PGlite ctor type not available at compile time
   const Ctor: any = PGliteCtor as any;
   // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
   const instance: any = new Ctor({
     dataDir,
+    // pg_trgm has no runtime pg_extension check below (unlike vector): migration 038
+    // runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and fails loudly if the module
+    // isn't loaded here. The vector check predates the migration-based approach.
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
-    extensions: { vector: vector as any, live: live as any },
+    extensions: { vector: vector as any, live: live as any, pg_trgm: pgTrgm as any },
   });
 
   try {
@@ -963,7 +987,7 @@ function formatOpenDatabaseFailureMessage(
   details: string
 ): string {
   if (category === 'missing-extension') {
-    return `pgvector extension is required and failed to initialize via PGlite: ${details}.`;
+    return `A required PGlite extension failed to initialize: ${details}.`;
   }
   if (category === 'wasm-runtime') {
     return `PGlite runtime aborted while opening the desktop database: ${details}.`;
@@ -1277,7 +1301,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
         loadedPGlite.PGlite,
         dataDir,
         loadedPGlite.vector,
-        loadedPGlite.live
+        loadedPGlite.live,
+        loadedPGlite.pgTrgm
       );
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 

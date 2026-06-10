@@ -361,7 +361,7 @@ interface SelectionService {
 ### Neutral
 
 1. **Schema Versioning**: Standard practice but adds maintenance
-2. **Feature Flags**: Temporary complexity during rollout
+2. **Feature Flags**: Added complexity during rollout
 
 ## Examples
 

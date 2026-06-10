@@ -448,7 +448,7 @@ Per this project's TDD-with-learning posture, the one place where domain knowled
 
 ### What it decides
 
-When chunking-worker calls `selectAdapter()`, this function returns the right `ParserAdapter` for the current execution context. The decisions encoded:
+When chunking-worker calls `selectAdapter()`, this function returns the right `ParserAdapter` for the current execution context. This design has since been implemented in `packages/chunking-worker/src/parsers/select-adapter.ts`; the notes below preserve the original contract and trade-off decisions for maintenance context.
 
 1. Is this `apps/web` or Electron? (Detect via env-var or a global injected at worker boot.)
 2. If Electron, is the feature flag on or off?
@@ -462,32 +462,33 @@ When chunking-worker calls `selectAdapter()`, this function returns the right `P
 - **Synchronous vs. async selection**: sync is simpler, but the IPC adapter needs an async setup; we'd need to either preload it or handle the first call's latency specially.
 - **Telemetry granularity**: do we count every selection, or just the fallback events?
 
-### The contract you implement
+### Implemented contract
 
 ```typescript
 // packages/chunking-worker/src/parsers/select-adapter.ts
 //
-// TODO(user): implement selectAdapter() per the trade-off analysis below.
+// Inputs:
+//   - getEnvironment(): 'browser' | 'electron-chunking-host'
+//   - getParserFlag(): 'oxc' | 'babel' | 'auto'
+//   - getEnabledTreeSitterLanguages(): language opt-in list
+//   - babelAdapter: ParserAdapter
+//   - oxcIpcAdapter: ParserAdapter
+//   - treeSitterAdapter(language): ParserAdapter
 //
-// Inputs available to you:
-//   - getEnvironment(): 'browser' | 'electron-chunking-host'  (already implemented)
-//   - getParserFlag(): 'oxc' | 'babel' | 'auto'              (already implemented)
-//   - babelAdapter: ParserAdapter                            (always available)
-//   - oxcIpcAdapter: ParserAdapter | null                    (null if init failed)
-//
-// Outputs: ParserAdapter
-// Side effects acceptable: telemetry counter increments
+// Outputs: ParserAdapter | null
 //
 // Constraints:
 //   - Must be synchronous (called in the chunking hot path)
-//   - Must never throw — falling back to babel is always valid
+//   - Must not silently route unsupported languages to Babel
 //   - Should be cheap (called per-file, not per-batch)
-export function selectAdapter(): ParserAdapter {
-  // Your 5-10 lines here.
+export function selectAdapter(fileName?: string): ParserAdapter | null {
+  // Current implementation returns null for enabled-by-extension languages that
+  // have no honest parser available, so callers can choose an explicit
+  // non-AST path instead of receiving a misleading Babel syntax error.
 }
 ```
 
-When we get to Phase 5 cycle 5.1, I'll set up the test fixtures and the `getEnvironment` / `getParserFlag` helpers. You write `selectAdapter()`.
+The original Phase 5 cycle 5.1 work set up the test fixtures and the `getEnvironment` / `getParserFlag` helpers before routing through `selectAdapter()`. Later strict-mode work extended the return type to `ParserAdapter | null` for unsupported language cases.
 
 ---
 

@@ -69,6 +69,7 @@ export type {
   ImportProgress,
   ManagedCacheEntryMetadata,
 } from './models/file-record.js';
+export type { GrepCandidate, GrepCandidateOptions } from './models/grep.js';
 export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 export type {
   CancelParams,

@@ -20,6 +20,8 @@ describe('ToolFallback browser behavior', () => {
   test('keeps tool details collapsed until the user expands them', async () => {
     const user = userEvent.setup();
 
+    // ToolFallback's status tooltip needs the app-level TooltipProvider
+    // (mounted once in app-shell's app-layout in the real app).
     render(
       <TooltipProvider>
         <ToolFallback {...baseProps} result={{ echoed: 'hello' }} />

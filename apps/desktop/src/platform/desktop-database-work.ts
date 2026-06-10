@@ -3,6 +3,7 @@ import {
   createDatabaseWorkScheduler,
   type DatabaseWorkOptions,
   type DatabaseWorkPriority,
+  type DatabaseWorkRunOptions,
   type DatabaseWorkScheduler,
   type DatabaseWorkSchedulerOptions,
   type DatabaseWorkSchedulerSnapshot,
@@ -130,7 +131,7 @@ function resolveDatabaseWorkOptions(
   registerOptions: ResolveDatabaseWorkOptionsHostManagers | undefined,
   explicitOptions: unknown,
   fallbackLabel: string
-): DatabaseWorkOptions {
+): DatabaseWorkRunOptions {
   const parsedOptions = parseDatabaseWorkOptions(explicitOptions);
   return {
     label: parsedOptions.label ?? fallbackLabel,
@@ -165,7 +166,7 @@ export function runScheduledDatabaseWork<T>(
 }
 
 export function runDesktopScheduledDatabaseWork<T>(
-  options: DatabaseWorkOptions,
+  options: DatabaseWorkRunOptions,
   operation: () => Promise<T>
 ): Promise<T> {
   return waitForDesktopDatabaseResetBarrier().then(() =>

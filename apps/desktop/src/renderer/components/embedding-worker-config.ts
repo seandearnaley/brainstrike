@@ -17,8 +17,10 @@ import {
   type WorkspaceIndexingPowerSnapshot,
 } from '@brainstrike/utils/workspace-indexing-power-snapshot';
 import {
+  createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingQosPolicy,
 } from '@brainstrike/utils/workspace-indexing-qos';
 
 const logger = createLogger('EmbeddingWorkerConfig');
@@ -152,7 +154,8 @@ function resolveDesktopClaimBatchSize(
   snapshot: DatabaseWorkSchedulerSnapshot,
   idleClaimBatchSize: number,
   powerSnapshot: WorkspaceIndexingPowerSnapshot | null,
-  foregroundQueryActive: boolean
+  foregroundQueryActive: boolean,
+  observeQosTransition: (policy: WorkspaceIndexingQosPolicy) => void
 ): number | null {
   const policy = resolveWorkspaceIndexingQosPolicy({
     dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
@@ -168,6 +171,7 @@ function resolveDesktopClaimBatchSize(
     thermalState: powerSnapshot?.thermalState ?? 'unknown',
     windowVisible: false,
   });
+  observeQosTransition(policy);
   if (!policy.allowNewWork) {
     return null;
   }
@@ -211,6 +215,9 @@ function createDesktopPressureControls(
     pollMs: DESKTOP_PRESSURE_POLL_MS,
     snapshotSource,
   });
+  // One tracker per worker config: claim-size reads re-resolve the QoS policy
+  // every cycle, and the tracker logs only (state, reason) transitions.
+  const observeQosTransition = createWorkspaceIndexingQosTransitionLogger('desktop-host-claim');
   return {
     resolveClaimBatchSize: async () => {
       const snapshot = await snapshotSource.getSnapshot();
@@ -218,7 +225,8 @@ function createDesktopPressureControls(
         snapshot,
         idleClaimBatchSize,
         readPowerSnapshot ? await readPowerSnapshot() : null,
-        gate?.isActive() ?? false
+        gate?.isActive() ?? false,
+        observeQosTransition
       );
     },
     waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),

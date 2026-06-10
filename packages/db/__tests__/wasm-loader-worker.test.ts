@@ -39,6 +39,10 @@ vi.mock('@electric-sql/pglite/live', () => ({
   live: { name: 'live-extension' },
 }));
 
+vi.mock('@electric-sql/pglite/contrib/pg_trgm', () => ({
+  pg_trgm: { name: 'pg-trgm-extension' },
+}));
+
 vi.mock('@electric-sql/pglite/worker', () => ({
   PGliteWorker: {
     create: pgliteWorkerCreate,

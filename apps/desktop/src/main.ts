@@ -1120,7 +1120,10 @@ if (singleInstanceLockAcquired) {
         }
         const storedWindowState = readStoredWindowState(store);
         const win = await createWindow({ windowState: storedWindowState });
-        registerWindowStatePersistence(win, store);
+        // app.on('activate') recreates this window; dispose the persistence
+        // listeners + debounce timer on close so they don't accumulate per window.
+        const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
+        win.once('closed', disposeWindowStatePersistence);
         return win;
       };
 

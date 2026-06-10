@@ -1,7 +1,14 @@
 name: Claude Auto Review
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    # No `synchronize`: re-reviewing the full diff on EVERY push turns active
+    # review cycles into a loop — each fix push triggers a fresh cold review of
+    # the whole PR, which re-reports already-fixed findings (race) and, once
+    # the real findings are exhausted, degrades into speculative or fabricated
+    # ones (observed on #1154: ~17 passes, the last citing a function that
+    # doesn't exist). One review per lifecycle event; push-driven re-review can
+    # be requested explicitly via close/reopen.
+    types: [opened, ready_for_review, reopened]
 
 jobs:
   review:

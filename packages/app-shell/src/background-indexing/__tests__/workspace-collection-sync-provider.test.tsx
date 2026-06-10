@@ -17,6 +17,13 @@ import {
   encodeFileSelection,
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
+import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  setLogLevel,
+} from '@brainstrike/utils/logger';
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,
@@ -523,7 +530,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   it('passes foreground assistant activity into Workspace Index QoS inputs', async () => {
-    const releaseForegroundActivity = acquireAssistantForegroundActivity();
+    const foregroundActivityLease = acquireAssistantForegroundActivity();
 
     try {
       render(
@@ -540,7 +547,44 @@ describe('WorkspaceCollectionSyncProvider', () => {
         )
       );
     } finally {
-      releaseForegroundActivity();
+      foregroundActivityLease.release();
+    }
+  });
+
+  it('logs a workspace QoS transition once across repeated policy resolutions', async () => {
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceIndexingQos' &&
+        record.message === 'Workspace indexing QoS state changed'
+      ) {
+        captured.push(record);
+      }
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // The sync loop re-resolves the QoS policy on every cycle; wait until at
+      // least two resolutions happened under unchanged conditions.
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+      );
+
+      // A single shared transition tracker must dedupe identical observations:
+      // exactly one log, and it is the initial observation (from: null).
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.args).toContainEqual(expect.objectContaining({ from: null }));
+    } finally {
+      removeListener();
+      // Restore the default so later tests in this file stay console-quiet.
+      configureLogger({ enableInProduction: false });
     }
   });
 

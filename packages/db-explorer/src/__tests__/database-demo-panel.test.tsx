@@ -12,11 +12,16 @@ import {
   useBackgroundIndexingPreferencesStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
+import {
+  __resetModelRegistryStoreForTests,
+  useModelRegistryStore,
+} from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel } from '../database-demo-panel';
@@ -295,21 +300,8 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
   };
 });
 
-const {
-  mockEnsureModelRegistry,
-  mockFetchRegistry,
-  mockUseLocalRuntimeEmbeddingModelCatalog,
-  mockUseModelRegistryStore,
-} = vi.hoisted(() => {
-  const fetchRegistry = vi.fn();
+const { mockEnsureModelRegistry, mockUseLocalRuntimeEmbeddingModelCatalog } = vi.hoisted(() => {
   const ensureModelRegistry = vi.fn();
-  const useModelRegistryStore = vi.fn(() => ({
-    models: [],
-    providers: [],
-    ensureRegistry: fetchRegistry,
-    fetchRegistry,
-    isLoading: false,
-  }));
   const useLocalRuntimeEmbeddingModelCatalog = vi.fn(() => ({
     catalog: null,
     isLoading: false,
@@ -318,8 +310,6 @@ const {
   }));
   return {
     mockEnsureModelRegistry: ensureModelRegistry,
-    mockFetchRegistry: fetchRegistry,
-    mockUseModelRegistryStore: useModelRegistryStore,
     mockUseLocalRuntimeEmbeddingModelCatalog: useLocalRuntimeEmbeddingModelCatalog,
   };
 });
@@ -338,16 +328,6 @@ vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
 vi.mock('@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog', () => ({
   useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
 }));
-
-vi.mock('@brainstrike/preferences/stores/model-registry-store', async () => {
-  const actual = await vi.importActual<
-    typeof import('@brainstrike/preferences/stores/model-registry-store')
-  >('@brainstrike/preferences/stores/model-registry-store');
-  return {
-    ...actual,
-    useModelRegistryStore: mockUseModelRegistryStore,
-  };
-});
 
 // Fix mock hoisting - define variables inside vi.mock
 vi.mock('./csv-export-utils', () => ({
@@ -448,6 +428,7 @@ vi.mock('react-resizable-panels', () => {
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
     __resetDatabaseDemoStoreForTests();
+    __resetModelRegistryStoreForTests();
     __resetBackgroundIndexingPreferencesStoreForTests();
     __resetImportSettingsStoreForTests();
     __resetTokenPreferencesStoreForTests();
@@ -501,6 +482,40 @@ describe('DatabaseDemoPanel', () => {
     view.unmount();
 
     expect(getRegisteredEmbeddingQueueFactory()).toBeNull();
+  });
+
+  describe('Store subscription scope (perf)', () => {
+    it('does not re-render the panel when a model download progress tick fires', async () => {
+      const onRender = vi.fn();
+
+      render(
+        <ActionRegistryProvider
+          registry={createTestActionRegistry({ actions: collectionActions }).registry}
+        >
+          <TooltipProvider>
+            <React.Profiler id="database-demo-panel-perf" onRender={onRender}>
+              <DatabaseDemoPanel />
+            </React.Profiler>
+          </TooltipProvider>
+        </ActionRegistryProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+      // Flush any straggler mount-effect state updates before snapshotting.
+      await act(async () => {});
+      const commitsAfterMount = onRender.mock.calls.length;
+
+      // Model downloads emit setDownloadProgress per progress tick. The panel
+      // only consumes models/providers/isLoading, so a tick must not commit a
+      // re-render of the entire collection-browser panel.
+      act(() => {
+        useModelRegistryStore.getState().setDownloadProgress('jinaai/jina-embeddings-v3', 42);
+      });
+
+      expect(onRender.mock.calls.length).toBe(commitsAfterMount);
+    });
   });
 
   describe('Basic Rendering', () => {
@@ -961,14 +976,8 @@ describe('DatabaseDemoPanel', () => {
     });
 
     it('passes isLoading state to CreateEmbeddingSetDialog', async () => {
-      // Mock loading state
-      mockUseModelRegistryStore.mockReturnValue({
-        models: [],
-        providers: [],
-        ensureRegistry: mockFetchRegistry,
-        fetchRegistry: mockFetchRegistry,
-        isLoading: true,
-      });
+      // Real store: drive the registry-loading flag through state.
+      useModelRegistryStore.setState({ isLoading: true });
 
       renderWithProviders(<DatabaseDemoPanel />);
 
@@ -979,11 +988,9 @@ describe('DatabaseDemoPanel', () => {
       expect(firstButton).toBeDefined();
       await user.click(firstButton as HTMLElement);
 
-      // Since we can't easily check props passed to a child component without more complex mocking or integration testing,
-      // and we are already testing the dialog's behavior in its own test file,
-      // we primarily verify here that the hook is consumed correctly which we did via the mock setup.
-      // However, we can verify that the store is being used.
-      expect(mockUseModelRegistryStore).toHaveBeenCalled();
+      // The dialog's own behavior is covered in its test file; here we verify
+      // the panel still renders and opens the dialog while the registry loads.
+      expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
     });
   });
 });
