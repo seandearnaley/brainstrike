@@ -889,7 +889,13 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
 
         {/* Restore Access Modal - shown when stored handles exist but need permission */}
         <RestoreAccessModal
-          folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
+          folderNames={
+            storedFolders.length > 0
+              ? storedFolders.map((f) => f.name)
+              : pendingRestore?.name
+                ? [pendingRestore.name]
+                : ['previous folder']
+          }
           isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
           isRestoring={isRestoring}
           onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
@@ -985,9 +991,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                     setAccessLoading(true);
                     setIsRestoring(true);
                     beginRestore()
-                      .then((restored) => {
-                        if (restored) {
-                          setRootDirectoryHandle(restored);
+                      .then((restoredHandles) => {
+                        const first = restoredHandles[0];
+                        if (first) {
+                          setRootDirectoryHandle(first);
                         }
                       })
                       .catch(() => {})
@@ -1003,9 +1010,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   setAccessLoading(true);
                   setIsRestoring(true);
                   beginRestore()
-                    .then((restored) => {
-                      if (restored) {
-                        setRootDirectoryHandle(restored);
+                    .then((restoredHandles) => {
+                      const first = restoredHandles[0];
+                      if (first) {
+                        setRootDirectoryHandle(first);
                       }
                     })
                     .catch(() => {})
@@ -1022,9 +1030,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
             setAccessLoading(true);
             setIsRestoring(true);
             beginRestore()
-              .then((restored) => {
-                if (restored) {
-                  setRootDirectoryHandle(restored);
+              .then((restoredHandles) => {
+                const first = restoredHandles[0];
+                if (first) {
+                  setRootDirectoryHandle(first);
                 }
               })
               .catch(() => {})

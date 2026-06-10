@@ -1,4 +1,5 @@
 import type { PendingRestoreState } from '@brainstrike/file-explorer-hooks';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { FileExplorerState } from '@brainstrike/types';
 import { screen, waitFor } from '@testing-library/react';
@@ -108,7 +109,8 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: vi.fn(),
+      isCheckingStoredHandles: false,
+      beginRestore: vi.fn().mockResolvedValue([]),
       dismissRestore: vi.fn(),
       chooseDifferentFolder: vi.fn(),
       clearStoredHandles: vi.fn(),
@@ -466,7 +468,7 @@ describe('FileExplorerPanel', () => {
   it('restores a pending raw handle immediately when read permission is granted', async () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
-    const beginRestoreMock = vi.fn<() => Promise<null>>(async () => null);
+    const beginRestoreMock = vi.fn<() => Promise<readonly DirectoryHandle[]>>(async () => []);
     const setAccessLoadingMock = vi.fn();
     const setRootDirectoryHandleMock = vi.fn();
     const requestPermissionMock = vi.fn<() => Promise<PermissionState>>(async () => 'granted');
@@ -521,8 +523,8 @@ describe('FileExplorerPanel', () => {
       kind: 'directory' as const,
       platform: 'web' as const,
       _internal: {},
-    };
-    const beginRestoreMock = vi.fn(async () => restoredHandle);
+    } satisfies DirectoryHandle;
+    const beginRestoreMock = vi.fn(async () => [restoredHandle] as readonly DirectoryHandle[]);
     const setRootDirectoryHandleMock = vi.fn();
     const requestPermissionMock = vi.fn<() => Promise<PermissionState>>(async () => 'denied');
     const rawHandle = {
@@ -558,7 +560,7 @@ describe('FileExplorerPanel', () => {
   it('falls back to beginRestore when raw-handle permission rejects', async () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
-    const beginRestoreMock = vi.fn(async () => null);
+    const beginRestoreMock = vi.fn(async () => [] as readonly DirectoryHandle[]);
     const requestPermissionMock = vi.fn<() => Promise<PermissionState>>(async () => {
       throw new Error('permission failed');
     });
@@ -599,8 +601,8 @@ describe('FileExplorerPanel', () => {
       kind: 'directory' as const,
       platform: 'web' as const,
       _internal: {},
-    };
-    const beginRestoreMock = vi.fn(async () => restoredHandle);
+    } satisfies DirectoryHandle;
+    const beginRestoreMock = vi.fn(async () => [restoredHandle] as readonly DirectoryHandle[]);
     const setRootDirectoryHandleMock = vi.fn();
     const pendingRestore = createPendingRestore({
       name: 'brainstrike',

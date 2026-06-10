@@ -5,39 +5,50 @@ import type * as React from 'react';
 export type RestoreAccessBannerVariant = 'pending' | 'denied' | 'stale';
 
 export interface RestoreAccessBannerProps {
-  folderName: string;
+  /** One or more folder names needing restore. When multiple, the title says "N folders". */
+  folderNames: readonly string[];
   onChooseDifferent: () => void;
   onDismiss: () => void;
   onRestore: () => void;
   variant: RestoreAccessBannerVariant;
 }
 
-const variantCopy: Record<RestoreAccessBannerVariant, { title: string; description: string }> = {
-  pending: {
-    title: 'Restore access to your last folder?',
-    description:
-      'Your browser can remember the folder, but access needs confirmation before we can reopen it.',
-  },
-  denied: {
-    title: 'Folder access was denied',
-    description: 'You can try again later or choose a different folder to continue.',
-  },
-  stale: {
-    title: 'Stored folder is no longer accessible',
-    description:
-      'The folder may have been moved or deleted. Choose another folder to continue working.',
-  },
+const SINGLE_FOLDER_PENDING_TITLE = 'Restore access to your last folder?';
+
+function pendingTitle(count: number): string {
+  return count > 1 ? `Restore access to ${count} folders` : SINGLE_FOLDER_PENDING_TITLE;
+}
+
+const variantDescription: Record<RestoreAccessBannerVariant, string> = {
+  pending:
+    'Your browser can remember the folder, but access needs confirmation before we can reopen it.',
+  denied: 'You can try again later or choose a different folder to continue.',
+  stale: 'The folder may have been moved or deleted. Choose another folder to continue working.',
+};
+
+const variantTitle: Record<Exclude<RestoreAccessBannerVariant, 'pending'>, string> = {
+  denied: 'Folder access was denied',
+  stale: 'Stored folder is no longer accessible',
 };
 
 export const RestoreAccessBanner: React.FC<RestoreAccessBannerProps> = ({
-  folderName,
+  folderNames,
   variant,
   onRestore,
   onChooseDifferent,
   onDismiss,
 }) => {
-  const copy = variantCopy[variant];
+  const description = variantDescription[variant];
+  const title = variant === 'pending' ? pendingTitle(folderNames.length) : variantTitle[variant];
   const Icon = variant === 'pending' ? FolderClock : AlertTriangle;
+
+  // For single folder: show its name. For multiple: show count in description.
+  const folderLabel =
+    folderNames.length === 1
+      ? `"${folderNames[0]}" - `
+      : folderNames.length > 1
+        ? `${folderNames.length} folders - `
+        : '';
 
   return (
     <Card className="mx-2 mt-2 border-dashed bg-muted/20 shadow-none">
@@ -47,10 +58,10 @@ export const RestoreAccessBanner: React.FC<RestoreAccessBannerProps> = ({
             <Icon className="h-4 w-4" />
           </div>
           <div className="flex flex-col">
-            <p className="font-medium text-sm">{copy.title}</p>
+            <p className="font-medium text-sm">{title}</p>
             <p className="text-muted-foreground text-xs">
-              {folderName ? `"${folderName}" - ` : ''}
-              {copy.description}
+              {folderLabel}
+              {description}
             </p>
           </div>
         </div>

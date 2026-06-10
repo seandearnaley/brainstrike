@@ -1,4 +1,4 @@
-import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -197,12 +197,12 @@ describe('useRestoreAccess', () => {
       await vi.runAllTimersAsync();
     });
 
-    let restored: Awaited<ReturnType<typeof result.current.beginRestore>> = null;
+    let restored: Awaited<ReturnType<typeof result.current.beginRestore>> = [];
     await act(async () => {
       restored = await result.current.beginRestore();
     });
 
-    expect(restored).toMatchObject({
+    expect(restored[0]).toMatchObject({
       path: 'Root',
       name: 'Root',
       kind: 'directory',
@@ -424,12 +424,12 @@ describe('useRestoreAccess', () => {
       await vi.runAllTimersAsync();
     });
 
-    let restored: Awaited<ReturnType<typeof result.current.beginRestore>> = null;
+    let restored: Awaited<ReturnType<typeof result.current.beginRestore>> = [];
     await act(async () => {
       restored = await result.current.beginRestore();
     });
 
-    expect(restored).toMatchObject({
+    expect(restored[0]).toMatchObject({
       path: 'Restored Root',
       name: 'Restored Root',
       kind: 'directory',
@@ -735,5 +735,156 @@ describe('useRestoreAccess', () => {
 
     first.unmount();
     second.unmount();
+  });
+
+  // --- Multi-root restore (Task 3: burst-before-drain) ---
+
+  it('initiates all requestPermission calls before awaiting any (burst-before-drain)', async () => {
+    // requestPermission for handleA is deferred so we can confirm both were called before either resolved.
+    const permissionA = createDeferred<PermissionState>();
+    const permissionB = createDeferred<PermissionState>();
+
+    const handleA = {
+      name: 'Root A',
+      kind: 'directory',
+      requestPermission: vi.fn(() => permissionA.promise),
+    } as unknown as FileSystemDirectoryHandle;
+
+    const handleB = {
+      name: 'Root B',
+      kind: 'directory',
+      requestPermission: vi.fn(() => permissionB.promise),
+    } as unknown as FileSystemDirectoryHandle;
+
+    const handleCache = {
+      // getAllRootHandles returns full handles for multi-root burst path
+      getAllRootHandles: vi.fn().mockResolvedValue([
+        { folderId: 'root-a', handle: handleA, name: 'Root A', lastAccessedAt: 2 },
+        { folderId: 'root-b', handle: handleB, name: 'Root B', lastAccessedAt: 1 },
+      ]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'root-a',
+        handle: handleA,
+        name: 'Root A',
+        permissionState: 'prompt',
+      }),
+      markHandleRestored: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    // Start beginRestore but don't await — permissions are still pending
+    let restorePromise: Promise<readonly DirectoryHandle[]> | null = null;
+    act(() => {
+      restorePromise = result.current.beginRestore();
+    });
+
+    // Drain microtasks so the burst loop has run
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Both requestPermission calls must have been initiated before any resolved
+    expect(handleA.requestPermission).toHaveBeenCalledOnce();
+    expect(handleB.requestPermission).toHaveBeenCalledOnce();
+
+    // Now resolve both
+    await act(async () => {
+      permissionA.resolve('granted');
+      permissionB.resolve('granted');
+      await restorePromise;
+    });
+
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('root-a');
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('root-b');
+  });
+
+  it('partial grant: granted handles restored, denied handles logged and skipped', async () => {
+    const handleA = {
+      name: 'Root A',
+      kind: 'directory',
+      requestPermission: vi.fn().mockResolvedValue('granted'),
+    } as unknown as FileSystemDirectoryHandle;
+
+    const handleB = {
+      name: 'Root B',
+      kind: 'directory',
+      requestPermission: vi.fn().mockResolvedValue('denied'),
+    } as unknown as FileSystemDirectoryHandle;
+
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([
+        { folderId: 'root-a', handle: handleA, name: 'Root A', lastAccessedAt: 2 },
+        { folderId: 'root-b', handle: handleB, name: 'Root B', lastAccessedAt: 1 },
+      ]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'root-a',
+        handle: handleA,
+        name: 'Root A',
+        permissionState: 'prompt',
+      }),
+      markHandleRestored: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    let handles: readonly DirectoryHandle[] = [];
+    await act(async () => {
+      handles = await result.current.beginRestore();
+    });
+
+    // Only the granted handle returned
+    expect(handles).toHaveLength(1);
+    expect(handles[0]?.name).toBe('Root A');
+
+    // Granted one marked; denied one not marked
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('root-a');
+    expect(handleCache.markHandleRestored).not.toHaveBeenCalledWith('root-b');
+
+    // showDeniedBanner set because at least one was denied
+    expect(result.current.showDeniedBanner).toBe(true);
+  });
+
+  it('returns empty array and no banners when no handles need re-grant', async () => {
+    // No handle cache available — legacy path with no restoreLastRootHandle
+    const adapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+      // No getHandleCache — triggers "no restore method" early return
+    } as unknown as FileSystemAdapter;
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(adapter),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    let handles: readonly DirectoryHandle[] = [];
+    await act(async () => {
+      handles = await result.current.beginRestore();
+    });
+
+    expect(handles).toHaveLength(0);
+    expect(result.current.showDeniedBanner).toBe(false);
+    expect(result.current.showStaleBanner).toBe(false);
   });
 });
