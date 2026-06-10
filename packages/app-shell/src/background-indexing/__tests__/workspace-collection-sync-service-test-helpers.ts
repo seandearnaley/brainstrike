@@ -66,6 +66,7 @@ export function createDeps(
       findByIds: vi.fn(async () => []),
       listManagedCacheEntryMetadata: vi.fn(async () => []),
       update: vi.fn(async () => undefined),
+      updateStatMetadata: vi.fn(async () => undefined),
     },
     fileSystemAdapter: {
       readDirectory: vi.fn(),

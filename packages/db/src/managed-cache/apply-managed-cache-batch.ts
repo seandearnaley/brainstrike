@@ -6,8 +6,9 @@ interface ManagedCacheRecordBase {
   contentHash: string;
   id: string;
   // Persisted filesystem mtime (epoch ms) for the background-sync stat-cache
-  // fast-path. Null when the scan did not capture an mtime; the row then always
-  // falls through to read+hash on the next sync.
+  // fast-path. Null when the scan did not capture an mtime; such rows fall
+  // through to read+hash until a later sync stamps real stats via
+  // updateStatMetadata (hash-confirmed unchanged) or a write persists them.
   mtimeMs: number | null;
   name: string;
   path: string;

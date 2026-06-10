@@ -10,6 +10,8 @@ import type { IDatabase, IFileRecordRepository } from './interfaces.js';
 
 const logger = createLogger('DB:FileRecordRepository');
 const BULK_IMPORT_INFO_LOG_THRESHOLD = 100;
+// 3 parameters per row; stays far below the 65,535 Postgres parameter limit.
+const STAT_METADATA_UPDATE_BATCH_SIZE = 5000;
 
 /**
  * Coerce a stat column (size INTEGER, mtime_ms BIGINT) from a raw row to a finite
@@ -307,6 +309,33 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
     const sql = `UPDATE ${this.tableName} SET ${setClause} WHERE id = $${fields.length + 1}`;
     await this.db.query(sql, values);
+  }
+
+  /**
+   * Batch-stamp filesystem stat metadata (size + floored mtime) WITHOUT
+   * rewriting content. This is how rows written before migration 037 (NULL
+   * mtime_ms) join the stat-cache fast-path: a hash-confirmed-unchanged file
+   * never goes through the import/replace write path, so without this stamp it
+   * would be re-read + re-hashed on every sync indefinitely.
+   */
+  async updateStatMetadata(
+    entries: ReadonlyArray<{ fileRecordId: string; mtimeMs: number; size: number }>
+  ): Promise<void> {
+    for (let offset = 0; offset < entries.length; offset += STAT_METADATA_UPDATE_BATCH_SIZE) {
+      const batch = entries.slice(offset, offset + STAT_METADATA_UPDATE_BATCH_SIZE);
+      const ids = batch.map((entry) => entry.fileRecordId);
+      // Floor defensively: stat.mtimeMs is fractional and mtime_ms is BIGINT.
+      const mtimes = batch.map((entry) => Math.floor(entry.mtimeMs));
+      const sizes = batch.map((entry) => Math.floor(entry.size));
+      const sql = `UPDATE ${this.tableName} AS fr
+         SET mtime_ms = t.mtime_ms,
+             size = t.size
+        FROM unnest($1::text[], $2::bigint[], $3::integer[]) AS t(id, mtime_ms, size)
+        -- Text-form comparison matches the managed-cache batch path until the
+        -- legacy text-id surfaces are retired.
+       WHERE fr.id::text = t.id`;
+      await this.db.query(sql, [ids, mtimes, sizes]);
+    }
   }
 
   async updateContent(

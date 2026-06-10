@@ -271,6 +271,22 @@ export class DrizzleFileRecordRepository {
     });
   }
 
+  /**
+   * Batch-stamp filesystem stat metadata (size + floored mtime) WITHOUT
+   * rewriting content — how pre-migration rows (NULL mtime_ms) join the
+   * stat-cache fast-path, since hash-unchanged files never take a write path.
+   */
+  async updateStatMetadata(
+    entries: ReadonlyArray<{ fileRecordId: string; mtimeMs: number; size: number }>
+  ): Promise<void> {
+    for (const entry of entries) {
+      await this.db
+        .update(fileRecords)
+        .set({ mtimeMs: Math.floor(entry.mtimeMs), size: Math.floor(entry.size) })
+        .where(eq(fileRecords.id, entry.fileRecordId));
+    }
+  }
+
   async update(id: string, updates: FileRecordUpdate): Promise<void> {
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)

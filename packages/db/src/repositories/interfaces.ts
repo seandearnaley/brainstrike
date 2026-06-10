@@ -67,6 +67,10 @@ export interface IFileRecordRepository {
     contentHash: string,
     tokenCount: number
   ): Promise<void>;
+  /** Batch-stamp stat metadata (size + floored mtime) without rewriting content. */
+  updateStatMetadata(
+    entries: ReadonlyArray<{ fileRecordId: string; mtimeMs: number; size: number }>
+  ): Promise<void>;
 }
 
 /**

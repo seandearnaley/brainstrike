@@ -211,6 +211,72 @@ describe('FileRecordRepository', () => {
     expect(entries.map((entry) => entry.id).sort()).toEqual(['cache-a', 'cache-b']);
   });
 
+  it('stamps stat metadata in batch so hash-unchanged rows can join the stat-cache', async () => {
+    const record = createTestRecord({
+      id: 'stamp-a',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/a.ts',
+      sourceRootPath: '/workspace/a',
+    });
+    await repo.createWithContent({
+      ...record,
+      content: 'export const value = 1;',
+      contentHash: 'hash-a',
+      processedAt: record.createdAt,
+      tokenCount: 5,
+    });
+
+    // Pre-migration rows have NULL mtime_ms; the stamp gives them the scanned
+    // stats without rewriting content.
+    await repo.updateStatMetadata([
+      { fileRecordId: 'stamp-a', mtimeMs: 1_700_000_000_000, size: 64 },
+    ]);
+
+    const entries = await repo.listManagedCacheEntryMetadata(
+      '00000000-0000-0000-0000-000000000101'
+    );
+    expect(entries).toEqual([
+      expect.objectContaining({
+        fileRecordId: 'stamp-a',
+        mtimeMs: 1_700_000_000_000,
+        size: 64,
+        contentHash: 'hash-a',
+      }),
+    ]);
+  });
+
+  it('updateStatMetadata floors fractional mtimes and no-ops on an empty batch', async () => {
+    const record = createTestRecord({
+      id: 'stamp-b',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/b.ts',
+      sourceRootPath: '/workspace/a',
+    });
+    await repo.createWithContent({
+      ...record,
+      content: 'export const value = 2;',
+      contentHash: 'hash-b',
+      processedAt: record.createdAt,
+      tokenCount: 5,
+    });
+
+    await repo.updateStatMetadata([]);
+    await repo.updateStatMetadata([
+      { fileRecordId: 'stamp-b', mtimeMs: 1_757_381_225_844.767, size: 32 },
+    ]);
+
+    const entries = await repo.listManagedCacheEntryMetadata(
+      '00000000-0000-0000-0000-000000000101'
+    );
+    expect(entries).toEqual([
+      expect.objectContaining({
+        fileRecordId: 'stamp-b',
+        mtimeMs: 1_757_381_225_844,
+        size: 32,
+      }),
+    ]);
+  });
+
   it('lists managed cache metadata without hydrating file content', async () => {
     const record = createTestRecord({
       id: 'cache-a',

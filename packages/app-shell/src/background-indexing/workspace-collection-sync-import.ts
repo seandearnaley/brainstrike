@@ -94,9 +94,22 @@ interface FileBatchPreparation {
   size: number;
 }
 
+export interface StatMetadataRefresh {
+  fileRecordId: string;
+  mtimeMs: number;
+  size: number;
+}
+
 export interface PreparedChangesSummary {
   changes: PreparedCacheChange[];
   excludedEntries: number;
+  /**
+   * Hash-confirmed-unchanged rows whose stored (size, mtimeMs) are missing or
+   * stale. Unchanged files never take a write path, so without this stamp a
+   * pre-migration row (NULL mtime_ms) would be re-read + re-hashed on EVERY
+   * sync forever — persisting these lets the next sync stat-skip them.
+   */
+  statRefreshes: StatMetadataRefresh[];
   totalFiles: number;
   unchangedCount: number;
 }
@@ -227,6 +240,7 @@ function applyDiscoveredPreparedFiles(args: {
   changes: PreparedCacheChange[];
   discoveredFiles: ReadonlyArray<DiscoveredPreparedFile | null>;
   existingByIdentity: Map<string, ManagedCacheEntryMetadata>;
+  statRefreshes: StatMetadataRefresh[];
   unchangedCount: number;
 }): number {
   let unchangedCount = args.unchangedCount;
@@ -249,6 +263,18 @@ function applyDiscoveredPreparedFiles(args: {
     }
     if (existing.contentHash === discovered.contentHash) {
       unchangedCount += 1;
+      // Unchanged rows never write, so stamp missing/stale stats here or
+      // pre-migration rows miss the stat-cache on every future sync.
+      if (
+        discovered.mtimeMs !== null &&
+        (existing.mtimeMs !== discovered.mtimeMs || existing.size !== discovered.size)
+      ) {
+        args.statRefreshes.push({
+          fileRecordId: existing.fileRecordId,
+          mtimeMs: discovered.mtimeMs,
+          size: discovered.size,
+        });
+      }
       continue;
     }
     args.changes.push({
@@ -547,6 +573,7 @@ export async function collectPreparedChangesInBatches(args: {
     });
   }
   const changes: PreparedCacheChange[] = [];
+  const statRefreshes: StatMetadataRefresh[] = [];
   let unchangedCount = skippedUnchanged.length;
 
   for (let index = 0; index < preparations.length; index += qosPolicy.contentReadBatchSize) {
@@ -574,6 +601,7 @@ export async function collectPreparedChangesInBatches(args: {
       changes,
       discoveredFiles,
       existingByIdentity,
+      statRefreshes,
       unchangedCount,
     });
   }
@@ -581,6 +609,7 @@ export async function collectPreparedChangesInBatches(args: {
   return {
     changes,
     excludedEntries: 0,
+    statRefreshes,
     totalFiles: fileNodes.length,
     unchangedCount,
   };

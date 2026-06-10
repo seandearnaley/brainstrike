@@ -86,6 +86,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
     });
     const service = new WorkspaceCollectionSyncService(deps);
@@ -337,6 +338,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
       chunkRepository: {
         deleteByFileRecordId: vi.fn(async () => undefined),
@@ -396,6 +398,60 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('persists stat refreshes so hash-unchanged pre-migration rows join the stat-cache', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        lastModified: 1000,
+      },
+    ]);
+    const updateStatMetadata = vi.fn(async () => undefined);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            sourceRootPath: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            // Pre-migration row: no stored stats yet.
+            mtimeMs: null,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata,
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(updateStatMetadata).toHaveBeenCalledWith([
+      { fileRecordId: 'file-1', mtimeMs: 1000, size: 42 },
+    ]);
+  });
+
   it('re-enqueues the backfill for stat-skipped files whose embeddings are missing, without reading them', async () => {
     // The stat-cache residual must never compound into missing embeddings: a
     // file skipped by the size+mtime fast-path (never read, never hashed) with
@@ -436,6 +492,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
       chunkRepository: {
         deleteByFileRecordId: vi.fn(async () => undefined),
@@ -490,6 +547,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
       chunkRepository: {
         deleteByFileRecordId: vi.fn(async () => undefined),
@@ -543,6 +601,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
       chunkRepository: {
         deleteByFileRecordId: vi.fn(async () => undefined),
@@ -909,6 +968,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
     });
     const service = new WorkspaceCollectionSyncService(deps);
@@ -1419,6 +1479,7 @@ describe('WorkspaceCollectionSyncService', () => {
           } satisfies ManagedCacheEntryMetadata,
         ]),
         update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
       },
       getBackfillsInFlight: vi
         .fn()
@@ -1853,6 +1914,7 @@ describe('WorkspaceCollectionSyncService', () => {
             } satisfies ManagedCacheEntryMetadata,
           ]),
           update: vi.fn(async () => undefined),
+          updateStatMetadata: vi.fn(async () => undefined),
         },
         getBackfillsInFlight: vi.fn(async () => [
           {

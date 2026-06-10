@@ -179,6 +179,11 @@ function makeFileNode(relativePath: string, size: number, mtimeMs: number | null
   return node;
 }
 
+async function hashForRecordedContent(relativePath: string): Promise<string> {
+  const { generateContentHash } = await import('@brainstrike/utils');
+  return await generateContentHash(`content-of-${ROOT}/${relativePath}`);
+}
+
 function createRecordingProcessor(): {
   processor: FileContentProcessor;
   readPaths: () => string[];
@@ -227,6 +232,67 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect(result.unchangedCount).toBe(1);
     expect(result.changes.map((change) => change.relativePath)).toEqual(['fresh.ts']);
     expect(result.totalFiles).toBe(2);
+  });
+
+  it('emits stat refreshes for hash-unchanged files whose stored stats are missing or stale', async () => {
+    // Pre-migration rows (NULL mtime_ms) never take a write path when their
+    // content is unchanged, so without this stamp they would be re-read and
+    // re-hashed on EVERY sync forever — the exact cost the stat-cache removes.
+    const { processor } = createRecordingProcessor();
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [
+        // Stored hash matches what the recording processor returns for the path.
+        existingEntry('legacy.ts', {
+          contentHash: await hashForRecordedContent('legacy.ts'),
+          mtimeMs: null,
+        }),
+      ],
+      fileContentProcessor: processor,
+      fileNodes: [makeFileNode('legacy.ts', 42, 1000)],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootPath: ROOT,
+    });
+
+    expect(result.changes).toEqual([]);
+    expect(result.unchangedCount).toBe(1);
+    expect(result.statRefreshes).toEqual([
+      { fileRecordId: 'rec-legacy.ts', mtimeMs: 1000, size: 42 },
+    ]);
+  });
+
+  it('does not emit stat refreshes when the stored stats already match or the file changed', async () => {
+    const { processor } = createRecordingProcessor();
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [
+        // Stat-cache hit: skipped entirely, no refresh needed.
+        existingEntry('hit.ts', { size: 42, mtimeMs: 1000 }),
+        // Content changed: goes through replace, which persists stats itself.
+        existingEntry('changed.ts', { contentHash: 'old-hash', mtimeMs: null }),
+      ],
+      fileContentProcessor: processor,
+      fileNodes: [makeFileNode('hit.ts', 42, 1000), makeFileNode('changed.ts', 10, 2000)],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootPath: ROOT,
+    });
+
+    expect(result.changes.map((change) => change.relativePath)).toEqual(['changed.ts']);
+    expect(result.statRefreshes).toEqual([]);
   });
 
   it('logs the stat-cache skip count so skipped files leave a diagnostic trace', async () => {
