@@ -14,7 +14,6 @@ import {
   ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
-  renewAssistantForegroundActivityLeases,
 } from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
@@ -1663,7 +1662,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     try {
       const onExpired = vi.fn();
-      const release = acquireAssistantForegroundActivity({ onExpired });
+      const lease = acquireAssistantForegroundActivity({ onExpired });
 
       expect(getAssistantForegroundActivitySnapshot()).toBe(true);
       // A leaked lease produces no stream activity, so the idle fuse fires.
@@ -1673,7 +1672,7 @@ describe('AssistantUiPanelWrapper', () => {
       expect(getAssistantForegroundActivitySnapshot()).toBe(false);
       expect(onExpired).toHaveBeenCalledTimes(1);
 
-      release();
+      lease.release();
       expect(onExpired).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -1685,19 +1684,19 @@ describe('AssistantUiPanelWrapper', () => {
 
     try {
       const onExpired = vi.fn();
-      const release = acquireAssistantForegroundActivity({ onExpired });
+      const lease = acquireAssistantForegroundActivity({ onExpired });
 
       // A 30-minute run that streams chunks stays alive indefinitely.
       act(() => {
         for (let i = 0; i < 30; i++) {
           vi.advanceTimersByTime(60_000);
-          renewAssistantForegroundActivityLeases();
+          lease.renew();
         }
       });
       expect(getAssistantForegroundActivitySnapshot()).toBe(true);
       expect(onExpired).not.toHaveBeenCalled();
 
-      release();
+      lease.release();
       expect(getAssistantForegroundActivitySnapshot()).toBe(false);
       expect(onExpired).not.toHaveBeenCalled();
     } finally {

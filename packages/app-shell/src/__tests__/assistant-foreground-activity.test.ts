@@ -5,7 +5,6 @@ import {
   ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
-  renewAssistantForegroundActivityLeases,
 } from '../assistant-foreground-activity';
 
 interface CapturedLog {
@@ -54,12 +53,12 @@ describe('assistant foreground activity idle fuse', () => {
 
   it('renewal resets the idle timer so active runs stay alive indefinitely', () => {
     const onExpired = vi.fn();
-    acquireAssistantForegroundActivity({ onExpired });
+    const lease = acquireAssistantForegroundActivity({ onExpired });
 
     // Simulate a long-running stream: renew every 4 minutes for 40 minutes.
     for (let i = 0; i < 10; i++) {
       vi.advanceTimersByTime(4 * 60 * 1000);
-      renewAssistantForegroundActivityLeases();
+      lease.renew();
     }
     expect(getAssistantForegroundActivitySnapshot()).toBe(true);
     expect(onExpired).not.toHaveBeenCalled();
@@ -75,10 +74,10 @@ describe('assistant foreground activity idle fuse', () => {
 
   it('does not warn or expire when released before the fuse fires', () => {
     const onExpired = vi.fn();
-    const release = acquireAssistantForegroundActivity({ onExpired });
+    const lease = acquireAssistantForegroundActivity({ onExpired });
 
     vi.advanceTimersByTime(60 * 1000);
-    release();
+    lease.release();
 
     vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS * 2);
     expect(warnCount()).toBe(0);
@@ -87,48 +86,55 @@ describe('assistant foreground activity idle fuse', () => {
   });
 
   it('renew after release is a no-op and does not resurrect the lease', () => {
-    const release = acquireAssistantForegroundActivity();
-    release();
+    const lease = acquireAssistantForegroundActivity();
+    lease.release();
 
-    renewAssistantForegroundActivityLeases();
+    lease.renew();
     expect(getAssistantForegroundActivitySnapshot()).toBe(false);
 
     vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS * 2);
     expect(warnCount()).toBe(0);
   });
 
-  it('renew with no live leases does not throw', () => {
-    expect(() => renewAssistantForegroundActivityLeases()).not.toThrow();
-  });
-
   it('release is idempotent and only decrements once with overlapping leases', () => {
-    const releaseA = acquireAssistantForegroundActivity();
+    const leaseA = acquireAssistantForegroundActivity();
     acquireAssistantForegroundActivity();
 
-    releaseA();
-    releaseA();
+    leaseA.release();
+    leaseA.release();
     expect(getAssistantForegroundActivitySnapshot()).toBe(true);
   });
 
-  it('renewal renews every live lease, not just the most recent', () => {
+  it('renewing one lease does not keep a leaked sibling lease alive', () => {
+    // The leak scenario the fuse exists for: run A's completion callback is
+    // lost (lease leaked, never renewed), then run B starts and streams.
+    // B's renewals must NOT reset A's timer — otherwise a leaked lease
+    // survives as long as the assistant is in use at all, pausing background
+    // indexing in every inter-run gap.
     const onExpiredA = vi.fn();
     const onExpiredB = vi.fn();
     acquireAssistantForegroundActivity({ onExpired: onExpiredA });
 
-    vi.advanceTimersByTime(3 * 60 * 1000);
-    acquireAssistantForegroundActivity({ onExpired: onExpiredB });
-
     vi.advanceTimersByTime(60 * 1000);
-    renewAssistantForegroundActivityLeases();
+    const leaseB = acquireAssistantForegroundActivity({ onExpired: onExpiredB });
 
-    // Lease A is now 4 minutes old but freshly renewed — it must not expire
-    // at its original 5-minute mark.
-    vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS - 1);
-    expect(onExpiredA).not.toHaveBeenCalled();
-    expect(onExpiredB).not.toHaveBeenCalled();
+    // B streams: renew B every minute. A receives nothing.
+    for (let i = 0; i < 4; i++) {
+      vi.advanceTimersByTime(60 * 1000);
+      leaseB.renew();
+    }
 
-    vi.advanceTimersByTime(1);
+    // A is now 5 minutes old with zero renewals: expired, despite B's activity.
     expect(onExpiredA).toHaveBeenCalledTimes(1);
+    expect(onExpiredB).not.toHaveBeenCalled();
+    // B is still live, so the QoS hint stays raised.
+    expect(getAssistantForegroundActivitySnapshot()).toBe(true);
+
+    // B keeps renewing past A's death without issue, then expires on ITS
+    // own schedule once silent.
+    vi.advanceTimersByTime(ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS - 1);
+    expect(onExpiredB).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(onExpiredB).toHaveBeenCalledTimes(1);
     expect(getAssistantForegroundActivitySnapshot()).toBe(false);
   });

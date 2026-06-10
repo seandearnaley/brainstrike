@@ -18,11 +18,27 @@ import { createLogger } from '@brainstrike/utils/logger';
  * this fuse exists to bound. A live turn that loses the lease is still
  * protected by the DB scheduler's foreground priority and the foreground
  * embedding gate; the lease is a coarse QoS hint, not a correctness boundary.
+ *
+ * Renewal is strictly PER-LEASE (`lease.renew()`): a streaming run renews only
+ * its own lease, never a leaked sibling's — otherwise a leaked lease would
+ * survive as long as the assistant is in use at all, pausing indexing in every
+ * inter-run gap.
  */
 export const ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS = 5 * 60 * 1000;
 
 export interface AssistantForegroundActivityOptions {
   readonly onExpired?: () => void;
+}
+
+export interface AssistantForegroundActivityLease {
+  /** Release the lease (idempotent). */
+  release(): void;
+  /**
+   * Reset THIS lease's idle fuse. Renewal is strictly per-lease: a streaming
+   * run must not refresh a leaked sibling lease, or the leak survives as long
+   * as the assistant is in use at all.
+   */
+  renew(): void;
 }
 
 interface ActiveLease {
@@ -52,35 +68,33 @@ function scheduleIdleFuse(lease: ActiveLease): ReturnType<typeof setTimeout> {
 
 export function acquireAssistantForegroundActivity(
   options: AssistantForegroundActivityOptions = {}
-): () => void {
+): AssistantForegroundActivityLease {
   const lease: ActiveLease = { options, timeout: null };
   lease.timeout = scheduleIdleFuse(lease);
   activeLeases.add(lease);
 
-  return () => {
-    if (!activeLeases.has(lease)) {
-      return;
-    }
-    activeLeases.delete(lease);
-    if (lease.timeout) {
-      clearTimeout(lease.timeout);
-      lease.timeout = null;
-    }
+  return {
+    release: () => {
+      if (!activeLeases.has(lease)) {
+        return;
+      }
+      activeLeases.delete(lease);
+      if (lease.timeout) {
+        clearTimeout(lease.timeout);
+        lease.timeout = null;
+      }
+    },
+    renew: () => {
+      if (!activeLeases.has(lease)) {
+        // Released or already expired — renewal must not resurrect it.
+        return;
+      }
+      if (lease.timeout) {
+        clearTimeout(lease.timeout);
+      }
+      lease.timeout = scheduleIdleFuse(lease);
+    },
   };
-}
-
-/**
- * Renew the idle fuse on every live lease. Called from the assistant
- * streaming path on each chunk/tool event — "the assistant produced output"
- * is the proof of life that keeps leases from being treated as leaked.
- */
-export function renewAssistantForegroundActivityLeases(): void {
-  for (const lease of activeLeases) {
-    if (lease.timeout) {
-      clearTimeout(lease.timeout);
-    }
-    lease.timeout = scheduleIdleFuse(lease);
-  }
 }
 
 export function __resetAssistantForegroundActivityForTests(): void {

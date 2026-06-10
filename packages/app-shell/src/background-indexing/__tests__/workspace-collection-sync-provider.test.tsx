@@ -530,7 +530,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   it('passes foreground assistant activity into Workspace Index QoS inputs', async () => {
-    const releaseForegroundActivity = acquireAssistantForegroundActivity();
+    const foregroundActivityLease = acquireAssistantForegroundActivity();
 
     try {
       render(
@@ -547,7 +547,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         )
       );
     } finally {
-      releaseForegroundActivity();
+      foregroundActivityLease.release();
     }
   });
 

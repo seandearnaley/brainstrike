@@ -42,8 +42,8 @@ import {
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
+  type AssistantForegroundActivityLease,
   acquireAssistantForegroundActivity,
-  renewAssistantForegroundActivityLeases,
 } from './assistant-foreground-activity';
 import {
   createAssistantThreadHistoryAdapter,
@@ -832,16 +832,30 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
-  const assistantForegroundActivityReleaseByRunIdRef = useRef(new Map<string, () => void>());
+  const assistantForegroundActivityLeaseByRunIdRef = useRef(
+    new Map<string, AssistantForegroundActivityLease>()
+  );
+  // The run currently streaming (runs are serialized per panel). Stream
+  // activity renews ONLY this run's lease — renewing all leases would let an
+  // unrelated active run keep a leaked sibling lease alive indefinitely.
+  const activeAssistantForegroundRunIdRef = useRef<string | null>(null);
   useEffect(
     () => () => {
-      for (const release of assistantForegroundActivityReleaseByRunIdRef.current.values()) {
-        release();
+      for (const lease of assistantForegroundActivityLeaseByRunIdRef.current.values()) {
+        lease.release();
       }
-      assistantForegroundActivityReleaseByRunIdRef.current.clear();
+      assistantForegroundActivityLeaseByRunIdRef.current.clear();
+      activeAssistantForegroundRunIdRef.current = null;
     },
     []
   );
+  const renewActiveAssistantForegroundActivity = useCallback(() => {
+    const runId = activeAssistantForegroundRunIdRef.current;
+    if (!runId) {
+      return;
+    }
+    assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.renew();
+  }, []);
 
   const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
     const runId = await createAssistantThreadRunPromise({
@@ -858,15 +872,19 @@ export function AssistantUiPanelWrapper({
       throw new Error('Assistant request preparation requires Mastra memory context.');
     }
     if (runId) {
-      assistantForegroundActivityReleaseByRunIdRef.current.get(runId)?.();
-      assistantForegroundActivityReleaseByRunIdRef.current.set(
+      assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
+      assistantForegroundActivityLeaseByRunIdRef.current.set(
         runId,
         acquireAssistantForegroundActivity({
           onExpired: () => {
-            assistantForegroundActivityReleaseByRunIdRef.current.delete(runId);
+            assistantForegroundActivityLeaseByRunIdRef.current.delete(runId);
+            if (activeAssistantForegroundRunIdRef.current === runId) {
+              activeAssistantForegroundRunIdRef.current = null;
+            }
           },
         })
       );
+      activeAssistantForegroundRunIdRef.current = runId;
     }
 
     return {
@@ -906,8 +924,11 @@ export function AssistantUiPanelWrapper({
           ...(error ? { error } : {}),
         });
       } finally {
-        assistantForegroundActivityReleaseByRunIdRef.current.get(runId)?.();
-        assistantForegroundActivityReleaseByRunIdRef.current.delete(runId);
+        assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
+        assistantForegroundActivityLeaseByRunIdRef.current.delete(runId);
+        if (activeAssistantForegroundRunIdRef.current === runId) {
+          activeAssistantForegroundRunIdRef.current = null;
+        }
       }
     },
     [assistantThreadRepository]
@@ -1413,7 +1434,7 @@ export function AssistantUiPanelWrapper({
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       onProviderSettingsChange={handleProviderSettingsChange}
-      onStreamActivity={renewAssistantForegroundActivityLeases}
+      onStreamActivity={renewActiveAssistantForegroundActivity}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       prepareRequestData={prepareRequestData}
