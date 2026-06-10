@@ -368,6 +368,15 @@ export interface LocalRuntimeAdapterOptions {
     message: string;
     file?: string;
   }) => void;
+  /**
+   * Called once per completed turn with the final generation's token counts.
+   * Maps Gemma's tokenizer-true usage to the shared inputTokens/outputTokens
+   * shape used by the context usage store.
+   * For multi-round tool-call turns, only the LAST generation's usage is
+   * reported — its prompt reflects the accumulated context including tool
+   * results, consistent with the one-turn-lag meter semantics.
+   */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
   prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
   runtimeData?: Record<string, unknown>;
   thinkingEnabled?: boolean;
@@ -857,6 +866,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
     onActivity,
     onLoadingProgress: onLoadingProgressOption,
     onError,
+    onUsage,
     prepareRuntimeData,
     runtimeData,
     tools,
@@ -1160,6 +1170,12 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               progress: 100,
               message: createReadyMessage(),
             });
+            if (result.usage) {
+              onUsage?.({
+                inputTokens: result.usage.promptTokens,
+                outputTokens: result.usage.completionTokens,
+              });
+            }
             await completeRuntimeData?.(preparedRuntimeData, 'completed');
             yield {
               content: buildAssistantContentParts(

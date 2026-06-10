@@ -1705,4 +1705,120 @@ describe('createLocalModelAdapter', () => {
     expect(isLocalInferenceAvailable()).toBe(true);
     expect(getBestInferenceDevice()).toBe('webgpu');
   });
+
+  it('calls onUsage with mapped inputTokens/outputTokens after desktop generation completes', async () => {
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(
+      createGenerationResult({
+        text: 'Token-counted answer.',
+        usage: { promptTokens: 50, completionTokens: 20, totalTokens: 70 },
+      })
+    );
+    const onUsage = vi.fn();
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onUsage,
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 50, outputTokens: 20 });
+  });
+
+  it('calls onUsage with the last generation result usage in a tool-call turn (desktop)', async () => {
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: '',
+          usage: { promptTokens: 30, completionTokens: 10, totalTokens: 40 },
+          toolCalls: [
+            {
+              id: 'tool-usage-1',
+              type: 'function',
+              function: {
+                name: 'brainstrike.echo',
+                arguments: '{}',
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: 'Final answer after tool.',
+          usage: { promptTokens: 60, completionTokens: 25, totalTokens: 85 },
+        })
+      );
+    const execute = vi.fn().mockResolvedValue({ success: true, result: 'ok', durationMs: 1 });
+    const onUsage = vi.fn();
+
+    Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+      tools: { execute },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onUsage,
+      tools: [
+        {
+          id: 'brainstrike.echo',
+          inputSchema: { type: 'object', properties: {} },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+
+    // Only the LAST generation's usage is reported — the final turn's prompt
+    // reflects the accumulated context including tool results, which is the
+    // most accurate usage for the one-turn-lag meter.
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 60, outputTokens: 25 });
+  });
+
+  it('does not call onUsage when no callback is provided', async () => {
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(
+      createGenerationResult({
+        text: 'Answer without usage callback.',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      })
+    );
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    // No onUsage provided — must not throw
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    await expect(collectRun(adapter.run(createRunOptions()))).resolves.toBeDefined();
+  });
 });

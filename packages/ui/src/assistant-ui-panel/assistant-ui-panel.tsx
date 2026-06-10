@@ -583,6 +583,7 @@ const LocalRuntimeChat: FC<
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onUsage,
   disabled,
   disabledReason,
   localLoadingState,
@@ -613,6 +614,7 @@ const LocalRuntimeChat: FC<
         }),
         ...(completePreparedRequest ? { completeRuntimeData: completePreparedRequest } : {}),
         ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
+        ...(onUsage ? { onUsage } : {}),
         ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
         onLoadingProgress: (progress: LocalModelLoadingState) => {
           onLoadingStateChange(progress);
@@ -631,6 +633,7 @@ const LocalRuntimeChat: FC<
       modelId,
       onLoadingStateChange,
       onStreamActivity,
+      onUsage,
       prepareRequestData,
       requestData,
       thinkingEnabled,
@@ -1074,6 +1077,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onProviderSettingsChange={onProviderSettingsChange}
           onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
+          {...(onUsage ? { onUsage } : {})}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           prepareRequestData={prepareRequestData}
