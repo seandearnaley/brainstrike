@@ -59,4 +59,4 @@ pnpm test:e2e:desktop
 - Reusable logic belongs in `packages/*`, not app-local islands.
 - Keep renderer-only embedding worker architecture intact.
 - Update docs in this site when architecture or workflows change.
-- Prefer root-cause fixes over temporary bypasses.
+- Prefer root-cause fixes over short-lived bypasses.
