@@ -1168,6 +1168,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../platform-utils
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue

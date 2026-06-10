@@ -1,5 +1,6 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
+import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import type {
@@ -122,6 +123,8 @@ export interface EmbeddingWorkerController {
 
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
+const EMBED_REINIT_EVERY_ENV = 'EMBED_REINIT_EVERY';
+const WORKER_METRICS_INTERVAL_MS_ENV = 'WORKER_METRICS_INTERVAL_MS';
 
 type StreamingEmbeddingService = EmbeddingService & {
   generateEmbeddingsStream: (
@@ -129,6 +132,52 @@ type StreamingEmbeddingService = EmbeddingService & {
     onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
   ) => Promise<void>;
 };
+
+function readProcessEnvValue(name: string): string | undefined {
+  return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
+    name
+  ];
+}
+
+function resolveOptionalPositiveIntegerRuntimeConfig(
+  name: string,
+  rawValue: number | string | null | undefined
+): number {
+  if (rawValue === undefined || rawValue === null) {
+    return 0;
+  }
+  if (typeof rawValue === 'string' && rawValue.trim() === '') {
+    return 0;
+  }
+  return parsePositiveIntegerConfig({ name, rawValue });
+}
+
+function resolveReinitEveryN(configuredValue: number | undefined): number {
+  if (configuredValue !== undefined) {
+    return parsePositiveIntegerConfig({
+      name: 'reinitEveryN',
+      rawValue: configuredValue,
+    });
+  }
+  return resolveOptionalPositiveIntegerRuntimeConfig(
+    EMBED_REINIT_EVERY_ENV,
+    readProcessEnvValue(EMBED_REINIT_EVERY_ENV)
+  );
+}
+
+function resolveMetricsIntervalMs(configuredValue: number | undefined): number {
+  if (configuredValue !== undefined) {
+    return parsePositiveIntegerConfig({
+      name: 'metricsIntervalMs',
+      rawValue: configuredValue,
+    });
+  }
+  return parsePositiveIntegerConfig({
+    defaultValue: 30_000,
+    name: WORKER_METRICS_INTERVAL_MS_ENV,
+    rawValue: readProcessEnvValue(WORKER_METRICS_INTERVAL_MS_ENV),
+  });
+}
 
 async function sha256Hex(input: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
@@ -344,14 +393,7 @@ export async function startEmbeddingWorker(
   let idleStartedAt: number | null = null;
   let hasLoggedMaxIdleBackoff = false;
   let nextIdlePollDelayMs = idlePollBackoff.initialMs;
-  const reinitEveryN =
-    options.reinitEveryN ??
-    (() => {
-      const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        ?.process?.env?.['EMBED_REINIT_EVERY'];
-      const parsed = Number(raw);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-    })();
+  const reinitEveryN = resolveReinitEveryN(options.reinitEveryN);
 
   function triggerFatalLocalWorkerError(error: Error): void {
     if (!options.stopOnFatalLocalError || fatalWorkerError) {
@@ -1420,6 +1462,7 @@ export async function startEmbeddingWorker(
     }
   }
 
+  const metricsInterval = resolveMetricsIntervalMs(options.metricsIntervalMs);
   const loops: Promise<void>[] = [];
   for (let i = 0; i < concurrency; i++) {
     loops.push(
@@ -1432,13 +1475,6 @@ export async function startEmbeddingWorker(
   }
 
   // Periodic metrics logger
-  const metricsInterval = Number(
-    options.metricsIntervalMs ??
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
-        'WORKER_METRICS_INTERVAL_MS'
-      ] ??
-      30_000
-  );
   const metricsTimer = setInterval(
     () => {
       if (!running) {

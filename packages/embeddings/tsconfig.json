@@ -44,6 +44,9 @@
       "path": "../indexing-contract"
     },
     {
+      "path": "../platform-utils"
+    },
+    {
       "path": "../embedding-worker"
     }
   ]

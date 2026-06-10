@@ -819,6 +819,40 @@ describe('Embedding Worker Batch Optimization', () => {
     );
   });
 
+  it('rejects malformed EMBED_REINIT_EVERY environment values', async () => {
+    const originalValue = process.env['EMBED_REINIT_EVERY'];
+    process.env['EMBED_REINIT_EVERY'] = '1e3';
+    let controller: { stop: () => Promise<void> } | undefined;
+    let thrown: unknown;
+
+    try {
+      controller = await startEmbeddingWorker({
+        db: db as unknown as IDatabase,
+        concurrency: 1,
+        leaseMs: 5000,
+        log: () => {},
+        modelKey: 'jinaai/jina-embeddings-v2-base-code',
+        service: new FakeEmbeddingService(),
+        statsRefreshCompletedChunkThreshold: 512,
+        statsRefreshMinIntervalMs: 60_000,
+      });
+    } catch (error) {
+      thrown = error;
+    } finally {
+      await controller?.stop();
+      if (originalValue === undefined) {
+        Reflect.deleteProperty(process.env, 'EMBED_REINIT_EVERY');
+      } else {
+        process.env['EMBED_REINIT_EVERY'] = originalValue;
+      }
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'EMBED_REINIT_EVERY must be a positive integer, received "1e3".'
+    );
+  });
+
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';
