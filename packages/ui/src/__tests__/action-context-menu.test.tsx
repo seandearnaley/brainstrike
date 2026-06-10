@@ -70,12 +70,13 @@ function Harness({ localActions = [] }: { localActions?: readonly AnyContextActi
 
 function renderHarness(
   options: {
+    actions?: readonly AnyContextAction[];
     capabilities?: readonly CapabilityKey[];
     localActions?: readonly AnyContextAction[];
   } = {}
 ) {
   const { registry, writtenTexts } = createTestActionRegistry({
-    actions: [copyName, revealAction],
+    actions: options.actions ?? [copyName, revealAction],
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
   });
   render(
@@ -160,6 +161,12 @@ describe('ActionContextMenu', () => {
   it('does not open a menu when right-clicking outside any row', () => {
     renderHarness();
     fireEvent.contextMenu(screen.getByTestId('background'), { clientX: 10, clientY: 10 });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('does not open a menu when no actions apply to the claimed target', () => {
+    renderHarness({ actions: [] });
+    fireEvent.contextMenu(screen.getByTestId('row-a'), { clientX: 10, clientY: 10 });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 

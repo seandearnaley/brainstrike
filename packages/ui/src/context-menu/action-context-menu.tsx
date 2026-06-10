@@ -118,11 +118,15 @@ export function ActionContextMenu({ controller, localActions, children }: Action
       // handlers (inner, bubble) claim it by calling setTarget. By the time
       // this outer handler runs, a null ref means "no row claimed this
       // right-click" — prevent default so Radix does not open an empty menu.
-      if (!targetRef.current) {
+      // A claimed target can ALSO yield zero actions (capability gating, or a
+      // registry with nothing applicable to this kind) — veto that at event
+      // time too, so an empty menu box never opens.
+      const claimed = targetRef.current;
+      if (!claimed || registry.actionsFor(claimed, localActions).length === 0) {
         event.preventDefault();
       }
     },
-    [targetRef]
+    [targetRef, registry, localActions]
   );
 
   // Known limitation (desktop-first): Radix opens context menus from
