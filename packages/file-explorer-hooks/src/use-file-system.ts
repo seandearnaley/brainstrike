@@ -68,19 +68,29 @@ function getCanonicalFolderId(handle: DirectoryHandle): string {
 
 function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
   switch (action.type) {
-    case 'setRoot':
+    case 'setRoot': {
+      // null clears everything (legacy clear semantics).
+      if (action.handle === null) {
+        return {
+          ...state,
+          rootDirectoryHandle: null,
+          rootDirectoryHandles: [],
+          rootIdByPath: new Map<string, string>(),
+        };
+      }
+      // INVARIANT: rootDirectoryHandle must always be a member of
+      // rootDirectoryHandles. Non-null setRoot therefore uses
+      // addOrFocusHandle semantics: append when missing, focus always.
+      const handle = action.handle;
+      const alreadyListed = state.rootDirectoryHandles.some((h) => h.path === handle.path);
       return {
         ...state,
-        rootDirectoryHandle: action.handle,
-        // When legacy setRoot clears, also clear the handles list.
-        // When legacy setRoot sets a handle, update handles list (single-root compat).
-        rootDirectoryHandles:
-          action.handle === null
-            ? []
-            : state.rootDirectoryHandles.length > 0
-              ? state.rootDirectoryHandles
-              : [action.handle],
+        rootDirectoryHandle: handle,
+        rootDirectoryHandles: alreadyListed
+          ? state.rootDirectoryHandles
+          : [...state.rootDirectoryHandles, handle],
       };
+    }
     case 'setAccessLoading':
       return { ...state, isAccessLoading: action.loading };
     case 'addOrFocusHandle': {
@@ -330,6 +340,57 @@ export function useFileSystem({
     [rootDirectoryHandles, updateCurrentFolderId]
   );
 
+  /**
+   * Register handles restored via the restore-access flow (multi-root).
+   * EVERY handle is appended to rootDirectoryHandles (deduped by path) and
+   * registered in the store via addActiveRoot. RootId identity source: the
+   * adapter's restoreRoots() descriptors (rootId+path, queryPermission-only
+   * so safe to re-call), matched by handle path; synthetic uuid fallback when
+   * no descriptor matches. handles[0] becomes the focused root.
+   */
+  const registerRestoredHandles = useCallback(
+    async (handles: readonly DirectoryHandle[]): Promise<void> => {
+      if (handles.length === 0) {
+        return;
+      }
+
+      let adapterRootIdByPath = new Map<string, string>();
+      const adapterWithRestoreRoots = fileSystemAdapter as {
+        restoreRoots?: () => Promise<RootDescriptor[]>;
+      };
+      if (typeof adapterWithRestoreRoots.restoreRoots === 'function') {
+        try {
+          const descriptors = await adapterWithRestoreRoots.restoreRoots.call(fileSystemAdapter);
+          adapterRootIdByPath = new Map(descriptors.map((d) => [d.handle.path, d.rootId]));
+        } catch (error) {
+          logger.warn('registerRestoredHandles: failed to read adapter root descriptors', {
+            error,
+          });
+        }
+      }
+
+      for (const handle of handles) {
+        const rootId = adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
+        dispatch({ type: 'addOrFocusHandle', handle, rootId });
+        if (typeof addActiveRoot === 'function') {
+          addActiveRoot({
+            displayName: handle.name,
+            path: getCanonicalFolderId(handle),
+            rootId,
+          });
+        }
+      }
+
+      // The registration loop leaves the LAST handle focused; re-focus the first.
+      const first = handles[0];
+      if (first) {
+        dispatch({ type: 'addOrFocusHandle', handle: first });
+        updateCurrentFolderId(getCanonicalFolderId(first));
+      }
+    },
+    [fileSystemAdapter, addActiveRoot, updateCurrentFolderId]
+  );
+
   const clearRootDirectory = useCallback(() => {
     dispatch({ type: 'setRoot', handle: null });
     updateCurrentFolderId(null);
@@ -420,7 +481,9 @@ export function useFileSystem({
         getPersistedCurrentFolderId,
         hasAttemptedRestoreRef,
         isRestoringRef,
-        restoreRoots: adapterWithRestoreRoots.restoreRoots,
+        // BIND: the web adapter's restoreRoots reads this.handleCache — an
+        // unbound reference would lose `this` and throw at call time.
+        restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
         setActiveRootsRef,
         updateCurrentFolderId,
         waitForHydration,
@@ -453,7 +516,8 @@ export function useFileSystem({
         if (!restoreFn) {
           return;
         }
-        const restored = await restoreFn();
+        // BIND: same unbound-method hazard as restoreRoots above.
+        const restored = await restoreFn.call(fileSystemAdapter);
         if (!restored || cancelled) {
           return;
         }
@@ -497,6 +561,7 @@ export function useFileSystem({
       rootIdByPath,
       isAccessLoading,
       addRootDirectory,
+      registerRestoredHandles,
       selectRootDirectory,
       setFocusedRoot,
       isFileSystemAccessSupported,
@@ -510,6 +575,7 @@ export function useFileSystem({
       rootIdByPath,
       isAccessLoading,
       addRootDirectory,
+      registerRestoredHandles,
       selectRootDirectory,
       setFocusedRoot,
       isFileSystemAccessSupported,

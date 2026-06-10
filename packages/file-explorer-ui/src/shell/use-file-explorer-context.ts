@@ -116,6 +116,8 @@ interface UseFileExplorerReturn {
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<void>;
   refreshFileExplorer: () => Promise<void>;
+  /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
+  registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
   rootDirectoryHandle: DirectoryHandle | null;
@@ -214,6 +216,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     setRootDirectoryHandle,
     setAccessLoading: _hookSetAccessLoading, // Ignore the hook's local setter
     addRootDirectory,
+    registerRestoredHandles,
     setFocusedRoot,
   } = useFileSystem();
 
@@ -561,6 +564,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     rootDirectoryHandles,
     /** Add an additional root directory (multi-root, Phase 4+). */
     addRootDirectory,
+    /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
+    registerRestoredHandles,
     /** Switch focused root to the given path (multi-root, Phase 4+). */
     setFocusedRoot,
   };

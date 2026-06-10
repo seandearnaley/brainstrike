@@ -786,8 +786,10 @@ describe('useRestoreAccess', () => {
       restorePromise = result.current.beginRestore();
     });
 
-    // Drain microtasks so the burst loop has run
+    // Drain microtasks so the burst loop has run (extra tick of margin for
+    // the classify step's awaited markHandleRestored before the burst).
     await act(async () => {
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });

@@ -102,6 +102,10 @@ export function useFileSystem() {
   const storedRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
   const setRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.setRootDirectoryHandle);
   const setStoreIsAccessLoading = useFileExplorerStoreSelector((s) => s.setIsAccessLoading);
+  // Multi-root store actions: without these the boot restore never populates
+  // activeRootIds and focus-by-recency always falls back to handles[0].
+  const addActiveRoot = useFileExplorerStoreSelector((s) => s.addActiveRoot);
+  const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
 
   const rehydrateCurrentFolderStateIfNeeded = useCallback(
     (folderId: string) => {
@@ -165,10 +169,22 @@ export function useFileSystem() {
     [store]
   );
 
+  /**
+   * Getter for the store's folderAccessOrder (focus-by-recency during boot
+   * restore). Read lazily via getState so it is always fresh at call time.
+   */
+  const getFolderAccessOrder = useCallback(
+    (): readonly string[] => store.getState().folderAccessOrder,
+    [store]
+  );
+
   const coreApi = useCoreFileSystem({
     setCurrentFolderId,
     waitForHydration,
     getPersistedCurrentFolderId,
+    addActiveRoot,
+    setActiveRoots,
+    getFolderAccessOrder,
   });
 
   const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
@@ -185,6 +201,22 @@ export function useFileSystem() {
   const clearRootDirectory = () => {
     coreApi.clearRootDirectory();
     setRootDirectoryHandle(null);
+  };
+
+  /**
+   * Register ALL handles returned by the restore-access flow (multi-root).
+   * Delegates to the core hook (per-handle addOrFocusHandle + addActiveRoot,
+   * handles[0] focused), then syncs the focused handle to the store and
+   * rehydrates its persisted folder state — same store side effects as
+   * setRootHandle, but without dropping handles[1..n].
+   */
+  const registerRestoredHandles = async (handles: readonly DirectoryHandle[]): Promise<void> => {
+    await coreApi.registerRestoredHandles(handles);
+    const first = handles[0];
+    if (first) {
+      setRootDirectoryHandle(first);
+      rehydrateCurrentFolderStateIfNeeded(first.path);
+    }
   };
 
   /**
@@ -263,6 +295,8 @@ export function useFileSystem() {
       setAccessLoading: coreApi.setAccessLoading,
       /** Add an additional root directory (multi-root, Phase 4+). */
       addRootDirectory: coreApi.addRootDirectory,
+      /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
+      registerRestoredHandles,
       /** Switch focused root to the given path (multi-root, Phase 4+). */
       setFocusedRoot: coreApi.setFocusedRoot,
     }),

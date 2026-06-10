@@ -84,6 +84,7 @@ describe('useFileExplorer (context)', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       addRootDirectory: vi.fn().mockResolvedValue(null),
+      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       setFocusedRoot: vi.fn(),
       ...overrides,
     };

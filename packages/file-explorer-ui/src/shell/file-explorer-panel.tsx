@@ -235,6 +235,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     cancelSelectAll,
     isLoadingForSelectAll,
     addRootDirectory,
+    registerRestoredHandles,
     setFocusedRoot,
   } = useFileExplorer();
 
@@ -1008,12 +1009,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                     setAccessLoading(true);
                     setIsRestoring(true);
                     beginRestore()
-                      .then((restoredHandles) => {
-                        const first = restoredHandles[0];
-                        if (first) {
-                          setRootDirectoryHandle(first);
-                        }
-                      })
+                      .then((restoredHandles) => registerRestoredHandles(restoredHandles))
                       .catch(() => {})
                       .finally(() => {
                         setIsRestoring(false);
@@ -1027,12 +1023,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   setAccessLoading(true);
                   setIsRestoring(true);
                   beginRestore()
-                    .then((restoredHandles) => {
-                      const first = restoredHandles[0];
-                      if (first) {
-                        setRootDirectoryHandle(first);
-                      }
-                    })
+                    .then((restoredHandles) => registerRestoredHandles(restoredHandles))
                     .catch(() => {})
                     .finally(() => {
                       setIsRestoring(false);
@@ -1047,12 +1038,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
             setAccessLoading(true);
             setIsRestoring(true);
             beginRestore()
-              .then((restoredHandles) => {
-                const first = restoredHandles[0];
-                if (first) {
-                  setRootDirectoryHandle(first);
-                }
-              })
+              .then((restoredHandles) => registerRestoredHandles(restoredHandles))
               .catch(() => {})
               .finally(() => {
                 setIsRestoring(false);

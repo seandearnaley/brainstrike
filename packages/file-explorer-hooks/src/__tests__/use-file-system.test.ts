@@ -1142,4 +1142,124 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
     });
   });
+
+  describe('multi-root: registerRestoredHandles (restore banner)', () => {
+    const handleA: DirectoryHandle = {
+      path: 'Root A',
+      name: 'Root A',
+      kind: 'directory',
+      platform: 'web',
+    };
+    const handleB: DirectoryHandle = {
+      path: 'Root B',
+      name: 'Root B',
+      kind: 'directory',
+      platform: 'web',
+    };
+
+    it('registers BOTH restored handles, derives rootIds from adapter descriptors, focuses handles[0]', async () => {
+      const storageAdapter = createStorageAdapter('web');
+      // restoreRoots returns permissionState 'prompt' (boot restore skips them —
+      // exactly the banner scenario), but the descriptors still carry rootId+path.
+      const restoreRootsFn = vi.fn().mockResolvedValue([
+        {
+          displayName: 'Root A',
+          handle: handleA,
+          kind: 'fsa',
+          permissionState: 'prompt',
+          persisted: true,
+          rootId: 'root-a',
+        },
+        {
+          displayName: 'Root B',
+          handle: handleB,
+          kind: 'fsa',
+          permissionState: 'prompt',
+          persisted: true,
+          rootId: 'root-b',
+        },
+      ] satisfies RootDescriptor[]);
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn(),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        restoreRoots: restoreRootsFn,
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      // Simulate beginRestore resolving TWO handles → register them all.
+      await act(async () => {
+        await result.current?.registerRestoredHandles([handleA, handleB]);
+      });
+
+      // Both handles registered (addOrFocusHandle x2)
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+      expect(result.current?.rootDirectoryHandles).toEqual([handleA, handleB]);
+      // handles[0] focused
+      expect(result.current?.rootDirectoryHandle).toEqual(handleA);
+      expect(mockSetCurrentFolderId).toHaveBeenLastCalledWith('Root A');
+      // addActiveRoot x2 with descriptor-derived rootIds
+      expect(mockAddActiveRoot).toHaveBeenCalledTimes(2);
+      expect(mockAddActiveRoot).toHaveBeenCalledWith({
+        displayName: 'Root A',
+        path: 'Root A',
+        rootId: 'root-a',
+      });
+      expect(mockAddActiveRoot).toHaveBeenCalledWith({
+        displayName: 'Root B',
+        path: 'Root B',
+        rootId: 'root-b',
+      });
+    });
+
+    it('falls back to synthetic rootIds when the adapter has no restoreRoots', async () => {
+      const storageAdapter = createStorageAdapter('web');
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn(),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        // No restoreRoots
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current?.registerRestoredHandles([handleA, handleB]);
+      });
+
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+      expect(result.current?.rootDirectoryHandle).toEqual(handleA);
+      expect(mockAddActiveRoot).toHaveBeenCalledTimes(2);
+      for (const call of mockAddActiveRoot.mock.calls) {
+        const arg = call[0] as { rootId: string };
+        expect(typeof arg.rootId).toBe('string');
+        expect(arg.rootId.length).toBeGreaterThan(0);
+      }
+    });
+  });
 });
