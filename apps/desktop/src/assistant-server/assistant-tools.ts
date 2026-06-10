@@ -3,6 +3,8 @@ import path from 'node:path';
 import {
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
+  type GrepSearchInput,
+  GrepSearchInputSchema,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
@@ -43,6 +45,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
 import { findSymbolMatches } from './find-workspace-symbol';
+import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
   isHiddenPath,
@@ -1338,6 +1341,21 @@ export function buildDesktopAssistantTools(
           return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('findWorkspaceSymbol failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [GREP_SEARCH_TOOL_ID]: {
+      id: GREP_SEARCH_TOOL_ID,
+      description:
+        'Grep indexed file content for an exact string (default) or JavaScript regex. Returns path:line matches with surrounding context lines. Use this FIRST for identifiers, exact strings, and error messages; use semantic search only when you do not know the exact wording.',
+      inputSchema: GrepSearchInputSchema,
+      execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
+        const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);
+        try {
+          return await runGrepSearch(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('grepSearch failed', { error, input: resolvedInput });
           throw error;
         }
       },

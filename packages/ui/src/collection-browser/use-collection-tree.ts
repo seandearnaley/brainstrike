@@ -29,6 +29,12 @@ const EMPTY_VISIBLE_NODE_IDS = new Set<string>();
 // automatically updates the default-filter fast-path check.
 const ALL_COLLECTION_NODE_TYPE_COUNT = Object.keys(NODE_TYPE_CONFIG).length;
 const MAX_WARNED_FILTER_CYCLE_NODE_IDS = 1000;
+// Keep these prefixes in sync with CollectionNodeType / NODE_TYPE_CONFIG.
+// They stay explicit because this helper runs for every searched tree node.
+const COLLECTION_NODE_ID_PREFIX = 'collection-';
+const FILE_NODE_ID_PREFIX = 'file-';
+const CHUNK_NODE_ID_PREFIX = 'chunk-';
+const EMBEDDING_NODE_ID_PREFIX = 'embedding-';
 
 /**
  * Input data for building the collection tree
@@ -221,12 +227,29 @@ function resolveEmbeddingDimensions(chunk: CollectionTreeInput['chunks'][0]): nu
   return chunk.embeddingDimensions ?? 0;
 }
 
+function getSearchableNodeId(nodeId: string): string {
+  // Search scans this for every candidate node; explicit prefixes avoid regex work.
+  if (nodeId.startsWith(FILE_NODE_ID_PREFIX)) {
+    return nodeId.slice(FILE_NODE_ID_PREFIX.length);
+  }
+  if (nodeId.startsWith(CHUNK_NODE_ID_PREFIX)) {
+    return nodeId.slice(CHUNK_NODE_ID_PREFIX.length);
+  }
+  if (nodeId.startsWith(EMBEDDING_NODE_ID_PREFIX)) {
+    return nodeId.slice(EMBEDDING_NODE_ID_PREFIX.length);
+  }
+  if (nodeId.startsWith(COLLECTION_NODE_ID_PREFIX)) {
+    return nodeId.slice(COLLECTION_NODE_ID_PREFIX.length);
+  }
+  return nodeId;
+}
+
 /**
  * Get searchable text fields from node data
  */
 function getSearchableFields(node: TreeNode<BrowserNodeData>): string[] {
   const { data, type } = node;
-  const fields: string[] = [type, node.id.replace(/^(collection|file|chunk|embedding)-/, '')];
+  const fields: string[] = [type, getSearchableNodeId(node.id)];
 
   // Strings
   const stringFields = ['name', 'description', 'path', 'content'];

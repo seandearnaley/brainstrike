@@ -16,8 +16,8 @@ import type { Migration } from './migration-runner';
  * until writes populate root_id (phase 3); both identities are enforced
  * during the transition.
  */
-export const migration038RootsTable: Migration = {
-  version: 38,
+export const migration039RootsTable: Migration = {
+  version: 39,
   name: 'roots_table',
   up: `
     CREATE TABLE IF NOT EXISTS roots (
