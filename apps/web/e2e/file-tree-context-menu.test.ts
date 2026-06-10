@@ -50,8 +50,10 @@ test.describe('File tree context menu', { tag: ['@smoke', '@web-smoke'] }, () =>
 
     await copyRelative.click();
 
-    // Success toast confirms the outcome surfaced to the user.
-    await expect(page.getByText('Relative path copied')).toBeVisible();
+    // Success toast confirms the outcome surfaced to the user. Radix Toast
+    // also mirrors the text into an aria-live announcement node, so the text
+    // can resolve to two elements — assert on the first match.
+    await expect(page.getByText('Relative path copied').first()).toBeVisible();
 
     // The clipboard mock logs the written text to the console.
     await expect
