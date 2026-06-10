@@ -6,6 +6,7 @@ import {
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { createAgentHubSettingsCategory } from '@brainstrike/preferences/settings/agent-hub/index';
 import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import {
@@ -322,6 +323,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
         mcpAvailable: true,
       }),
+      createAgentHubSettingsCategory({ available: true }),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         isWebPlatform: false,
