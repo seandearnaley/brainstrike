@@ -341,6 +341,61 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       'Embedding spaces with model, dimensions, distance, workspace-index recommendation flags, and optional coverage stats',
   },
 
+  'brainstrike.grepSearch': {
+    toolId: 'brainstrike.grepSearch',
+    description:
+      'Grep indexed file content for an exact string or regex, returning path:line matches with context.',
+    parameters: [
+      {
+        name: 'pattern',
+        type: 'string',
+        description: 'Exact text (default) or JavaScript regex to find',
+        required: true,
+        minLength: 2,
+      },
+      {
+        name: 'isRegex',
+        type: 'boolean',
+        description: 'Treat pattern as a JavaScript regular expression',
+        required: false,
+        default: false,
+      },
+      {
+        name: 'caseSensitive',
+        type: 'boolean',
+        description: 'Case-sensitive matching',
+        required: false,
+        default: false,
+      },
+      {
+        name: 'filePaths',
+        type: 'array',
+        description: 'Restrict the search to specific indexed file paths',
+        required: false,
+      },
+      {
+        name: 'contextLines',
+        type: 'number',
+        description: 'Lines of context before/after each match',
+        required: false,
+        default: 1,
+        min: 0,
+        max: 5,
+      },
+      {
+        name: 'maxResults',
+        type: 'number',
+        description: 'Maximum matches to return',
+        required: false,
+        default: 50,
+        min: 1,
+        max: 200,
+      },
+    ],
+    returns:
+      'Matches with file path, 1-based line number, line text, and surrounding context lines, plus truncation flags',
+  },
+
   'brainstrike.queryEmbeddingSpace': {
     toolId: 'brainstrike.queryEmbeddingSpace',
     description:
