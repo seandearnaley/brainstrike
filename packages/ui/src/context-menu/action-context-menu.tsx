@@ -1,4 +1,4 @@
-import type { AnyContextAction, ContextTarget } from '@brainstrike/context-actions';
+import type { ActionOutcome, AnyContextAction, ContextTarget } from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/utils';
 import {
   Fragment,
@@ -36,6 +36,10 @@ export interface ContextMenuTargetController {
  * onOpenChange(false) can race a reopen). A stale target behind a closed menu
  * is inert; the surface resets it on the next right-click (see
  * ActionContextMenuProps.controller).
+ *
+ * The returned controller object is NOT referentially stable across renders
+ * (only `setTarget` and `targetRef` are); memoized rows should depend on
+ * `setTarget`, not the controller.
  */
 export function useContextMenuTarget(): ContextMenuTargetController {
   const [target, setTargetState] = useState<ContextTarget | null>(null);
@@ -65,7 +69,7 @@ export function ActionContextMenu({ controller, localActions, children }: Action
 
   const handleRun = useCallback(
     (action: AnyContextAction, currentTarget: ContextTarget) => {
-      void action.run(currentTarget, registry.services).then((outcome) => {
+      const onOutcome = (outcome: ActionOutcome): void => {
         if (outcome.ok) {
           if (outcome.message) {
             toast({ description: outcome.message });
@@ -82,7 +86,28 @@ export function ActionContextMenu({ controller, localActions, children }: Action
           title: 'Action failed',
           variant: 'destructive',
         });
-      });
+      };
+      // Surfacing boundary, not a fallback: the action contract says `run`
+      // resolves an ActionOutcome, so a throwing/rejecting action is a bug —
+      // surface it loudly instead of letting it escape into Radix's onSelect
+      // dispatch (sync throw) or die as an unhandled rejection (async).
+      const onUnexpected = (error: unknown): void => {
+        logger.error('Context action threw', {
+          actionId: action.id,
+          error,
+          targetKind: currentTarget.kind,
+        });
+        toast({
+          description: error instanceof Error ? error.message : String(error),
+          title: 'Action failed unexpectedly',
+          variant: 'destructive',
+        });
+      };
+      try {
+        void action.run(currentTarget, registry.services).then(onOutcome).catch(onUnexpected);
+      } catch (error) {
+        onUnexpected(error);
+      }
     },
     [registry.services]
   );
@@ -100,6 +125,10 @@ export function ActionContextMenu({ controller, localActions, children }: Action
     [targetRef]
   );
 
+  // Known limitation (desktop-first): Radix opens context menus from
+  // touch/pen long-press (~700ms) without a native `contextmenu` event, so the
+  // capture-reset + row-claim protocol never runs on touch — the menu can open
+  // against a stale (or null) target there.
   return (
     <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>
