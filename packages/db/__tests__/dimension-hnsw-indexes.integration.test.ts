@@ -12,9 +12,11 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  createDeferredDimensionIndexBuilder,
   createDimensionIndex,
+  DIMENSION_INDEX_BUILD_START_DELAY_MS,
   dimensionIndexExists,
   dropDimensionIndex,
   ensureDimensionIndexExists,
@@ -270,5 +272,72 @@ describe('Dimension HNSW Index Query Plan', () => {
     expect(plan).toContain('Index Scan using idx_file_chunks_emb_hnsw_768');
     // Verify the ORDER BY uses the halfvec cast
     expect(plan).toContain('::halfvec(768)');
+  });
+});
+
+describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
+  it('does not dispatch the CREATE INDEX before the start delay elapses', async () => {
+    vi.useFakeTimers();
+    try {
+      const statements: string[] = [];
+      const fakeDb = {
+        exec: async (sql: string): Promise<void> => {
+          statements.push(sql.trim().slice(0, 30));
+        },
+        query: async <T = unknown>(): Promise<{ rows: T[] }> => ({ rows: [] }),
+      };
+      const builder = createDeferredDimensionIndexBuilder({
+        getDb: () => fakeDb,
+        onError: () => {
+          throw new Error('Index build must not fail in this test.');
+        },
+      });
+
+      builder.schedule(768);
+      // Flush microtasks WITHOUT advancing timers: on PGlite's single
+      // connection, dispatching the CREATE INDEX in the same turn would queue
+      // the caller's own follow-up queries (create set -> immediately search)
+      // behind a 5-30s build. The start delay gives that flow first access.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(statements).toHaveLength(0);
+
+      // A follow-up query issued during the window lands first.
+      await fakeDb.query();
+
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+      await builder.whenSettled();
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain('CREATE INDEX');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('whenSettled awaits builds that are still inside the start delay', async () => {
+    vi.useFakeTimers();
+    try {
+      let built = false;
+      const fakeDb = {
+        exec: async (): Promise<void> => {
+          built = true;
+        },
+        query: async <T = unknown>(): Promise<{ rows: T[] }> => ({ rows: [] }),
+      };
+      const builder = createDeferredDimensionIndexBuilder({
+        getDb: () => fakeDb,
+        onError: () => {
+          throw new Error('Index build must not fail in this test.');
+        },
+      });
+
+      builder.schedule(384);
+      const settled = builder.whenSettled().then(() => built);
+
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+      await expect(settled).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -167,6 +167,9 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       await expect(repository.getById(created.id)).resolves.toEqual(
         expect.objectContaining({ id: created.id })
       );
+      // The build dispatch is deferred off the creation flow; drain it before
+      // asserting the (failing) CREATE INDEX was attempted.
+      await repository.waitForPendingDimensionIndexBuilds();
       expect(exec).toHaveBeenCalledWith(
         expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
       );

@@ -258,6 +258,22 @@ export interface DeferredDimensionIndexBuilder {
 }
 
 /**
+ * Delay before a scheduled build dispatches its CREATE INDEX. PGlite runs on a
+ * single connection, so dispatching in the same turn as `schedule()` would queue
+ * the caller's own follow-up queries (create set → immediately search/open the
+ * collection) behind a 5-30s index build. This window lets that flow — including
+ * its IPC round trips on desktop — reach the connection first; the build is
+ * idempotent, so the late start is free.
+ */
+export const DIMENSION_INDEX_BUILD_START_DELAY_MS = 250;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
  * Creates a deferred, deduplicated HNSW-index builder.
  *
  * A `CREATE INDEX ... USING hnsw` on a populated `file_chunks` table can take
@@ -283,6 +299,9 @@ export function createDeferredDimensionIndexBuilder(options: {
       }
       const build = (async () => {
         try {
+          // Yield the single connection to the scheduling flow's own follow-up
+          // queries before dispatching the long CREATE INDEX.
+          await delay(DIMENSION_INDEX_BUILD_START_DELAY_MS);
           await ensureDimensionIndexExists(options.getDb(), dimension);
         } catch (error) {
           options.onError(dimension, error);

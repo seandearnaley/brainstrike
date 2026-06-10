@@ -855,7 +855,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
     modelId,
     thinkingEnabled,
     onActivity,
-    onLoadingProgress,
+    onLoadingProgress: onLoadingProgressOption,
     onError,
     prepareRuntimeData,
     runtimeData,
@@ -868,6 +868,16 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
       // A liveness hook failure must never break local generation.
       logger.warn('Local runtime onActivity callback failed', { error: callbackError });
     }
+  };
+  // Loading/warmup progress must renew the liveness hook too: the foreground
+  // lease is acquired before the model loads, and a first download can outlive
+  // the 5-minute foreground-activity fuse. Without renewal here, background
+  // indexing would resume mid-run while the model is still downloading.
+  const onLoadingProgress: NonNullable<LocalRuntimeAdapterOptions['onLoadingProgress']> = (
+    progress
+  ) => {
+    notifyActivity();
+    onLoadingProgressOption?.(progress);
   };
   const toolExecutor = getToolExecutor();
   const toolDefinitions = buildLocalToolDefinitions(

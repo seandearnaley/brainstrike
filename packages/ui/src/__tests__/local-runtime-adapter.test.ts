@@ -326,9 +326,12 @@ describe('createLocalModelAdapter', () => {
     const updates = await collectRun(adapter.run(createRunOptions()));
 
     expect(loadBackend).toHaveBeenCalledTimes(1);
+    // The adapter wraps onLoadingProgress with the activity-renewal hook, so the
+    // backend receives the wrapper, not the caller's function identity. The
+    // forwarding behavior is asserted below via the progress payload.
     expect(initialize).toHaveBeenCalledWith({
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-      onProgress: progress,
+      onProgress: expect.any(Function),
     });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenCalledWith(
@@ -612,6 +615,59 @@ describe('createLocalModelAdapter', () => {
         file: 'onnx/embed_tokens_q4f16.onnx',
       })
     );
+  });
+
+  it('renews activity from loading progress, not only generation snapshots', async () => {
+    let progressListener: ((progress: unknown) => void) | null = null;
+    const warmup = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
+      progressListener?.({
+        type: 'progress',
+        requestId: requestId ?? 'warmup-req',
+        payload: {
+          clientRequestId: requestId,
+          kind: 'loading',
+          message: 'Downloading onnx/embed_tokens_q4f16.onnx',
+          progress: 42,
+          file: 'onnx/embed_tokens_q4f16.onnx',
+        },
+      });
+    });
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Loaded.' }));
+    const onActivity = vi.fn();
+    // Snapshot the activity count at the moment the loading-progress callback
+    // runs: generation snapshots happen later, so any renewals visible here can
+    // only have come from the loading path itself. A first model download can
+    // outlive the 5-minute foreground-activity fuse, so loading progress MUST
+    // renew the lease or background indexing resumes mid-run.
+    let activityCallsWhenProgressFired = -1;
+    const progress = vi.fn(() => {
+      activityCallsWhenProgressFired = onActivity.mock.calls.length;
+    });
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: (callback: (progress: unknown) => void) => {
+          progressListener = callback;
+          return () => {
+            progressListener = null;
+          };
+        },
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onActivity,
+      onLoadingProgress: progress,
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(progress).toHaveBeenCalled();
+    expect(activityCallsWhenProgressFired).toBeGreaterThanOrEqual(1);
   });
 
   it('re-warms the desktop model after the llm host reports an error state', async () => {

@@ -298,6 +298,9 @@ describe('EmbeddingSetsRepository', () => {
     await expect(repo.getById(created.id)).resolves.toEqual(
       expect.objectContaining({ id: created.id })
     );
+    // The build dispatch is deferred off the creation flow; drain it before
+    // asserting the (failing) CREATE INDEX was attempted.
+    await trackedRepo.waitForPendingDimensionIndexBuilds();
     expect(trackedDb.exec).toHaveBeenCalledWith(
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')
     );
@@ -334,14 +337,19 @@ describe('EmbeddingSetsRepository', () => {
       ),
     ]);
     expect(created.dimensions).toBe(384);
-    expect(indexBuildStarted).toHaveBeenCalledTimes(1);
+    // Dispatch is deferred (DIMENSION_INDEX_BUILD_START_DELAY_MS) so the
+    // creation flow's own follow-up queries reach PGlite's single connection
+    // before the long CREATE INDEX: nothing has been dispatched yet here.
+    expect(indexBuildStarted).not.toHaveBeenCalled();
 
-    // The build is still in flight; drain it via the public awaitable.
+    // Release the gate and drain via the public awaitable; the build (including
+    // its start delay) must then run exactly once.
     if (!releaseIndexBuild) {
       throw new Error('Index build gate was not initialized.');
     }
     (releaseIndexBuild as () => void)();
     await trackedRepo.waitForPendingDimensionIndexBuilds();
+    expect(indexBuildStarted).toHaveBeenCalledTimes(1);
   });
 
   it('keeps regular user-created sets user-owned', async () => {
