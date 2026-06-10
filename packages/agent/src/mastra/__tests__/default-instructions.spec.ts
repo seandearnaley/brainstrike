@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDefaultInstructions } from '../default-instructions';
+import { buildContextBudgetNote, buildDefaultInstructions } from '../default-instructions';
 
 describe('default assistant instructions', () => {
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
@@ -173,5 +173,23 @@ describe('grep-first search orientation', () => {
     ]);
     const instructions = buildDefaultInstructions(noGrep);
     expect(instructions).toContain('Exact-text grep search is unavailable in this run.');
+  });
+});
+
+describe('buildContextBudgetNote', () => {
+  it('renders a one-line budget note', () => {
+    expect(buildContextBudgetNote(126_000)).toBe(
+      'Context budget: about 126.0K tokens of input context are available this run; be concise and suggest starting a new thread if context runs low.'
+    );
+  });
+
+  it('renders small budgets without K notation', () => {
+    expect(buildContextBudgetNote(900)).toBe(
+      'Context budget: about 900 tokens of input context are available this run; be concise and suggest starting a new thread if context runs low.'
+    );
+  });
+
+  it('returns null without a budget', () => {
+    expect(buildContextBudgetNote(undefined)).toBeNull();
   });
 });

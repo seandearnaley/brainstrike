@@ -25,7 +25,7 @@ import type {
   StreamFinishReason,
   StreamIterator,
 } from '../types';
-import { buildDefaultInstructions } from './default-instructions';
+import { buildContextBudgetNote, buildDefaultInstructions } from './default-instructions';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
@@ -217,10 +217,12 @@ export async function createMastraAgentRuntime(
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
+  const budgetNote = buildContextBudgetNote(runtime?.agentLoop?.inputTokenLimit);
+  const resolvedInstructions = instructions ?? buildDefaultInstructions(toolNameMap);
   const agent = new Agent({
     id: 'brainstrike-assistant',
     name: 'Brainstrike Assistant',
-    instructions: instructions ?? buildDefaultInstructions(toolNameMap),
+    instructions: budgetNote ? `${resolvedInstructions}\n${budgetNote}` : resolvedInstructions,
     model: languageModel,
     tools: combinedTools,
     ...(memory ? { memory } : {}),
