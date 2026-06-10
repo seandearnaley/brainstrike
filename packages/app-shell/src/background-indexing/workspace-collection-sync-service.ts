@@ -416,7 +416,9 @@ export class WorkspaceCollectionSyncService {
       return null;
     }
 
-    const dbRootId = await this.deps.resolveDbRootId(rootPath ?? '');
+    // Short-circuit: '' is never a valid lookup key, and passing it would
+    // pollute the warn-once set with a misleading entry on path-less runs.
+    const dbRootId = rootPath ? await this.deps.resolveDbRootId(rootPath) : null;
     return {
       collection,
       activeRootPath: rootPath ?? '',

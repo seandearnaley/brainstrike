@@ -193,7 +193,8 @@ describe('useRootsReconciliation', () => {
       expect(
         captured.some(
           (record) =>
-            record.level === LogLevel.WARN && (record.message as string).includes('unmapped')
+            record.level === LogLevel.WARN &&
+            (record.message as string).includes('no mapped db root id')
         )
       ).toBe(true);
     } finally {

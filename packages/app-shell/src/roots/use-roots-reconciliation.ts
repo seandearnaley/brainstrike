@@ -109,7 +109,7 @@ export function useRootsReconciliation({
       const dbRootId = map.get(rootPath) ?? null;
       if (dbRootId === null && !warnedUnmappedPaths.has(rootPath)) {
         warnedUnmappedPaths.add(rootPath);
-        logger.warn('Root path has no unmapped db root id', { rootPath });
+        logger.warn('Root path has no mapped db root id', { rootPath });
       }
       return dbRootId;
     },
