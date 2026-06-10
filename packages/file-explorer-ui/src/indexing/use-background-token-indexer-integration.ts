@@ -21,6 +21,7 @@ import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/sel
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
+import { resolvePlannedTokenIndexingHandles } from './background-token-indexer-dispatch-handles';
 import {
   normalizeSelectionPathForTokenCache,
   shouldEmitLargeSelectionDiagnostics,
@@ -713,6 +714,11 @@ export function useBackgroundTokenIndexerIntegration({
         });
       }
 
+      const { electronFilesToRead, webFilesToIndex } = resolvePlannedTokenIndexingHandles({
+        dispatchPlan,
+        handleInfoByCompositeKey,
+      });
+
       for (const key of dispatchPlan.pendingNoHandleKeysToDelete) {
         pendingNoHandleRef.current.delete(key);
       }
@@ -723,40 +729,8 @@ export function useBackgroundTokenIndexerIntegration({
         pendingNoHandleRef.current.add(key);
       }
 
-      const webFilesToIndex: FileToIndex[] = [];
-      for (const file of dispatchPlan.webFiles) {
-        const handleInfo = handleInfoByCompositeKey.get(file.compositeKey);
-        if (!handleInfo?.webHandle) {
-          throw new Error(`Missing planned web file handle for ${file.compositeKey}`);
-        }
+      for (const file of webFilesToIndex) {
         markInFlight(file.compositeKey);
-        webFilesToIndex.push({
-          compositeKey: file.compositeKey,
-          fileHandle: handleInfo.webHandle,
-          filePath: file.filePath,
-          folderId: file.folderId,
-        });
-      }
-
-      const electronFilesToRead: Array<{
-        compositeKey: string;
-        folderId: string;
-        filePath: string;
-        fileSize: number | undefined;
-        handle: ElectronFileHandle;
-      }> = [];
-      for (const file of dispatchPlan.electronFiles) {
-        const handleInfo = handleInfoByCompositeKey.get(file.compositeKey);
-        if (!handleInfo?.electronHandle) {
-          throw new Error(`Missing planned Electron file handle for ${file.compositeKey}`);
-        }
-        electronFilesToRead.push({
-          compositeKey: file.compositeKey,
-          filePath: file.filePath,
-          fileSize: file.fileSize,
-          folderId: file.folderId,
-          handle: handleInfo.electronHandle,
-        });
       }
 
       const webResolverQueue = [...dispatchPlan.webResolverFiles];
