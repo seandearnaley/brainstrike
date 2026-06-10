@@ -295,6 +295,29 @@ Adding/renaming an assistant native tool is multi-registry: zod schema + schemaM
 
 ---
 
+## CONTEXT USAGE METER (TOKEN AWARENESS)
+
+One derivation feeds three consumers per request — keep them consistent:
+`buildAgentLoopSettings(prefs, selectedModelBudgetDef)` in packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts
+produces `agentLoopSettings.inputTokenLimit` (explicit user pref wins, else
+`deriveEffectiveInputBudget(contextWindow, maxOutputTokens)` from
+packages/assistant-contract/src/context-budget.ts — throws, never clamps). That ONE number is:
+1. the Mastra `TokenLimiter` budget (`runtimeData.agentLoop.inputTokenLimit` → `buildToolLoopOptions`),
+2. the meter denominator (`effectiveInputBudget` prop on `AssistantUiPanel`),
+3. the instruction budget note (`buildContextBudgetNote`, appended per-request at Agent construction).
+
+Runtime invariants:
+- Usage store (packages/ui/src/assistant-ui-panel/context-usage-store.ts) is session-lived, NOT
+  persisted; key = `selectedMemoryThreadId ?? 'active'` — the writer (`handleUsage` in the app-shell
+  wrapper) and the reader (`ContextUsageMeter`, via the panel's `threadKey` prop) MUST use the same key.
+- Both turn paths report usage: hosted via the data-stream `message-finish` tap
+  (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
+  local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
+- The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
+  must never lie — wire-format usage is `{inputTokens, outputTokens}` (e2e mocks must use those names).
+
+---
+
 ## LOCAL LLM ARCHITECTURE (CRITICAL)
 
 Renderer-only execution is mandatory for the built-in local LLM path.
