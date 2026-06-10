@@ -114,6 +114,7 @@ const lanes = {
     'rrf.test.ts',
     'search-grep-pattern.test.ts',
     'search-grep-service.test.ts',
+    'search-grep.integration.test.ts',
     'search-similar-sql-path.integration.test.ts',
     'search-similar-sql-path.test.ts',
     'search-similar.behavior.test.ts',
