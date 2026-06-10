@@ -12,6 +12,7 @@ import type {
   DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
+  FileSystemChange,
   StreamingDirectoryReadOptions,
 } from '../types';
 import {
@@ -54,6 +55,47 @@ declare global {
   interface FileSystemPermissionDescriptor {
     mode?: 'read' | 'readwrite';
   }
+
+  /**
+   * Minimal ambient type for the WICG FileSystemObserver draft (Chrome 133+,
+   * behind the File System Observer Origin Trial / experimental flag).
+   * No lib.dom types exist for this API yet; these declarations mirror the
+   * spec at https://github.com/WICG/file-system-observer.
+   *
+   * Keep in sync with the WICG draft shape; update when the API ships in
+   * stable DOM typings.
+   *
+   * Pattern: interface (instance type) + var (constructor value) is the
+   * standard TypeScript idiom for declaring a constructable global without
+   * the class keyword, avoiding OXC "already declared" parse errors that
+   * arise when combining `class` + `var` in the same declare-global block.
+   */
+  interface FileSystemObserverRecord {
+    readonly changedHandle: FileSystemHandle;
+    readonly relativePathComponents: readonly string[];
+    readonly type: 'appeared' | 'disappeared' | 'errored' | 'modified' | 'moved';
+  }
+
+  type FileSystemObserverCallback = (
+    records: FileSystemObserverRecord[],
+    observer: FileSystemObserver
+  ) => void;
+
+  interface FileSystemObserver {
+    disconnect(): void;
+    observe(
+      handle: FileSystemDirectoryHandle,
+      options?: { recursive?: boolean }
+    ): void | Promise<void>;
+  }
+
+  // Exposes the constructor as a value on globalThis for typeof feature detection.
+  // This is a TypeScript ambient `var` declaration (no runtime effect — the var
+  // keyword here is a TypeScript idiom for declaring a constructable global in
+  // a declare-global block; it does not produce a real var statement in output).
+  var FileSystemObserver: {
+    new (callback: FileSystemObserverCallback): FileSystemObserver;
+  };
 }
 
 // limiter shared via utils
@@ -580,8 +622,88 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     };
   }
 
-  // Web API doesn't support file watching
-  // watchDirectory not implemented
+  /**
+   * Watch a directory for changes using the FileSystemObserver API (Chrome 133+,
+   * WICG draft, feature-gated — NOT a silent fallback).
+   *
+   * When `typeof FileSystemObserver !== 'undefined'` (feature gate passes):
+   *   - Constructs a `FileSystemObserver` with a callback that maps WICG observer
+   *     records to the existing `FileSystemChange[]` shape expected by callers.
+   *   - Calls `observe(handle._internal, { recursive: true })`.
+   *   - Returns a disposer that calls `observer.disconnect()`.
+   *
+   * If `observe()` throws (e.g. permission revoked): logs a warn and returns a
+   * no-op disposer so callers always receive a valid cleanup function. The warn
+   * is intentionally visible — this is a capability failure, not a silent path.
+   *
+   * When `FileSystemObserver` is unavailable: the method is present but returns a
+   * no-op disposer. The interface marks `watchDirectory` optional, so adapters
+   * that cannot watch at all may leave it unimplemented. This implementation
+   * keeps the method present so callers don't need an extra undefined-check when
+   * the feature detection itself succeeds.
+   */
+  watchDirectory(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
+  ): () => void {
+    // Feature gate: FileSystemObserver is only available in Chrome 133+ with the
+    // experimental flag or Origin Trial enabled. When absent, return a no-op
+    // disposer — no polling, no silent fallback, callers should treat the folder
+    // as unwatched (same semantics as if the method were absent).
+    if (typeof FileSystemObserver === 'undefined') {
+      return () => {};
+    }
+
+    const observer = new FileSystemObserver((records) => {
+      const changes: FileSystemChange[] = records
+        .filter(
+          (r): r is FileSystemObserverRecord & { type: 'appeared' | 'disappeared' | 'modified' } =>
+            r.type === 'appeared' || r.type === 'disappeared' || r.type === 'modified'
+        )
+        .map((r) => {
+          // Build a path by joining the root handle path with the relative components.
+          const relPath = r.relativePathComponents.join('/');
+          const fullPath = relPath ? `${handle.path}/${relPath}` : handle.path;
+          const type: FileSystemChange['type'] =
+            r.type === 'appeared' ? 'added' : r.type === 'disappeared' ? 'removed' : 'modified';
+          const kind: FileSystemChange['kind'] =
+            r.changedHandle.kind === 'directory' ? 'directory' : 'file';
+          return { type, path: fullPath, kind };
+        });
+
+      if (changes.length > 0) {
+        callback(changes);
+      }
+    });
+
+    const internalHandle = handle._internal;
+    if (!(internalHandle instanceof Object)) {
+      logger.warn('watchDirectory: handle._internal is not a valid FileSystemDirectoryHandle', {
+        path: handle.path,
+      });
+      return () => {};
+    }
+
+    try {
+      // observe() is synchronous on the current draft; the result (void |
+      // Promise<void>) is intentionally not awaited — the callback fires
+      // asynchronously on every FS mutation and the caller does not need to
+      // know when observation starts.
+      void observer.observe(internalHandle as FileSystemDirectoryHandle, { recursive: true });
+    } catch (err) {
+      // Permission revoked or handle invalid: log a visible warn and return a
+      // no-op disposer. This is a capability failure — it must not be silent.
+      logger.warn('watchDirectory: FileSystemObserver.observe() threw, folder is unwatched', {
+        path: handle.path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return () => {};
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }
 
   /**
    * Stream directory contents with batched callbacks (BST-147).

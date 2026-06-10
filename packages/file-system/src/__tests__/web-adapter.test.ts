@@ -1,3 +1,4 @@
+import { addLogListener } from '@brainstrike/utils';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebFileSystemAdapter } from '../adapters/web-adapter';
@@ -991,6 +992,209 @@ describe('WebFileSystemAdapter', () => {
       const result = await adapter.exists('any/path');
       expect(result).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// watchDirectory — FileSystemObserver (Chrome 133+, feature-detected)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal stub type for the FileSystemObserver WICG draft.
+ * Mirrors the ambient declaration in web-adapter.ts.
+ */
+interface StubFSORecord {
+  changedHandle: FileSystemHandle;
+  relativePathComponents: string[];
+  type: 'appeared' | 'disappeared' | 'modified' | 'moved' | 'errored';
+}
+
+type FSOCallback = (records: StubFSORecord[], observer: unknown) => void;
+
+class StubFileSystemObserver {
+  readonly callback: FSOCallback;
+  readonly observedHandles: Array<{ handle: FileSystemDirectoryHandle; options?: unknown }> = [];
+  disconnected = false;
+
+  constructor(callback: FSOCallback) {
+    this.callback = callback;
+  }
+
+  observe(handle: FileSystemDirectoryHandle, options?: unknown) {
+    this.observedHandles.push({ handle, options });
+  }
+
+  disconnect() {
+    this.disconnected = true;
+  }
+
+  /** Test helper — fire records at the callback. */
+  emit(records: StubFSORecord[]) {
+    this.callback(records, this);
+  }
+}
+
+// Test-only cast for setting/deleting the experimental FileSystemObserver global.
+// The `any` type is intentional: the stub class must be assignable without
+// matching the full ambient constructor signature from web-adapter.ts.
+type GlobalWithFSO = typeof globalThis & { FileSystemObserver?: any };
+
+describe('watchDirectory (FileSystemObserver feature-detected)', () => {
+  let originalFSO: unknown;
+
+  beforeEach(() => {
+    originalFSO = (globalThis as GlobalWithFSO)['FileSystemObserver'];
+  });
+
+  afterEach(() => {
+    if (originalFSO === undefined) {
+      // biome-ignore lint/performance/noDelete: restoring absent global in afterEach
+      delete (globalThis as GlobalWithFSO)['FileSystemObserver'];
+    } else {
+      (globalThis as GlobalWithFSO)['FileSystemObserver'] = originalFSO;
+    }
+    vi.restoreAllMocks();
+  });
+
+  const makeDirHandleInternal = (name = 'project') =>
+    ({
+      name,
+      kind: 'directory' as const,
+      entries: vi.fn(),
+    }) as unknown as FileSystemDirectoryHandle;
+
+  it('constructs a FileSystemObserver when available, observe() receives the internal handle and {recursive:true}, emitted records reach the callback mapped to FileSystemChange[]', () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      path: 'project',
+      name: 'project',
+      kind: 'directory',
+      platform: 'web',
+      _internal: internalHandle,
+    };
+
+    let capturedObserver: StubFileSystemObserver | null = null;
+    (globalThis as GlobalWithFSO)['FileSystemObserver'] = class extends StubFileSystemObserver {
+      constructor(cb: FSOCallback) {
+        super(cb);
+        capturedObserver = this;
+      }
+    };
+
+    const adapter = new WebFileSystemAdapter();
+    const callback = vi.fn();
+
+    const disposer = adapter.watchDirectory?.(dirHandle, callback);
+    expect(disposer).toBeDefined();
+    expect(capturedObserver).not.toBeNull();
+
+    // observe() called with the internal handle and recursive: true
+    expect(capturedObserver!.observedHandles).toHaveLength(1);
+    expect(capturedObserver!.observedHandles[0]!.handle).toBe(internalHandle);
+    expect(capturedObserver!.observedHandles[0]!.options).toEqual({ recursive: true });
+
+    // emit records and verify mapping
+    capturedObserver!.emit([
+      {
+        type: 'appeared',
+        changedHandle: { kind: 'file', name: 'new-file.ts' } as unknown as FileSystemHandle,
+        relativePathComponents: ['src', 'new-file.ts'],
+      },
+      {
+        type: 'modified',
+        changedHandle: { kind: 'file', name: 'existing.ts' } as unknown as FileSystemHandle,
+        relativePathComponents: ['src', 'existing.ts'],
+      },
+      {
+        type: 'disappeared',
+        changedHandle: { kind: 'directory', name: 'old-dir' } as unknown as FileSystemHandle,
+        relativePathComponents: ['old-dir'],
+      },
+    ]);
+
+    expect(callback).toHaveBeenCalledOnce();
+    const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
+    expect(changes).toEqual([
+      { type: 'added', path: 'project/src/new-file.ts', kind: 'file' },
+      { type: 'modified', path: 'project/src/existing.ts', kind: 'file' },
+      { type: 'removed', path: 'project/old-dir', kind: 'directory' },
+    ]);
+
+    // disposer disconnects the observer
+    disposer!();
+    expect(capturedObserver!.disconnected).toBe(true);
+  });
+
+  it('returns a no-op disposer (watchDirectory absent/undefined) when FileSystemObserver is unavailable', () => {
+    // biome-ignore lint/performance/noDelete: removing stub to simulate absent API
+    delete (globalThis as GlobalWithFSO)['FileSystemObserver'];
+
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      path: 'project',
+      name: 'project',
+      kind: 'directory',
+      platform: 'web',
+      _internal: internalHandle,
+    };
+
+    const adapter = new WebFileSystemAdapter();
+
+    // When FSO is unavailable watchDirectory is not present or returns safely
+    if (adapter.watchDirectory) {
+      const callback = vi.fn();
+      const disposer = adapter.watchDirectory(dirHandle, callback);
+      expect(typeof disposer).toBe('function');
+      // calling the disposer must not throw
+      expect(() => disposer()).not.toThrow();
+      // no spurious change events
+      expect(callback).not.toHaveBeenCalled();
+    } else {
+      // watchDirectory is optional — its absence IS the no-FSO fallback
+      expect(adapter.watchDirectory).toBeUndefined();
+    }
+  });
+
+  it('falls back to a no-op disposer and logs a warn when observe() throws (e.g. permission revoked)', () => {
+    const internalHandle = makeDirHandleInternal('project');
+    const dirHandle: DirectoryHandle = {
+      path: 'project',
+      name: 'project',
+      kind: 'directory',
+      platform: 'web',
+      _internal: internalHandle,
+    };
+
+    const warnRecords: Array<{ level: string; message: string | undefined }> = [];
+    const removeListener = addLogListener((record) => {
+      if (record.level === 'warn') {
+        warnRecords.push({ level: String(record.level), message: record.message });
+      }
+    });
+
+    try {
+      (globalThis as GlobalWithFSO)['FileSystemObserver'] = class {
+        observe() {
+          throw new Error('NotAllowedError: permission revoked');
+        }
+        disconnect() {}
+      };
+
+      const adapter = new WebFileSystemAdapter();
+      const callback = vi.fn();
+
+      // Must not throw
+      const disposer = adapter.watchDirectory?.(dirHandle, callback);
+      expect(disposer).toBeDefined();
+      // disposer must be callable without throw
+      expect(() => disposer!()).not.toThrow();
+      // no spurious change events
+      expect(callback).not.toHaveBeenCalled();
+      // warn must have been logged via the logger
+      expect(warnRecords.length).toBeGreaterThan(0);
+    } finally {
+      removeListener();
+    }
   });
 });
 
