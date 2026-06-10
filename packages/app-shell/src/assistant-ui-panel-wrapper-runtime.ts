@@ -461,6 +461,8 @@ export function toRuntimeProviderModels(
     type: 'llm' as const,
     default: index === 0,
     supportsStreaming: true,
+    // conservative floor: user-supplied local models don't declare a window
+    contextWindow: 32_768,
   }));
 }
 

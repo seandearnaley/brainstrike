@@ -29,6 +29,18 @@ interface BaseModelDefinition {
 
 export interface LlmModelDefinition extends BaseModelDefinition {
   /**
+   * Total context window in tokens (input + output). REQUIRED: adding a model
+   * without it is a compile error — this drives the thread context meter and
+   * the auto-derived agent input token budget. Use the provider's documented
+   * standard tier (not beta/extended tiers).
+   */
+  contextWindow: number;
+  /**
+   * Provider's documented maximum output tokens, when known. Used to reserve
+   * output headroom in the input-budget derivation.
+   */
+  maxOutputTokens?: number;
+  /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
@@ -115,12 +127,16 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'GPT-5.5',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.5-pro',
         label: 'GPT-5.5 Pro',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.4',
@@ -128,42 +144,56 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.4-pro',
         label: 'GPT-5.4 Pro',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.4-mini',
         label: 'GPT-5.4 Mini',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.4-nano',
         label: 'GPT-5.4 Nano',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.3-codex',
         label: 'GPT-5.3 Codex',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.2',
         label: 'GPT-5.2',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'gpt-5.2-pro',
         label: 'GPT-5.2 Pro',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'text-embedding-3-small',
@@ -204,6 +234,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'Claude Opus 4.8',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
       },
       {
         id: 'claude-sonnet-4-6',
@@ -211,12 +243,16 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: true,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
       },
       {
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
       },
     ],
   },
@@ -240,36 +276,48 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'gemini-3.1-pro-preview',
         label: 'Gemini 3.1 Pro (Preview)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'gemini-3.1-flash-lite',
         label: 'Gemini 3.1 Flash Lite',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'gemini-2.5-pro',
         label: 'Gemini 2.5 Pro',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'gemini-2.5-flash',
         label: 'Gemini 2.5 Flash',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'gemini-2.5-flash-lite',
         label: 'Gemini 2.5 Flash Lite',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'gemini-embedding-001',
@@ -311,6 +359,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'GPT-5.5 (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'openai/gpt-5.4',
@@ -318,60 +368,80 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'openai/gpt-5.4-mini',
         label: 'GPT-5.4 Mini (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'openai/gpt-5.3-codex',
         label: 'GPT-5.3 Codex (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'openai/gpt-5.2',
         label: 'GPT-5.2 (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 400_000,
+        maxOutputTokens: 128_000,
       },
       {
         id: 'anthropic/claude-opus-4.8',
         label: 'Claude Opus 4.8 (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
       },
       {
         id: 'anthropic/claude-sonnet-4.6',
         label: 'Claude Sonnet 4.6 (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
       },
       {
         id: 'anthropic/claude-haiku-4.5',
         label: 'Claude Haiku 4.5 (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 200_000,
+        maxOutputTokens: 64_000,
       },
       {
         id: 'google/gemini-3.5-flash',
         label: 'Gemini 3.5 Flash (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'google/gemini-3.1-pro-preview',
         label: 'Gemini 3.1 Pro (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
       {
         id: 'google/gemini-2.5-flash',
         label: 'Gemini 2.5 Flash (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
       },
     ],
   },
@@ -447,6 +517,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: false,
+        contextWindow: 32_768,
+        maxOutputTokens: 8192,
       },
     ],
   },
@@ -527,4 +599,22 @@ export function resolveDefaultModel(
     return explicitlyFlagged.id;
   }
   return models.at(0)?.id;
+}
+
+/**
+ * Resolve a single LLM model definition. Throws on unknown provider/model —
+ * token budgeting must never silently guess a context window.
+ */
+export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
+  const provider = PROVIDER_DEFINITIONS.find((definition) => definition.id === providerId);
+  if (!provider) {
+    throw new Error(`Unknown provider id for LLM model lookup: ${providerId}`);
+  }
+  const model = provider.models.find(
+    (definition) => definition.type === 'llm' && definition.id === modelId
+  );
+  if (!model || model.type !== 'llm') {
+    throw new Error(`Unknown LLM model id for provider ${providerId}: ${modelId}`);
+  }
+  return model;
 }

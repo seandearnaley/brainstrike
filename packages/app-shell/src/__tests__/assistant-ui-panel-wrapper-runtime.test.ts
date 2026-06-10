@@ -248,7 +248,9 @@ describe('assistant runtime helpers', () => {
   });
 
   it('resolves provider and local runtime model selections', () => {
-    const models = [{ id: 'fast', label: 'Fast', type: 'llm' as const, default: false }];
+    const models = [
+      { id: 'fast', label: 'Fast', type: 'llm' as const, default: false, contextWindow: 200_000 },
+    ];
     expect(
       resolveProviderModelSelection({
         provider: 'openai',
