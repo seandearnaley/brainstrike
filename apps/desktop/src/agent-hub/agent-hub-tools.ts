@@ -115,6 +115,48 @@ export function buildAgentHubMcpServer(options: BuildAgentHubMcpServerOptions): 
     }
   );
 
+  server.registerTool(
+    'vfs_list',
+    {
+      description:
+        "List the hub's virtual file system: channel logs (/channels/<name>.md), agent profiles (/agents/<name>/profile.md), and shared artifacts (/agents/<name>/shared/*). Entries include token counts so you can budget reads.",
+      inputSchema: {},
+    },
+    () => {
+      requireRegistered(hub, getSessionKey());
+      return jsonResult({ entries: hub.vfsList() });
+    }
+  );
+
+  server.registerTool(
+    'vfs_read',
+    {
+      description:
+        'Read a virtual file within a token budget. Truncated reads return nextOffsetTokens — pass it back as offsetTokens to continue where you left off.',
+      inputSchema: {
+        maxTokens: z.number().int().positive().optional(),
+        offsetTokens: z.number().int().nonnegative().optional(),
+        path: z.string().describe('A path from vfs_list, e.g. "/agents/alpha/shared/plan.md"'),
+      },
+    },
+    (args) => jsonResult(hub.vfsRead({ ...args, sessionKey: getSessionKey() }))
+  );
+
+  server.registerTool(
+    'vfs_write',
+    {
+      description:
+        'Publish an artifact under your /agents/<you>/shared/ namespace so other agents can read it (plans, notes, handoffs). Overwrites an existing artifact with the same name.',
+      inputSchema: {
+        content: z.string(),
+        name: z
+          .string()
+          .describe('File name (letters, digits, dots, dashes, underscores; no slashes)'),
+      },
+    },
+    (args) => jsonResult({ entry: hub.vfsWrite({ ...args, sessionKey: getSessionKey() }) })
+  );
+
   if (contextProvider) {
     server.registerTool(
       'context_search',

@@ -18,4 +18,8 @@ export type {
   ReadMessagesInput,
   ReadMessagesResult,
   RegisterAgentInput,
+  VfsEntry,
+  VfsReadInput,
+  VfsReadResult,
+  VfsWriteInput,
 } from './types.js';

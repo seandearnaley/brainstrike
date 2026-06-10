@@ -180,8 +180,11 @@ Architecture:
   - agent-hub-config.ts — strict config validation (no silent fallbacks;
     0.0.0.0 bind REQUIRES an auth token; port 0 = ephemeral).
   - agent-hub-tools.ts — per-session McpServer with tools: hub_register,
-    hub_whoami, hub_list_agents, hub_send_message, hub_read_messages, and
-    context_search only when an AgentHubContextProvider is wired.
+    hub_whoami, hub_list_agents, hub_send_message, hub_read_messages, the
+    virtual file system (vfs_list, vfs_read, vfs_write — token-budgeted reads
+    with offsetTokens continuation; artifacts live under the caller's
+    /agents/<name>/shared/ namespace), and context_search only when an
+    AgentHubContextProvider is wired.
   - agent-hub-server-manager.ts — node:http on 127.0.0.1 (default) at /mcp,
     bearer auth, one StreamableHTTPServerTransport per mcp-session-id,
     transport.onclose marks the agent offline.
@@ -197,8 +200,9 @@ Architecture:
   PanelTab 'agent-hub'). Web builds render desktop-only notices.
 
 Constraints:
-- The hub store is in-memory per app run (bounded per-channel history); a
-  persistent store must implement the same AgentHub interface.
+- The hub store is in-memory per app run (bounded per-channel history,
+  512K-char artifact cap); a persistent store must implement the same
+  AgentHub interface.
 - The builtin 'brainstrike' participant uses sessionKey 'builtin' (reserved)
   and color chart-5; external agents round-robin chart-1..5.
 - packages/agent-hub builds with tsc -b and MUST keep explicit .js extensions

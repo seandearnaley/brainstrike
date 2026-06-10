@@ -1,5 +1,6 @@
 import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
 import { AGENT_COLOR_KEYS, BUILTIN_AGENT_COLOR, colorForIndex } from './agent-colors.js';
+import { createHubVfs } from './hub-vfs.js';
 import type {
   AgentHub,
   AgentHubOptions,
@@ -256,6 +257,15 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     return [...state.channels.keys()];
   }
 
+  const vfs = createHubVfs({
+    errorFactory: (message) => new AgentHubError(message),
+    getChannelMessages: (channel) => state.channels.get(channel) ?? [],
+    listAgents: () => [...state.agentsById.values()],
+    listChannels,
+    now,
+    requireSender,
+  });
+
   function getSnapshot(): HubSnapshot {
     const allMessages = [...state.channels.values()].flat().sort((a, b) => a.id - b.id);
     return {
@@ -277,5 +287,8 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     postMessage,
     readMessages,
     registerAgent,
+    vfsList: vfs.list,
+    vfsRead: vfs.read,
+    vfsWrite: vfs.write,
   };
 }

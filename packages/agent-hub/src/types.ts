@@ -87,6 +87,40 @@ export interface ReadMessagesInput {
   sinceId?: number | undefined;
 }
 
+export interface VfsEntry {
+  kind: 'artifact' | 'channel-log' | 'profile';
+  ownerName?: string;
+  path: string;
+  tokenCount: number;
+  updatedAt: number;
+}
+
+export interface VfsReadInput {
+  /** Token budget for this read; omit to read everything from the offset. */
+  maxTokens?: number | undefined;
+  /** Continue a truncated read from a prior result's nextOffsetTokens. */
+  offsetTokens?: number | undefined;
+  path: string;
+  sessionKey: string;
+}
+
+export interface VfsReadResult {
+  content: string;
+  /** Pass back as offsetTokens to continue; null when the read completed. */
+  nextOffsetTokens: number | null;
+  path: string;
+  tokenCount: number;
+  totalTokens: number;
+  truncated: boolean;
+}
+
+export interface VfsWriteInput {
+  content: string;
+  /** File name within the caller's /agents/<name>/shared/ namespace. */
+  name: string;
+  sessionKey: string;
+}
+
 export interface AgentHub {
   disconnectAgent(sessionKey: string): void;
   getAgentBySessionKey(sessionKey: string): HubAgent | undefined;
@@ -97,4 +131,7 @@ export interface AgentHub {
   postMessage(input: PostMessageInput): HubMessage;
   readMessages(input: ReadMessagesInput): ReadMessagesResult;
   registerAgent(input: RegisterAgentInput): HubAgent;
+  vfsList(): VfsEntry[];
+  vfsRead(input: VfsReadInput): VfsReadResult;
+  vfsWrite(input: VfsWriteInput): VfsEntry;
 }

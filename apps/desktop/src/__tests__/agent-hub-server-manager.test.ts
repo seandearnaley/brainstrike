@@ -102,6 +102,9 @@ describe('agent hub server manager', () => {
       'hub_register',
       'hub_send_message',
       'hub_whoami',
+      'vfs_list',
+      'vfs_read',
+      'vfs_write',
     ]);
   });
 
@@ -181,6 +184,36 @@ describe('agent hub server manager', () => {
     expect(restarted.state).toBe('running');
     expect(restarted.url).not.toBeNull();
     expect(restarted.url).not.toBe(url);
+  });
+
+  it('exposes the virtual file system over MCP tools', async () => {
+    const { url } = await startManager();
+    const writer = await connectClient(url);
+    const reader = await connectClient(url);
+    await callTool(writer, 'hub_register', { name: 'writer' });
+    await callTool(reader, 'hub_register', { name: 'reader' });
+
+    const written = await callTool(writer, 'vfs_write', {
+      content: '# Plan\n'.repeat(20),
+      name: 'plan.md',
+    });
+    expect(written.isError).toBe(false);
+    const entry = written.payload as { entry: { path: string; tokenCount: number } };
+    expect(entry.entry.path).toBe('/agents/writer/shared/plan.md');
+
+    const listed = await callTool(reader, 'vfs_list', {});
+    const listPayload = listed.payload as { entries: Array<{ path: string }> };
+    expect(listPayload.entries.map((e) => e.path)).toEqual(
+      expect.arrayContaining(['/agents/writer/shared/plan.md', '/channels/#general.md'])
+    );
+
+    const read = await callTool(reader, 'vfs_read', {
+      maxTokens: 10,
+      path: '/agents/writer/shared/plan.md',
+    });
+    const readPayload = read.payload as { nextOffsetTokens: number; truncated: boolean };
+    expect(readPayload.truncated).toBe(true);
+    expect(readPayload.nextOffsetTokens).toBe(10);
   });
 
   it('registers context_search when a provider is supplied', async () => {
