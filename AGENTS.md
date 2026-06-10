@@ -257,6 +257,10 @@ When changing the model catalog:
    - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
 5. Register any new `packages/db/__tests__/*.test.ts` in BOTH `packages/db/scripts/test-lanes.mjs` AND `packages/db/scripts/coverage-lanes.mjs` — they are two separate lane registries (unit lanes vs nightly coverage lanes) and each errors on an unassigned test file. Registering only `test-lanes.mjs` passes every PR check but silently breaks the **Nightly Coverage** job (the historical cause of issue #1101). Verify both: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR).
+6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
+   packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
+   (no DB migration). It drives the thread context meter and the auto-derived
+   `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
 
 ---
 
