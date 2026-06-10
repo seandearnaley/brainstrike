@@ -88,9 +88,7 @@ describe('useFileSystemWatcher', () => {
     );
 
     expect(adapter.watchCalls).toHaveLength(2);
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(2) above
     expect(adapter.watchCalls[0]!.handle).toBe(handleA);
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(2) above
     expect(adapter.watchCalls[1]!.handle).toBe(handleB);
   });
 
@@ -106,7 +104,6 @@ describe('useFileSystemWatcher', () => {
     );
 
     expect(adapter.watchCalls).toHaveLength(1);
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(1) above
     const firstDisposer = adapter.watchCalls[0]!.disposer;
 
     rerender({
@@ -120,7 +117,6 @@ describe('useFileSystemWatcher', () => {
     expect(firstDisposer).not.toHaveBeenCalled();
     // A second watcher should have been started for root-b
     expect(adapter.watchCalls).toHaveLength(2);
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(2) above
     expect(adapter.watchCalls[1]!.handle).toBe(handleB);
   });
 
@@ -143,9 +139,7 @@ describe('useFileSystemWatcher', () => {
     );
 
     expect(adapter.watchCalls).toHaveLength(2);
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(2) + handle match
     const disposerA = adapter.watchCalls.find((c) => c.handle === handleA)!.disposer;
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(2) + handle match
     const disposerB = adapter.watchCalls.find((c) => c.handle === handleB)!.disposer;
 
     // Remove root-b
@@ -196,7 +190,6 @@ describe('useFileSystemWatcher', () => {
     );
 
     expect(adapter.watchCalls).toHaveLength(1);
-    // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveLength(1) above
     const watchCall = adapter.watchCalls[0]!;
     const changes: FileSystemChange[] = [
       { kind: 'file', path: '/roots/root-a/foo.ts', type: 'modified' },
@@ -236,5 +229,44 @@ describe('useFileSystemWatcher', () => {
     ).not.toThrow();
 
     expect(adapter.watchCalls).toHaveLength(0);
+  });
+
+  it('changing onChanges identity does NOT restart existing watchers', () => {
+    // This tests the stable-ref pattern: onChangesRef.current is updated on
+    // every render, so the diff effect intentionally excludes onChanges from
+    // its dep array. A new callback object must not cause any watcher to restart.
+    const adapter = makeAdapter();
+    const handleA = makeHandle('root-a');
+
+    const onChangesV1 = vi.fn<OnChanges>();
+    const onChangesV2 = vi.fn<OnChanges>();
+
+    const roots = [{ rootId: 'root-a', handle: handleA }];
+    const { rerender } = renderHook(
+      ({ cb }: { cb: OnChanges }) => useFileSystemWatcher({ adapter, roots, onChanges: cb }),
+      { initialProps: { cb: onChangesV1 } }
+    );
+
+    expect(adapter.watchCalls).toHaveLength(1);
+    const originalDisposer = adapter.watchCalls[0]!.disposer;
+
+    // Swap callback identity — roots and adapter are UNCHANGED
+    rerender({ cb: onChangesV2 });
+
+    // Watcher must NOT have been disposed (no restart)
+    expect(originalDisposer).not.toHaveBeenCalled();
+    // Still exactly one watch call total (no new subscription started)
+    expect(adapter.watchCalls).toHaveLength(1);
+
+    // The latest callback should still be invoked for new changes
+    const changes: FileSystemChange[] = [
+      { kind: 'file', path: '/roots/root-a/updated.ts', type: 'modified' },
+    ];
+    act(() => {
+      adapter.watchCalls[0]!.callback(changes);
+    });
+
+    expect(onChangesV1).not.toHaveBeenCalled();
+    expect(onChangesV2).toHaveBeenCalledWith('root-a', changes);
   });
 });

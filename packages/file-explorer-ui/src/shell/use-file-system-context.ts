@@ -10,7 +10,7 @@ import {
   useFileSystemWatcher,
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -269,9 +269,36 @@ export function useFileSystem() {
     [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
   );
 
+  // Debounce timer for the refresh event dispatch. Held in a ref so the
+  // timer identity never drives re-renders and the callback closure always
+  // sees the same ref object without needing it in deps.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced watcher callback: 300ms trailing. Multiple rapid change
+  // notifications from the same or different roots collapse into a single
+  // FILE_EXPLORER_REFRESH_EVENT dispatch, preventing redundant tree reloads
+  // during a burst of file-system activity (e.g. a build writing many files).
   const handleWatcherChanges = useCallback((_rootId: string): void => {
-    window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
+    if (refreshTimerRef.current !== null) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
+    }, 300);
   }, []);
+
+  // Clear any pending debounced dispatch on unmount to avoid dispatching after
+  // the component has been torn down.
+  // biome-ignore lint/plugin: cleanup-only effect; not state-as-event-handler
+  useEffect(
+    () => () => {
+      if (refreshTimerRef.current !== null) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    },
+    []
+  );
 
   useFileSystemWatcher({
     adapter: fileSystemAdapter,

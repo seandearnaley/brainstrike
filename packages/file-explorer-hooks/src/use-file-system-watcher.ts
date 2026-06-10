@@ -38,6 +38,12 @@ export interface UseFileSystemWatcherParams {
  * removes inline. A separate unmount-only effect (empty dep array) disposes
  * all watchers when the component is torn down, avoiding the "React tears down
  * and rebuilds on every dep change" pitfall.
+ *
+ * Documented limitation: changing the `adapter` identity restarts ALL existing
+ * watchers for the new adapter instance. This is intentional — a new adapter
+ * object represents a distinct filesystem binding. Changing `onChanges` identity
+ * alone does NOT restart watchers; the ref update on each render ensures the
+ * latest callback is always used without restarting any watcher subscription.
  */
 export function useFileSystemWatcher({
   adapter,
@@ -86,7 +92,10 @@ export function useFileSystemWatcher({
       }
     }
     // Intentionally no cleanup return — diff is handled above.
-  }, [adapter, roots, onChanges]);
+    // onChanges is intentionally excluded: onChangesRef already captures the
+    // latest value on every render; listing onChanges here would restart all
+    // watchers on every callback identity change without any behavioural benefit.
+  }, [adapter, roots]);
 
   // Unmount-only effect: dispose ALL remaining watchers when the component
   // using this hook is torn down. Empty dep array = runs cleanup once on
