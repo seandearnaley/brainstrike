@@ -35,7 +35,7 @@ export interface PositiveIntegerConfigInput {
 
 function assertPositiveInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} must be a positive integer, received ${value}.`);
+    throw new Error(`${label} must be a positive integer, received "${value}".`);
   }
   return value;
 }
