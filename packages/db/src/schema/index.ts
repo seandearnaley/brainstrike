@@ -117,6 +117,23 @@ const textTimestamp = customType<{
 export const textTimestampNow = sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 // ============================================================================
+// ROOTS TABLE
+// ============================================================================
+
+export const roots = pgTable('roots', {
+  id: text('id').primaryKey().default(sql`(uuidv7()::text)`),
+  kind: text('kind').$type<'path' | 'fsa' | 'snapshot' | 'legacy'>().notNull(),
+  displayName: text('display_name').notNull(),
+  path: text('path'),
+  status: text('status')
+    .$type<'live' | 'needs-regrant' | 'disconnected' | 'snapshot-stale'>()
+    .default('live')
+    .notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
+});
+
+// ============================================================================
 // FILE RECORDS TABLE
 // ============================================================================
 
@@ -127,6 +144,7 @@ export const fileRecords = pgTable(
     name: text('name').notNull(),
     path: text('path').notNull(),
     sourceRootPath: text('source_root_path'),
+    rootId: text('root_id').references(() => roots.id, { onDelete: 'cascade' }),
     size: integer('size').notNull(),
     // Nullable epoch-ms stat used by the background-sync stat-cache fast-path
     // (migration 037). BIGINT mirrors file_token_cache.mtime_ms. Null for rows
@@ -148,6 +166,7 @@ export const fileRecords = pgTable(
     index('idx_file_records_source_root_path').on(table.sourceRootPath),
     index('idx_file_records_content_hash').on(table.contentHash),
     index('idx_file_records_embedding_set_id').on(table.embeddingSetId),
+    index('idx_file_records_root_id').on(table.rootId),
   ]
 );
 
