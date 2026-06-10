@@ -201,10 +201,15 @@ export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheB
   assertTotalBatchWithinLimit(changes.length);
 
   // rootId is per-batch (all changes in a batch share one root); must be a
-  // string, null, or absent — any other type is a caller bug, not silent coercion.
+  // non-empty string, null, or absent — any other value is a caller bug, not
+  // silent coercion ('' would reach the DB as a doomed FK lookup).
   const rawRootId = candidate['rootId'];
-  if (rawRootId !== undefined && rawRootId !== null && typeof rawRootId !== 'string') {
-    throw new Error('Managed cache batch payload rootId must be a string or null.');
+  if (
+    rawRootId !== undefined &&
+    rawRootId !== null &&
+    !(typeof rawRootId === 'string' && rawRootId.length > 0)
+  ) {
+    throw new Error('Managed cache batch payload rootId must be a non-empty string or null.');
   }
 
   return {
@@ -344,7 +349,7 @@ async function insertManagedCacheImports(
     record.tokenCount,
     record.processedAt,
     embeddingSetId,
-    rootId ?? null,
+    rootId,
   ]);
 
   const result = await tx.query<{ id: string }>(

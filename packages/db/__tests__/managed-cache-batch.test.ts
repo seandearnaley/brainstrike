@@ -1006,7 +1006,7 @@ describe('applyManagedCacheBatch', () => {
         rootId: 42,
         changes: [],
       })
-    ).toThrow('Managed cache batch payload rootId must be a string or null.');
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
@@ -1014,7 +1014,7 @@ describe('applyManagedCacheBatch', () => {
         rootId: true,
         changes: [],
       })
-    ).toThrow('Managed cache batch payload rootId must be a string or null.');
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
@@ -1022,6 +1022,15 @@ describe('applyManagedCacheBatch', () => {
         rootId: [],
         changes: [],
       })
-    ).toThrow('Managed cache batch payload rootId must be a string or null.');
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
+
+    // '' would pass a bare typeof check and reach the DB as a doomed FK lookup.
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        rootId: '',
+        changes: [],
+      })
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
   });
 });
