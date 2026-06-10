@@ -26,6 +26,14 @@ describe('deriveEffectiveInputBudget', () => {
     expect(() => deriveEffectiveInputBudget(4096, 4096)).toThrow(/cannot fit/);
   });
 
+  it('throws on non-finite or non-positive maxOutputTokens (no NaN budgets)', () => {
+    expect(() => deriveEffectiveInputBudget(32_768, Number.NaN)).toThrow(/maxOutputTokens/);
+    expect(() => deriveEffectiveInputBudget(32_768, Number.POSITIVE_INFINITY)).toThrow(
+      /maxOutputTokens/
+    );
+    expect(() => deriveEffectiveInputBudget(32_768, -1)).toThrow(/maxOutputTokens/);
+  });
+
   it('throws on non-positive windows', () => {
     expect(() => deriveEffectiveInputBudget(0)).toThrow(/positive/);
   });

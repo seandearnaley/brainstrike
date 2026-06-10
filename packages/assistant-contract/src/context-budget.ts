@@ -20,6 +20,12 @@ export function deriveEffectiveInputBudget(
   if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
     throw new Error(`contextWindow must be a positive number, got ${contextWindow}`);
   }
+  if (
+    maxOutputTokens !== undefined &&
+    (!Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0)
+  ) {
+    throw new Error(`maxOutputTokens must be a positive finite number, got ${maxOutputTokens}`);
+  }
   const output = maxOutputTokens ?? CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS;
   const margin = Math.max(
     CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
