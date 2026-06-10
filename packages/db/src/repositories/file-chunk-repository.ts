@@ -594,6 +594,11 @@ export class FileChunkRepository {
    * prefilter (idx_file_chunks_content_trgm), or a bounded unfiltered scan
    * when likePattern is null. Joins file_records for the path so the grep
    * service can emit path:line results without a second lookup.
+   *
+   * filePaths is an allowlist: `undefined` means no path filter (all files),
+   * while an EMPTY array means nothing is allowed and returns no candidates.
+   * Allowlists larger than MAX_INLINE_FILE_PATHS throw (matching
+   * fullTextSearch/searchSimilar).
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
     const { likePattern, caseSensitive, embeddingSetId, filePaths, limit } = options;
@@ -609,7 +614,15 @@ export class FileChunkRepository {
       params.push(embeddingSetId);
       conditions.push(`fc.embedding_set_id = $${params.length}`);
     }
-    if (filePaths !== undefined && filePaths.length > 0) {
+    if (filePaths !== undefined) {
+      if (filePaths.length === 0) {
+        return []; // empty allowlist = nothing allowed
+      }
+      if (filePaths.length > MAX_INLINE_FILE_PATHS) {
+        throw new Error(
+          `findGrepCandidates filePaths limit exceeded (${filePaths.length} > ${MAX_INLINE_FILE_PATHS}).`
+        );
+      }
       params.push(Array.from(filePaths));
       conditions.push(`fr.path = ANY($${params.length}::text[])`);
     }
