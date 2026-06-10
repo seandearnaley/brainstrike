@@ -32,6 +32,19 @@ describe('context usage store', () => {
     expect(useContextUsageStore.getState().usageByThread['t1']).toBeUndefined();
   });
 
+  it('records partial-zero usage (some streaming providers report only output tokens)', () => {
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 0, outputTokens: 50 });
+    expect(useContextUsageStore.getState().usageByThread['t1']).toEqual({
+      inputTokens: 0,
+      outputTokens: 50,
+    });
+  });
+
+  it('ignores malformed negative usage (never corrupts the meter)', () => {
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: -500, outputTokens: 300 });
+    expect(useContextUsageStore.getState().usageByThread['t1']).toBeUndefined();
+  });
+
   it('clears a single thread', () => {
     const { recordUsage, clearThread } = useContextUsageStore.getState();
     recordUsage('t1', { inputTokens: 10, outputTokens: 10 });

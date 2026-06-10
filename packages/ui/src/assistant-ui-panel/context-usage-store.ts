@@ -23,8 +23,12 @@ interface ContextUsageState {
 export const useContextUsageStore = create<ContextUsageState>((set) => ({
   usageByThread: {},
   recordUsage: (threadId, usage) => {
-    if (usage.inputTokens <= 0 && usage.outputTokens <= 0) {
-      return; // provider omitted usage — keep prior value/provenance
+    const isUsable =
+      usage.inputTokens >= 0 &&
+      usage.outputTokens >= 0 &&
+      (usage.inputTokens > 0 || usage.outputTokens > 0);
+    if (!isUsable) {
+      return; // omitted (0/0) or malformed (negative) usage — keep prior value/provenance
     }
     set((state) => ({
       usageByThread: { ...state.usageByThread, [threadId]: usage },
@@ -37,7 +41,11 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
     }),
 }));
 
-/** Test-only helper. */
+/**
+ * Test-only helper.
+ *
+ * @internal
+ */
 export function resetContextUsageStore(): void {
   useContextUsageStore.setState({ usageByThread: {} });
 }
