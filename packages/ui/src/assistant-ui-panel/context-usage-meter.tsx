@@ -10,11 +10,12 @@
  *   warning ≥ 75%
  *   critical ≥ 90% → shows windowing notice
  */
+import { useAuiState } from '@assistant-ui/react';
 import {
   countTokensHeuristic,
   formatTokenCount,
 } from '@brainstrike/utils/token-counting-heuristics';
-import type { FC } from 'react';
+import { type FC, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { useContextUsageStore } from './context-usage-store';
 
@@ -155,12 +156,6 @@ export interface ThreadContextMeterProps {
   threadKey: string | undefined;
 }
 
-// Lazy import: useAuiState is only available inside an AssistantRuntimeProvider.
-// We import it at the top to keep the module graph static but we only CALL it
-// inside ThreadContextMeterInner, which is always mounted inside the provider.
-import { useAuiState } from '@assistant-ui/react';
-import { useMemo } from 'react';
-
 export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
   contextWindow,
   effectiveInputBudget,
@@ -168,8 +163,14 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
 }) => {
   // Access all messages to build a heuristic token estimate.
   const messages = useAuiState((s) => s.thread.messages);
+  // Exact usage for this thread — when present, skip the message walk entirely
+  // (ContextUsageMeter prefers exact usage over the estimate anyway).
+  const usage = useContextUsageStore((s) => s.usageByThread[threadKey ?? 'active']);
 
   const estimatedTokens = useMemo(() => {
+    if (usage) {
+      return; // exact usage present — skip the walk entirely
+    }
     let total = 0;
     for (const msg of messages) {
       const parts = (msg as unknown as { parts?: ReadonlyArray<{ type?: string; text?: string }> })
@@ -183,14 +184,14 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
         }
       }
     }
-    return total;
-  }, [messages]);
+    return total > 0 ? total : undefined;
+  }, [usage, messages]);
 
   return (
     <ContextUsageMeter
       contextWindow={contextWindow}
       effectiveInputBudget={effectiveInputBudget}
-      estimatedTokens={estimatedTokens > 0 ? estimatedTokens : undefined}
+      estimatedTokens={estimatedTokens}
       threadKey={threadKey}
     />
   );

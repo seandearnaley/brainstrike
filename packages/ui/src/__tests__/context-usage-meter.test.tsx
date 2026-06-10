@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { act } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ContextUsageMeter } from '../assistant-ui-panel/context-usage-meter.js';
 import {
@@ -43,6 +44,21 @@ describe('ContextUsageMeter', () => {
     rerender(<ContextUsageMeter {...props} />);
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'critical');
     expect(screen.getByText(/summarized out of context/i)).toBeInTheDocument();
+  });
+
+  it('re-renders reactively when the store changes', () => {
+    render(<ContextUsageMeter {...props} />);
+    expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'ok');
+    act(() => {
+      useContextUsageStore.getState().recordUsage('t1', { inputTokens: 100_000, outputTokens: 0 });
+    });
+    expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'warning');
+  });
+
+  it('enters warning state at exactly 75% of the effective budget (>= semantics)', () => {
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 94_500, outputTokens: 0 }); // exactly 75% of 126_000
+    render(<ContextUsageMeter {...props} />);
+    expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'warning');
   });
 
   it('renders nothing when no context window is known', () => {
