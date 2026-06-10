@@ -107,7 +107,10 @@ export class EmbeddingSetsRepository {
    * Used by tests that need the index materialized before asserting on it, and
    * available for future shutdown coordination — production shutdown does NOT
    * currently drain builds: a build lost to shutdown is benign because
-   * CREATE INDEX IF NOT EXISTS self-heals on the next getOrCreate* call.
+   * CREATE INDEX IF NOT EXISTS self-heals on the next getOrCreate* call. The
+   * workspace dimension re-schedules on every launch; a user-created set on a
+   * unique dimension only re-schedules when another same-dimension set is
+   * created, so its searches stay on a seq scan until then (slower, correct).
    */
   waitForPendingDimensionIndexBuilds(): Promise<void> {
     return this.dimensionIndexBuilder.whenSettled();
