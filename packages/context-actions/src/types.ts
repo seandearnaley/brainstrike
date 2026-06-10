@@ -70,9 +70,12 @@ export interface ContextAction<K extends ContextTargetKind = ContextTargetKind> 
 export type AnyContextAction = ContextAction;
 
 /**
- * Widens a kind-narrowed action for heterogeneous storage. Safe because the
- * registry only invokes target-taking callbacks with targets whose kind is in
- * `appliesTo`, which restores the narrow type at runtime.
+ * Widens a kind-narrowed action for heterogeneous storage. Safe under the
+ * invariant that any consumer (the registry invokes `isVisible`; menu
+ * renderers invoke `label`, `isEnabled`, and `run`) only calls target-taking
+ * members with a target previously filtered through `actionsFor`, which
+ * guarantees the target's kind is in `appliesTo` and restores the narrow
+ * type at runtime.
  */
 export function defineContextAction<K extends ContextTargetKind>(
   action: ContextAction<K>

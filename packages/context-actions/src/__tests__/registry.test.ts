@@ -111,6 +111,26 @@ describe('createActionRegistry', () => {
     expect(groups.map((group) => group.group)).toEqual(['copy', 'navigate']);
   });
 
+  it('does not filter on isEnabled — disabled actions remain listed', () => {
+    const disabled = defineContextAction({
+      id: 'file.disabled',
+      label: 'Disabled Action',
+      group: 'copy',
+      appliesTo: ['file-entry'] as const,
+      isEnabled: () => false,
+      run: async () => ok,
+    });
+    const registry = createActionRegistry({
+      actions: [disabled],
+      capabilities: new Set(['clipboard']),
+      services: {},
+    });
+    const ids = registry
+      .actionsFor(fileTarget)
+      .flatMap((group) => group.actions.map((action) => action.id));
+    expect(ids).toEqual(['file.disabled']);
+  });
+
   it('merges surface-local actions and groups them with global ones', () => {
     const actions = makeActions();
     const registry = createActionRegistry({
