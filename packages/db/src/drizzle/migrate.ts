@@ -27,6 +27,7 @@ import { migration034TsvectorGeneratedColumn } from '../migrations/034-tsvector-
 import { migration035Uuidv7PrimaryKeys } from '../migrations/035-uuidv7-primary-keys.js';
 import { migration036WorkspaceIndexSystemRole } from '../migrations/036-workspace-index-system-role.js';
 import { migration037FileRecordMtimeMs } from '../migrations/037-file-record-mtime-ms.js';
+import { migration038RootsTable } from '../migrations/038-roots-table.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -156,6 +157,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-035-uuidv7-primary-keys', migration035Uuidv7PrimaryKeys),
   customMigration('custom-036-workspace-index-system-role', migration036WorkspaceIndexSystemRole),
   customMigration('custom-037-file-record-mtime-ms', migration037FileRecordMtimeMs),
+  customMigration('custom-038-roots-table', migration038RootsTable),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
