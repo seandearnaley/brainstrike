@@ -4,6 +4,7 @@ import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useState } from 'react';
 import { RootSectionHeader } from '../components/root-section-header';
+import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 
@@ -93,8 +94,13 @@ const EmptyStateComponent = ({
   </div>
 );
 
-/** Single tree pane — renders OptimizedFileTree or empty state for one root. */
-interface SingleTreePaneProps {
+/**
+ * Inner component for a root section's tree content.
+ * Must be rendered inside a FileTreeProvider so it can read the per-root tree
+ * from context. Any click inside the tree container bubbles to the parent
+ * RootSection's onClick handler which switches focus to this root.
+ */
+interface PerRootTreePaneProps {
   cancelChildLoading?: ((path: string) => void) | undefined;
   currentFolderId: string | null;
   isLoading: boolean;
@@ -108,15 +114,12 @@ interface SingleTreePaneProps {
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
     | undefined;
   onTreeRender?: (() => void) | undefined;
-  quickFilteredTree: IFileNode[] | null;
   rootDirectoryHandle: DirectoryHandle;
 }
 
-const SingleTreePane: React.FC<SingleTreePaneProps> = ({
+const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   rootDirectoryHandle,
-  quickFilteredTree,
   loadingFiles,
-  isLoading,
   currentFolderId,
   onTreeRender,
   loadingPaths,
@@ -126,9 +129,14 @@ const SingleTreePane: React.FC<SingleTreePaneProps> = ({
   isLoadingForSelection,
   loadingPathForSelection,
   isLoadingForSelectAll = false,
+  isLoading: isLoadingProp,
 }) => {
-  const deferredTree = useDeferredValue(quickFilteredTree);
-  const hasContent = deferredTree && deferredTree.length > 0;
+  // Reads the real file tree for THIS root from its enclosing FileTreeProvider.
+  const treeContext = useFileTreeContext();
+  const deferredTree = useDeferredValue(treeContext.fileTree);
+  const isLoading = treeContext.isLoading || isLoadingProp;
+  const hasContent = deferredTree.length > 0;
+  const folderId = getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -137,7 +145,7 @@ const SingleTreePane: React.FC<SingleTreePaneProps> = ({
         <OptimizedFileTree
           cancelChildLoading={cancelChildLoading}
           fileTree={deferredTree}
-          folderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? ''}
+          folderId={folderId}
           isLoadingForSelection={isLoadingForSelection}
           loadingFiles={loadingFiles}
           loadingPathForSelection={loadingPathForSelection}
@@ -157,8 +165,14 @@ const SingleTreePane: React.FC<SingleTreePaneProps> = ({
   );
 };
 
-/** One collapsible root section (header + tree) used in forest mode. */
-interface RootSectionProps extends SingleTreePaneProps {
+/** One collapsible root section (header + tree) used in forest mode.
+ *
+ * Wraps its content in a dedicated FileTreeProvider so the root runs its own
+ * useFileTree and shows its own real directory contents. Row interactions
+ * (clicks anywhere inside the tree container) bubble to the section wrapper
+ * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
+ */
+interface RootSectionProps extends PerRootTreePaneProps {
   setFocusedRoot?: ((path: string) => void) | undefined;
 }
 
@@ -169,9 +183,17 @@ const RootSection: React.FC<RootSectionProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const handleToggle = useCallback(() => {
-    // Clicking the header focuses this root AND toggles collapse.
+    // Header click: focus this root AND toggle collapse.
     setFocusedRoot?.(rootDirectoryHandle.path);
     setIsCollapsed((v) => !v);
+  }, [setFocusedRoot, rootDirectoryHandle.path]);
+
+  const handleTreeInteraction = useCallback(() => {
+    // Any interaction inside the tree container (row click, key press, etc.)
+    // switches focused root. This is the per-root-boundary wiring site: bubbled
+    // clicks from OptimizedFileTree rows reach this handler which is cheaper
+    // than wiring into every individual row's dispatch path.
+    setFocusedRoot?.(rootDirectoryHandle.path);
   }, [setFocusedRoot, rootDirectoryHandle.path]);
 
   return (
@@ -181,7 +203,21 @@ const RootSection: React.FC<RootSectionProps> = ({
         isCollapsed={isCollapsed}
         onToggleCollapse={handleToggle}
       />
-      {!isCollapsed && <SingleTreePane rootDirectoryHandle={rootDirectoryHandle} {...rest} />}
+      {!isCollapsed && (
+        // Each root gets its own FileTreeProvider so it runs its own useFileTree
+        // independently — previously all non-focused roots received an empty
+        // quickFilteredTree=[]; now each loads and shows its own real content.
+        // Keyed by handle.path so React remounts the provider when the root path
+        // changes (handles the theoretical same-slot path-swap case).
+        <FileTreeProvider key={rootDirectoryHandle.path} rootDirectoryHandle={rootDirectoryHandle}>
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: tree rows have their own keyboard handlers; this is a focus-switch affordance only */}
+          {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: intentional event-bubbling capture boundary for focus-switch */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: intentional event-bubbling capture boundary for focus-switch */}
+          <div onClick={handleTreeInteraction}>
+            <PerRootTreePane rootDirectoryHandle={rootDirectoryHandle} {...rest} />
+          </div>
+        </FileTreeProvider>
+      )}
     </div>
   );
 };
@@ -219,6 +255,8 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
     const isForestMode = forestHandles.length > 1;
 
     if (isForestMode) {
+      // Each RootSection has its own FileTreeProvider internally — no quickFilteredTree
+      // is passed per-section here (each section derives its tree from its provider).
       const sharedProps = {
         cancelChildLoading,
         currentFolderId,
@@ -240,7 +278,6 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
             {forestHandles.map((handle) => (
               <RootSection
                 key={handle.path}
-                quickFilteredTree={handle.path === rootDirectoryHandle?.path ? deferredTree : []}
                 rootDirectoryHandle={handle}
                 setFocusedRoot={setFocusedRoot}
                 {...sharedProps}

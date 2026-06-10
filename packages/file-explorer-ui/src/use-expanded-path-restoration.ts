@@ -12,21 +12,36 @@ const logger = createLogger('ExpandedPathRestoration');
  * Module-level lock for restoration to prevent concurrent runs.
  * React's concurrent rendering can cause multiple effect instances to run
  * before any of them could set refs, resulting in duplicate restoration work.
+ *
+ * Keyed by folderId so that forest-mode providers for DIFFERENT roots do not
+ * block each other. Before this was a single shared object; in multi-root mode
+ * two FileTreeProviders mounting concurrently (e.g. rootA and rootB) would
+ * share the lock — the second provider would see `inProgress=true` for the
+ * first and skip permanently, leaving its tree un-restored.
  */
-const restorationLock = {
-  inProgress: false,
-  folderId: null as string | null,
-  restorationKey: null as string | null,
-};
+interface RestorationLockEntry {
+  inProgress: boolean;
+  restorationKey: string | null;
+}
+
+const restorationLocks = new Map<string, RestorationLockEntry>();
+
+/** Helper to get-or-create the lock entry for a given folderId. */
+function getRestorationLock(folderId: string): RestorationLockEntry {
+  let entry = restorationLocks.get(folderId);
+  if (!entry) {
+    entry = { inProgress: false, restorationKey: null };
+    restorationLocks.set(folderId, entry);
+  }
+  return entry;
+}
 
 /**
  * Reset the restoration lock state.
  * @internal Exported only for test cleanup. Do not use in production code.
  */
 export function __resetRestorationLock(): void {
-  restorationLock.inProgress = false;
-  restorationLock.folderId = null;
-  restorationLock.restorationKey = null;
+  restorationLocks.clear();
 }
 
 function getAllAncestorDirectories(filePath: string): string[] {
@@ -169,18 +184,18 @@ function handleRestorationLock(
   setSettledFolderId: Dispatch<SetStateAction<string | null>>,
   setSettledRestorationKey: Dispatch<SetStateAction<string | null>>
 ): boolean {
-  if (
-    restorationLock.folderId === currentRootFolderId &&
-    restorationLock.restorationKey === restorationKey &&
-    !restorationLock.inProgress
-  ) {
+  const lock = getRestorationLock(currentRootFolderId);
+
+  if (lock.restorationKey === restorationKey && !lock.inProgress) {
     setSettledFolderId(currentRootFolderId);
     setSettledRestorationKey(restorationKey);
     return true;
   }
 
-  if (restorationLock.inProgress) {
-    logger.debug('[Restoration Effect] Skipped - restoration in progress');
+  if (lock.inProgress) {
+    logger.debug('[Restoration Effect] Skipped - restoration in progress', {
+      folderId: currentRootFolderId,
+    });
     return true;
   }
 
@@ -226,6 +241,7 @@ function logPathsToRestore(
 interface RestoreExpandedPathsArgs {
   currentRootFolderId: string;
   currentRootFolderIdRef: RefObject<string | null>;
+  instanceInProgressFolderIdRef: React.MutableRefObject<string | null>;
   loadSpecificPaths: (
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
@@ -246,6 +262,7 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
   const {
     currentRootFolderId,
     currentRootFolderIdRef,
+    instanceInProgressFolderIdRef,
     loadSpecificPaths,
     plan,
     setExpandedPaths,
@@ -283,7 +300,12 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
   } catch (error) {
     logger.warn('Failed to restore expanded directories', { error });
   } finally {
-    restorationLock.inProgress = false;
+    getRestorationLock(currentRootFolderId).inProgress = false;
+    // Clear this instance's in-progress tracker so a subsequent root-switch
+    // can proceed once this restore completes.
+    if (instanceInProgressFolderIdRef.current === currentRootFolderId) {
+      instanceInProgressFolderIdRef.current = null;
+    }
     setIsRestoringExpandedPaths(false);
     setRestorationProgress(null);
     if (currentRootFolderIdRef.current === currentRootFolderId) {
@@ -315,6 +337,15 @@ export function useExpandedPathRestoration(
   const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const previousRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const previousRestorationKeyRef = useRef<string>(restorationKey);
+  /**
+   * Tracks which folderId THIS INSTANCE is currently restoring (in-flight async).
+   * Used to block root-switch mid-restore within the same provider instance:
+   * if this instance started restoring rootA and the root switches to rootB before
+   * rootA finishes, rootB should not start until rootA's in-flight completes.
+   * Per-instance (useRef) so concurrent forest-mode providers do NOT block each
+   * other — each provider instance has its own independent tracking.
+   */
+  const instanceInProgressFolderIdRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     currentRootFolderIdRef.current = currentRootFolderId;
@@ -357,6 +388,22 @@ export function useExpandedPathRestoration(
       return;
     }
 
+    // Instance-level guard: if THIS provider instance already has an in-flight
+    // restore for a DIFFERENT folderId (root switched mid-restore), block the
+    // new root until the old one finishes. This preserves the single-provider
+    // root-switch safety without blocking concurrent forest-mode providers
+    // (each of which has its own instanceInProgressFolderIdRef).
+    if (
+      instanceInProgressFolderIdRef.current !== null &&
+      instanceInProgressFolderIdRef.current !== currentRootFolderId
+    ) {
+      logger.debug('[Restoration Effect] Skipped - instance root-switch mid-restore', {
+        inProgressFolderId: instanceInProgressFolderIdRef.current,
+        newFolderId: currentRootFolderId,
+      });
+      return;
+    }
+
     if (
       handleRestorationLock(
         currentRootFolderId,
@@ -368,9 +415,10 @@ export function useExpandedPathRestoration(
       return;
     }
 
-    restorationLock.inProgress = true;
-    restorationLock.folderId = currentRootFolderId;
-    restorationLock.restorationKey = restorationKey;
+    const lock = getRestorationLock(currentRootFolderId);
+    lock.inProgress = true;
+    lock.restorationKey = restorationKey;
+    instanceInProgressFolderIdRef.current = currentRootFolderId;
 
     const storeState = store.getState();
     const plan = buildPathsToRestorePlan(storeState);
@@ -378,7 +426,8 @@ export function useExpandedPathRestoration(
 
     if (plan.allPathsToRestore.size === 0) {
       logger.debug('[Restoration Effect] Skipped - no paths to restore');
-      restorationLock.inProgress = false;
+      getRestorationLock(currentRootFolderId).inProgress = false;
+      instanceInProgressFolderIdRef.current = null;
       setSettledFolderId(currentRootFolderId);
       setSettledRestorationKey(restorationKey);
       return;
@@ -402,6 +451,7 @@ export function useExpandedPathRestoration(
     void restoreExpandedPaths({
       currentRootFolderId,
       currentRootFolderIdRef,
+      instanceInProgressFolderIdRef,
       loadSpecificPaths,
       plan,
       setExpandedPaths,

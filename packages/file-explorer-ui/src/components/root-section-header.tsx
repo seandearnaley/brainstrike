@@ -25,6 +25,7 @@ export const RootSectionHeader: React.FC<RootSectionHeaderProps> = ({
 
   return (
     <button
+      aria-expanded={!isCollapsed}
       className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       data-testid="root-section-header"
       onClick={onToggleCollapse}
