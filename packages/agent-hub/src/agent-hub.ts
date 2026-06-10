@@ -4,7 +4,9 @@ import type {
   AgentHub,
   AgentHubOptions,
   HubAgent,
+  HubEventMap,
   HubMessage,
+  HubSnapshot,
   PostMessageInput,
   ReadMessagesInput,
   ReadMessagesResult,
@@ -61,8 +63,36 @@ function createBuiltinAgent(now: () => number): HubAgent {
   };
 }
 
+const SNAPSHOT_RECENT_MESSAGE_LIMIT = 100;
+
+type HubListeners = {
+  [E in keyof HubEventMap]: Set<(payload: HubEventMap[E]) => void>;
+};
+
 export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
   const now = options.now ?? (() => Date.now());
+  const listeners: HubListeners = {
+    'agent-joined': new Set(),
+    'agent-left': new Set(),
+    'agent-updated': new Set(),
+    'message-posted': new Set(),
+  };
+
+  function emit<E extends keyof HubEventMap>(event: E, payload: HubEventMap[E]): void {
+    for (const listener of listeners[event]) {
+      listener(payload);
+    }
+  }
+
+  function on<E extends keyof HubEventMap>(
+    event: E,
+    cb: (payload: HubEventMap[E]) => void
+  ): () => void {
+    listeners[event].add(cb);
+    return () => {
+      listeners[event].delete(cb);
+    };
+  }
   const state: HubState = {
     agentsById: new Map(),
     channels: new Map([[DEFAULT_CHANNEL, []]]),
@@ -115,6 +145,7 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     state.colorCursor = (state.colorCursor + 1) % AGENT_COLOR_KEYS.length;
     state.agentsById.set(agent.agentId, agent);
     state.sessionToAgentId.set(input.sessionKey, agent.agentId);
+    emit('agent-joined', { ...agent });
     return agent;
   }
 
@@ -126,6 +157,7 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     agent.status = 'offline';
     agent.lastSeenAt = now();
     state.sessionToAgentId.delete(sessionKey);
+    emit('agent-left', { ...agent });
   }
 
   function listAgents(): HubAgent[] {
@@ -172,6 +204,8 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
 
     sender.tokensSent += message.tokenCount;
     sender.lastSeenAt = message.postedAt;
+    emit('message-posted', { ...message });
+    emit('agent-updated', { ...sender });
     return message;
   }
 
@@ -206,6 +240,9 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
 
     reader.tokensReceived += tokensUsed;
     reader.lastSeenAt = now();
+    if (tokensUsed > 0) {
+      emit('agent-updated', { ...reader });
+    }
     const lastMessage = all.at(-1);
     return {
       latestId: lastMessage ? lastMessage.id : 0,
@@ -219,17 +256,24 @@ export function createAgentHub(options: AgentHubOptions = {}): AgentHub {
     return [...state.channels.keys()];
   }
 
+  function getSnapshot(): HubSnapshot {
+    const allMessages = [...state.channels.values()].flat().sort((a, b) => a.id - b.id);
+    return {
+      agents: listAgents(),
+      channels: listChannels(),
+      recentMessages: allMessages.slice(-SNAPSHOT_RECENT_MESSAGE_LIMIT).map((m) => ({ ...m })),
+      totalMessages: allMessages.length,
+      totalTokens: allMessages.reduce((sum, message) => sum + message.tokenCount, 0),
+    };
+  }
+
   return {
     disconnectAgent,
     getAgentBySessionKey,
-    getSnapshot: () => {
-      throw new AgentHubError('Not implemented yet.');
-    },
+    getSnapshot,
     listAgents,
     listChannels,
-    on: () => {
-      throw new AgentHubError('Not implemented yet.');
-    },
+    on,
     postMessage,
     readMessages,
     registerAgent,

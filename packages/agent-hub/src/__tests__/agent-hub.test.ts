@@ -151,6 +151,40 @@ describe('readMessages token budget', () => {
     expect(roster.find((agent) => agent.name === 'reader')?.tokensReceived).toBe(10);
   });
 
+  it('events fire for join, message, and leave with unsubscribe support', () => {
+    const hub = makeHub();
+    const joined: string[] = [];
+    const left: string[] = [];
+    const posted: string[] = [];
+    const offJoined = hub.on('agent-joined', (agent) => joined.push(agent.name));
+    hub.on('agent-left', (agent) => left.push(agent.name));
+    hub.on('message-posted', (message) => posted.push(message.text));
+
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'hello' });
+    hub.disconnectAgent('s1');
+    offJoined();
+    hub.registerAgent({ name: 'b', sessionKey: 's2' });
+
+    expect(joined).toEqual(['a']);
+    expect(posted).toEqual(['hello']);
+    expect(left).toEqual(['a']);
+  });
+
+  it('getSnapshot returns a serializable dashboard view', () => {
+    const hub = makeHub();
+    hub.registerAgent({ name: 'a', sessionKey: 's1' });
+    hub.postMessage({ sessionKey: 's1', text: 'x'.repeat(20) });
+    hub.postMessage({ channel: '#dev', sessionKey: 's1', text: 'y'.repeat(40) });
+    const snapshot = hub.getSnapshot();
+    expect(snapshot.agents).toHaveLength(2);
+    expect(snapshot.channels).toEqual(['#general', '#dev']);
+    expect(snapshot.totalMessages).toBe(2);
+    expect(snapshot.totalTokens).toBe(15);
+    expect(snapshot.recentMessages.map((message) => message.id)).toEqual([1, 2]);
+    expect(structuredClone(snapshot)).toEqual(snapshot);
+  });
+
   it('limit caps the number of returned messages from the newest end', () => {
     const hub = makeHub();
     hub.registerAgent({ name: 'a', sessionKey: 's1' });
