@@ -3,14 +3,7 @@ import { useEventCallback } from '@brainstrike/hooks';
 // (and its transitive log-viewer / Select dependency tree) into render-time
 // graphs that other test files mock at the package boundary.
 import { useContextPreviewColumnSizesStore } from '@brainstrike/preferences/stores/context-preview-column-sizes-store';
-import {
-  Checkbox,
-  cn,
-  SortableTableHeader,
-  type TreeNode,
-  TreeTable,
-  type TreeTableColumn,
-} from '@brainstrike/ui';
+import { Checkbox, cn, type TreeNode, TreeTable, type TreeTableColumn } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
 import {
   type MutableRefObject,
@@ -30,7 +23,6 @@ import {
   splitFilePath,
 } from '../utils/path-display';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
-import { PreviewTableRow } from './preview-table-row';
 import type { ColumnVisibility } from './use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 
@@ -78,6 +70,7 @@ const PREVIEW_CHECKBOX_CELL_CLASS = 'w-8 px-0 py-2';
 const PREVIEW_CHECKBOX_HEADER_CLASS = 'h-10 w-8 bg-background px-0 py-2';
 const PREVIEW_STANDARD_HEADER_CLASS = 'h-10 px-4 py-2';
 const PREVIEW_TREE_HEADER_CLASS = 'h-10 pr-4 pl-[38px] py-2';
+const EMPTY_EXPANDED_NODE_IDS = new Set<string>();
 
 function resolveCheckboxState(
   isFullySelected: boolean,
@@ -204,11 +197,15 @@ function createGroupTreeNode(
   };
 }
 
-function createItemTreeNode(item: TableRowData, parentId: string): TreeNode<PreviewTreeNodeData> {
+function createItemTreeNode(
+  item: TableRowData,
+  parentId: string | null,
+  depth: number
+): TreeNode<PreviewTreeNodeData> {
   return {
     id: resolveItemNodeId(item.compositeKey),
     type: 'preview-item',
-    depth: 1,
+    depth,
     parentId,
     hasChildren: false,
     data: {
@@ -237,10 +234,14 @@ function appendVisibleGroupItems(
     if (!item) {
       continue;
     }
-    nodes.push(createItemTreeNode(item, groupNodeId));
+    nodes.push(createItemTreeNode(item, groupNodeId, 1));
   }
 
   return visibleRowIndex + group.items.length;
+}
+
+function buildUngroupedTreeNodes(items: TableRowData[]): TreeNode<PreviewTreeNodeData>[] {
+  return items.map((item) => createItemTreeNode(item, null, 0));
 }
 
 function buildGroupedTreeNodes({
@@ -797,7 +798,7 @@ function createGroupedTokensColumn({
       }
 
       const tokens = node.data.item.tokens;
-      if (!tokens) {
+      if (tokens === undefined) {
         return <span className="text-muted-foreground text-sm">—</span>;
       }
       return (
@@ -873,7 +874,7 @@ function createGroupedSizeColumn({
   };
 }
 
-function buildGroupedColumns(
+function buildPreviewColumns(
   args: GroupedColumnBuilderArgs
 ): TreeTableColumn<PreviewTreeNodeData>[] {
   const columns: TreeTableColumn<PreviewTreeNodeData>[] = [];
@@ -1022,6 +1023,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   });
 
   const groupedTreeColumnId = useMemo<GroupColumnId | null>(() => {
+    if (groupingConfig === 'none') {
+      return null;
+    }
     for (const columnId of getPreferredGroupColumnOrder(groupingConfig)) {
       if (columnVisibility[columnId]) {
         return columnId;
@@ -1055,9 +1059,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   // header checkbox, so this memo stays stable across pure-selection re-renders.
   // Only structural deltas (columnVisibility, sort/group config, etc.) rebuild
   // the columns array.
-  const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(
+  const previewColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(
     () =>
-      buildGroupedColumns({
+      buildPreviewColumns({
         columnVisibility,
         groupedTreeColumnId,
         handleGroupDeselectAllStable,
@@ -1097,6 +1101,11 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     ]
   );
 
+  const ungroupedTreeNodes = useMemo(
+    () => buildUngroupedTreeNodes(currentPageData),
+    [currentPageData]
+  );
+
   const rowClassName = useCallback((node: TreeNode<PreviewTreeNodeData>) => {
     if (node.data.kind === 'group') {
       return 'bg-muted/40 hover:bg-muted/60';
@@ -1113,103 +1122,33 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const setColumnSizes = useContextPreviewColumnSizesStore(
     (state: { setAll: (next: Record<string, number>) => void }) => state.setAll
   );
+  const onUngroupedTreeToggleExpand = useCallback((nodeId: string) => {
+    throw new Error(
+      `PreviewTable ungrouped toggle invariant violated: "${nodeId}" is not expandable.`
+    );
+  }, []);
 
   if (groupingConfig === 'none') {
-    // TODO(BST-312): converge the ungrouped path onto TreeTable so this surface
-    // picks up resizable columns + persistence the way the grouped path now
-    // does. The hand-rolled <table>/<thead>/<tbody> here predates TreeTable's
-    // colgroup + controlled sizing API; rewriting it requires PreviewTableRow
-    // parity tests (selection, rowsReady gating, sort header semantics).
     return (
       <div
-        className={cn('flex-1 overflow-auto', scrollAreaClassName)}
+        className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}
         data-rows-ready={rowsReadyAttr}
         data-testid="preview-table"
       >
-        <div className="min-w-full">
-          <table className="w-full min-w-full table-fixed border-collapse">
-            <thead className="sticky top-0 z-10 border-b bg-background">
-              <tr>
-                {columnVisibility.checkbox && (
-                  <th className={PREVIEW_CHECKBOX_HEADER_CLASS} scope="col">
-                    <div className="flex h-full items-center justify-center">
-                      <Checkbox
-                        aria-label="Select all files on current page"
-                        checked={isHeaderSelectionComplete}
-                        onCheckedChange={(checked) =>
-                          checked ? onSelectAllOnPage(headerSelectableFiles) : onDeselectAll()
-                        }
-                        title="Select all files on current page"
-                      />
-                    </div>
-                  </th>
-                )}
-                {columnVisibility.rootFolderId && (
-                  <SortableTableHeader
-                    className="h-10 w-44"
-                    field="rootFolderId"
-                    onSort={onSort}
-                    sortDirection={sortDirection}
-                    sortField={sortField}
-                    title="Folder"
-                  />
-                )}
-                {columnVisibility.path && (
-                  <SortableTableHeader
-                    className="h-10"
-                    field="path"
-                    onSort={onSort}
-                    sortDirection={sortDirection}
-                    sortField={sortField}
-                    title="File Path"
-                  />
-                )}
-                {columnVisibility.type && (
-                  <SortableTableHeader
-                    className="h-10 w-24"
-                    field="type"
-                    onSort={onSort}
-                    sortDirection={sortDirection}
-                    sortField={sortField}
-                    title="Type"
-                  />
-                )}
-                {columnVisibility.tokens && (
-                  <SortableTableHeader
-                    className="h-10 w-24"
-                    field="tokens"
-                    onSort={onSort}
-                    sortDirection={sortDirection}
-                    sortField={sortField}
-                    title="Tokens"
-                  />
-                )}
-                {columnVisibility.size && (
-                  <SortableTableHeader
-                    className="h-10 w-24"
-                    field="size"
-                    onSort={onSort}
-                    sortDirection={sortDirection}
-                    sortField={sortField}
-                    title="Size"
-                  />
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {currentPageData.map((item) => (
-                <PreviewTableRow
-                  columnVisibility={columnVisibility}
-                  isSelected={previewSelections.has(item.compositeKey)}
-                  item={item}
-                  key={item.compositeKey}
-                  onFileClick={onFileClick}
-                  onToggleSelection={onToggleSelection}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TreeTable
+          ariaLabel="Context explorer table"
+          className="w-full"
+          columnSizes={columnSizes}
+          columns={previewColumns}
+          expandedIds={EMPTY_EXPANDED_NODE_IDS}
+          maxHeight="none"
+          nodes={ungroupedTreeNodes}
+          onColumnSizesChange={setColumnSizes}
+          onToggleExpand={onUngroupedTreeToggleExpand}
+          rowClassName={rowClassName}
+          selectionMode="none"
+          windowingStrategy="none"
+        />
       </div>
     );
   }
@@ -1225,7 +1164,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         ariaLabel="Context explorer table"
         className="w-full"
         columnSizes={columnSizes}
-        columns={groupedColumns}
+        columns={previewColumns}
         expandedIds={stableExpandedGroupNodeIds}
         maxHeight="none"
         nodes={groupedTree.nodes}
