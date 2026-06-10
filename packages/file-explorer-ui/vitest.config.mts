@@ -93,6 +93,10 @@ export default defineConfig({
         find: '@brainstrike/file-explorer-ui',
         replacement: resolve(import.meta.dirname, './src'),
       },
+      {
+        find: '@brainstrike/context-actions',
+        replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
+      },
     ],
   },
 });

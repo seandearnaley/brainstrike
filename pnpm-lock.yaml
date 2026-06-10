@@ -1355,6 +1355,9 @@ importers:
 
   packages/file-explorer-ui:
     dependencies:
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
