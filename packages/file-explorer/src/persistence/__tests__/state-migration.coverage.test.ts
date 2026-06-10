@@ -118,8 +118,8 @@ describe('state-migration coverage', () => {
       },
     };
 
-    // Storage version was bumped to 4 (phase-4 forest-UI reset).
-    const result = migrateState(serializedState, 4, true);
+    // Storage version was bumped to 5 (phase-5 root identity re-key).
+    const result = migrateState(serializedState, 5, true);
 
     expect(result.selectionModel).toEqual({
       mode: 'explicit',
@@ -157,12 +157,12 @@ describe('state-migration coverage', () => {
       lastActiveTab: 'files',
     };
 
-    // Pass a future version (5) which is higher than the current VERSION (4).
-    const result = migrateState(serializedState, 5, true);
+    // Pass a future version (6) which is higher than the current VERSION (5).
+    const result = migrateState(serializedState, 6, true);
 
     expectEmptySerializedState(result);
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrate - Future persisted version 5 is not supported, discarding.'
+      'Migrate - Future persisted version 6 is not supported, discarding.'
     );
   });
 

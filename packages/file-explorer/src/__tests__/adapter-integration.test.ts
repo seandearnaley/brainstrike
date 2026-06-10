@@ -43,7 +43,7 @@ async function flushMicrotasks(times = 5): Promise<void> {
 }
 
 async function waitForPersist(storage: MemoryStorageAdapter): Promise<void> {
-  const key = 'file-explorer-storage-v4';
+  const key = 'file-explorer-storage-v5';
   for (let i = 0; i < 50; i++) {
     if (storage.getSize() > 0 || storage.has(key)) {
       return;
@@ -151,8 +151,8 @@ describe('Adapter Integration', () => {
       expect(storage1.getSize()).toBeGreaterThan(0);
       expect(storage2.getSize()).toBeGreaterThan(0);
 
-      const data1 = await storage1.getItem('file-explorer-storage-v4');
-      const data2 = await storage2.getItem('file-explorer-storage-v4');
+      const data1 = await storage1.getItem('file-explorer-storage-v5');
+      const data2 = await storage2.getItem('file-explorer-storage-v5');
 
       expect(data1).not.toEqual(data2);
     });
