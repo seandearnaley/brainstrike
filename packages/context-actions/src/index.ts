@@ -1,3 +1,4 @@
+export { createClipboardService } from './clipboard';
 export { isAbsolutePath, toRelativePath } from './paths';
 export {
   type ActionRegistry,
