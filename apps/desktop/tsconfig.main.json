@@ -77,6 +77,9 @@
       ],
       "@brainstrike/utils/workspace-indexing-power-snapshot": [
         "../../packages/utils/dist/workspace-indexing-power-snapshot.d.ts"
+      ],
+      "@electric-sql/pglite/contrib/*": [
+        "../../packages/db/node_modules/@electric-sql/pglite/dist/contrib/*.d.ts"
       ]
     },
     "strictNullChecks": true

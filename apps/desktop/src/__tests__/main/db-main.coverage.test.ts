@@ -60,6 +60,7 @@ vi.mock('electron', () => ({
 
 function mockSuccessfulDatabaseModules(options?: {
   liveModule?: unknown;
+  pgTrgmModule?: unknown;
   vectorModule?: unknown;
 }): { PGliteMock: ReturnType<typeof vi.fn> } {
   const queryMock = vi
@@ -82,6 +83,10 @@ function mockSuccessfulDatabaseModules(options?: {
   vi.doMock('@brainstrike/db', () => ({ migrate: vi.fn().mockResolvedValue(undefined) }));
   vi.doMock('@electric-sql/pglite-pgvector', () => options?.vectorModule ?? { vector: 'vector' });
   vi.doMock('@electric-sql/pglite/live', () => options?.liveModule ?? { live: 'live' });
+  vi.doMock(
+    '@electric-sql/pglite/contrib/pg_trgm',
+    () => options?.pgTrgmModule ?? { pg_trgm: 'pg_trgm' }
+  );
 
   return { PGliteMock };
 }
@@ -93,6 +98,7 @@ describe('db-main coverage helpers', () => {
     vi.doUnmock('@electric-sql/pglite');
     vi.doUnmock('@electric-sql/pglite-pgvector');
     vi.doUnmock('@electric-sql/pglite/live');
+    vi.doUnmock('@electric-sql/pglite/contrib/pg_trgm');
     installUtilityProcessParentPort();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.mkdirSync.mockReset();
@@ -130,9 +136,10 @@ describe('db-main coverage helpers', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
   });
 
-  it('loads pgvector and live extensions from default exports', async () => {
+  it('loads pgvector, live, and pg_trgm extensions from default exports', async () => {
     const { PGliteMock } = mockSuccessfulDatabaseModules({
       liveModule: { default: 'live-default', live: undefined },
+      pgTrgmModule: { default: 'pg_trgm-default', pg_trgm: undefined },
       vectorModule: { default: 'vector-default', vector: undefined },
     });
 
@@ -143,6 +150,7 @@ describe('db-main coverage helpers', () => {
       dataDir: expect.stringContaining('pgdata'),
       extensions: {
         live: 'live-default',
+        pg_trgm: 'pg_trgm-default',
         vector: 'vector-default',
       },
     });
