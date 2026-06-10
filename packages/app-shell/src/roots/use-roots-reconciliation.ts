@@ -64,12 +64,19 @@ export function useRootsReconciliation({
     if (hasRunRef.current) {
       return;
     }
-    if (!(adapter.restoreRoots && db)) {
-      // Adapter does not support restoreRoots or db is not ready: resolve with
-      // an empty map now so resolveDbRootId callers never hang. The promise
-      // ignores subsequent resolve() calls, so this is safe if the effect
-      // re-runs before the adapter/db becomes ready.
+    if (!adapter.restoreRoots) {
+      // Reconciliation can never run on this adapter — settle with an empty
+      // map so resolveDbRootId waiters don't hang (adapters without
+      // restoreRoots also have no sync consumers needing real ids).
       settlingRef.current.resolve(new Map());
+      return;
+    }
+    if (!db) {
+      // Deliberately NOT settled: db is not ready YET and the effect re-runs
+      // when it arrives. Settling empty here would be permanent (promises
+      // resolve once), silently dropping the later real mapping. No consumer
+      // can await resolveDbRootId before db exists — the sync service is
+      // constructed from the same db handle, so it doesn't exist yet either.
       return;
     }
     hasRunRef.current = true;

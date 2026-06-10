@@ -216,4 +216,39 @@ describe('useRootsReconciliation', () => {
     const resolved = await result.current.resolveDbRootId('/some/path');
     expect(resolved).toBeNull();
   });
+
+  // (i) regression: on first render db is null (DbProvider not ready yet). The
+  // settling promise must NOT settle empty then — when db arrives on a later
+  // render, the REAL mapping must come through (promises settle once, so an
+  // early empty-settle would silently drop it and root_id would never be set).
+  it('resolveDbRootId returns the real db id when db arrives after the first render', async () => {
+    const rootPath = '/workspace/docs';
+    const dbId = 'db-root-id';
+    const restoreRoots = vi.fn(
+      async (): Promise<RootDescriptor[]> => [
+        grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+      ]
+    );
+    const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+    const { db } = makeDbWithRootRow(rootPath, dbId);
+
+    const { rerender, result } = renderHook(
+      ({ currentDb }: { currentDb: DbHandle | null }) =>
+        useRootsReconciliation({ adapter, db: currentDb }),
+      { initialProps: { currentDb: null as DbHandle | null } }
+    );
+
+    // db not ready yet: reconciliation must not have run.
+    await Promise.resolve();
+    expect(restoreRoots).not.toHaveBeenCalled();
+
+    rerender({ currentDb: db });
+
+    await waitFor(() => {
+      expect(restoreRoots).toHaveBeenCalledTimes(1);
+    });
+
+    const resolved = await result.current.resolveDbRootId(rootPath);
+    expect(resolved).toBe(dbId);
+  });
 });
