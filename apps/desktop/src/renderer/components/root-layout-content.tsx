@@ -1,4 +1,5 @@
 import { ConnectedPromptManager } from '@brainstrike/app-shell';
+import { AgentHubPanel } from '@brainstrike/app-shell/agent-hub-panel';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,
@@ -11,6 +12,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
+import { useAgentHubAutostart } from './use-agent-hub-autostart';
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -55,6 +57,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
+  useAgentHubAutostart();
   const db = usePGliteDatabase();
   const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
     db ? 'database-ready' : 'initializing'
@@ -72,6 +75,7 @@ export default function RootLayoutContent() {
   const sharedProps: RootLayoutContentProps = {
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
+    agentHubPageContent: <AgentHubPanel />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,

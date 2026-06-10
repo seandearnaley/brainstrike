@@ -51,6 +51,7 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 }
 
 export interface RootLayoutContentProps {
+  readonly agentHubPageContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
@@ -69,6 +70,7 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
+  '/agent-hub': 'agent-hub',
   '/settings': 'settings',
   '/prompts': 'prompts',
 };
@@ -242,6 +244,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
+  agentHubPageContent,
   contextExplorerPageContent,
   contextExplorerPanelContent,
   settingsPageContent,
@@ -316,6 +319,15 @@ export function RootLayoutContent({
               />
             </PanelLayoutProvider>
           </div>
+          {mountedTabs.has('agent-hub') ? (
+            <div
+              aria-hidden={activeTab !== 'agent-hub'}
+              className={activeTab === 'agent-hub' ? 'h-full' : 'hidden h-full'}
+              data-testid="agent-hub-route"
+            >
+              {agentHubPageContent ?? null}
+            </div>
+          ) : null}
           {mountedTabs.has('prompts') ? (
             <div
               aria-hidden={activeTab !== 'prompts'}

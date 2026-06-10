@@ -23,6 +23,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: '@brainstrike/agent-hub',
+        replacement: path.resolve(import.meta.dirname, '../agent-hub/src/index.ts'),
+      },
+      {
         find: '@brainstrike/embeddings/runtime-config',
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/runtime-config.ts'),
       },

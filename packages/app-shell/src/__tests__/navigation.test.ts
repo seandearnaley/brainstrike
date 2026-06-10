@@ -1,9 +1,9 @@
-import { Folder, Settings } from 'lucide-react';
+import { Folder, Network, Settings } from 'lucide-react';
 import { navigationItems } from '../navigation';
 
 describe('navigationItems', () => {
   it('should have the correct number of items', () => {
-    expect(navigationItems).toHaveLength(3);
+    expect(navigationItems).toHaveLength(4);
   });
 
   it('should have the correct properties for Context Explorer', () => {
@@ -11,6 +11,13 @@ describe('navigationItems', () => {
     expect(contextExplorerItem).toBeDefined();
     expect(contextExplorerItem?.icon).toBe(Folder);
     expect(contextExplorerItem?.path).toBe('/');
+  });
+
+  it('should have the correct properties for Agent Hub', () => {
+    const agentHubItem = navigationItems.find((item) => item.name === 'Agent Hub');
+    expect(agentHubItem).toBeDefined();
+    expect(agentHubItem?.icon).toBe(Network);
+    expect(agentHubItem?.path).toBe('/agent-hub');
   });
 
   it('should have the correct properties for Settings', () => {

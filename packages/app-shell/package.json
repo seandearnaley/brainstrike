@@ -2,6 +2,7 @@
   "name": "@brainstrike/app-shell",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/agent-hub": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
@@ -39,6 +40,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./agent-hub-panel": {
+      "types": "./dist/agent-hub-panel.d.ts",
+      "import": "./dist/agent-hub-panel.js"
     },
     "./connected-prompt-manager-lazy": {
       "types": "./dist/connected-prompt-manager-lazy.d.ts",

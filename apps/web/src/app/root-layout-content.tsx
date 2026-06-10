@@ -1,4 +1,5 @@
 import { ConnectedPromptManager } from '@brainstrike/app-shell';
+import { AgentHubPanel } from '@brainstrike/app-shell/agent-hub-panel';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,
@@ -71,6 +72,7 @@ export default function RootLayoutContent() {
   const sharedProps: RootLayoutContentProps = {
     databaseTabChunkingMode: 'local',
     navigationItems: navigationConfig,
+    agentHubPageContent: <AgentHubPanel />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,

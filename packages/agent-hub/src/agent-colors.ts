@@ -1,4 +1,4 @@
-import type { AgentColorKey } from './types';
+import type { AgentColorKey } from './types.js';
 
 export const AGENT_COLOR_KEYS: readonly AgentColorKey[] = [
   'chart-1',

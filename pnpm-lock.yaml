@@ -780,6 +780,9 @@ importers:
 
   packages/app-shell:
     dependencies:
+      '@brainstrike/agent-hub':
+        specifier: workspace:*
+        version: link:../agent-hub
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract

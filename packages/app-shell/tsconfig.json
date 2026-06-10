@@ -12,6 +12,9 @@
       "node"
     ],
     "paths": {
+      "@brainstrike/agent-hub": [
+        "../agent-hub/src/index.ts"
+      ],
       "@brainstrike/db-explorer/database-demo-panel": [
         "../db-explorer/src/database-demo-panel.tsx"
       ],
@@ -151,6 +154,9 @@
     "vitest.config.*"
   ],
   "references": [
+    {
+      "path": "../agent-hub"
+    },
     {
       "path": "../assistant-contract"
     },

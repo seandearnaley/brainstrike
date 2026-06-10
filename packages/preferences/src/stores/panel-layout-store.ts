@@ -16,7 +16,7 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type PanelTab = 'explorer' | 'settings' | 'prompts';
+export type PanelTab = 'agent-hub' | 'explorer' | 'prompts' | 'settings';
 
 export interface PanelLayoutStoreState {
   // Root tabs

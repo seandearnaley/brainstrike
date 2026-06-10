@@ -1,5 +1,5 @@
 import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
-import { AGENT_COLOR_KEYS, BUILTIN_AGENT_COLOR, colorForIndex } from './agent-colors';
+import { AGENT_COLOR_KEYS, BUILTIN_AGENT_COLOR, colorForIndex } from './agent-colors.js';
 import type {
   AgentHub,
   AgentHubOptions,
@@ -11,7 +11,7 @@ import type {
   ReadMessagesInput,
   ReadMessagesResult,
   RegisterAgentInput,
-} from './types';
+} from './types.js';
 
 export const BUILTIN_SESSION_KEY = 'builtin';
 export const BUILTIN_AGENT_NAME = 'brainstrike';

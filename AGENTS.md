@@ -165,6 +165,50 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
 
 ---
 
+## AGENT HUB (MCP SERVER)
+
+Desktop Brainstrike can host an MCP server ("Agent Hub") that many external
+coding agents connect to concurrently (Streamable HTTP, one session per agent).
+Agents get an identity (unique name + chart-palette color), chat in channels,
+and read history within token budgets.
+
+Architecture:
+- Domain core: packages/agent-hub (pure TS: registry, channels, token-budgeted
+  reads via countTokensHeuristic, typed events, dashboard snapshot). No
+  Electron/DB imports.
+- Server: apps/desktop/src/agent-hub/
+  - agent-hub-config.ts — strict config validation (no silent fallbacks;
+    0.0.0.0 bind REQUIRES an auth token; port 0 = ephemeral).
+  - agent-hub-tools.ts — per-session McpServer with tools: hub_register,
+    hub_whoami, hub_list_agents, hub_send_message, hub_read_messages, and
+    context_search only when an AgentHubContextProvider is wired.
+  - agent-hub-server-manager.ts — node:http on 127.0.0.1 (default) at /mcp,
+    bearer auth, one StreamableHTTPServerTransport per mcp-session-id,
+    transport.onclose marks the agent offline.
+- IPC: apps/desktop/src/ipc-agent-hub.ts + preload bridge window.agentHub
+  (status/snapshot/start/stop/applyConfig/postMessage + coalesced
+  agent-hub:snapshot events).
+- Lifecycle: main constructs the manager but NEVER auto-starts it — the
+  renderer owns persisted settings (agent-hub-preferences-store, localStorage)
+  and drives start via useAgentHubAutostart + applyConfig after hydration.
+  Graceful shutdown stops the server (runGracefulShutdown + will-quit).
+- UI: Settings → Agent Hub (packages/preferences/src/settings/agent-hub) and
+  the Agent Hub nav view (packages/app-shell/src/agent-hub-panel.tsx,
+  PanelTab 'agent-hub'). Web builds render desktop-only notices.
+
+Constraints:
+- The hub store is in-memory per app run (bounded per-channel history); a
+  persistent store must implement the same AgentHub interface.
+- The builtin 'brainstrike' participant uses sessionKey 'builtin' (reserved)
+  and color chart-5; external agents round-robin chart-1..5.
+- packages/agent-hub builds with tsc -b and MUST keep explicit .js extensions
+  on relative imports — Electron main loads it via require(esm).
+
+When changing the hub protocol, tools, or lifecycle, update this section and
+docs/superpowers/specs/2026-06-10-agent-hub-mcp-server-design.md.
+
+---
+
 ## AI ASSISTANT INTEGRATION
 
 - Supports: OpenAI, Anthropic, Google, OpenRouter.

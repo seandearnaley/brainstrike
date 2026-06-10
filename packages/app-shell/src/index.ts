@@ -1,3 +1,4 @@
+export * from './agent-hub-panel';
 export * from './agent-sidebar-panel';
 export * from './agent-workspace-layout';
 export * from './app-config';
