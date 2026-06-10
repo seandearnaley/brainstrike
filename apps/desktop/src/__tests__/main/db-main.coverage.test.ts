@@ -167,6 +167,29 @@ describe('db-main coverage helpers', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
   });
 
+  it('fails fast when pg_trgm extension cannot be loaded', async () => {
+    mockSuccessfulDatabaseModules({ pgTrgmModule: {} });
+
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/pg_trgm extension is required/i);
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
+  });
+
+  it('formats open-database missing-extension failures with the generic message', async () => {
+    const { PGliteMock } = mockSuccessfulDatabaseModules();
+    PGliteMock.mockImplementation(() => {
+      throw new Error('vector export missing from setup');
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(
+      /A required PGlite extension failed to initialize/
+    );
+  });
+
   it('serializes non-error extension load failures in diagnostics', async () => {
     const circularFailure: Record<string, unknown> = { code: 'E_BROKEN', reason: 'bad package' };
     circularFailure['self'] = circularFailure;
