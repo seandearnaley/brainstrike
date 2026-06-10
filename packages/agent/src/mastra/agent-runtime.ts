@@ -217,7 +217,7 @@ export async function createMastraAgentRuntime(
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
-  const budgetNote = buildContextBudgetNote(runtime?.agentLoop?.inputTokenLimit);
+  const budgetNote = buildContextBudgetNote(sanitizedRuntime.agentLoop?.inputTokenLimit);
   const resolvedInstructions = instructions ?? buildDefaultInstructions(toolNameMap);
   const agent = new Agent({
     id: 'brainstrike-assistant',

@@ -179,13 +179,13 @@ describe('grep-first search orientation', () => {
 describe('buildContextBudgetNote', () => {
   it('renders a one-line budget note', () => {
     expect(buildContextBudgetNote(126_000)).toBe(
-      'Context budget: about 126.0K tokens of input context are available this run; be concise and suggest starting a new thread if context runs low.'
+      'Context budget: about 126.0K tokens of input context are available this run. Suggest starting a new thread if context runs low.'
     );
   });
 
   it('renders small budgets without K notation', () => {
     expect(buildContextBudgetNote(900)).toBe(
-      'Context budget: about 900 tokens of input context are available this run; be concise and suggest starting a new thread if context runs low.'
+      'Context budget: about 900 tokens of input context are available this run. Suggest starting a new thread if context runs low.'
     );
   });
 

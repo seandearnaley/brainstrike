@@ -4,7 +4,7 @@ export function buildContextBudgetNote(budgetTokens: number | undefined): string
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
     return null;
   }
-  return `Context budget: about ${formatTokenCount(budgetTokens)} of input context are available this run; be concise and suggest starting a new thread if context runs low.`;
+  return `Context budget: about ${formatTokenCount(budgetTokens)} of input context are available this run. Suggest starting a new thread if context runs low.`;
 }
 
 const HARNESS_FRAMING =

@@ -393,7 +393,7 @@ describe('agent-runtime edge cases', () => {
       const instructions = runtime.agent.getInstructions();
       expect(instructions).toMatch(/Context budget:/);
       expect(instructions).toContain(
-        'Context budget: about 126.0K tokens of input context are available this run; be concise and suggest starting a new thread if context runs low.'
+        'Context budget: about 126.0K tokens of input context are available this run. Suggest starting a new thread if context runs low.'
       );
       await runtime.dispose();
     });
@@ -421,6 +421,24 @@ describe('agent-runtime edge cases', () => {
 
       const runtime = await createMastraAgentRuntime({
         runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).not.toContain('Context budget:');
+      await runtime.dispose();
+    });
+
+    it('does not inject budget note when runtime is undefined', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      // options.runtime stays undefined; the pre-resolved configuration carries
+      // no agentLoop, so no budget note may be injected.
+      const runtime = await createMastraAgentRuntime({
+        resolved: {
+          runtime: { provider: 'openai' },
+          provider: 'openai',
+          apiKey: 'test-key',
+        },
       });
 
       const instructions = runtime.agent.getInstructions();
