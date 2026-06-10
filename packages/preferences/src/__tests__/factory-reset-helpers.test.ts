@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ClearPersistentUiStateResult } from '../settings/system/factory-reset-helpers';
 import {
   clearPersistentUiState,
+  clearPersistentUiStateWithResult,
   FALLBACK_INDEXED_DB_NAMES,
 } from '../settings/system/factory-reset-helpers';
 
@@ -309,5 +311,25 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     expect(removed).toEqual(expect.arrayContaining(['app-pg18', 'app', 'app-pg17', 'web-pg18']));
     // A non-pglite OPFS consumer's root dir must never be swept by factory reset.
     expect(removed).not.toContain('some-other-lib');
+  });
+
+  it('reports incomplete reset results when an OPFS pglite directory cannot be removed', async () => {
+    const resetFailure = new Error('locked opfs directory');
+    removeEntry.mockImplementation(async (name: string) => {
+      if (name === 'app-pg18') {
+        throw resetFailure;
+      }
+    });
+
+    const result: ClearPersistentUiStateResult = await clearPersistentUiStateWithResult();
+
+    expect(result.success).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatchObject({
+      error: resetFailure,
+      name: 'app-pg18',
+      operation: 'removeEntry',
+      target: 'opfs-pglite',
+    });
   });
 });
