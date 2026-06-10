@@ -1,0 +1,27 @@
+export type {
+  ChunkingHostStatus,
+  EmbeddingBackfillInfo,
+  EmbeddingHostStatus,
+} from '../embedding-worker-renderer.shared';
+export {
+  destroyEmbeddingHostWindow,
+  ensureEmbeddingHostWarmed,
+  getBridgeBackfillState,
+  getChunkingHostStatus,
+  getEmbeddingBackfillsInFlight,
+  getEmbeddingHostPage,
+  getEmbeddingHostStatus,
+  resetEmbeddingHost,
+  startBackfillViaBridge,
+  stopChunkingHost,
+  stopEmbeddingHost,
+  waitForActiveProcessingOrFatalError,
+  waitForBackfillButtonEnabled,
+  waitForBackfillEnqueueComplete,
+  waitForBackfillProgressText,
+  waitForBoundedBackfillEnqueueOrFatalError,
+  waitForBridgeBackfillCompletion,
+  waitForEmbeddingHostIdleAndQueueDrain,
+  waitForEmbeddingHostState,
+  waitForPositiveBackfillProgress,
+} from '../embedding-worker-renderer.shared';
