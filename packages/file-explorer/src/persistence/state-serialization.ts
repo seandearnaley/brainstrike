@@ -1,4 +1,5 @@
 import type {
+  FileExplorerData,
   FileExplorerState,
   FolderState,
   SelectionModel,
@@ -103,9 +104,30 @@ function coerceRootDescriptors(
     const coerced = coerceStoredRootDescriptor(entry);
     if (coerced) {
       result[key] = coerced;
+    } else {
+      logger.debug('coerceRootDescriptors: dropping malformed entry', { key });
     }
   }
   return result;
+}
+
+/**
+ * Coerce both multi-root fields together so the invariant "every id in
+ * activeRootIds has a descriptor" holds as a postcondition — coercion can drop
+ * a malformed descriptor whose id would otherwise dangle in the array.
+ */
+function mergeActiveRoots(
+  persistedSerialized: { activeRootIds?: unknown; rootDescriptors?: unknown },
+  current: { rootDescriptors: Record<string, StoredRootDescriptor> }
+): Pick<FileExplorerData, 'activeRootIds' | 'rootDescriptors'> {
+  const rootDescriptors = coerceRootDescriptors(
+    persistedSerialized.rootDescriptors,
+    current.rootDescriptors
+  );
+  const activeRootIds = coerceStringArray(persistedSerialized.activeRootIds).filter(
+    (id) => id in rootDescriptors
+  );
+  return { activeRootIds, rootDescriptors };
 }
 
 function deserializeQueryDescriptor(value: unknown): SerializedSelectionModel['queryDescriptor'] {
@@ -370,11 +392,7 @@ export function mergeState(
       current.isFiltersExpanded
     ),
     // Multi-root (Phase 4) fields — coerced safely from persisted data
-    activeRootIds: coerceStringArray(persistedSerialized.activeRootIds),
-    rootDescriptors: coerceRootDescriptors(
-      persistedSerialized.rootDescriptors,
-      current.rootDescriptors
-    ),
+    ...mergeActiveRoots(persistedSerialized, current),
   };
 
   for (const key in current.folderStates) {
