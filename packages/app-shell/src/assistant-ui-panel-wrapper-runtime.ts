@@ -461,7 +461,11 @@ export function toRuntimeProviderModels(
     type: 'llm' as const,
     default: index === 0,
     supportsStreaming: true,
-    // conservative floor: user-supplied local models don't declare a window
+    // Conservative floor: user-supplied local models don't declare their context window.
+    // This intentionally under-budgets large models (a 128k model gets a 32k budget — safe).
+    // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
+    // compose prompts larger than the model holds. Accepted tradeoff — the local server's
+    // own context cap is the real enforcement on that path.
     contextWindow: 32_768,
   }));
 }

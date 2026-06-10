@@ -353,6 +353,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // OpenRouter uses provider-prefixed model slugs (examples in docs):
     // https://openrouter.ai/docs/guides/routing/auto-model-selection
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
+    // Intentional subset: the gateway list carries only the slugs OpenRouter
+    // actually exposes — Pro/Nano variants of the gpt-5.x family are omitted
+    // on purpose (this predates the contextWindow change).
     models: [
       {
         id: 'openai/gpt-5.5',
@@ -606,7 +609,9 @@ export function resolveDefaultModel(
  * token budgeting must never silently guess a context window.
  */
 export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
-  const provider = PROVIDER_DEFINITIONS.find((definition) => definition.id === providerId);
+  // O(1) map lookup; the type says it can't miss, but guard against
+  // out-of-union runtime ids (e.g. persisted prefs from an older build).
+  const provider: ProviderDefinition | undefined = getProviderDefinition(providerId);
   if (!provider) {
     throw new Error(`Unknown provider id for LLM model lookup: ${providerId}`);
   }
