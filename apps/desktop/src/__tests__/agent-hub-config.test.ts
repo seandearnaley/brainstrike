@@ -31,8 +31,11 @@ describe('assertAgentHubConfig', () => {
     expect(() => assertAgentHubConfig(DEFAULT_AGENT_HUB_CONFIG)).not.toThrow();
   });
 
+  it('accepts port 0 as "assign an ephemeral port"', () => {
+    expect(assertAgentHubConfig({ ...validConfig, port: 0 }).port).toBe(0);
+  });
+
   it.each([
-    ['port zero', { ...validConfig, port: 0 }],
     ['port too high', { ...validConfig, port: 70_000 }],
     ['port below 1024', { ...validConfig, port: 80 }],
     ['string port', { ...validConfig, port: '4519' }],

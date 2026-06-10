@@ -115,6 +115,9 @@ importers:
       '@brainstrike/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@brainstrike/agent-hub':
+        specifier: workspace:*
+        version: link:../../packages/agent-hub
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell

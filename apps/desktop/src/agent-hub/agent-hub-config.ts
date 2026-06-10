@@ -51,9 +51,14 @@ export function assertAgentHubConfig(value: unknown): AgentHubRuntimeConfig {
   if (typeof enabled !== 'boolean') {
     throw new AgentHubConfigError('enabled must be a boolean.');
   }
-  if (!Number.isInteger(port) || typeof port !== 'number' || port < MIN_PORT || port > MAX_PORT) {
+  const isEphemeralPort = port === 0;
+  if (
+    !Number.isInteger(port) ||
+    typeof port !== 'number' ||
+    (!isEphemeralPort && (port < MIN_PORT || port > MAX_PORT))
+  ) {
     throw new AgentHubConfigError(
-      `port must be an integer between ${MIN_PORT} and ${MAX_PORT}, received ${JSON.stringify(port)}.`
+      `port must be 0 (ephemeral) or an integer between ${MIN_PORT} and ${MAX_PORT}, received ${JSON.stringify(port)}.`
     );
   }
   if (bindAddress !== '127.0.0.1' && bindAddress !== '0.0.0.0') {
