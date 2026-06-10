@@ -260,6 +260,10 @@ vi.mock('electron', async () => {
       isStarted: vi.fn(() => true),
       stop: vi.fn(),
     },
+    shell: {
+      openPath: vi.fn().mockResolvedValue(''),
+      showItemInFolder: vi.fn(),
+    },
   };
 });
 

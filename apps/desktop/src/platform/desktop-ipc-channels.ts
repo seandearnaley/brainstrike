@@ -73,6 +73,10 @@ export const DESKTOP_IPC_CHANNELS = {
     listStored: 'secrets:listStored',
     save: 'secrets:save',
   },
+  shell: {
+    openPath: 'shell:open-path',
+    showItemInFolder: 'shell:show-item-in-folder',
+  },
   storage: {
     clear: 'storage:clear',
     getAllKeys: 'storage:getAllKeys',

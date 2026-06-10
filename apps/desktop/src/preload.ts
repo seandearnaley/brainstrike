@@ -59,6 +59,8 @@ const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs' as const;
 const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
 const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
 const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
+const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
+const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -913,3 +915,12 @@ contextBridge.exposeInMainWorld('clipboard', {
     }
   },
 });
+
+// Platform shell bridge: reveal/open absolute paths in the OS file manager.
+if (shouldExposeBridge('platform')) {
+  contextBridge.exposeInMainWorld('platform', {
+    openPath: (absolutePath: string) => ipcRenderer.invoke(SHELL_OPEN_PATH_CHANNEL, absolutePath),
+    showItemInFolder: (absolutePath: string) =>
+      ipcRenderer.invoke(SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL, absolutePath),
+  });
+}

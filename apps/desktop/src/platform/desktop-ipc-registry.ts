@@ -12,6 +12,7 @@ export type DesktopIpcDomain =
   | 'mcp'
   | 'preferences'
   | 'runtime'
+  | 'shell'
   | 'storage'
   | 'tools';
 
