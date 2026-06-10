@@ -252,6 +252,31 @@ describe('FactoryResetPanel', () => {
       expect(clearOrder).toBeLessThan(resetOrder);
     });
 
+    it('still runs the desktop reset bridge when renderer storage cleanup fails', async () => {
+      const resetLocal = vi.fn().mockResolvedValue({ success: true });
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: {
+          db: { resetLocal },
+        },
+        writable: true,
+      });
+      mockUseFactoryReset.mockReturnValue(null);
+      mockClearPersistentUiState.mockRejectedValue(new Error('locked OPFS handle'));
+
+      render(<FactoryResetPanel doFactoryReset={null} />);
+
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
+
+      await waitFor(() => {
+        expect(resetLocal).toHaveBeenCalled();
+        expect(mockReload).toHaveBeenCalled();
+      });
+
+      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
+      expect(mockToast).not.toHaveBeenCalled();
+    });
+
     it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {
       const resetLocal = vi.fn().mockResolvedValue({
         success: false,

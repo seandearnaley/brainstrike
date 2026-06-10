@@ -214,8 +214,9 @@ const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
  *
  * Enumerates the OPFS root when supported (clearing every versioned/older pglite
  * dir, scoped to the base pattern so unrelated entries are never swept); falls back
- * to the known names otherwise. Missing dirs are idempotent; other OPFS failures
- * are collected and surfaced so factory reset can fail instead of leaving phantom data.
+ * to the known names otherwise. Absent dirs are ignored; held handles and other
+ * removal failures are reported so factory reset callers can fail visibly instead
+ * of leaving a live OPFS store behind.
  */
 async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]> {
   if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
@@ -382,7 +383,8 @@ async function clearCacheStorage(): Promise<void> {
  * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
  * - IndexedDB: All databases enumerated and deleted (unless skipIndexedDb=true)
  * - OPFS-AHP: Brainstrike's PGlite OPFS stores (opfs-ahp://app-pg18 etc.) — always
- *   run (separate from the IndexedDB layer), best-effort and idempotent
+ *   run (separate from the IndexedDB layer); missing dirs are idempotent, other
+ *   failures are surfaced as incomplete reset results
  * - CacheStorage: All caches (fetch, worker bundles)
  *
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.

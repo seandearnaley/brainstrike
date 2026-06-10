@@ -15,6 +15,8 @@ export interface FactoryResetPanelProps {
   doFactoryReset?: (() => Promise<void>) | null;
 }
 
+type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
+
 async function requestFactoryResetReload(reason: string): Promise<void> {
   try {
     const currentWindow = window as Window & {
@@ -27,7 +29,7 @@ async function requestFactoryResetReload(reason: string): Promise<void> {
   }
 }
 
-function getDesktopResetBridge(): (() => Promise<{ message?: string; success: boolean }>) | null {
+function getDesktopResetBridge(): DesktopResetBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -61,6 +63,27 @@ async function clearPersistentUiStateOrThrow(
   options: ClearPersistentUiStateOptions
 ): Promise<void> {
   assertPersistentUiStateResetComplete(await clearPersistentUiStateWithResult(options));
+}
+
+async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): Promise<void> {
+  let rendererStorageResetError: unknown;
+  let rendererStorageResetResult: ClearPersistentUiStateResult | null = null;
+  try {
+    rendererStorageResetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: false });
+  } catch (error) {
+    rendererStorageResetError = error;
+  }
+
+  const result = await desktopResetBridge();
+  if (!result.success) {
+    throw new Error(result.message ?? 'Desktop factory reset failed.');
+  }
+  if (rendererStorageResetError) {
+    throw rendererStorageResetError;
+  }
+  if (rendererStorageResetResult) {
+    assertPersistentUiStateResetComplete(rendererStorageResetResult);
+  }
 }
 
 export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
@@ -97,14 +120,7 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
         // clearing storage because localStorage/sessionStorage are cleared first,
         // which makes same-session toast recovery unreliable.
         rendererStorageResetStarted = true;
-        const rendererStorageResetResult = await clearPersistentUiStateWithResult({
-          skipIndexedDb: false,
-        });
-        const result = await desktopResetBridge();
-        if (!result.success) {
-          throw new Error(result.message ?? 'Desktop factory reset failed.');
-        }
-        assertPersistentUiStateResetComplete(rendererStorageResetResult);
+        await runDesktopFactoryReset(desktopResetBridge);
       } else {
         // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
         if (typeof resetFn !== 'function') {
