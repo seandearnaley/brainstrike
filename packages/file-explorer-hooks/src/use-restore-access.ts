@@ -203,32 +203,23 @@ async function loadStoredHandles({
 }
 
 /**
- * Validate and get the authoritative folderId from the handle.
- * If folderId doesn't match the handle name, logs a warning, cleans up the stale
- * cache entry, and returns the handle name as the authoritative source.
+ * Return the authoritative folderId for a restore operation.
+ *
+ * Previously this function compared the stored folderId against `rawHandle.name`
+ * and deleted the handle on mismatch. Under RootId keying (v2), `storedFolderId`
+ * is a UUID — it will never equal `rawHandle.name`, so the name-equality cleanup
+ * would delete every stored root. The collision it guarded against is structurally
+ * impossible with UUID keys, so the check is removed entirely.
+ *
+ * NotFoundError and permission failures are still handled by their respective
+ * callers (`requestPermissionAndRestore` and the `beginRestore` callback).
  */
 function getValidatedFolderIdAndCleanup(
-  rawHandle: FileSystemDirectoryHandle,
+  _rawHandle: FileSystemDirectoryHandle,
   storedFolderId: string,
-  handleCache: WebHandleCacheShape | null
+  _handleCache: WebHandleCacheShape | null
 ): string {
-  const validatedFolderId = rawHandle.name;
-
-  if (storedFolderId !== validatedFolderId) {
-    logger.warn('folderId mismatch with handle name', {
-      storedFolderId,
-      handleName: validatedFolderId,
-    });
-    // Clean up the stale cache entry asynchronously (doesn't block restore)
-    handleCache?.removeRootHandle?.(storedFolderId).catch((err) => {
-      logger.warn('Failed to remove stale cache entry', {
-        folderId: storedFolderId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  return validatedFolderId;
+  return storedFolderId;
 }
 
 /** Request permission and return DirectoryHandle if granted */

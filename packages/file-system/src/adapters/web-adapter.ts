@@ -1,4 +1,4 @@
-import type { IFileNode } from '@brainstrike/types';
+import type { IFileNode, RootDescriptor, RootPermissionState } from '@brainstrike/types';
 import { createLogger, fileNodeCollator } from '@brainstrike/utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { formatFileSize, getFileSizeConfig } from '../config';
@@ -121,6 +121,30 @@ async function createFileNode(
   }
 }
 
+/**
+ * Query the current permission state of a directory handle without prompting.
+ * Uses `handle.queryPermission` if available; falls back to 'unknown'.
+ * Never throws — stale/revoked handles that error during the query return 'unknown'.
+ *
+ * Note: web-handle-cache.ts has a private `isHandleValid` helper that also calls
+ * `queryPermission`, but it is not exported. This local helper is intentionally
+ * thin — it returns the raw permission value rather than a boolean so callers
+ * can surface 'prompt' vs 'denied' to the UI.
+ */
+async function queryHandlePermission(
+  handle: FileSystemDirectoryHandle
+): Promise<RootPermissionState> {
+  if (typeof handle.queryPermission !== 'function') {
+    return 'unknown';
+  }
+  try {
+    const state = await handle.queryPermission({ mode: 'read' });
+    return state as RootPermissionState;
+  } catch {
+    return 'unknown';
+  }
+}
+
 export interface WebFileSystemAdapterOptions {
   handleCache?: HandleCache;
 }
@@ -205,22 +229,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     });
   }
 
-  async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    if (!('showDirectoryPicker' in window)) {
-      throw new Error('File System Access API not supported');
-    }
-
-    const dirHandle = await window.showDirectoryPicker();
-    try {
-      await this.ensurePersistentStorage();
-      await this.handleCache.storeRootHandle(dirHandle.name, dirHandle);
-      this.lastRootFolderId = dirHandle.name;
-      logger.info('Stored root handle to IndexedDB', { name: dirHandle.name });
-    } catch (err) {
-      // Best-effort persistence; ignore failures.
-      logger.warn('Failed to store root handle', { error: err });
-    }
-
+  /**
+   * Builds a `DirectoryHandle` from a raw `FileSystemDirectoryHandle`.
+   * Extracted so both `addRoot` and `restoreRoots` produce the same shape.
+   */
+  private toDirectoryHandle(dirHandle: FileSystemDirectoryHandle): DirectoryHandle {
     return {
       path: dirHandle.name, // Web API doesn't give full path for security
       name: dirHandle.name,
@@ -228,6 +241,62 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       platform: 'web',
       _internal: dirHandle,
     };
+  }
+
+  /**
+   * Multi-root: pick a directory, persist it under a generated RootId, and
+   * return a `RootDescriptor`. `requestDirectoryAccess()` is the legacy shim
+   * over this method.
+   */
+  async addRoot(): Promise<RootDescriptor> {
+    if (!('showDirectoryPicker' in window)) {
+      throw new Error('File System Access API not supported');
+    }
+    const dirHandle = await window.showDirectoryPicker();
+    const rootId = crypto.randomUUID();
+    try {
+      await this.ensurePersistentStorage();
+      await this.handleCache.storeRootHandle(rootId, dirHandle);
+      logger.info('Stored root handle to IndexedDB', { name: dirHandle.name, rootId });
+    } catch (err) {
+      // Best-effort persistence; ignore failures (matches requestDirectoryAccess).
+      logger.warn('Failed to store root handle', { error: err });
+    }
+    this.lastRootFolderId = rootId;
+    return {
+      displayName: dirHandle.name,
+      handle: this.toDirectoryHandle(dirHandle),
+      kind: 'fsa',
+      permissionState: 'granted',
+      rootId,
+    };
+  }
+
+  /** Legacy single-root shim: delegates to addRoot and returns only the handle. */
+  async requestDirectoryAccess(): Promise<DirectoryHandle> {
+    const root = await this.addRoot();
+    return root.handle;
+  }
+
+  /**
+   * Multi-root: return every persisted root with its current permission state.
+   * Never prompts (`queryPermission` only); never throws on individual stale
+   * roots — stale entries are omitted.
+   */
+  async restoreRoots(): Promise<RootDescriptor[]> {
+    const stored = await this.handleCache.getAllRootHandles();
+    const descriptors: RootDescriptor[] = [];
+    for (const record of stored) {
+      const permissionState = await queryHandlePermission(record.handle);
+      descriptors.push({
+        displayName: record.name,
+        handle: this.toDirectoryHandle(record.handle),
+        kind: 'fsa',
+        permissionState,
+        rootId: record.folderId,
+      });
+    }
+    return descriptors;
   }
 
   async readDirectory(

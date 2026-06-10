@@ -1,6 +1,7 @@
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebFileSystemAdapter } from '../adapters/web-adapter';
-import type { HandleCache } from '../adapters/web-handle-cache';
+import type { HandleCache, StoredRootHandle } from '../adapters/web-handle-cache';
 import type { DirectoryHandle, FileHandle } from '../types';
 
 function createFile(name: string, content = 'data', lastModified = Date.now()) {
@@ -74,7 +75,12 @@ describe('WebFileSystemAdapter', () => {
 
       await adapter.requestDirectoryAccess();
 
-      expect(handleCache.storeRootHandle).toHaveBeenCalledWith('root', dirHandle);
+      // Since requestDirectoryAccess delegates to addRoot, storage is now keyed
+      // by a generated RootId (UUID), not by dirHandle.name.
+      expect(handleCache.storeRootHandle).toHaveBeenCalledOnce();
+      const [storedKey, storedHandle] = (handleCache.storeRootHandle as Mock).mock.calls[0] ?? [];
+      expect(storedKey).toMatch(/^[0-9a-f-]{36}$/);
+      expect(storedHandle).toBe(dirHandle);
     });
 
     it('requests persistent storage once and still returns the directory when persistence fails', async () => {
@@ -452,11 +458,17 @@ describe('WebFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       await expect(adapter.readFileByPath('nested/file.txt')).resolves.toBe('hello world');
-      expect(handleCache.getRootHandle).toHaveBeenCalledWith('root');
+
+      // Since requestDirectoryAccess now delegates to addRoot, the lastRootFolderId
+      // is a generated UUID. getRootHandle and storeFileHandle are called with that
+      // UUID, not with the directory name.
+      const firstGetRootCall = (handleCache.getRootHandle as Mock).mock.calls[0];
+      const resolvedRootId = firstGetRootCall?.[0] as string;
+      expect(resolvedRootId).toMatch(/^[0-9a-f-]{36}$/);
       expect(rootDirHandle.getDirectoryHandle).toHaveBeenCalledWith('nested');
       expect(nestedDirHandle.getFileHandle).toHaveBeenCalledWith('file.txt');
       expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
-        'root',
+        resolvedRootId,
         'nested/file.txt',
         fileHandle
       );
@@ -979,5 +991,104 @@ describe('WebFileSystemAdapter', () => {
       const result = await adapter.exists('any/path');
       expect(result).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers for multi-root API tests
+// ---------------------------------------------------------------------------
+
+function makeDirHandle(name: string): FileSystemDirectoryHandle {
+  return {
+    name,
+    kind: 'directory' as const,
+    entries: vi.fn(),
+    queryPermission: vi.fn().mockResolvedValue('granted'),
+  } as unknown as FileSystemDirectoryHandle;
+}
+
+function setupAdapterWithPicker(name: string): {
+  adapter: WebFileSystemAdapter;
+  dirHandle: FileSystemDirectoryHandle;
+  handleCache: HandleCache;
+} {
+  const dirHandle = makeDirHandle(name);
+  (
+    window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+  ).showDirectoryPicker = vi.fn().mockResolvedValue(dirHandle);
+
+  const handleCache = createHandleCache();
+  const adapter = new WebFileSystemAdapter({ handleCache });
+  return { adapter, dirHandle, handleCache };
+}
+
+interface StoredRootSpec {
+  folderId: string;
+  name: string;
+  permission: PermissionState;
+}
+
+function setupAdapterWithStoredRoots(specs: StoredRootSpec[]): {
+  adapter: WebFileSystemAdapter;
+  handleCache: HandleCache;
+} {
+  const storedRoots: StoredRootHandle[] = specs.map((s) => ({
+    folderId: s.folderId,
+    name: s.name,
+    handle: {
+      name: s.name,
+      kind: 'directory' as const,
+      entries: vi.fn(),
+      queryPermission: vi.fn().mockResolvedValue(s.permission),
+    } as unknown as FileSystemDirectoryHandle,
+    storedAt: Date.now(),
+    lastAccessedAt: Date.now(),
+  }));
+
+  const handleCache = createHandleCache({
+    getAllRootHandles: vi.fn().mockResolvedValue(storedRoots),
+  });
+  const adapter = new WebFileSystemAdapter({ handleCache });
+  return { adapter, handleCache };
+}
+
+describe('multi-root API', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('addRoot stores the handle under a generated RootId and returns a descriptor', async () => {
+    const { adapter, handleCache, dirHandle } = setupAdapterWithPicker('my-project');
+    const descriptor = await adapter.addRoot();
+
+    expect(descriptor.kind).toBe('fsa');
+    expect(descriptor.displayName).toBe('my-project');
+    expect(descriptor.permissionState).toBe('granted');
+    expect(descriptor.rootId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(descriptor.handle.platform).toBe('web');
+    expect(handleCache.storeRootHandle).toHaveBeenCalledWith(descriptor.rootId, dirHandle);
+  });
+
+  it('requestDirectoryAccess delegates to addRoot (same storage path, legacy return shape)', async () => {
+    const { adapter, handleCache } = setupAdapterWithPicker('my-project');
+    const handle = await adapter.requestDirectoryAccess();
+
+    expect(handle.name).toBe('my-project');
+    const [storedRootId] = (handleCache.storeRootHandle as Mock).mock.calls[0] ?? [];
+    expect(storedRootId).toMatch(/^[0-9a-f-]{36}$/); // NOT dirHandle.name any more
+  });
+
+  it('restoreRoots returns one descriptor per stored root with queried permission, never prompting', async () => {
+    // two stored roots: one granted, one prompt
+    const { adapter } = setupAdapterWithStoredRoots([
+      { folderId: 'id-granted', name: 'a', permission: 'granted' },
+      { folderId: 'id-prompt', name: 'b', permission: 'prompt' },
+    ]);
+    const roots = await adapter.restoreRoots();
+
+    expect(roots).toHaveLength(2);
+    expect(roots.find((r) => r.rootId === 'id-granted')?.permissionState).toBe('granted');
+    expect(roots.find((r) => r.rootId === 'id-prompt')?.permissionState).toBe('prompt');
+    // requestPermission must never have been called on either handle
   });
 });

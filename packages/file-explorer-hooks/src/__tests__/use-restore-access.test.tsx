@@ -209,12 +209,18 @@ describe('useRestoreAccess', () => {
       platform: 'web',
       _internal: mockRawHandle,
     });
-    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('Root');
+    // Under RootId keying, the stored folderId ('root') is the authoritative
+    // identity — not the handle name ('Root'). getValidatedFolderIdAndCleanup
+    // no longer re-keys by name.
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('root');
     expect(mockRawHandle.requestPermission).not.toHaveBeenCalled();
     expect(result.current.pendingRestore).toBeNull();
   });
 
-  it('cleans up stale folder ids before restoring a granted pending handle', async () => {
+  it('uses stored folderId as the authoritative identity even when it differs from handle name', async () => {
+    // Under RootId keying (v2) the stored folderId is a UUID — it will never
+    // equal rawHandle.name. The old name-equality cleanup is removed because it
+    // would otherwise delete every stored root. The stored key is now canonical.
     const mockRawHandle = {
       name: 'Actual Root',
       kind: 'directory',
@@ -222,7 +228,7 @@ describe('useRestoreAccess', () => {
     const handleCache = {
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
-        folderId: 'stale-root',
+        folderId: 'uuid-root-id',
         handle: mockRawHandle,
         name: 'Actual Root',
         permissionState: 'granted',
@@ -244,8 +250,9 @@ describe('useRestoreAccess', () => {
       await result.current.beginRestore();
     });
 
-    expect(handleCache.removeRootHandle).toHaveBeenCalledWith('stale-root');
-    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('Actual Root');
+    // Stored folderId is used as-is — no name-based re-keying or deletion.
+    expect(handleCache.removeRootHandle).not.toHaveBeenCalled();
+    expect(handleCache.markHandleRestored).toHaveBeenCalledWith('uuid-root-id');
   });
 
   it('requests permission for prompt handles and marks denied or stale states', async () => {
