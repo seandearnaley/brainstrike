@@ -86,6 +86,7 @@ import {
   resolveModelNameFromComposite,
   resolveProviderModelSelection,
   type SelectedModelBudgetDef,
+  safeEffectiveBudget,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -377,8 +378,11 @@ export function AssistantUiPanelWrapper({
     };
   }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
 
-  const agentLoopSettings = useMemo(
-    () => buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
+  const { agentLoopSettings, meterEffectiveInputBudget } = useMemo(
+    () => ({
+      agentLoopSettings: buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
+      meterEffectiveInputBudget: safeEffectiveBudget(selectedModelBudgetDef),
+    }),
     [selectedModelBudgetDef, selectedProviderSettings]
   );
   const assistantMemoryOptions = useMemo(
@@ -1470,6 +1474,8 @@ export function AssistantUiPanelWrapper({
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
+      contextWindow={selectedModelBudgetDef?.contextWindow}
+      effectiveInputBudget={meterEffectiveInputBudget}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}
       onUsage={handleUsage}
