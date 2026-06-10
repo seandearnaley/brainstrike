@@ -1,1 +1,21 @@
-export type { AgentHubPlaceholder } from './types';
+export { AGENT_COLOR_KEYS, BUILTIN_AGENT_COLOR, colorForIndex } from './agent-colors';
+export {
+  AgentHubError,
+  BUILTIN_AGENT_NAME,
+  BUILTIN_SESSION_KEY,
+  createAgentHub,
+} from './agent-hub';
+export type {
+  AgentColorKey,
+  AgentHub,
+  AgentHubOptions,
+  AgentStatus,
+  HubAgent,
+  HubEventMap,
+  HubMessage,
+  HubSnapshot,
+  PostMessageInput,
+  ReadMessagesInput,
+  ReadMessagesResult,
+  RegisterAgentInput,
+} from './types';
