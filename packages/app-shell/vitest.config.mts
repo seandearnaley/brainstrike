@@ -63,6 +63,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
       },
       {
+        find: '@brainstrike/context-actions',
+        replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
+      },
+      {
         find: '@brainstrike/db-explorer/database-demo-panel',
         replacement: path.resolve(
           import.meta.dirname,
@@ -149,11 +153,19 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
+        find: '@brainstrike/file-import/browser-queue-port',
+        replacement: path.resolve(import.meta.dirname, '../file-import/src/browser-queue-port.ts'),
+      },
+      {
         find: '@brainstrike/file-import/chunking-worker-context',
         replacement: path.resolve(
           import.meta.dirname,
           '../file-import/src/chunking-worker-context.tsx'
         ),
+      },
+      {
+        find: '@brainstrike/file-import/enhanced-import',
+        replacement: path.resolve(import.meta.dirname, '../file-import/src/enhanced-import.ts'),
       },
       {
         find: '@brainstrike/file-import',

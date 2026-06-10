@@ -758,6 +758,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/db-explorer':
         specifier: workspace:*
         version: link:../db-explorer
