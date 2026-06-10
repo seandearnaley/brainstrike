@@ -26,3 +26,42 @@ export function detectPlatform(): Platform {
   // Default to web
   return 'web';
 }
+
+export interface PositiveIntegerConfigInput {
+  defaultValue?: number;
+  name: string;
+  rawValue: number | string | null | undefined;
+}
+
+function assertPositiveInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer, received ${value}.`);
+  }
+  return value;
+}
+
+export function parsePositiveIntegerConfig({
+  defaultValue,
+  name,
+  rawValue,
+}: PositiveIntegerConfigInput): number {
+  if (typeof rawValue === 'number') {
+    return assertPositiveInteger(rawValue, name);
+  }
+  if (rawValue === undefined || rawValue === null || rawValue.trim() === '') {
+    if (defaultValue === undefined) {
+      throw new Error(`${name} must be a positive integer.`);
+    }
+    return assertPositiveInteger(defaultValue, `${name} default`);
+  }
+
+  const trimmedValue = rawValue.trim();
+  if (!/^\d+$/.test(trimmedValue)) {
+    throw new Error(`${name} must be a positive integer, received "${rawValue}".`);
+  }
+  const parsed = Number(trimmedValue);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, received "${rawValue}".`);
+  }
+  return parsed;
+}

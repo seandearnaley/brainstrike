@@ -123,4 +123,16 @@ describe('environment variable handling', () => {
     expect(webPort).toBe(8080);
     expect(desktopPort).toBe(8081);
   });
+
+  test.each([
+    ['PORT', '9090abc'],
+    ['DESKTOP_PORT', '9091.5'],
+  ])('should reject malformed %s environment values', async (name, value) => {
+    if (globalThis.process) {
+      globalThis.process.env = { ...originalEnv, [name]: value };
+    }
+    await expect(import('../server')).rejects.toThrow(
+      `${name} must be a positive integer, received "${value}".`
+    );
+  });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectPlatform, type Platform } from '../index';
+import { detectPlatform, type Platform, parsePositiveIntegerConfig } from '../index';
 
 describe('Platform Utils', () => {
   describe('detectPlatform', () => {
@@ -253,6 +253,17 @@ describe('Platform Utils', () => {
 
       expect(webPlatform).toBe('web');
       expect(electronPlatform).toBe('electron');
+    });
+  });
+
+  describe('runtime config parsing', () => {
+    it('should reject numeric prefixes instead of parsing partial positive integers', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          name: 'PORT',
+          rawValue: '9090abc',
+        })
+      ).toThrow('PORT must be a positive integer, received "9090abc".');
     });
   });
 });

@@ -1,6 +1,8 @@
 /**
  * Server configuration constants
  */
+import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
+
 const PORT_KEY = 'PORT';
 const DESKTOP_PORT_KEY = 'DESKTOP_PORT';
 
@@ -9,8 +11,16 @@ const portEnv = globalThis.process?.env?.[PORT_KEY];
 const desktopPortEnv = globalThis.process?.env?.[DESKTOP_PORT_KEY];
 
 // Default ports - using 8080 range to avoid common conflicts
-export const DEFAULT_WEB_PORT = portEnv ? Number.parseInt(portEnv, 10) : 8080;
-export const DEFAULT_DESKTOP_PORT = desktopPortEnv ? Number.parseInt(desktopPortEnv, 10) : 8081;
+export const DEFAULT_WEB_PORT = parsePositiveIntegerConfig({
+  defaultValue: 8080,
+  name: PORT_KEY,
+  rawValue: portEnv,
+});
+export const DEFAULT_DESKTOP_PORT = parsePositiveIntegerConfig({
+  defaultValue: 8081,
+  name: DESKTOP_PORT_KEY,
+  rawValue: desktopPortEnv,
+});
 
 // Legacy port for backward compatibility (will be removed in future)
 export const DEFAULT_PORT = DEFAULT_WEB_PORT;
