@@ -342,6 +342,13 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/context-actions": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/agent": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [

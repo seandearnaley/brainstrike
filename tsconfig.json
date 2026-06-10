@@ -241,6 +241,9 @@
       "path": "./packages/platform-utils"
     },
     {
+      "path": "./packages/context-actions"
+    },
+    {
       "path": "./packages/pipeline"
     },
     {
