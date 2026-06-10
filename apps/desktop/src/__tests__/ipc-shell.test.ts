@@ -64,4 +64,22 @@ describe('shell IPC handlers', () => {
     expect(shell.openPath).toHaveBeenCalledWith('/Users/dev/file.pdf');
     expect(result).toEqual({ ok: true });
   });
+
+  it('converts a throwing shell.showItemInFolder into a structured failure', async () => {
+    const shell = makeShell();
+    shell.showItemInFolder.mockImplementation(() => {
+      throw new Error('shell unavailable');
+    });
+    const handlers = createShellIpcHandlers({ shell });
+    const result = await handlers.showItemInFolder('/Users/dev/project/file.ts');
+    expect(result).toEqual({ ok: false, error: 'shell unavailable' });
+  });
+
+  it('converts a rejecting shell.openPath into a structured failure', async () => {
+    const shell = makeShell();
+    shell.openPath.mockRejectedValue(new Error('open failed'));
+    const handlers = createShellIpcHandlers({ shell });
+    const result = await handlers.openPath('/Users/dev/file.pdf');
+    expect(result).toEqual({ ok: false, error: 'open failed' });
+  });
 });

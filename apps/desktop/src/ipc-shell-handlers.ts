@@ -25,6 +25,10 @@ function validateAbsolutePath(value: unknown): string | null {
   return trimmed;
 }
 
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createShellIpcHandlers({ shell }: ShellIpcDependencies) {
   return {
     openPath: async (rawPath: unknown): Promise<ShellIpcResult> => {
@@ -32,8 +36,12 @@ export function createShellIpcHandlers({ shell }: ShellIpcDependencies) {
       if (!absolutePath) {
         return { ok: false, error: 'openPath requires a non-empty absolute path string' };
       }
-      const errorMessage = await shell.openPath(absolutePath);
-      return errorMessage.length > 0 ? { ok: false, error: errorMessage } : { ok: true };
+      try {
+        const errorMessage = await shell.openPath(absolutePath);
+        return errorMessage.length > 0 ? { ok: false, error: errorMessage } : { ok: true };
+      } catch (error) {
+        return { ok: false, error: toErrorMessage(error) };
+      }
     },
     showItemInFolder: (rawPath: unknown): Promise<ShellIpcResult> => {
       const absolutePath = validateAbsolutePath(rawPath);
@@ -43,8 +51,12 @@ export function createShellIpcHandlers({ shell }: ShellIpcDependencies) {
           error: 'showItemInFolder requires a non-empty absolute path string',
         });
       }
-      shell.showItemInFolder(absolutePath);
-      return Promise.resolve({ ok: true });
+      try {
+        shell.showItemInFolder(absolutePath);
+        return Promise.resolve({ ok: true });
+      } catch (error) {
+        return Promise.resolve({ ok: false, error: toErrorMessage(error) });
+      }
     },
   };
 }
