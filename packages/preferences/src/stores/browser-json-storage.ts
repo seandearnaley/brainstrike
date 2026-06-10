@@ -7,7 +7,7 @@ export type PersistenceStorageOperation = 'get' | 'remove' | 'set';
 export interface PersistenceIssue {
   readonly error: unknown;
   readonly key: string;
-  readonly mode: Extract<PersistenceMode, 'memory'>;
+  readonly mode: PersistenceMode;
   readonly operation: PersistenceStorageOperation;
   readonly storageArea: PersistenceStorageArea;
 }
@@ -38,13 +38,26 @@ function notifyPersistenceIssue(
   key: string,
   error: unknown
 ): void {
-  options.onPersistenceIssue?.({
-    error,
-    key,
-    mode: 'memory',
-    operation,
-    storageArea: 'localStorage',
-  });
+  const listener = options.onPersistenceIssue;
+  if (!listener) {
+    return;
+  }
+
+  try {
+    listener({
+      error,
+      key,
+      mode: resolvePersistenceMode(operation),
+      operation,
+      storageArea: 'localStorage',
+    });
+  } catch {
+    // Listener failures must not break the storage fallback path.
+  }
+}
+
+function resolvePersistenceMode(operation: PersistenceStorageOperation): PersistenceMode {
+  return operation === 'remove' ? 'persistent' : 'memory';
 }
 
 function removeStoredValue(
