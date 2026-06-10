@@ -18,6 +18,12 @@ const logger = createLogger('ExpandedPathRestoration');
  * two FileTreeProviders mounting concurrently (e.g. rootA and rootB) would
  * share the lock — the second provider would see `inProgress=true` for the
  * first and skip permanently, leaving its tree un-restored.
+ *
+ * Accepted phase-4 limitation: two web roots with the SAME directory name
+ * share a folderId (path = bare name) and therefore one lock entry — the
+ * second provider's restoration is skipped once the first completes for the
+ * same restoration key. Consistent with the same-path display-state collision
+ * accepted across phase 4; resolved when stores re-key by RootId (phase 5).
  */
 interface RestorationLockEntry {
   inProgress: boolean;
@@ -34,6 +40,18 @@ function getRestorationLock(folderId: string): RestorationLockEntry {
     restorationLocks.set(folderId, entry);
   }
   return entry;
+}
+
+/**
+ * Drop a root's lock entry once no restoration is running — keeps the
+ * module-level Map from accumulating entries as roots come and go over a
+ * long session. Safe to call on unmount: a fresh mount re-creates the entry.
+ */
+function releaseRestorationLock(folderId: string): void {
+  const entry = restorationLocks.get(folderId);
+  if (entry && !entry.inProgress) {
+    restorationLocks.delete(folderId);
+  }
 }
 
 /**
@@ -349,6 +367,17 @@ export function useExpandedPathRestoration(
 
   useLayoutEffect(() => {
     currentRootFolderIdRef.current = currentRootFolderId;
+  }, [currentRootFolderId]);
+
+  // Release this root's module-level lock entry on unmount (or when the root
+  // changes) so the Map doesn't accumulate entries as roots come and go.
+  useEffect(() => {
+    const folderIdAtMount = currentRootFolderId;
+    return () => {
+      if (folderIdAtMount) {
+        releaseRestorationLock(folderIdAtMount);
+      }
+    };
   }, [currentRootFolderId]);
 
   useEffect(() => {

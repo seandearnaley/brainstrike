@@ -939,9 +939,17 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   platform: 'web' as const,
                   _internal: handle,
                 };
+                // beginRestore's burst seeds its result with already-granted
+                // handles (incl. this one), so registering its FULL return is
+                // the multi-root-complete path; the eager single-handle set
+                // keeps the focused tree responsive while the burst settles.
                 setRootDirectoryHandle(directoryHandle);
-                // Note: setRootDirectoryHandle already calls setCurrentFolderId internally
                 beginRestore()
+                  .then((restoredHandles) =>
+                    restoredHandles.length > 0
+                      ? registerRestoredHandles(restoredHandles)
+                      : undefined
+                  )
                   .catch(() => {})
                   .finally(() => {
                     setIsRestoring(false);
