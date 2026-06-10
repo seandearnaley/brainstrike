@@ -282,6 +282,35 @@ describe('chat route schema', () => {
     expect(limitedRes.status).toBe(200);
   });
 
+  it('prunes expired clients before admitting a new client at capacity', async () => {
+    const now = Date.now();
+    for (let i = 0; i < 1024; i += 1) {
+      __setRateLimiterEntryForTests(`expired-client-${i}`, {
+        count: 1,
+        windowStartedAt: now - 60_000,
+      });
+    }
+
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'Hello from mock stream' })
+    );
+
+    const res = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': 'client-after-expiry',
+        },
+        body: JSON.stringify({
+          messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+  });
+
   it('keeps actively blocked clients rate-limited when evicting full state', async () => {
     streamMock.mockResolvedValue(
       createStream({ type: 'text-delta', value: 'Hello from mock stream' })
