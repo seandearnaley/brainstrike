@@ -2,6 +2,7 @@ import path from 'node:path';
 import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -353,5 +354,43 @@ describe('fs:saveLastFolder (legacy shim)', () => {
       'rootsList',
       expect.stringContaining(resolvedPath)
     );
+  });
+
+  it('still writes lastFolderPath and warns (without throwing) when the rootsList upsert fails', async () => {
+    const folderPath = '/users/test/my-project';
+    const resolvedPath = path.resolve(folderPath);
+    fileSystem = createFileSystem();
+    storage = createStorage();
+    vi.mocked(storage.setItem).mockImplementation(async (key: string) => {
+      if (key === 'rootsList') {
+        throw new Error('disk full');
+      }
+    });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    setLogLevel(LogLevel.WARN);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'FileSystemIpc') {
+        captured.push(record);
+      }
+    });
+
+    try {
+      await expect(
+        handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, folderPath)
+      ).resolves.toBeUndefined();
+    } finally {
+      removeListener();
+    }
+
+    expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
+    expect(
+      captured.some(
+        (record) =>
+          record.level === LogLevel.WARN &&
+          record.message === 'saveLastFolder: failed to upsert rootsList'
+      )
+    ).toBe(true);
   });
 });

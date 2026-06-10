@@ -381,16 +381,23 @@ export function registerFileSystemIpcHandlers({
       try {
         const resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
         await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
-        // Upsert into rootsList so the two stores stay in sync
-        const entries = await readRootsList(storage);
-        const existing = entries.find((e) => e.path === resolvedPath);
-        if (!existing) {
-          const newEntry: StoredRootEntry = {
-            addedAt: Date.now(),
-            path: resolvedPath,
-            rootId: crypto.randomUUID(),
-          };
-          await writeRootsList(storage, [...entries, newEntry]);
+        // Upsert into rootsList so the two stores stay in sync. Logged
+        // unconditionally at warn (unlike the legacy outer catch): a silent
+        // failure here leaves the two stores divergent (lastFolderPath set,
+        // rootsList missing the entry).
+        try {
+          const entries = await readRootsList(storage);
+          const existing = entries.find((e) => e.path === resolvedPath);
+          if (!existing) {
+            const newEntry: StoredRootEntry = {
+              addedAt: Date.now(),
+              path: resolvedPath,
+              rootId: crypto.randomUUID(),
+            };
+            await writeRootsList(storage, [...entries, newEntry]);
+          }
+        } catch (upsertError) {
+          logger.warn('saveLastFolder: failed to upsert rootsList', { error: upsertError });
         }
       } catch (error) {
         if (process.env['NODE_ENV'] === 'development') {
@@ -449,7 +456,10 @@ export function registerFileSystemIpcHandlers({
     const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
     const basename = path.basename(resolvedPath);
 
-    // Upsert into rootsList keyed by resolved path
+    // Upsert into rootsList keyed by resolved path.
+    // No mutex: these handlers are user-gesture-driven (single dialog at a time).
+    // Concurrent RMW is only possible across multiple renderer windows, which is
+    // not yet a use case. Revisit if programmatic addRoot calls are introduced.
     const entries = await readRootsList(storage);
     const existing = entries.find((e) => e.path === resolvedPath);
 
