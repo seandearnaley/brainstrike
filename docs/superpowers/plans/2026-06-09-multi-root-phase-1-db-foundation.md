@@ -514,7 +514,7 @@ git commit -m "feat(db): add roots drizzle schema and fileRecords.rootId"
 
 - [ ] **Step 1: Register the test file in the coverage lanes**
 
-In `packages/db/scripts/coverage-lanes.mjs`, add to the `migrations` array, alphabetically between `'migration-authority-guard.test.ts'` and `'migration-integration.test.ts'`:
+In `packages/db/scripts/coverage-lanes.mjs`, add to the `migrations` array, alphabetically between `'gemma-local-llm-migration.test.ts'` and `'migration-authority-guard.test.ts'` (digits sort before letters):
 
 ```javascript
     'migration-038-roots-table.test.ts',

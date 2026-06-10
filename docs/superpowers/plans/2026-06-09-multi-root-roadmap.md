@@ -25,6 +25,8 @@
 type RootId = string; // uuidv7
 type RootDescriptor = { id: RootId; displayName: string; addedAt: number } & (
   | { kind: 'path'; path: string }      // desktop (Electron, Node fs)
+  // DB-only fourth kind: 'legacy' marks phase-1 backfilled rows; phase 2's
+  // adapter reconciles them into 'path'/'fsa' on first restore.
   | { kind: 'fsa' }                     // web Chromium; handle lives in IndexedDB keyed by RootId
   | { kind: 'snapshot'; importedAt: number } // web Safari/Firefox; content mirrored into OPFS
 );

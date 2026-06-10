@@ -61,7 +61,7 @@ describe('Drizzle + PGlite Spike', () => {
         "name" text NOT NULL,
         "path" text NOT NULL,
         "source_root_path" text,
-        "root_id" text REFERENCES "roots"("id"),
+        "root_id" text REFERENCES "roots"("id") ON DELETE CASCADE,
         "size" integer NOT NULL,
         "mtime_ms" bigint,
         "created_at" timestamp with time zone DEFAULT now() NOT NULL,
