@@ -331,6 +331,7 @@ async function applyBackgroundImportBatch(args: {
   batch: readonly PreparedCacheChange[];
   batchContents: Record<string, string>;
   collectionId: string;
+  rootId?: string | null;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<{
   errors: Array<{ error: string; file: string }>;
@@ -367,6 +368,7 @@ async function applyBackgroundImportBatch(args: {
     await args.applyManagedCacheBatch({
       embeddingSetId: args.collectionId,
       changes: mutations.map((entry) => entry.mutation),
+      rootId: args.rootId ?? null,
     });
     return {
       errors: skippedErrors,
@@ -629,6 +631,7 @@ export async function runRootFolderCacheImport(args: {
   fileRecordRepository: FileImportFileRecordRepository;
   onProgress: (progress: EnhancedImportProgress) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
+  rootId?: string | null;
   setImporting: (importing: boolean) => void;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<void> {
@@ -644,6 +647,7 @@ export async function runRootFolderCacheImport(args: {
     fileRecordRepository,
     onProgress,
     qosPolicy,
+    rootId,
     setImporting,
     waitForBackgroundPermit,
   } = args;
@@ -758,6 +762,7 @@ export async function runRootFolderCacheImport(args: {
               batch: selectedBatch,
               batchContents: fileContents,
               collectionId: collection.id,
+              rootId: rootId ?? null,
               waitForBackgroundPermit,
             });
             errors.push(...batchOutcome.errors);
