@@ -1,6 +1,11 @@
 import type { StreamChunk } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const loggerMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+}));
+
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
   return {
@@ -9,12 +14,27 @@ vi.mock('@brainstrike/agent', async () => {
   };
 });
 
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
+  return {
+    ...actual,
+    createLogger: () => loggerMocks,
+  };
+});
+
 import {
   createMastraAgentError,
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
-import { __parseChatBodyForTests, __resetRateLimiterForTests, POST } from '../route';
+import {
+  __parseChatBodyForTests,
+  __resetRateLimiterForTests,
+  __setRateLimiterEntryForTests,
+  POST,
+} from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
 
@@ -47,6 +67,8 @@ function createStream(...chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
 
 afterEach(() => {
   streamMock.mockReset();
+  loggerMocks.error.mockReset();
+  loggerMocks.warn.mockReset();
   for (const key of API_KEY_ENV_VARS) {
     const value = originalEnv[key];
     if (typeof value === 'string') {
@@ -225,6 +247,170 @@ describe('chat route schema', () => {
     const payload = await limitedRes.json();
     expect(payload.error).toBe('rate_limited');
     expect(typeof payload.retryAfterMs).toBe('number');
+  });
+
+  it('keeps chat available to new clients when rate limiter state is full', async () => {
+    for (let i = 0; i < 1024; i += 1) {
+      const req = new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': `client-${i}`,
+        },
+        body: '{}',
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+    }
+
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'Hello from mock stream' })
+    );
+
+    const limitedReq = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'brainstrike-client-id': 'client-over-limit',
+      },
+      body: JSON.stringify({
+        messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      }),
+    });
+    const limitedRes = await POST(limitedReq);
+
+    expect(limitedRes.status).toBe(200);
+  });
+
+  it('prunes expired clients before admitting a new client at capacity', async () => {
+    const now = Date.now();
+    for (let i = 0; i < 1024; i += 1) {
+      __setRateLimiterEntryForTests(`expired-client-${i}`, {
+        count: 1,
+        windowStartedAt: now - 60_000,
+      });
+    }
+
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'Hello from mock stream' })
+    );
+
+    const res = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': 'client-after-expiry',
+        },
+        body: JSON.stringify({
+          messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('keeps actively blocked clients rate-limited when evicting full state', async () => {
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'Hello from mock stream' })
+    );
+    const blockedHeaders = {
+      'Content-Type': 'application/json',
+      'brainstrike-client-id': 'blocked-client',
+    };
+    const validBody = JSON.stringify({
+      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+    });
+
+    for (let i = 0; i < 10; i += 1) {
+      const res = await POST(
+        new Request('http://localhost/api/chat', {
+          method: 'POST',
+          headers: blockedHeaders,
+          body: validBody,
+        })
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+    }
+
+    const blockedRes = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: blockedHeaders,
+        body: validBody,
+      })
+    );
+    expect(blockedRes.status).toBe(429);
+
+    for (let i = 0; i < 1024; i += 1) {
+      await POST(
+        new Request('http://localhost/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'brainstrike-client-id': `churn-client-${i}`,
+          },
+          body: '{}',
+        })
+      );
+    }
+
+    const stillBlockedRes = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: blockedHeaders,
+        body: validBody,
+      })
+    );
+
+    expect(stillBlockedRes.status).toBe(429);
+  });
+
+  it('logs once per window when all tracked clients are actively blocked', async () => {
+    const now = Date.now();
+    for (let i = 0; i < 1024; i += 1) {
+      __setRateLimiterEntryForTests(`blocked-${i}`, {
+        blockedUntil: now + 60_000,
+        count: 10,
+        windowStartedAt: now,
+      });
+    }
+
+    const res = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': 'new-client',
+        },
+        body: '{}',
+      })
+    );
+
+    expect(res.status).toBe(429);
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      'Chat rate limiter rejected a new client because all entries are blocked',
+      {
+        maxClients: 1024,
+        windowMs: 60_000,
+      }
+    );
+
+    const secondRes = await POST(
+      new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'brainstrike-client-id': 'another-new-client',
+        },
+        body: '{}',
+      })
+    );
+
+    expect(secondRes.status).toBe(429);
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(1);
   });
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
