@@ -9,6 +9,7 @@ const mutableWindow = window as MutableWindow;
 
 afterEach(() => {
   mutableWindow.clipboard = undefined;
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -33,7 +34,22 @@ describe('createClipboardService', () => {
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome.ok).toBe(false);
+    expect(outcome).toEqual({ ok: false, error: 'Desktop clipboard bridge rejected the write' });
+    expect(navigatorSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports an Electron bridge throw instead of silently falling back', async () => {
+    mutableWindow.clipboard = {
+      writeText: vi.fn().mockImplementation(() => {
+        throw new Error('bridge exploded');
+      }),
+    };
+    const navigatorSpy = vi.fn();
+    vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
+
+    const outcome = await createClipboardService().writeText('hello');
+
+    expect(outcome).toEqual({ ok: false, error: 'bridge exploded' });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
