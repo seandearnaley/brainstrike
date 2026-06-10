@@ -7,6 +7,7 @@ import {
   UserCancelledError,
 } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
+import type { RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,10 +17,15 @@ import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
+const mockAddActiveRoot = vi.fn();
+const mockSetActiveRoots = vi.fn();
 vi.mock('@brainstrike/file-explorer', () => ({
   useFileExplorerStore: vi.fn(() => ({
     setCurrentFolderId: mockSetCurrentFolderId,
     currentFolderId: 'test-folder-id',
+    addActiveRoot: mockAddActiveRoot,
+    setActiveRoots: mockSetActiveRoots,
+    folderAccessOrder: [],
   })),
 }));
 
@@ -671,6 +677,470 @@ describe('useFileSystem', () => {
         expect(result.current?.rootDirectoryHandle).toBeNull();
       });
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe('multi-root: addRootDirectory via addRoot', () => {
+    it('appends handle to rootDirectoryHandles, sets focused, calls addActiveRoot and setCurrentFolderId', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'my-root',
+        handle: { path: '/my/root', name: 'my-root', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-id-1',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const addRootFn = vi.fn().mockResolvedValue(descriptor);
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: addRootFn,
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+
+      expect(addRootFn).toHaveBeenCalledTimes(1);
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandles[0]).toEqual(descriptor.handle);
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
+      expect(mockAddActiveRoot).toHaveBeenCalledWith({
+        displayName: 'my-root',
+        path: '/my/root',
+        rootId: 'root-id-1',
+      });
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/my/root');
+    });
+
+    it('does not add non-persisted descriptor to store (persisted:false)', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'ephemeral-root',
+        handle: { path: '/ephemeral', name: 'ephemeral-root', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: false,
+        rootId: 'ephemeral-id',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+
+      // Handle is added to local state even if not persisted
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      // addActiveRoot should NOT be called for non-persisted roots
+      expect(mockAddActiveRoot).not.toHaveBeenCalled();
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/ephemeral');
+    });
+  });
+
+  describe('multi-root: addRootDirectory fallback (no addRoot on adapter)', () => {
+    it('falls back to requestDirectoryAccess and creates a synthetic descriptor', async () => {
+      const storageAdapter = createStorageAdapter('web');
+      const handle: DirectoryHandle = {
+        path: '/fallback/path',
+        name: 'fallback-path',
+        kind: 'directory',
+        platform: 'web',
+      };
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        // No addRoot
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandles[0]).toEqual(handle);
+      expect(result.current?.rootDirectoryHandle).toEqual(handle);
+      // addActiveRoot called with synthetic descriptor (uuid rootId, handle.name as displayName)
+      expect(mockAddActiveRoot).toHaveBeenCalledTimes(1);
+      // We just verified it was called once above, so the first call exists.
+      // biome-ignore lint/style/noNonNullAssertion: guarded by toHaveBeenCalledTimes(1)
+      const calledWith = mockAddActiveRoot.mock.calls[0]![0] as {
+        displayName: string;
+        path: string;
+        rootId: string;
+      };
+      expect(calledWith.displayName).toBe('fallback-path');
+      expect(calledWith.path).toBe('/fallback/path');
+      expect(typeof calledWith.rootId).toBe('string');
+      expect(calledWith.rootId.length).toBeGreaterThan(0);
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/fallback/path');
+    });
+  });
+
+  describe('multi-root: dedupe by path', () => {
+    it('re-adding an existing root path focuses it without duplicating', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'shared-root',
+        handle: { path: '/shared/root', name: 'shared-root', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-shared',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      // Add it twice
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+
+      // Should still have only 1 handle (deduped by path)
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      // Focus should be set on the existing handle
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/shared/root');
+    });
+  });
+
+  describe('multi-root: setFocusedRoot', () => {
+    it('switches focused root and calls setCurrentFolderId', async () => {
+      const desc1: RootDescriptor = {
+        displayName: 'root-a',
+        handle: { path: '/root/a', name: 'root-a', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'id-a',
+      };
+      const desc2: RootDescriptor = {
+        displayName: 'root-b',
+        handle: { path: '/root/b', name: 'root-b', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'id-b',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      let callCount = 0;
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn(),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: vi.fn().mockImplementation(() => {
+          callCount++;
+          return Promise.resolve(callCount === 1 ? desc1 : desc2);
+        }),
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      // Add both roots
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+      // Focused is the second one
+      expect(result.current?.rootDirectoryHandle).toEqual(desc2.handle);
+
+      // Switch focus back to first
+      vi.clearAllMocks();
+      await act(async () => {
+        result.current?.setFocusedRoot('/root/a');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toEqual(desc1.handle);
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/root/a');
+    });
+
+    it('is a no-op for unknown path', async () => {
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // No roots added yet
+      await act(async () => {
+        result.current?.setFocusedRoot('/unknown/path');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toBeNull();
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('multi-root: restoreRoots boot', () => {
+    it('populates rootDirectoryHandles, calls setActiveRoots, focuses by folderAccessOrder', async () => {
+      const desc1: RootDescriptor = {
+        displayName: 'folder-a',
+        handle: { path: '/folder/a', name: 'folder-a', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'rid-a',
+      };
+      const desc2: RootDescriptor = {
+        displayName: 'folder-b',
+        handle: { path: '/folder/b', name: 'folder-b', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'rid-b',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn(),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        restoreRoots: vi.fn().mockResolvedValue([desc1, desc2]),
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      // folderAccessOrder has /folder/b first → /folder/b should be focused
+      // getFolderAccessOrder is passed directly as a param (no module mock manipulation needed)
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+            getFolderAccessOrder: () => ['/folder/b', '/folder/a'],
+          }),
+        { wrapper }
+      );
+
+      await waitFor(() => expect(result.current?.rootDirectoryHandles).toHaveLength(2));
+
+      expect(result.current?.rootDirectoryHandles).toContainEqual(desc1.handle);
+      expect(result.current?.rootDirectoryHandles).toContainEqual(desc2.handle);
+      // Focused: first in folderAccessOrder = /folder/b = desc2
+      expect(result.current?.rootDirectoryHandle).toEqual(desc2.handle);
+      expect(mockSetActiveRoots).toHaveBeenCalledWith([
+        { displayName: 'folder-a', path: '/folder/a', rootId: 'rid-a' },
+        { displayName: 'folder-b', path: '/folder/b', rootId: 'rid-b' },
+      ]);
+    });
+
+    it('skips non-granted roots from restoreRoots', async () => {
+      const grantedDesc: RootDescriptor = {
+        displayName: 'granted-folder',
+        handle: { path: '/granted', name: 'granted-folder', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'rid-granted',
+      };
+      const promptDesc: RootDescriptor = {
+        displayName: 'prompt-folder',
+        handle: { path: '/prompt', name: 'prompt-folder', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'prompt',
+        persisted: true,
+        rootId: 'rid-prompt',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn(),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        restoreRoots: vi.fn().mockResolvedValue([grantedDesc, promptDesc]),
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      await waitFor(() => expect(result.current?.rootDirectoryHandles).toHaveLength(1));
+
+      // Only the granted root is populated
+      expect(result.current?.rootDirectoryHandles[0]).toEqual(grantedDesc.handle);
+      // setActiveRoots only called with granted root
+      expect(mockSetActiveRoots).toHaveBeenCalledWith([
+        { displayName: 'granted-folder', path: '/granted', rootId: 'rid-granted' },
+      ]);
+    });
+
+    it('uses legacy single-root path when restoreRoots is absent', async () => {
+      // This is the existing behavior: restoreLastFolder present, restoreRoots absent
+      MockFileSystemAdapter.setMockLastFolderPath('/test/legacy/path');
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      await waitFor(() =>
+        expect(result.current?.rootDirectoryHandle).toEqual({
+          path: '/test/legacy/path',
+          name: 'path',
+          kind: 'directory',
+          platform: 'web',
+        })
+      );
+
+      // Legacy path: setActiveRoots should NOT be called
+      expect(mockSetActiveRoots).not.toHaveBeenCalled();
+      // rootDirectoryHandles should have the single root
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/legacy/path');
+    });
+  });
+
+  describe('multi-root: selectRootDirectory delegates to addRootDirectory', () => {
+    it('calling selectRootDirectory uses addRoot when available', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'selected-root',
+        handle: {
+          path: '/selected/root',
+          name: 'selected-root',
+          kind: 'directory',
+          platform: 'web',
+        },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'root-sel-id',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const addRootFn = vi.fn().mockResolvedValue(descriptor);
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: addRootFn,
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      await act(async () => {
+        await result.current?.selectRootDirectory();
+      });
+
+      expect(addRootFn).toHaveBeenCalledTimes(1);
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
     });
   });
 });
