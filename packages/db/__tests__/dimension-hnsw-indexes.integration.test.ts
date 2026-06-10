@@ -22,6 +22,7 @@ import {
   ensureDimensionIndexExists,
   getDistinctDimensions,
   hnswParams,
+  MAX_DIMENSION_INDEX_BUILD_ATTEMPTS,
   MAX_HNSW_DIMENSION,
 } from '../src/migrations/dimension-index-helpers';
 
@@ -383,6 +384,41 @@ describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
       await builder.whenSettled();
       expect(execCalls).toBe(2);
       expect(errors).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops re-arming a dimension after the per-session attempt cap', async () => {
+    vi.useFakeTimers();
+    try {
+      let execCalls = 0;
+      const errors: unknown[] = [];
+      const fakeDb = {
+        exec: async (): Promise<void> => {
+          execCalls += 1;
+          throw new Error('persistent build failure (e.g. OOM)');
+        },
+        query: async <T = unknown>(): Promise<{ rows: T[] }> => ({ rows: [] }),
+      };
+      const builder = createDeferredDimensionIndexBuilder({
+        getDb: () => fakeDb,
+        onError: (_dimension, error) => {
+          errors.push(error);
+        },
+      });
+
+      // Read-path re-arms (getById) can fire on every status poll. A build
+      // that keeps failing must not become a sustained retry loop of 5-30s
+      // connection-blocking CREATE INDEX attempts.
+      for (let attempt = 0; attempt < MAX_DIMENSION_INDEX_BUILD_ATTEMPTS + 3; attempt++) {
+        builder.schedule(640);
+        await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+        await builder.whenSettled();
+      }
+
+      expect(execCalls).toBe(MAX_DIMENSION_INDEX_BUILD_ATTEMPTS);
+      expect(errors).toHaveLength(MAX_DIMENSION_INDEX_BUILD_ATTEMPTS);
     } finally {
       vi.useRealTimers();
     }

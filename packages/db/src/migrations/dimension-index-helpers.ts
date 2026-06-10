@@ -270,6 +270,15 @@ export interface DeferredDimensionIndexBuilder {
  */
 export const DIMENSION_INDEX_BUILD_START_DELAY_MS = 250;
 
+/**
+ * Per-session cap on build attempts per dimension. Read-path re-arms (getById)
+ * fire on every status poll, so a persistently-failing build (HNSW OOM, driver
+ * error) must not become a sustained loop of 5-30s connection-blocking
+ * CREATE INDEX attempts. Transient failures still get retries below the cap; a
+ * fresh session resets the count.
+ */
+export const MAX_DIMENSION_INDEX_BUILD_ATTEMPTS = 3;
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -298,12 +307,18 @@ export function createDeferredDimensionIndexBuilder(options: {
   // Dimensions that built successfully this session. Read-path re-arms (e.g.
   // getById) call schedule() on every access; without this memo each call would
   // dispatch a CREATE INDEX IF NOT EXISTS round-trip onto the single
-  // connection. A FAILED build is deliberately not memoized so the next
-  // schedule retries it.
+  // connection. A FAILED build is retried on later schedules — but only up to
+  // MAX_DIMENSION_INDEX_BUILD_ATTEMPTS per session, so a persistently-failing
+  // build can't turn polled reads into a connection-blocking retry storm.
   const completed = new Set<number>();
+  const failureCounts = new Map<number, number>();
   return {
     schedule(dimension: number): void {
-      if (completed.has(dimension) || pending.has(dimension)) {
+      if (
+        completed.has(dimension) ||
+        pending.has(dimension) ||
+        (failureCounts.get(dimension) ?? 0) >= MAX_DIMENSION_INDEX_BUILD_ATTEMPTS
+      ) {
         return;
       }
       const build = (async () => {
@@ -314,6 +329,7 @@ export function createDeferredDimensionIndexBuilder(options: {
           await ensureDimensionIndexExists(options.getDb(), dimension);
           completed.add(dimension);
         } catch (error) {
+          failureCounts.set(dimension, (failureCounts.get(dimension) ?? 0) + 1);
           options.onError(dimension, error);
         } finally {
           pending.delete(dimension);
