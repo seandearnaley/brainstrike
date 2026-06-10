@@ -114,4 +114,96 @@ describe('FileExplorerSidebar', () => {
 
     expect(screen.getByText('No matching files found')).toBeInTheDocument();
   });
+
+  it('renders single-root layout (no section headers) when rootDirectoryHandles has one entry', () => {
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandles={[mockDirectoryHandle]}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    // Single-root: no section headers, just the tree
+    expect(screen.queryByTestId('root-section-header')).toBeNull();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+  });
+
+  it('renders two section headers and two trees in forest mode (rootDirectoryHandles.length > 1)', () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          // Set the focused root to handleA so its quickFilteredTree renders
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    // Two section headers
+    const headers = screen.getAllByTestId('root-section-header');
+    expect(headers).toHaveLength(2);
+    expect(screen.getByText('project-a')).toBeInTheDocument();
+    expect(screen.getByText('project-b')).toBeInTheDocument();
+
+    // At least the focused root's tree renders
+    const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+    expect(trees.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('calls setFocusedRoot when a section is clicked in forest mode', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    const setFocusedRoot = vi.fn();
+
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={setFocusedRoot}
+        />
+      );
+    });
+
+    // Click on the header of the second root section to focus root B
+    const headers = screen.getAllByTestId('root-section-header');
+    await user.click(headers[1] as HTMLElement);
+    expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');
+  });
 });

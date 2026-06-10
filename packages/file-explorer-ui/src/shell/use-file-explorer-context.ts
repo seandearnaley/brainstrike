@@ -50,6 +50,8 @@ const selectDisabledExcludeFilters = (state: FileExplorerState) => state.disable
 type UseFileExplorerProps = Record<string, never>;
 
 interface UseFileExplorerReturn {
+  /** Add an additional root directory (multi-root, Phase 4+). */
+  addRootDirectory: (() => Promise<DirectoryHandle | null>) | undefined;
   applyFileFilters: (
     includeFilters: string[],
     excludeFilters: string[],
@@ -117,6 +119,8 @@ interface UseFileExplorerReturn {
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
   rootDirectoryHandle: DirectoryHandle | null;
+  /** All active root handles (multi-root, Phase 4+). */
+  rootDirectoryHandles: DirectoryHandle[];
   /**
    * Select all files in the provided tree, loading if needed.
    * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
@@ -152,6 +156,8 @@ interface UseFileExplorerReturn {
    * while waiting for browser permission dialog.
    */
   setAccessLoading: (loading: boolean) => void;
+  /** Switch focused root to the given path (multi-root, Phase 4+). */
+  setFocusedRoot: ((path: string) => void) | undefined;
   /** Set root directory handle from external source (e.g., restore banner) */
   setRootDirectoryHandle: (handle: DirectoryHandle | null) => void;
   /** Unfiltered tree from the file-system source */
@@ -200,12 +206,15 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   const {
     rootDirectoryHandle,
+    rootDirectoryHandles,
     isAccessLoading: _hookIsAccessLoading, // Ignore the hook's local state
     selectRootDirectory,
     isFileSystemAccessSupported,
     clearRootDirectory,
     setRootDirectoryHandle,
     setAccessLoading: _hookSetAccessLoading, // Ignore the hook's local setter
+    addRootDirectory,
+    setFocusedRoot,
   } = useFileSystem();
 
   // Use the store's isAccessLoading (shared across all components)
@@ -548,5 +557,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll,
+    /** All active root handles (multi-root, Phase 4+). */
+    rootDirectoryHandles,
+    /** Add an additional root directory (multi-root, Phase 4+). */
+    addRootDirectory,
+    /** Switch focused root to the given path (multi-root, Phase 4+). */
+    setFocusedRoot,
   };
 }

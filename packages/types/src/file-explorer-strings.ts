@@ -4,6 +4,7 @@ export const FileExplorerStrings = {
 
   // Button Labels
   selectRoot: 'Select Root',
+  addFolder: 'Add Folder',
   refresh: 'Refresh',
 
   // Toast Messages

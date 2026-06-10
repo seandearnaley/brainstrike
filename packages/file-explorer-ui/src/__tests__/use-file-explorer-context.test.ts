@@ -70,6 +70,25 @@ describe('useFileExplorer (context)', () => {
     _internal: {} as FileSystemDirectoryHandle,
   };
 
+  /** Build a minimal useFileSystem mock with multi-root fields defaulted. */
+  function makeFileSystemMock(
+    overrides: Partial<ReturnType<typeof useFileSystem>> = {}
+  ): ReturnType<typeof useFileSystem> {
+    return {
+      rootDirectoryHandle: rootHandle,
+      rootDirectoryHandles: [],
+      isAccessLoading: false,
+      selectRootDirectory: mockSelectRootDirectory,
+      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      clearRootDirectory: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
+      addRootDirectory: vi.fn().mockResolvedValue(null),
+      setFocusedRoot: vi.fn(),
+      ...overrides,
+    };
+  }
+
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
   let storeState: FileExplorerState;
@@ -194,15 +213,7 @@ describe('useFileExplorer (context)', () => {
     (mockStore as unknown as { getState: () => FileExplorerState }).getState = () => storeState;
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore);
 
-    vi.mocked(useFileSystem).mockReturnValue({
-      rootDirectoryHandle: rootHandle,
-      isAccessLoading: false,
-      selectRootDirectory: mockSelectRootDirectory,
-      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-      clearRootDirectory: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      setAccessLoading: vi.fn(),
-    });
+    vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
     vi.mocked(useFileTree).mockReturnValue({
       fileTree: initialFileTree,
@@ -304,15 +315,7 @@ describe('useFileExplorer (context)', () => {
   });
 
   it('refreshFileExplorer throws when no root directory is selected', async () => {
-    vi.mocked(useFileSystem).mockReturnValue({
-      rootDirectoryHandle: null,
-      isAccessLoading: false,
-      selectRootDirectory: mockSelectRootDirectory,
-      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-      clearRootDirectory: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      setAccessLoading: vi.fn(),
-    });
+    vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
 
     const { result } = renderHook(() => useFileExplorer());
 
@@ -341,15 +344,10 @@ describe('useFileExplorer (context)', () => {
       // cleared before the file system had a chance to restore the root directory.
 
       // Setup: no root directory handle but still loading (restore in progress)
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: true, // Still loading/restoring
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      // Still loading/restoring — isAccessLoading: true
+      vi.mocked(useFileSystem).mockReturnValue(
+        makeFileSystemMock({ rootDirectoryHandle: null, isAccessLoading: true })
+      );
 
       // Add some "persisted" state that should NOT be cleared while loading
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts', 'folder|@|file2.ts']);
@@ -365,15 +363,8 @@ describe('useFileExplorer (context)', () => {
 
     it('should clear stale state only after isAccessLoading becomes false with no root handle', async () => {
       // Setup: no root directory handle and not loading (restore failed or web platform)
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: false, // Loading complete, no handle restored
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      // Loading complete, no handle restored — isAccessLoading: false
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
 
       // Add some "stale" state that should be cleared
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
@@ -401,15 +392,7 @@ describe('useFileExplorer (context)', () => {
     });
 
     it('preserves recoverable persisted folder state while no web root handle is selected', async () => {
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
 
       storeState.currentFolderId = 'brainstrike';
       storeState.selectedFilePaths = new Set(['brainstrike|@|src/file-0.ts']);
@@ -455,15 +438,7 @@ describe('useFileExplorer (context)', () => {
 
     it('should NOT clear state when root directory handle exists (regardless of loading state)', () => {
       // Setup: root directory handle exists
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       // Add state that should be preserved
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
@@ -481,15 +456,9 @@ describe('useFileExplorer (context)', () => {
 
       // Initial state: loading in progress
       const useFileSystemMock = vi.mocked(useFileSystem);
-      useFileSystemMock.mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: true,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      useFileSystemMock.mockReturnValue(
+        makeFileSystemMock({ rootDirectoryHandle: null, isAccessLoading: true })
+      );
 
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
       storeState.expandedDirectoryPaths = new Set(['/src']);
@@ -501,15 +470,7 @@ describe('useFileExplorer (context)', () => {
       expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
 
       // Simulate restore completing successfully
-      useFileSystemMock.mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      useFileSystemMock.mockReturnValue(makeFileSystemMock());
 
       act(() => {
         rerender();
@@ -522,15 +483,7 @@ describe('useFileExplorer (context)', () => {
 
     it('cancels pending stale-state clearing when access loading restarts before the timer fires', async () => {
       const useFileSystemMock = vi.mocked(useFileSystem);
-      useFileSystemMock.mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      useFileSystemMock.mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
 
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
       storeState.expandedDirectoryPaths = new Set(['/src']);
@@ -543,15 +496,9 @@ describe('useFileExplorer (context)', () => {
         vi.advanceTimersByTime(1000);
       });
 
-      useFileSystemMock.mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: true,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      useFileSystemMock.mockReturnValue(
+        makeFileSystemMock({ rootDirectoryHandle: null, isAccessLoading: true })
+      );
       storeState.isAccessLoading = true;
 
       act(() => {
@@ -569,15 +516,7 @@ describe('useFileExplorer (context)', () => {
     });
 
     it('reads stale selection and expansion state from the store when the timer fires', async () => {
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
 
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
       storeState.expandedDirectoryPaths = new Set(['/src']);
@@ -600,15 +539,7 @@ describe('useFileExplorer (context)', () => {
 
     it('does not clear restored state when the file-system hook restores a root before the timer fires', async () => {
       const useFileSystemMock = vi.mocked(useFileSystem);
-      useFileSystemMock.mockReturnValue({
-        rootDirectoryHandle: null,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      useFileSystemMock.mockReturnValue(makeFileSystemMock({ rootDirectoryHandle: null }));
 
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
       storeState.expandedDirectoryPaths = new Set(['/src']);
@@ -622,15 +553,7 @@ describe('useFileExplorer (context)', () => {
         vi.advanceTimersByTime(1000);
       });
 
-      useFileSystemMock.mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      useFileSystemMock.mockReturnValue(makeFileSystemMock());
 
       act(() => {
         rerender();
@@ -692,15 +615,7 @@ describe('useFileExplorer (context)', () => {
 
     it('should expose isRestoringExpandedPaths state for UI feedback', () => {
       // Setup: root directory exists with a loaded tree
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       const { result } = renderHook(() => useFileExplorer());
 
@@ -714,15 +629,7 @@ describe('useFileExplorer (context)', () => {
 
     it('should expose restoration progress with correct shape', () => {
       // Setup with root handle and tree
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       const { result } = renderHook(() => useFileExplorer());
 
@@ -737,15 +644,7 @@ describe('useFileExplorer (context)', () => {
 
     it('should not trigger restoration when there are no persisted expanded paths', async () => {
       // Setup: root handle exists, tree is loaded, but no expanded paths
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       // Empty expanded paths - no restoration needed
       storeState.expandedDirectoryPaths = new Set();
@@ -790,15 +689,7 @@ describe('useFileExplorer (context)', () => {
       // must be loaded so that file nodes (with handles and sizes) appear in the file tree.
       // Without this, token counting and file size display fail for restored selections.
 
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       // Setup: selected files in various directories, but those directories are NOT expanded
       storeState.selectedFilePaths = new Set([
@@ -864,15 +755,7 @@ describe('useFileExplorer (context)', () => {
     });
 
     it('reruns restoration when selected files change after the root is already settled', async () => {
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       storeState.selectedFilePaths = new Set<string>();
       storeState.expandedDirectoryPaths = new Set<string>();
@@ -928,15 +811,7 @@ describe('useFileExplorer (context)', () => {
     });
 
     it('retries restoration when selected files change while ancestor loading is in flight', async () => {
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       storeState.selectedFilePaths = new Set(['root|@|src/initial.ts']);
       storeState.expandedDirectoryPaths = new Set<string>();
@@ -1002,15 +877,7 @@ describe('useFileExplorer (context)', () => {
       // If a parent directory of a selected file is already in expandedDirectoryPaths,
       // it should not be duplicated in the restoration call.
 
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       // 'src/components' is both an expanded path AND parent of a selected file
       storeState.selectedFilePaths = new Set(['root|@|src/components/Button.tsx']);
@@ -1059,15 +926,7 @@ describe('useFileExplorer (context)', () => {
     });
 
     it('re-commits restored expansion paths even without restored selected files', async () => {
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: rootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(makeFileSystemMock());
 
       storeState.selectedFilePaths = new Set();
       storeState.expandedDirectoryPaths = new Set(['src', 'src/components']);
@@ -1163,15 +1022,9 @@ describe('useFileExplorer (context)', () => {
       });
       expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
 
-      vi.mocked(useFileSystem).mockReturnValue({
-        rootDirectoryHandle: otherRootHandle,
-        isAccessLoading: false,
-        selectRootDirectory: mockSelectRootDirectory,
-        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-        clearRootDirectory: vi.fn(),
-        setRootDirectoryHandle: vi.fn(),
-        setAccessLoading: vi.fn(),
-      });
+      vi.mocked(useFileSystem).mockReturnValue(
+        makeFileSystemMock({ rootDirectoryHandle: otherRootHandle })
+      );
 
       rerender();
 

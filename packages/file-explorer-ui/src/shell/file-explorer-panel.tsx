@@ -208,6 +208,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     loadingFiles,
     filterError,
     rootDirectoryHandle,
+    rootDirectoryHandles,
     isFileSystemAccessSupported,
     refreshFileExplorer,
     isInitialLoad,
@@ -233,6 +234,8 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll,
+    addRootDirectory,
+    setFocusedRoot,
   } = useFileExplorer();
 
   const {
@@ -591,8 +594,19 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   }, [dismissRestore, handleDirectorySelect]);
 
   const handleToolbarDirectorySelect = useCallback(async (): Promise<void> => {
+    // When roots already exist, use addRootDirectory (multi-root Add Folder).
+    // Otherwise fall back to the standard single-root select flow.
+    const hasRoots = (rootDirectoryHandles?.length ?? 0) > 0;
+    if (hasRoots && addRootDirectory) {
+      try {
+        await addRootDirectory();
+      } catch (error) {
+        handleDirectorySelectError(error);
+      }
+      return;
+    }
     await handleDirectorySelect();
-  }, [handleDirectorySelect]);
+  }, [handleDirectorySelect, rootDirectoryHandles, addRootDirectory, handleDirectorySelectError]);
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
@@ -729,6 +743,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
         {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
           <FileExplorerToolbar
+            hasRoots={(rootDirectoryHandles?.length ?? 0) > 0}
             isLoading={isLoading}
             onDirectorySelect={handleToolbarDirectorySelect}
             rootDirectoryHandle={rootDirectoryHandle}
@@ -834,6 +849,8 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 onSelectFolderRecursively={handleSelectFolderRecursively}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
+                rootDirectoryHandles={rootDirectoryHandles}
+                setFocusedRoot={setFocusedRoot}
                 treeError={error}
               />
             </Suspense>

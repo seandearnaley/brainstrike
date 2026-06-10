@@ -2,7 +2,8 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
-import { memo, useDeferredValue } from 'react';
+import { memo, useCallback, useDeferredValue, useState } from 'react';
+import { RootSectionHeader } from '../components/root-section-header';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 
@@ -33,29 +34,33 @@ const SelectAllLoadingIndicator = () => (
 
 interface FileExplorerSidebarProps {
   /** Cancel loading for a directory (called on collapse) */
-  cancelChildLoading?: (path: string) => void;
+  cancelChildLoading?: ((path: string) => void) | undefined;
   currentFolderId: string | null;
   filterError: Error | null;
   isInitialLoad: boolean;
   isLoading: boolean;
   /** Whether the entire tree is being loaded for select all */
-  isLoadingForSelectAll?: boolean;
+  isLoadingForSelectAll?: boolean | undefined;
   /** Whether a folder is being loaded for selection */
-  isLoadingForSelection?: boolean;
+  isLoadingForSelection?: boolean | undefined;
   loadingFiles: Set<string>;
   /** Path of the folder being loaded for selection */
-  loadingPathForSelection?: string | null;
+  loadingPathForSelection?: string | null | undefined;
   /** Set of paths currently loading their children (lazy loading) */
-  loadingPaths?: Set<string>;
+  loadingPaths?: Set<string> | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
-  onLoadChildren?: (path: string) => Promise<void>;
+  onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /** Select all files in a folder recursively, loading if needed */
-  onSelectFolderRecursively?: (
-    node: IFileNode
-  ) => Promise<{ success: boolean; filePaths: string[] }>;
-  onTreeRender?: () => void;
+  onSelectFolderRecursively?:
+    | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
+    | undefined;
+  onTreeRender?: (() => void) | undefined;
   quickFilteredTree: IFileNode[] | null;
   rootDirectoryHandle: DirectoryHandle | null;
+  /** All active root handles. When length > 1, renders a forest (one tree per root). */
+  rootDirectoryHandles?: DirectoryHandle[] | undefined;
+  /** Switch focus to the root at the given path (forest mode). */
+  setFocusedRoot?: ((path: string) => void) | undefined;
   treeError: Error | null;
 }
 
@@ -88,9 +93,104 @@ const EmptyStateComponent = ({
   </div>
 );
 
+/** Single tree pane — renders OptimizedFileTree or empty state for one root. */
+interface SingleTreePaneProps {
+  cancelChildLoading?: ((path: string) => void) | undefined;
+  currentFolderId: string | null;
+  isLoading: boolean;
+  isLoadingForSelectAll?: boolean | undefined;
+  isLoadingForSelection?: boolean | undefined;
+  loadingFiles: Set<string>;
+  loadingPathForSelection?: string | null | undefined;
+  loadingPaths?: Set<string> | undefined;
+  onLoadChildren?: ((path: string) => Promise<void>) | undefined;
+  onSelectFolderRecursively?:
+    | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
+    | undefined;
+  onTreeRender?: (() => void) | undefined;
+  quickFilteredTree: IFileNode[] | null;
+  rootDirectoryHandle: DirectoryHandle;
+}
+
+const SingleTreePane: React.FC<SingleTreePaneProps> = ({
+  rootDirectoryHandle,
+  quickFilteredTree,
+  loadingFiles,
+  isLoading,
+  currentFolderId,
+  onTreeRender,
+  loadingPaths,
+  onLoadChildren,
+  cancelChildLoading,
+  onSelectFolderRecursively,
+  isLoadingForSelection,
+  loadingPathForSelection,
+  isLoadingForSelectAll = false,
+}) => {
+  const deferredTree = useDeferredValue(quickFilteredTree);
+  const hasContent = deferredTree && deferredTree.length > 0;
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
+      {hasContent ? (
+        <OptimizedFileTree
+          cancelChildLoading={cancelChildLoading}
+          fileTree={deferredTree}
+          folderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? ''}
+          isLoadingForSelection={isLoadingForSelection}
+          loadingFiles={loadingFiles}
+          loadingPathForSelection={loadingPathForSelection}
+          loadingPaths={loadingPaths}
+          onLoadChildren={onLoadChildren}
+          onRender={onTreeRender || undefined}
+          onSelectFolderRecursively={onSelectFolderRecursively}
+        />
+      ) : (
+        <EmptyStateComponent
+          isLoading={isLoading}
+          quickFilteredTree={deferredTree}
+          rootDirectoryHandle={rootDirectoryHandle}
+        />
+      )}
+    </div>
+  );
+};
+
+/** One collapsible root section (header + tree) used in forest mode. */
+interface RootSectionProps extends SingleTreePaneProps {
+  setFocusedRoot?: ((path: string) => void) | undefined;
+}
+
+const RootSection: React.FC<RootSectionProps> = ({
+  rootDirectoryHandle,
+  setFocusedRoot,
+  ...rest
+}) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const handleToggle = useCallback(() => {
+    // Clicking the header focuses this root AND toggles collapse.
+    setFocusedRoot?.(rootDirectoryHandle.path);
+    setIsCollapsed((v) => !v);
+  }, [setFocusedRoot, rootDirectoryHandle.path]);
+
+  return (
+    <div className="flex flex-col">
+      <RootSectionHeader
+        displayName={rootDirectoryHandle.name}
+        isCollapsed={isCollapsed}
+        onToggleCollapse={handleToggle}
+      />
+      {!isCollapsed && <SingleTreePane rootDirectoryHandle={rootDirectoryHandle} {...rest} />}
+    </div>
+  );
+};
+
 const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
   ({
     rootDirectoryHandle,
+    rootDirectoryHandles,
+    setFocusedRoot,
     treeError,
     filterError,
     quickFilteredTree,
@@ -112,6 +212,46 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
     const deferredTree = useDeferredValue(quickFilteredTree);
 
     const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
+
+    // FOREST MODE: render one collapsible section per root when multiple roots are active.
+    // When rootDirectoryHandles.length <= 1, fall through to the original single-tree layout.
+    const forestHandles = rootDirectoryHandles ?? [];
+    const isForestMode = forestHandles.length > 1;
+
+    if (isForestMode) {
+      const sharedProps = {
+        cancelChildLoading,
+        currentFolderId,
+        isLoading,
+        isLoadingForSelection,
+        isLoadingForSelectAll,
+        loadingFiles,
+        loadingPathForSelection,
+        loadingPaths,
+        onLoadChildren,
+        onSelectFolderRecursively,
+        onTreeRender,
+      };
+
+      return (
+        <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+          {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {forestHandles.map((handle) => (
+              <RootSection
+                key={handle.path}
+                quickFilteredTree={handle.path === rootDirectoryHandle?.path ? deferredTree : []}
+                rootDirectoryHandle={handle}
+                setFocusedRoot={setFocusedRoot}
+                {...sharedProps}
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // SINGLE-ROOT LAYOUT (original, golden-path regression safety)
     const hasContent = deferredTree && deferredTree.length > 0;
 
     return (

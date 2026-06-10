@@ -60,4 +60,16 @@ describe('FileExplorerToolbar', () => {
 
     expect(screen.getByText('root')).toBeInTheDocument();
   });
+
+  it('shows "Add Folder" label and keeps data-testid="select-root-button" when hasRoots is true', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps({ hasRoots: true })} />);
+    expect(screen.getByTestId('select-root-button')).toBeInTheDocument();
+    expect(screen.getByText('Add Folder')).toBeInTheDocument();
+  });
+
+  it('shows "Select Root" label when hasRoots is false (no roots yet)', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps({ hasRoots: false })} />);
+    expect(screen.getByTestId('select-root-button')).toBeInTheDocument();
+    expect(screen.getByText(FileExplorerStrings.selectRoot)).toBeInTheDocument();
+  });
 });

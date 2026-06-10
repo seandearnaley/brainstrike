@@ -283,6 +283,10 @@ describe('FileExplorerPanel', () => {
       selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
       cancelSelectAll: vi.fn(),
       isLoadingForSelectAll: false,
+      // Multi-root (Phase 4+)
+      rootDirectoryHandles: [],
+      addRootDirectory: vi.fn().mockResolvedValue(null),
+      setFocusedRoot: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 

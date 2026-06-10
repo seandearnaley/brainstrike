@@ -222,15 +222,26 @@ export function useFileSystem() {
   return useMemo(
     () => ({
       rootDirectoryHandle: storedRootDirectoryHandle ?? coreApi.rootDirectoryHandle,
+      /** All active root handles (multi-root, Phase 4+). */
+      rootDirectoryHandles: coreApi.rootDirectoryHandles,
       isAccessLoading: coreApi.isAccessLoading,
       selectRootDirectory,
       isFileSystemAccessSupported,
       clearRootDirectory,
       setRootDirectoryHandle: setRootHandle,
       setAccessLoading: coreApi.setAccessLoading,
+      /** Add an additional root directory (multi-root, Phase 4+). */
+      addRootDirectory: coreApi.addRootDirectory,
+      /** Switch focused root to the given path (multi-root, Phase 4+). */
+      setFocusedRoot: coreApi.setFocusedRoot,
     }),
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope
-    [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, coreApi.isAccessLoading]
+    [
+      storedRootDirectoryHandle,
+      coreApi.rootDirectoryHandle,
+      coreApi.rootDirectoryHandles,
+      coreApi.isAccessLoading,
+    ]
   );
 }
