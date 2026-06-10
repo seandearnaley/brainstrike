@@ -38,6 +38,9 @@ export type ManagedCacheBatchMutation =
 export interface ApplyManagedCacheBatchArgs {
   changes: readonly ManagedCacheBatchMutation[];
   embeddingSetId: string;
+  // Per-batch root identifier: all changes in a batch share one root.
+  // null means "no root assigned yet" (same as the pre-phase-3 default).
+  readonly rootId?: string | null;
 }
 
 interface QueryLike {
@@ -197,9 +200,17 @@ export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheB
   });
   assertTotalBatchWithinLimit(changes.length);
 
+  // rootId is per-batch (all changes in a batch share one root); must be a
+  // string, null, or absent — any other type is a caller bug, not silent coercion.
+  const rawRootId = candidate['rootId'];
+  if (rawRootId !== undefined && rawRootId !== null && typeof rawRootId !== 'string') {
+    throw new Error('Managed cache batch payload rootId must be a string or null.');
+  }
+
   return {
     embeddingSetId: candidate['embeddingSetId'],
     changes,
+    ...(rawRootId === undefined ? {} : { rootId: rawRootId as string | null }),
   };
 }
 
@@ -217,6 +228,7 @@ const IMPORT_COLUMNS = [
   'token_count',
   'processed_at',
   'embedding_set_id',
+  'root_id',
 ] as const;
 
 const REPLACE_VALUE_COLUMNS = [
@@ -310,7 +322,8 @@ function assertReturnedIds(
 async function insertManagedCacheImports(
   tx: QueryLike,
   embeddingSetId: string,
-  imports: readonly ManagedCacheImportRecord[]
+  imports: readonly ManagedCacheImportRecord[],
+  rootId: string | null
 ): Promise<void> {
   if (imports.length === 0) {
     return;
@@ -331,6 +344,7 @@ async function insertManagedCacheImports(
     record.tokenCount,
     record.processedAt,
     embeddingSetId,
+    rootId ?? null,
   ]);
 
   const result = await tx.query<{ id: string }>(
@@ -449,8 +463,10 @@ export async function applyManagedCacheBatch(
   await db.transaction(async (tx) => {
     // Replacements must run first so stale chunks are cleared before any new rows in the same
     // batch are inserted. Reordering these calls changes conflict behavior and atomicity.
+    // NOTE: applyManagedCacheReplacements does NOT set root_id — it is an UPDATE by id,
+    // and the root of an existing record never changes on replace.
     await applyManagedCacheReplacements(tx, args.embeddingSetId, replacements);
-    await insertManagedCacheImports(tx, args.embeddingSetId, imports);
+    await insertManagedCacheImports(tx, args.embeddingSetId, imports, args.rootId ?? null);
     await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
   });
 }
