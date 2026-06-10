@@ -241,7 +241,7 @@ function logPathsToRestore(
 interface RestoreExpandedPathsArgs {
   currentRootFolderId: string;
   currentRootFolderIdRef: RefObject<string | null>;
-  instanceInProgressFolderIdRef: React.MutableRefObject<string | null>;
+  instanceInProgressFolderIdRef: RefObject<string | null>;
   loadSpecificPaths: (
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
