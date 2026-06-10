@@ -1,3 +1,4 @@
+export { isAbsolutePath, toRelativePath } from './paths';
 export {
   type ActionRegistry,
   type CreateActionRegistryOptions,
