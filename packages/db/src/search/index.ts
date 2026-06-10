@@ -2,6 +2,24 @@
  * Search utilities for hybrid search with RRF fusion
  */
 
+// Grep pattern utilities
+export {
+  escapeLikeLiteral,
+  extractTrigramLiteral,
+  MIN_TRIGRAM_LITERAL_LENGTH,
+} from './grep-pattern.js';
+// Grep Search Service
+export {
+  createGrepSearchService,
+  GREP_DEFAULT_CANDIDATE_LIMIT,
+  GREP_DEFAULT_CONTEXT_LINES,
+  GREP_DEFAULT_MAX_RESULTS,
+  type GrepMatch,
+  type GrepSearchOptions,
+  type GrepSearchRepository,
+  type GrepSearchResult,
+  GrepSearchService,
+} from './grep-search-service.js';
 // Hybrid Search Service
 export {
   createHybridSearchService,

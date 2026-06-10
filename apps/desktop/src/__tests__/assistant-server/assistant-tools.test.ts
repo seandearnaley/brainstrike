@@ -252,6 +252,46 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
 
+  it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+    });
+    getDatabaseMock.mockResolvedValue({ query: queryMock });
+
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.grepSearch'].execute({
+      context: { pattern: 'needle' },
+    });
+
+    expect(result.matches).toEqual([
+      {
+        path: 'src/x.ts',
+        line: 11,
+        lineText: 'needle line',
+        before: ['alpha'],
+        after: ['omega'],
+      },
+    ]);
+  });
+
+  it('rethrows sanitized grepSearch errors from the execute wrapper', async () => {
+    const queryMock = vi.fn().mockRejectedValue(new Error('relation "file_chunks" does not exist'));
+    getDatabaseMock.mockResolvedValue({ query: queryMock });
+
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+
+    const promise = tools['brainstrike.grepSearch'].execute({
+      context: { pattern: 'needle' },
+    });
+    await expect(promise).rejects.toThrow(/Unable to perform grep search/);
+    await expect(promise).rejects.not.toThrow(/file_chunks/);
+  });
+
   it('filters native tools to the enabled runtime tool ids when provided', () => {
     const tools = buildDesktopAssistantTools({
       workspaceRootPath: '/tmp/workspace',

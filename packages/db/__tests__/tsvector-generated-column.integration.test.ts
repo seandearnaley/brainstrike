@@ -10,6 +10,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
@@ -84,8 +85,11 @@ describe('content_tsvector generated column (integration)', () => {
   // manifest to make the column STORED-generated AND (re)create the GIN index, with a
   // working end-to-end full-text-search round-trip.
   it('makes content_tsvector generated + GIN-indexed + searchable via the drizzle runMigrations (production) path', async () => {
-    const client = new PGlite({ extensions: { vector } });
-    await runMigrations(client);
+    const client = new PGlite({ extensions: { vector, pg_trgm: pgTrgm } });
+    const migrationResult = await runMigrations(client);
+    if (!migrationResult.success) {
+      throw new Error(`Migrations failed: ${migrationResult.error}`);
+    }
 
     // 's' = STORED generated; '' = the leftover plain column the manifest creates.
     const gen = await client.query(

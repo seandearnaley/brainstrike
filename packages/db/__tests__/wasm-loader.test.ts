@@ -9,6 +9,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
     vi.unmock('@electric-sql/pglite-pgvector');
+    vi.unmock('@electric-sql/pglite/contrib/pg_trgm');
 
     vi.doMock('@electric-sql/pglite', () => {
       PGliteMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
@@ -21,6 +22,11 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     // Mock the vector extension
     vi.doMock('@electric-sql/pglite-pgvector', () => ({
       vector: {},
+    }));
+
+    // Mock the pg_trgm extension
+    vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({
+      pg_trgm: {},
     }));
 
     // Import fresh module after mocking
@@ -40,6 +46,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
     vi.unmock('@electric-sql/pglite-pgvector');
+    vi.unmock('@electric-sql/pglite/contrib/pg_trgm');
   });
 
   it('returns the same promise when called twice', async () => {
@@ -65,6 +72,11 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       live: {},
     }));
 
+    // Mock pg_trgm extension (successful)
+    vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({
+      pg_trgm: {},
+    }));
+
     // Re-import the module with the failing mock
     const wasmLoaderModule = await import('../src/wasm-loader');
     const loader = wasmLoaderModule.wasmLoader;
@@ -79,6 +91,45 @@ describe('wasmLoader.ensureWasmLoaded', () => {
 
     const promise = loader.ensureWasmLoaded();
     await expect(promise).rejects.toThrowError(/pgvector extension is required/);
+    const internal = loader as unknown as { wasmLoadPromise: Promise<void> | null };
+    expect(internal.wasmLoadPromise).toBeNull();
+  });
+
+  it('rejects with the pg_trgm failure message when the trgm extension fails to load', async () => {
+    // Reset modules to apply new mock
+    vi.resetModules();
+
+    // Mock vector extension (successful)
+    vi.doMock('@electric-sql/pglite-pgvector', () => ({
+      vector: {},
+    }));
+
+    // Mock live extension (successful)
+    vi.doMock('@electric-sql/pglite/live', () => ({
+      live: {},
+    }));
+
+    // Mock pg_trgm extension to reject
+    vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({
+      get pg_trgm() {
+        throw new Error('load fail');
+      },
+    }));
+
+    // Re-import the module with the failing mock
+    const wasmLoaderModule = await import('../src/wasm-loader');
+    const loader = wasmLoaderModule.wasmLoader;
+
+    // Reset internal state
+    const internalLoader = loader as unknown as {
+      wasmLoadPromise: Promise<void> | null;
+      isLoaded: boolean;
+    };
+    internalLoader.wasmLoadPromise = null;
+    internalLoader.isLoaded = false;
+
+    const promise = loader.ensureWasmLoaded();
+    await expect(promise).rejects.toThrowError(/pg_trgm extension is required/);
     const internal = loader as unknown as { wasmLoadPromise: Promise<void> | null };
     expect(internal.wasmLoadPromise).toBeNull();
   });
@@ -99,6 +150,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       });
       vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
+      vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({ pg_trgm: {} }));
 
       const mod = await import('../src/wasm-loader');
       const loader = mod.wasmLoader;
@@ -139,6 +191,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       });
       vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
+      vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({ pg_trgm: {} }));
 
       const mod = await import('../src/wasm-loader');
 
@@ -165,6 +218,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       });
       vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
       vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
+      vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({ pg_trgm: {} }));
 
       const mod = await import('../src/wasm-loader');
       const loader = mod.wasmLoader;
