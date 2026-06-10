@@ -343,6 +343,54 @@ When modifying TreeTable strategy or pagination behavior:
 
 ---
 
+## CONTEXT ACTION SYSTEM
+
+Right-click menus are projections of a shared action system. Do not hand-roll
+per-surface context menus (coordinate state + positioned DropdownMenu is the
+legacy pattern; it was removed from the collection browser).
+
+Layers:
+- Headless core: packages/context-actions — ContextTarget union, ContextAction,
+  createActionRegistry, ClipboardService, path helpers. No React rendering, no
+  Electron imports.
+- Renderer: packages/ui/src/context-menu — Radix ContextMenu wrapper +
+  ActionRegistryProvider + ActionContextMenu + useContextMenuTarget.
+- Composition: packages/app-shell/src/context-action-registry.ts builds the
+  registry (capabilities from the bridges that exist) and mounts the provider
+  in root-layout-content.tsx. Feature actions are imported via subpath exports
+  (@brainstrike/db-explorer/context-actions,
+  @brainstrike/file-explorer-ui/context-actions) to preserve code-splitting —
+  do NOT import the feature-package root barrels from always-mounted code.
+- Desktop bridge: window.platform (preload) → 'shell' IPC domain →
+  apps/desktop/src/ipc-shell.ts (validates absolute paths, catches shell throws).
+
+Rules:
+- Capability gating hides actions (no disabled "available on desktop" items).
+  Web simply never constructs 'fs.reveal'. No isElectron() checks in action or
+  menu code.
+- Every action run resolves to ActionOutcome; failures MUST toast + log
+  (createLogger('ContextActions')). Thrown/rejected runs are caught by the menu
+  and surfaced as "Action failed unexpectedly". No silent fallbacks: a
+  present-but-broken bridge reports failure, never degrades quietly.
+- Adding an action: define it with defineContextAction in the owning feature
+  package, add it to that package's exported action array, cover run/gating in
+  unit tests.
+- Adding a surface: add a target kind to ContextTarget, write a node→target
+  adapter, claim the target in the surface's row contextmenu handler via
+  controller.setTarget, reset it with onContextMenuCapture on the container,
+  wrap with ActionContextMenu. Surface-local actions (closures over surface
+  stores) go through the localActions prop, not the global registry.
+- Adding a capability: extend CapabilityKey, construct it in
+  createAppActionRegistry only when the backing bridge is fully formed
+  (malformed bridges log an error and stay absent).
+- Known limitation: Radix touch/pen long-press (~700ms) bypasses the
+  contextmenu claiming protocol — desktop-first tradeoff, documented in
+  action-context-menu.tsx.
+
+When changing this flow, update this section and the related tests.
+
+---
+
 ## CODING STYLE AND NAMING
 
 Stack lock:
