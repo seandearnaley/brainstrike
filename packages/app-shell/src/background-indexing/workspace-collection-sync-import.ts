@@ -208,6 +208,11 @@ async function collectDiscoveredPreparedFiles(args: {
       name: metadata.request.fileNode.name,
       relativePath: metadata.relativePath,
       request: metadata.request,
+      // The content.length fallback (UTF-16 code units, not bytes) deliberately
+      // diverges from the scan's byte size: a file imported without a stat size
+      // will mismatch the stat-cache comparison on later syncs and re-hash every
+      // time. That is the SAFE direction (extra read, never a false skip) — do
+      // not "fix" this by making the comparison tolerate the fallback value.
       size: metadata.size > 0 ? metadata.size : content.length,
       sourceRootPath: args.rootPath,
     });
