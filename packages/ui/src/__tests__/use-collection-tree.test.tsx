@@ -126,6 +126,41 @@ describe('useCollectionTree', () => {
     expect(result.current.searchExpandIds.has('file-f1')).toBe(true);
   });
 
+  it('matches searches against node IDs after stripping collection tree prefixes', () => {
+    const data: CollectionTreeInput = {
+      files: [
+        { id: 'f1', name: 'app.tsx', path: '/repo/app.tsx', size: 123 },
+        { id: 'f2', name: 'other.ts', path: '/repo/other.ts', size: 50 },
+      ],
+      chunks: [
+        {
+          id: 'c1',
+          fileRecordId: 'f1',
+          chunkIndex: 0,
+          content: 'target content',
+          tokenCount: 10,
+        },
+        {
+          id: 'c2',
+          fileRecordId: 'f2',
+          chunkIndex: 0,
+          content: 'irrelevant',
+          tokenCount: 5,
+        },
+      ],
+    };
+    const { result } = renderHook(() =>
+      useCollectionTree({
+        data,
+        expandedIds: new Set<string>(['file-f1']),
+        filters: makeFilters({ searchQuery: 'c1' }),
+      })
+    );
+
+    expect(result.current.nodes.map((n) => n.id)).toEqual(['file-f1', 'chunk-c1']);
+    expect(result.current.searchMatchIds.has('chunk-c1')).toBe(true);
+  });
+
   it('filters to semantic results and aggregates similarity score to parents', () => {
     const data: CollectionTreeInput = {
       files: [

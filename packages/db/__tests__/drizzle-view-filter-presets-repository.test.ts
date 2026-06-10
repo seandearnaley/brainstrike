@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -14,9 +15,12 @@ describe('DrizzleViewFilterPresetsRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector },
+      extensions: { vector, pg_trgm: pgTrgm },
     });
-    await runMigrations(client);
+    const migrationResult = await runMigrations(client);
+    if (!migrationResult.success) {
+      throw new Error(`Migrations failed: ${migrationResult.error}`);
+    }
     db = drizzle(client, { schema });
     repository = new DrizzleViewFilterPresetsRepository(db);
   });

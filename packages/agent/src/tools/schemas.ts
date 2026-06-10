@@ -369,6 +369,46 @@ export const QueryEmbeddingSpaceInputSchema = RetrievalContextInputSchema;
 
 export type QueryEmbeddingSpaceInput = z.infer<typeof QueryEmbeddingSpaceInputSchema>;
 
+// ============================================================================
+// Grep Search Tool Schema
+// ============================================================================
+
+export const GrepSearchInputSchema = z
+  .object({
+    pattern: z
+      .string()
+      .min(2)
+      .max(500)
+      .describe('Exact text (default) or JavaScript regex to find in indexed file content'),
+    isRegex: z
+      .boolean()
+      .optional()
+      .describe('Treat pattern as a JavaScript regular expression (default false)'),
+    caseSensitive: z.boolean().optional().describe('Case-sensitive matching (default false)'),
+    filePaths: z
+      .array(z.string().min(1))
+      .max(1000)
+      .optional()
+      .describe('Restrict the search to specific indexed file paths'),
+    contextLines: z
+      .number()
+      .int()
+      .min(0)
+      .max(5)
+      .optional()
+      .describe('Lines of context before/after each match (default 1)'),
+    maxResults: z
+      .number()
+      .int()
+      .positive()
+      .max(200)
+      .optional()
+      .describe('Maximum matches to return (default 50)'),
+  })
+  .strict();
+
+export type GrepSearchInput = z.infer<typeof GrepSearchInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
   'web.echo': EchoInput,
@@ -382,6 +422,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
+  'brainstrike.grepSearch': GrepSearchInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

@@ -260,6 +260,37 @@ When changing the model catalog:
 
 ---
 
+## PGLITE EXTENSION INVARIANT
+
+Every PGlite construction site MUST load the same engine-extension set, or the
+corresponding `CREATE EXTENSION` migration fails with a cryptic "could not open
+extension control file" error on that path only:
+
+- `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
+- `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
+- `live` (client-side reactive queries — loaded everywhere EXCEPT `pglite-worker-entry.ts`, where the PGliteWorker client installs it)
+
+Construction sites (keep in sync when adding extensions or new sites):
+- packages/db/src/wasm-loader.ts (cached loaders + HMR reset in `resetExtensionCaches`)
+- packages/db/src/pglite-worker-entry.ts (engine extensions only)
+- apps/desktop/src/db-main.ts (main-process host; ambient type shims live in apps/desktop/src/types/)
+
+Tests that construct PGlite directly and run migrations must also pass the full
+extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.test.ts).
+
+---
+
+## ASSISTANT SEARCH TOOLS
+
+The assistant's search verbs, in the order the default instructions present them:
+1. `brainstrike.grepSearch` — FIRST for exact strings, identifiers, error messages. Two-phase: trigram-indexed ILIKE/regex-literal prefilter (`FileChunkRepository.findGrepCandidates`) + authoritative JS line matcher (`GrepSearchService` in packages/db/src/search/). Regex patterns with no extractable ≥3-char literal fall back to a bounded scan surfaced via `scanLimited` (never silent). Desktop-only wiring in apps/desktop/src/assistant-server/grep-search-tool.ts.
+2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
+3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths.
+
+Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
+
+---
+
 ## LOCAL LLM ARCHITECTURE (CRITICAL)
 
 Renderer-only execution is mandatory for the built-in local LLM path.

@@ -22,7 +22,7 @@ interface CountRow {
   count: number | string;
 }
 
-describe('migration 038: roots table', () => {
+describe('migration 039: roots table', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -31,17 +31,17 @@ describe('migration 038: roots table', () => {
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 38));
+    await runner.up(migrations.filter((migration) => migration.version < 39));
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  function getMigration038() {
-    const migration = migrations.find((candidate) => candidate.version === 38);
+  function getMigration039() {
+    const migration = migrations.find((candidate) => candidate.version === 39);
     if (!migration) {
-      throw new Error('Migration 038 is missing');
+      throw new Error('Migration 039 is missing');
     }
     return migration;
   }
@@ -77,7 +77,7 @@ describe('migration 038: roots table', () => {
     await seedFileRecord('f4', 'orphan.md', null, null);
     await seedFileRecord('f5', 'rootfile.md', '/', 'set-a');
 
-    await runner.runMigration(getMigration038());
+    await runner.runMigration(getMigration039());
 
     const roots = await db.query<RootRow>(
       'SELECT id, kind, display_name, path, status FROM roots ORDER BY path'
@@ -130,7 +130,7 @@ describe('migration 038: roots table', () => {
     await seedFileRecord('f1', 'src/index.ts', '/Users/alice/work-docs', 'set-a');
     await seedFileRecord('f2', 'src/index.ts', '/Users/alice/personal-docs', 'set-a');
 
-    await runner.runMigration(getMigration038());
+    await runner.runMigration(getMigration039());
 
     // Same (embedding_set_id, path) from two different roots coexists.
     const distinctRoots = await db.query<CountRow>(
@@ -166,7 +166,7 @@ describe('migration 038: roots table', () => {
   }, async () => {
     await seedFileRecord('f1', 'src/index.ts', '/Users/alice/work-docs', 'set-a');
 
-    const migration = getMigration038();
+    const migration = getMigration039();
     await runner.runMigration(migration);
     await runner.rollback(migration);
 
