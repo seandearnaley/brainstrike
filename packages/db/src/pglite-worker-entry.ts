@@ -1,5 +1,6 @@
 import type { PGliteOptions } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { worker } from '@electric-sql/pglite/worker';
 import { vector } from '@electric-sql/pglite-pgvector';
 
@@ -29,7 +30,7 @@ void worker({
     const workerOptions = parseWorkerInitOptions(options);
     // PGlite engine extensions run here; client-side extensions are installed by PGliteWorker.
     const pgliteOptions: PGliteOptions = {
-      extensions: { vector },
+      extensions: { vector, pg_trgm: pgTrgm },
     };
     if (workerOptions.dataDir !== undefined) {
       pgliteOptions.dataDir = workerOptions.dataDir;

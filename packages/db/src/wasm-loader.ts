@@ -40,6 +40,7 @@ interface PendingBrowserWorkerStartup {
 
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
 let cachedLivePromise: Promise<LiveExtension> | null = null;
+let cachedTrgmPromise: Promise<VectorExtension> | null = null;
 
 async function loadVectorExtension(): Promise<VectorExtension> {
   if (!cachedVectorPromise) {
@@ -73,6 +74,22 @@ async function loadLiveExtension(): Promise<LiveExtension> {
   }
 
   return cachedLivePromise;
+}
+
+async function loadTrgmExtension(): Promise<VectorExtension> {
+  if (!cachedTrgmPromise) {
+    cachedTrgmPromise = (async () => {
+      try {
+        const { pg_trgm: pgTrgm } = await import('@electric-sql/pglite/contrib/pg_trgm');
+        return pgTrgm;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`pg_trgm extension is required and failed to load: ${message}`);
+      }
+    })();
+  }
+
+  return cachedTrgmPromise;
 }
 
 function isWorkerStartupDisposedError(error: unknown): boolean {
@@ -113,7 +130,7 @@ class WasmLoader {
     try {
       // Just preload extensions - actual WASM loading happens when creating the real DB
       // This avoids creating a wasteful temporary database
-      await Promise.all([loadVectorExtension(), loadLiveExtension()]);
+      await Promise.all([loadVectorExtension(), loadLiveExtension(), loadTrgmExtension()]);
       this.isLoaded = true;
       logger.debug('Extensions preloaded successfully');
     } catch (error) {
@@ -126,7 +143,11 @@ class WasmLoader {
     await this.ensureWasmLoaded();
 
     // Load vector extension asynchronously
-    const [vector, live] = await Promise.all([loadVectorExtension(), loadLiveExtension()]);
+    const [vector, live, pgTrgm] = await Promise.all([
+      loadVectorExtension(),
+      loadLiveExtension(),
+      loadTrgmExtension(),
+    ]);
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
@@ -151,9 +172,9 @@ class WasmLoader {
     const db = normalizedDataDir
       ? new PGlite({
           dataDir: normalizedDataDir,
-          extensions: { vector, live },
+          extensions: { vector, live, pg_trgm: pgTrgm },
         })
-      : new PGlite({ extensions: { vector, live } });
+      : new PGlite({ extensions: { vector, live, pg_trgm: pgTrgm } });
 
     // Cache persisted databases only (not memory://)
     if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
@@ -493,6 +514,7 @@ export const wasmLoader = WasmLoader.getInstance();
 function resetExtensionCaches(): void {
   cachedVectorPromise = null;
   cachedLivePromise = null;
+  cachedTrgmPromise = null;
 }
 
 /**
