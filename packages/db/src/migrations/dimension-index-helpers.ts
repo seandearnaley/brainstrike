@@ -253,7 +253,10 @@ export interface DeferredDimensionIndexBuilder {
    * second call while a build is in flight is a no-op.
    */
   schedule(dimension: number): void;
-  /** Await all in-flight builds. Never rejects (builds are best-effort). */
+  /**
+   * Await the builds in flight AT CALL TIME (snapshot semantics — a build
+   * scheduled after this call is not awaited). Never rejects (best-effort).
+   */
   whenSettled(): Promise<void>;
 }
 

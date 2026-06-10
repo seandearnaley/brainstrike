@@ -57,7 +57,9 @@ function isNonEmptyString(value: unknown): value is string {
  * EVERY applyManagedCacheBatch caller is covered, not just the IPC-parsed path.
  */
 function toBigIntMtime(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : null;
+  // Same non-negative gate as parseManagedCacheRecordBase so the two mtime
+  // boundaries stay consistent (a negative stat time is treated as absent).
+  return isFiniteNonNegativeNumber(value) ? Math.floor(value) : null;
 }
 
 function isFiniteNonNegativeNumber(value: unknown): value is number {
