@@ -4,7 +4,9 @@
 
 **Goal:** Make the file-system adapter layer multi-root native — `addRoot()`/`restoreRoots()` with durable RootIds — while the UI stays single-active-root and every existing consumer keeps working unchanged.
 
-**Architecture:** Additive, behind the existing `FileSystemAdapter` seam. (1) New `RootDescriptor` type + optional `addRoot?()`/`restoreRoots?()` methods. (2) Web: IndexedDB handle store re-keyed from `handle.name` (collides!) to generated RootIds via a v1→v2 upgrade; `requestDirectoryAccess` becomes a shim over `addRoot`. (3) Desktop: new `rootsList` storage key (JSON array) + `fs:addRoot`/`fs:restoreRoots` IPC channels; legacy `lastFolderPath` migrates on first restore. (4) A root registry in app-shell reconciles `kind:'legacy'` DB rows to the platform kind and maps adapter RootIds ↔ DB root ids by path-match — **no id re-keying across layers**; DB `roots.id` is canonical, new roots share one id because the registry inserts the adapter's RootId.
+**Architecture:** Additive, behind the existing `FileSystemAdapter` seam. (1) New `RootDescriptor` type + optional `addRoot?()`/`restoreRoots?()` methods. (2) Web: IndexedDB handle store re-keyed from `handle.name` (collides!) to generated RootIds via a v1→v2 upgrade; `requestDirectoryAccess` becomes a shim over `addRoot`. (3) Desktop: new `rootsList` storage key (JSON array) + `fs:addRoot`/`fs:restoreRoots` IPC channels; GREENFIELD — `lastFolderPath` is never consulted or migrated. (4) A root registry in app-shell ensures a DB roots row exists per adapter root (registration, not reconciliation) — **no id re-keying across layers**; DB `roots.id` is canonical, new roots share one id because the registry inserts the adapter's RootId.
+
+**GREENFIELD directive (user, 2026-06-10):** no old-data/back-compat burden anywhere — discard v1 web handle data on upgrade (users re-pick once), no desktop legacy-key migration, no legacy-kind DB reconciliation.
 
 **Explicitly deferred (per design dossier):** `file_token_cache.folder_id` and Zustand `folderStates` keys keep today's `handle.name`/path semantics (Phase 3/4). `currentFolderId` stays `handle.path`. Import-pipeline `root_id` writes are Phase 3.
 
@@ -53,6 +55,12 @@ export interface RootDescriptor {
   readonly handle: DirectoryHandle;
   readonly kind: 'fsa' | 'path';
   readonly permissionState: RootPermissionState;
+  /**
+   * False when the backing store write failed (quota, privacy mode): the root
+   * works for this session but won't survive reload and its rootId must NOT
+   * be registered in the DB (a re-pick generates a new id, orphaning rows).
+   */
+  readonly persisted: boolean;
   readonly rootId: RootId;
 }
 ```
@@ -67,8 +75,9 @@ export interface RootDescriptor {
   addRoot?(): Promise<RootDescriptor>;
   /**
    * Multi-root: return every persisted root with its current permission state.
-   * Never prompts (web queryPermission only); never throws on individual stale
-   * roots — stale entries are pruned and omitted.
+   * Never prompts (web queryPermission only). Dead handles are returned with
+   * permissionState 'unknown' — callers decide whether to surface or ignore
+   * them; nothing is pruned.
    */
   restoreRoots?(): Promise<RootDescriptor[]>;
 ```
@@ -92,7 +101,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `packages/file-system/src/adapters/web-handle-cache.ts`
 - Test: `packages/file-system/src/__tests__/web-handle-cache-v2-upgrade.test.ts` (create)
 
-The `folderId` parameter/field across the `HandleCache` interface keeps its NAME (no churn for callers) but its VALUE becomes an opaque RootId. The v1→v2 IDB upgrade re-keys existing root records from `handle.name` to `crypto.randomUUID()` and drops all file-handle records (best-effort cache; re-populates on access).
+The `folderId` parameter/field across the `HandleCache` interface keeps its NAME (no churn for callers) but its VALUE becomes an opaque RootId. GREENFIELD: the v1→v2 IDB upgrade DISCARDS all v1 data (clears both stores — users re-pick once); no re-key migration.
 
 - [ ] **Step 1: Write the failing upgrade test.** Create `packages/file-system/src/__tests__/web-handle-cache-v2-upgrade.test.ts`:
 
@@ -150,20 +159,13 @@ describe('WebHandleCache v1→v2 upgrade', () => {
     });
   });
 
-  it('re-keys v1 name-keyed roots to generated RootIds, preserving name and timestamps', async () => {
+  it('discards v1 name-keyed root records on upgrade (greenfield: no data migration)', async () => {
     await seedV1Database();
 
     const cache = new WebHandleCache();
     const roots = await cache.getAllRootHandles();
 
-    expect(roots).toHaveLength(1);
-    const migrated = roots[0];
-    expect(migrated?.name).toBe('my-project');
-    expect(migrated?.lastAccessedAt).toBe(100);
-    expect(migrated?.storedAt).toBe(100);
-    // Re-keyed: opaque UUID, not the directory name.
-    expect(migrated?.folderId).not.toBe('my-project');
-    expect(migrated?.folderId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(roots).toEqual([]);
   });
 
   it('drops v1 file-handle records during upgrade (best-effort cache)', async () => {
@@ -223,23 +225,21 @@ describe('WebHandleCache v1→v2 upgrade', () => {
           store.createIndex(FILE_BY_FOLDER_INDEX, 'folderId');
         }
         if (oldVersion === 1) {
-          // v1 keyed roots by handle.name — same-named directories collided.
-          // Re-key every root under a generated RootId; drop file-handle rows
-          // (best-effort cache, re-populates on access).
-          const rootStore = transaction.objectStore(ROOT_STORE);
-          void (async () => {
-            const existing = await rootStore.getAll();
-            for (const record of existing) {
-              await rootStore.delete(record.folderId);
-              await rootStore.put({ ...record, folderId: crypto.randomUUID() });
-            }
-            await transaction.objectStore(FILE_STORE).clear();
-          })();
+          // GREENFIELD: v1 keyed roots by handle.name (same-named directories
+          // collided). No back-compat burden — discard v1 data wholesale; the
+          // user re-picks folders once. clear() requests queue synchronously
+          // inside the upgrade transaction (real Chrome auto-commits the txn
+          // at the first non-IDB await, so never use detached async here).
+          transaction.objectStore(ROOT_STORE).clear();
+          transaction.objectStore(FILE_STORE).clear();
         }
+      },
+      blocked() {
+        logger.warn('openDbWithRecovery: v2 upgrade blocked by an open connection in another tab');
       },
     });
 ```
-   IMPORTANT implementation note: idb upgrade transactions stay open as long as requests are queued each tick — the async IIFE pattern above works with `idb` because its promisified requests chain within the upgrade transaction; if you find the transaction auto-commits early in tests, restructure to cursor-based synchronous iteration (`rootStore.openCursor()` loop with `cursor.delete()`/`store.put()` then `FILE_STORE` `.clear()`); report which form you needed.
+   (fake-indexeddb is more lenient than real Chrome about upgrade-transaction lifetime — looser forms pass tests but silently no-op in production; never use detached async inside the upgrade callback.)
 3. Update the recovery-path `openDB` call (lines 325-333) the same way (it creates fresh stores; no migration branch needed — fresh DB has no v1 data).
 4. Update the doc comments on `storeRootHandle`/`getRootHandle`/`StoredRootHandle.folderId` to state folderId is an opaque RootId supplied by the caller, and `name` is the display name.
 
@@ -371,7 +371,7 @@ All green. Any failure outside the files you touched: report, don't fix silently
 - Modify: `apps/desktop/src/renderer/adapters.ts`
 - Test: extend `apps/desktop/src/__tests__/ipc-domains/file-system-ipc.test.ts`
 
-Storage model: new key `'rootsList'` holding `JSON.stringify(Array<{ addedAt: number; path: string; rootId: string }>)`. Legacy `'lastFolderPath'` migrates into the list on first `restoreRoots` read, then is removed. `'fs:saveLastFolder'`/`'fs:restoreLastFolder'` channels stay functional (deprecated shims) — `saveLastFolder` ALSO upserts into `rootsList` so the two stores can't diverge.
+Storage model (GREENFIELD — no legacy migration): new key `'rootsList'` holding `JSON.stringify(Array<{ addedAt: number; path: string; rootId: string }>)` is the only multi-root store. The old `'lastFolderPath'` key is ignored by `restoreRoots` (it keeps serving the legacy single-root channels until those retire in phase 4). `'fs:saveLastFolder'`/`'fs:restoreLastFolder'` channels stay functional (deprecated shims) — `saveLastFolder` ALSO upserts into `rootsList` so the two stores can't diverge.
 
 - [ ] **Step 1: Failing IPC tests.** In the existing `file-system-ipc.test.ts` pattern (mocked electron, captured handler map, fake storage/fileSystem), add:
 
@@ -383,12 +383,7 @@ describe('fs:restoreRoots', () => {
     // expect: storage rewritten with only the surviving entry
   });
 
-  it('migrates legacy lastFolderPath into rootsList on first read, then removes the legacy key', async () => {
-    // storage: only lastFolderPath set, path exists
-    // expect: result has 1 entry with a generated rootId; rootsList now persisted; lastFolderPath removed
-  });
-
-  it('returns [] when nothing is stored', async () => {});
+  it('returns [] when rootsList is absent (legacy lastFolderPath is NOT consulted — greenfield)', async () => {});
 });
 
 describe('fs:addRoot', () => {
@@ -405,8 +400,8 @@ Fill the test bodies concretely against the file's existing fake-storage helpers
 - [ ] **Step 2: Implement.**
 1. `desktop-ipc-channels.ts` files block: add `addRoot: 'fs:addRoot',` and `restoreRoots: 'fs:restoreRoots',` (alphabetical position).
 2. `file-system-ipc.ts`: add `const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;` next to `LAST_FOLDER_STORAGE_KEY`. Add a `StoredRootEntry` type `{ addedAt: number; path: string; rootId: string }`, plus `readRootsList(storage): Promise<StoredRootEntry[]>` (JSON.parse with strict shape validation — malformed JSON: log + treat as empty, per existing stale-key handling) and `writeRootsList(storage, entries)`. Implement handlers:
-   - `restoreRoots`: read list; if empty, read `lastFolderPath` → if present and exists, seed `[{ addedAt: Date.now(), path, rootId: crypto.randomUUID() }]`, persist, `storage.removeItem(LAST_FOLDER_STORAGE_KEY)`. Validate each entry via `resolveFileSystemIpcPath` + `fileSystem.exists`; prune failures (rewrite list); return survivors as `RootDescriptor[]` with `kind: 'path'`, `permissionState: 'granted'`, `displayName: path.basename(entry.path)`, `handle: { kind: 'directory', name: basename, path: entry.path, platform: 'electron' }`, `rootId: entry.rootId`.
-   - `addRoot`: run the same dialog flow as `requestDirectoryAccess`; on pick, upsert into rootsList keyed by resolved path (existing path → keep its rootId, update addedAt); return the descriptor. Also keep writing `lastFolderPath` (legacy shim parity).
+   - `restoreRoots`: read `rootsList` only (greenfield — `lastFolderPath` is never consulted or migrated). Validate each entry via `resolveFileSystemIpcPath` + `fileSystem.exists`; prune failures (rewrite list); return survivors as `RootDescriptor[]` with `kind: 'path'`, `permissionState: 'granted'`, `persisted: true` (read from storage), `displayName: path.basename(entry.path)`, `handle: { kind: 'directory', name: basename, path: entry.path, platform: 'electron' }`, `rootId: entry.rootId`.
+   - `addRoot`: run the same dialog flow as `requestDirectoryAccess`; on pick, upsert into rootsList keyed by resolved path (existing path → keep its rootId, update addedAt); return the descriptor with `persisted: true` on storage success, `persisted: false` if the storage write throws (log warn, don't rethrow — mirrors web semantics). Also keep writing `lastFolderPath` (legacy shim parity).
    - `saveLastFolder`: after the existing setItem, upsert the path into rootsList (generate rootId if new).
 3. `preload.ts`: add the two channel const strings + `addRoot: () => ipcRenderer.invoke('fs:addRoot')`, `restoreRoots: () => ipcRenderer.invoke('fs:restoreRoots')` on the fileSystem bridge. Check whether a preload contract test asserts the bridge surface (search `apps/desktop/src/__tests__` for preload tests) and update it.
 4. `adapters.ts` (`ElectronRendererFileSystemAdapter`): add `addRoot = () => api.addRoot()` and `restoreRoots = () => api.restoreRoots()` passthroughs (match the class's existing method style). `requestDirectoryAccess` keeps its current behavior (dialog + saveLastFolder) — saveLastFolder now upserts rootsList, so both APIs converge on the same storage.
@@ -425,11 +420,13 @@ Fill the test bodies concretely against the file's existing fake-storage helpers
 - Modify: `packages/app-shell/src/background-indexing/workspace-collection-sync-provider.tsx` (mount the hook)
 - Test: `packages/app-shell/src/__tests__/root-registry.test.ts` (create)
 
-Semantics (the no-rekey design):
-- DB `roots.id` is canonical for DB-side identity (file_records.root_id references it). Adapter RootId is storage-side identity. The registry bridges them **by path-string match** (`roots.path` = bare name on web legacy rows, absolute path on desktop): matched pair → in-memory mapping `{ adapterRootId → dbRootId }`; legacy row's `kind` updated `'legacy'` → adapter platform kind (`'fsa'` web / `'path'` electron) and `last_verified_at = NOW()`.
-- Adapter root with NO matching DB row → INSERT a roots row using the **adapter's RootId as the row id** (one shared id; this is how all post-phase-2 roots are born).
-- DB row with no adapter root → leave untouched (kind stays 'legacy'; its files remain; Phase 3+ owns cleanup UX).
-- Reconciliation runs once per app boot, after adapter + db are both available, BEFORE the first sync cycle would write file records (mount it at the top of `WorkspaceCollectionSyncProvider`).
+Semantics (GREENFIELD — registration, not reconciliation):
+- DB `roots.id` is canonical for DB-side identity (file_records.root_id references it). The registry's only job: **ensure a roots row exists for every adapter root**, inserted under the adapter's RootId so the two identities coincide. No legacy kind-updates, no re-keying.
+- Path match is kept ONLY to avoid violating the `idx_roots_path` partial unique index: if a row with the same path already exists (e.g. pre-greenfield dev data), map the adapter root onto that row's id and leave the row untouched.
+- **Registration filter:** skip adapter roots with `persisted: false` (storage write failed — the rootId dies with the session) and `permissionState: 'unknown'` (dead handle — queryPermission threw). Registering either would create DB rows whose rootId never returns from `restoreRoots()`.
+- Adapter root with no path match → `INSERT (id=adapterRootId, kind=platformKind, display_name, path, last_verified_at=NOW()) ON CONFLICT (id) DO NOTHING` → mapping is identity.
+- DB rows with no adapter root → leave untouched (no deletes; Phase 3+ owns cleanup UX).
+- Runs once per app boot, after adapter + db are both available, BEFORE the first sync cycle would write file records (mount at the top of `WorkspaceCollectionSyncProvider`).
 
 - [ ] **Step 1: Failing registry test.** `packages/app-shell/src/__tests__/root-registry.test.ts` — pure-logic test with a fake `query` function capturing SQL, plus a fake adapter:
 
@@ -444,13 +441,14 @@ function fsaRoot(rootId: string, name: string): RootDescriptor {
     handle: { kind: 'directory', name, path: name, platform: 'web' },
     kind: 'fsa',
     permissionState: 'granted',
+    persisted: true,
     rootId,
   };
 }
 
 describe('reconcileRoots', () => {
-  it('maps adapter roots onto legacy DB rows by path, updates kind, and returns the id mapping', async () => {
-    const dbRows = [{ id: 'db-1', kind: 'legacy', path: 'my-project' }];
+  it('maps adapter roots onto an existing DB row by path without modifying it', async () => {
+    const dbRows = [{ id: 'db-1', path: 'my-project' }];
     const query = vi.fn(async (sql: string) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -462,9 +460,26 @@ describe('reconcileRoots', () => {
     });
 
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
-    const updateCall = query.mock.calls.find(([sql]) => sql.includes('UPDATE roots'));
-    expect(updateCall?.[0]).toContain("kind = 'fsa'");
-    expect(updateCall?.[1]).toEqual(['db-1']);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT'))).toBe(false);
+  });
+
+  it('skips roots with persisted:false or permissionState unknown (no DB rows for session-only ids)', async () => {
+    const query = vi.fn(async (sql: string) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [
+        { ...fsaRoot('a-ephemeral', 'x'), persisted: false },
+        { ...fsaRoot('a-dead', 'y'), permissionState: 'unknown' },
+      ],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(result.dbRootIdByAdapterRootId.size).toBe(0);
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT'))).toBe(false);
   });
 
   it('inserts a new roots row with the adapter RootId when no DB row matches', async () => {
@@ -486,7 +501,7 @@ describe('reconcileRoots', () => {
   });
 
   it('leaves unmatched legacy DB rows untouched', async () => {
-    const dbRows = [{ id: 'db-orphan', kind: 'legacy', path: 'gone-folder' }];
+    const dbRows = [{ id: 'db-orphan', path: 'gone-folder' }];
     const query = vi.fn(async (sql: string) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -524,7 +539,6 @@ export interface ReconcileRootsResult {
 
 interface DbRootRow {
   id: string;
-  kind: string;
   path: string | null;
 }
 
@@ -532,39 +546,42 @@ function isDbRootRow(row: unknown): row is DbRootRow {
   return (
     typeof row === 'object' &&
     row !== null &&
-    typeof (row as DbRootRow).id === 'string' &&
-    typeof (row as DbRootRow).kind === 'string'
+    typeof (row as DbRootRow).id === 'string'
   );
 }
 
 /**
- * Bridges adapter-side roots (storage identity) onto DB roots rows (canonical
- * identity for file_records.root_id). No id re-keying: legacy rows keep their
- * backfilled ids and are matched by path-string; brand-new roots are inserted
- * under the adapter's RootId so the two identities coincide going forward.
- * Unmatched legacy rows are deliberately left alone (phase 3+ owns cleanup).
+ * Ensures a DB roots row exists for every adapter root (registration, not
+ * reconciliation — GREENFIELD, no legacy kind-updates). DB roots.id is
+ * canonical for file_records.root_id; new roots are inserted under the
+ * adapter's RootId so the two identities coincide. Pre-existing rows are
+ * matched by path only to respect the idx_roots_path unique index and are
+ * never modified. Session-only roots (persisted:false) and dead handles
+ * (permissionState 'unknown') are skipped — their ids never return from
+ * restoreRoots(), so registering them would orphan DB rows.
  */
 export async function reconcileRoots(args: ReconcileRootsArgs): Promise<ReconcileRootsResult> {
   const { adapterRoots, platformKind, query } = args;
   const mapping = new Map<string, string>();
 
-  const result = await query('SELECT id, kind, path FROM roots');
+  const result = await query('SELECT id, path FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
   const dbByPath = new Map(dbRows.filter((r) => r.path !== null).map((r) => [r.path, r]));
 
   for (const root of adapterRoots) {
+    if (!root.persisted || root.permissionState === 'unknown') {
+      logger.warn('Skipping unregistrable root', {
+        permissionState: root.permissionState,
+        persisted: root.persisted,
+        rootId: root.rootId,
+      });
+      continue;
+    }
     // Adapter "path": bare dir name on web, absolute path on desktop — the
     // same value migration 038 backfilled into roots.path from source_root_path.
     const matched = dbByPath.get(root.handle.path);
     if (matched) {
       mapping.set(root.rootId, matched.id);
-      if (matched.kind === 'legacy') {
-        await query(
-          `UPDATE roots SET kind = '${platformKind}', last_verified_at = NOW() WHERE id = $1`,
-          [matched.id]
-        );
-        logger.info('Reconciled legacy root', { dbRootId: matched.id, kind: platformKind });
-      }
       continue;
     }
     await query(
@@ -580,13 +597,13 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
   return { dbRootIdByAdapterRootId: mapping };
 }
 ```
-NOTE the `kind` value is interpolated, not parameterized — it is a closed union from our own type, but house style may still prefer `$2`; use a parameter (`kind = $2 ... [platformKind, matched.id]`) — adjust the test accordingly. Web path-collision caveat: `dbByPath` keyed by bare name means two same-named adapter roots map to the same legacy row — acceptable phase-2 limitation, documented in the plan header.
+Web path-collision caveat: `dbByPath` keyed by bare name means two same-named adapter roots map to the same DB row — acceptable phase-2 limitation while the UI is single-active-root.
 
 - [ ] **Step 3: Implement `use-roots-reconciliation.ts`:** a hook that (a) no-ops unless `adapter.restoreRoots` exists and the db handle is ready, (b) runs exactly once (ref guard), (c) calls `adapter.restoreRoots()` then `reconcileRoots(...)` with `platformKind: adapter.platform === 'electron' ? 'path' : 'fsa'`, (d) logs-and-swallows errors (reconciliation must never block boot; log at error level — this is observability, not silent fallback: the app works identically without it in phase 2). Mount it as the first hook inside `WorkspaceCollectionSyncProvider` (it already has `useAdapters()` + `usePGliteDatabase()` — read the provider to wire identically). Export the mapping via module-level store or React context ONLY if trivially fitting an existing pattern; otherwise return void and let Phase 3 wire consumers — do not invent state plumbing now (YAGNI).
 
 - [ ] **Step 4: Run app-shell tests:** `cd packages/app-shell && pnpm vitest run` — green; provider tests may need the new hook mocked (follow how sibling hooks are mocked there; report changes).
 
-- [ ] **Step 5: Commit** (`feat(app-shell): root registry reconciles legacy roots and registers adapter roots`, trailer).
+- [ ] **Step 5: Commit** (`feat(app-shell): root registry registers adapter roots in the DB`, trailer).
 
 ---
 
