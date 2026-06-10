@@ -56,20 +56,13 @@ describe('WebHandleCache v1→v2 upgrade', () => {
     globalThis.indexedDB = new IDBFactory();
   });
 
-  it('re-keys v1 name-keyed roots to generated RootIds, preserving name and timestamps', async () => {
+  it('discards v1 name-keyed root records on upgrade (greenfield: no data migration)', async () => {
     await seedV1Database();
 
     const cache = new WebHandleCache();
     const roots = await cache.getAllRootHandles();
 
-    expect(roots).toHaveLength(1);
-    const migrated = roots[0];
-    expect(migrated?.name).toBe('my-project');
-    expect(migrated?.lastAccessedAt).toBe(100);
-    expect(migrated?.storedAt).toBe(100);
-    // Re-keyed: opaque UUID, not the directory name.
-    expect(migrated?.folderId).not.toBe('my-project');
-    expect(migrated?.folderId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(roots).toEqual([]);
   });
 
   it('drops v1 file-handle records during upgrade (best-effort cache)', async () => {

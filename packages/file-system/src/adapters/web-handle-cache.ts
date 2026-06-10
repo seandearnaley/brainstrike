@@ -302,25 +302,13 @@ export class WebHandleCache implements HandleCache {
           store.createIndex(FILE_BY_FOLDER_INDEX, 'folderId');
         }
         if (oldVersion === 1) {
-          // v1 keyed roots by handle.name — same-named directories collided.
-          // Re-key every root under a generated RootId; drop file-handle rows
-          // (best-effort cache, re-populates on access).
-          //
-          // Synchronous request-chaining is REQUIRED here: real Chrome
-          // auto-commits the upgrade transaction the moment no IDB request is
-          // pending and the stack is clear, so a detached `void (async ...)`
-          // (or any non-IDB await) silently skips the migration. getAll()
-          // keeps the transaction alive; inside .then() every delete/put/clear
-          // is queued synchronously with no yield point. A cursor would also
-          // risk re-visiting re-inserted UUID keys that sort after the cursor.
-          const rootStore = transaction.objectStore(ROOT_STORE);
-          rootStore.getAll().then((existing) => {
-            for (const record of existing) {
-              rootStore.delete(record.folderId);
-              rootStore.put({ ...record, folderId: crypto.randomUUID() });
-            }
-            transaction.objectStore(FILE_STORE).clear();
-          });
+          // GREENFIELD: v1 keyed roots by handle.name (same-named directories
+          // collided). No back-compat burden — discard v1 data wholesale; the
+          // user re-picks folders once. clear() requests queue synchronously
+          // inside the upgrade transaction (real Chrome auto-commits the txn
+          // at the first non-IDB await, so never use detached async here).
+          transaction.objectStore(ROOT_STORE).clear();
+          transaction.objectStore(FILE_STORE).clear();
         }
       },
     });
