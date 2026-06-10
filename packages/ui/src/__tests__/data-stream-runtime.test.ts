@@ -991,6 +991,44 @@ describe('assistant-stream integration', () => {
     expect(usageEvents).toEqual([{ inputTokens: 123, outputTokens: 45 }]);
   });
 
+  it('completes normally and does not call onUsage when finish-message chunk has no usage field', async () => {
+    // Guard: buildUsageTap must handle a chunk where `usage` is null/undefined.
+    // Without the guard the destructure throws, erroring the whole stream.
+    const onUsage = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Hello"',
+            // finish chunk deliberately omits the usage field
+            'd:{"finishReason":"stop","path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage,
+    });
+
+    const yielded: unknown[] = [];
+    for await (const nextMessage of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      yielded.push(nextMessage);
+    }
+
+    expect(yielded.length).toBeGreaterThan(0);
+    const lastMessage = yielded.at(-1) as { status?: { type?: string } };
+    expect(lastMessage.status).toMatchObject({ type: 'complete' });
+    // onUsage must NOT be called when usage is absent
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',

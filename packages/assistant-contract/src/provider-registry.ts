@@ -520,7 +520,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: false,
-        contextWindow: 32_768,
+        // 131_072 matches the value declared in the DB model-catalog migration
+        // (028-gemma-local-llm.ts, capabilities.contextWindow=131072) and is the
+        // context window Gemma 4 E2B actually supports per the Gemma 4 spec.
+        // The previous value (32_768) was incorrect — it was inherited from older
+        // local models (FunctionGemma 270M, Qwen3 0.6B) before migration 028 added
+        // Gemma 4 E2B. The runtime reports capabilities at contextWindow:131072.
+        contextWindow: 131_072,
         maxOutputTokens: 8192,
       },
     ],

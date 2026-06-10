@@ -339,7 +339,13 @@ function buildUsageTap(
     transform(chunk, controller) {
       if (chunk.type === 'message-finish') {
         const { usage } = chunk;
-        if (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number') {
+        // Guard: `usage` may be absent when the provider omits the field in
+        // the finish-message chunk. Dereferencing without a null check throws
+        // inside TransformStream.transform and errors the whole stream.
+        if (
+          usage &&
+          (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number')
+        ) {
           onUsage({
             inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : 0,
             outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : 0,

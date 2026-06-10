@@ -17,6 +17,7 @@ import {
 } from '@brainstrike/utils/token-counting-heuristics';
 import { type FC, useMemo } from 'react';
 import { cn } from '../lib/utils';
+import { getMessageParts } from './assistant-run-timeline';
 import { useContextUsageStore } from './context-usage-store';
 
 export interface ContextUsageMeterProps {
@@ -93,8 +94,13 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
       )}
       data-state={state}
       data-testid="context-usage-meter"
+      // The full model context window is surfaced here so the information is
+      // not lost while the fraction shows the effective input budget.
+      title={`model window ${formatTokenCount(contextWindow)}`}
     >
-      {/* Token counts row */}
+      {/* Token counts row — denominator is effectiveInputBudget so the text
+          fraction and the bar fill tell the same story (both use the same
+          denominator). The full contextWindow is visible in the title above. */}
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
@@ -106,7 +112,7 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
                 : 'text-muted-foreground'
           )}
         >
-          {formatCompact(usedTokens)} / {formatTokenCount(contextWindow)}
+          {formatCompact(usedTokens)} / {formatTokenCount(effectiveInputBudget)}
         </span>
         {isEstimated && (
           <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground/70 uppercase tracking-wide">
@@ -173,14 +179,16 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
     }
     let total = 0;
     for (const msg of messages) {
-      const parts = (msg as unknown as { parts?: ReadonlyArray<{ type?: string; text?: string }> })
-        .parts;
-      if (!Array.isArray(parts)) {
-        continue;
-      }
+      // getMessageParts reads `content` first (the real assistant-ui shape),
+      // then falls back to `parts` — matching the canonical resolution in
+      // assistant-run-timeline.tsx. Using `parts` directly always returned
+      // undefined for real useAuiState messages, so the estimate was always
+      // skipped and the "estimated" badge never appeared in the live app.
+      const parts = getMessageParts(msg);
       for (const part of parts) {
-        if (part.type === 'text' && typeof part.text === 'string') {
-          total += countTokensHeuristic(part.text);
+        const p = part as { type?: string; text?: string };
+        if (p.type === 'text' && typeof p.text === 'string') {
+          total += countTokensHeuristic(p.text);
         }
       }
     }

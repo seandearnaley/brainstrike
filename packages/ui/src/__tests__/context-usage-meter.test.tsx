@@ -1,14 +1,28 @@
 import { render, screen } from '@testing-library/react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { ContextUsageMeter } from '../assistant-ui-panel/context-usage-meter.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  ContextUsageMeter,
+  ThreadContextMeter,
+} from '../assistant-ui-panel/context-usage-meter.js';
 import {
   resetContextUsageStore,
   useContextUsageStore,
 } from '../assistant-ui-panel/context-usage-store.js';
 
+// useAuiState must be mocked so ThreadContextMeter can be tested without a
+// live AssistantRuntimeProvider. The mock returns a configurable messages list.
+let mockMessages: unknown[] = [];
+vi.mock('@assistant-ui/react', () => ({
+  useAuiState: <T,>(selector: (state: { thread: { messages: unknown[] } }) => T) =>
+    selector({ thread: { messages: mockMessages } }),
+}));
+
 describe('ContextUsageMeter', () => {
-  beforeEach(() => resetContextUsageStore());
+  beforeEach(() => {
+    resetContextUsageStore();
+    mockMessages = [];
+  });
 
   const props = {
     threadKey: 't1',
@@ -66,5 +80,62 @@ describe('ContextUsageMeter', () => {
       <ContextUsageMeter {...props} contextWindow={undefined} effectiveInputBudget={undefined} />
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('uses effectiveInputBudget as the displayed denominator so text and bar tell one story', () => {
+    // effectiveInputBudget: 126_000 → "126.0K tokens"; contextWindow: 200_000 → "200.0K tokens"
+    // The denominator shown to the user must be the budget, not the full window.
+    render(<ContextUsageMeter {...props} estimatedTokens={undefined} />);
+    expect(screen.getByText(/126\.0K tokens/)).toBeInTheDocument();
+    expect(screen.queryByText(/200\.0K tokens/)).not.toBeInTheDocument();
+  });
+});
+
+describe('ThreadContextMeter', () => {
+  const meterProps = {
+    contextWindow: 200_000,
+    effectiveInputBudget: 126_000,
+    threadKey: 'test-thread',
+  };
+
+  beforeEach(() => {
+    resetContextUsageStore();
+    mockMessages = [];
+  });
+
+  it('derives an estimated token count from content-shaped messages (content array, not parts)', () => {
+    // assistant-ui exposes message text under `content`, not `parts`.
+    // The bug: the old code walked `msg.parts` which is always undefined for real messages,
+    // so estimatedTokens was always undefined and the "estimated" badge never appeared.
+    // This test verifies the fix: messages shaped { content: [{ type:'text', text }] }
+    // must produce a positive estimated token count.
+    mockMessages = [
+      { content: [{ type: 'text', text: 'Hello world, this is a test message.' }] },
+      { content: [{ type: 'text', text: 'Another message here.' }] },
+    ];
+    render(<ThreadContextMeter {...meterProps} />);
+    // The meter must show an estimate (flagged with "estimated") rather than zero.
+    expect(screen.getByTestId('context-usage-meter')).toBeInTheDocument();
+    expect(screen.getByText(/estimated/i)).toBeInTheDocument();
+    // The used-token count must be greater than zero.
+    const meterEl = screen.getByTestId('context-usage-meter');
+    expect(meterEl.textContent).not.toMatch(/^0 /);
+  });
+
+  it('does not show estimated badge when exact usage is already recorded', () => {
+    mockMessages = [{ content: [{ type: 'text', text: 'Some text' }] }];
+    useContextUsageStore
+      .getState()
+      .recordUsage('test-thread', { inputTokens: 5000, outputTokens: 500 });
+    render(<ThreadContextMeter {...meterProps} />);
+    expect(screen.queryByText(/estimated/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/5\.5K/)).toBeInTheDocument();
+  });
+
+  it('falls back to parts when content is absent (legacy message shape)', () => {
+    // Ensure the content-first fallback doesn't break messages that only carry parts.
+    mockMessages = [{ parts: [{ type: 'text', text: 'Legacy parts-only text.' }] }];
+    render(<ThreadContextMeter {...meterProps} />);
+    expect(screen.getByText(/estimated/i)).toBeInTheDocument();
   });
 });
