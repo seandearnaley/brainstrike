@@ -397,7 +397,9 @@ export function WorkspaceCollectionSyncProvider({
   // useState lazy initializer guarantees one transition tracker per provider
   // instance: the sync loop re-resolves the QoS policy every cycle, and the
   // tracker logs only (state, reason) transitions instead of every resolution.
-  const [observeQosTransition] = useState(() => createWorkspaceIndexingQosTransitionLogger());
+  const [observeQosTransition] = useState(() =>
+    createWorkspaceIndexingQosTransitionLogger('app-shell-sync')
+  );
 
   const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
     if (!readDatabasePressure) {

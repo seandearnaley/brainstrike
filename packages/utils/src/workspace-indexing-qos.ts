@@ -205,10 +205,17 @@ interface WorkspaceIndexingQosObservation {
  * (state, reason) pair actually changes — including reason-only changes within
  * the same state (e.g. system-constrained: battery → thermal-serious), which
  * matter when diagnosing why background indexing throttled.
+ *
+ * `loop` names the resolution loop this tracker observes (e.g.
+ * 'desktop-host-claim' vs 'app-shell-sync'). Multiple independent loops share
+ * this scope and message but feed DIFFERENT inputs (the hidden host hardcodes
+ * windowVisible: false; the app-shell loop uses real visibility), so at the
+ * same wall-clock moment they can legitimately report different transitions —
+ * without the discriminator the interleaved streams read as contradictory.
  */
-export function createWorkspaceIndexingQosTransitionLogger(): (
-  policy: WorkspaceIndexingQosPolicy
-) => void {
+export function createWorkspaceIndexingQosTransitionLogger(
+  loop: string
+): (policy: WorkspaceIndexingQosPolicy) => void {
   const logger = createLogger('WorkspaceIndexingQos');
   let previous: WorkspaceIndexingQosObservation | null = null;
   return (policy: WorkspaceIndexingQosPolicy): void => {
@@ -221,6 +228,7 @@ export function createWorkspaceIndexingQosTransitionLogger(): (
     };
     logger.info('Workspace indexing QoS state changed', {
       from: previous,
+      loop,
       to: next,
     });
     previous = next;

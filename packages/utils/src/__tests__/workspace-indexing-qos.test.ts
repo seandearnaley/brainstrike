@@ -166,7 +166,7 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
   });
 
   it('logs the initial policy observation with a null from', () => {
-    const observe = createWorkspaceIndexingQosTransitionLogger();
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
 
     observe(resolve());
 
@@ -175,13 +175,16 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
     expect(captured[0]?.args).toContainEqual(
       expect.objectContaining({
         from: null,
+        // Two independent loops (desktop host-claim + app-shell sync) share this
+        // scope and message; the loop discriminator keeps their streams separable.
+        loop: 'test-loop',
         to: { reason: 'window-visible', state: 'balanced' },
       })
     );
   });
 
   it('does not log when the same state and reason are observed again', () => {
-    const observe = createWorkspaceIndexingQosTransitionLogger();
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
 
     observe(resolve());
     observe(resolve());
@@ -191,7 +194,7 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
   });
 
   it('logs a from/to transition when the state changes', () => {
-    const observe = createWorkspaceIndexingQosTransitionLogger();
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
 
     observe(resolve());
     observe(resolve({ foregroundQueryActive: true }));
@@ -206,7 +209,7 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
   });
 
   it('logs a reason change even when the state is unchanged', () => {
-    const observe = createWorkspaceIndexingQosTransitionLogger();
+    const observe = createWorkspaceIndexingQosTransitionLogger('test-loop');
 
     // Both resolve to system-constrained, but for different reasons.
     observe(resolve({ powerSource: 'battery' }));

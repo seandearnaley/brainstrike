@@ -217,7 +217,7 @@ function createDesktopPressureControls(
   });
   // One tracker per worker config: claim-size reads re-resolve the QoS policy
   // every cycle, and the tracker logs only (state, reason) transitions.
-  const observeQosTransition = createWorkspaceIndexingQosTransitionLogger();
+  const observeQosTransition = createWorkspaceIndexingQosTransitionLogger('desktop-host-claim');
   return {
     resolveClaimBatchSize: async () => {
       const snapshot = await snapshotSource.getSnapshot();
