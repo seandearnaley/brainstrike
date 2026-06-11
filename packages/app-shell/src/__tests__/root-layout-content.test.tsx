@@ -19,6 +19,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
+  RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
   WorkspaceTabHost: ({ className }: { className?: string }) => (
     <div className={className} data-testid="workspace-tab-host" />
   ),

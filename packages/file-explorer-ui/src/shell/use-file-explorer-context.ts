@@ -119,10 +119,13 @@ interface UseFileExplorerReturn {
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
   /**
-   * Disconnect a root by RootId (multi-root, Phase 5).
-   * Disconnect ≠ delete: indexed DB rows are kept so re-adding resumes instantly.
+   * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete by
+   * default; `options.deleteData` (Phase 6) opts into a cascade delete of the
+   * root's indexed rows.
    */
-  removeRootDirectory: ((rootId: string) => Promise<void>) | undefined;
+  removeRootDirectory:
+    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
+    | undefined;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
   rootDirectoryHandle: DirectoryHandle | null;

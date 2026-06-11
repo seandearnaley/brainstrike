@@ -402,7 +402,22 @@ describe('FileExplorerSidebar', () => {
 
       await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
-      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B);
+      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B, { deleteData: false });
+    });
+
+    it('confirm with "Also delete indexed data" checked passes deleteData: true', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      const onRemoveRoot = vi.fn().mockResolvedValue(undefined);
+
+      renderForest(onRemoveRoot);
+
+      const disconnectButtons = screen.getAllByLabelText('Disconnect folder');
+      await user.click(disconnectButtons.at(1) as HTMLElement);
+      await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/i }));
+      await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+
+      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B, { deleteData: true });
     });
 
     it('cancel flow: dialog closes without calling onRemoveRoot', async () => {
@@ -447,7 +462,7 @@ describe('FileExplorerSidebar', () => {
       await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
       // Legacy roots: path doubles as the id (matches removeRootDirectory).
-      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith('/project-a');
+      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith('/project-a', { deleteData: false });
     });
   });
 });

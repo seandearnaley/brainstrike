@@ -1,5 +1,10 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
-import { FileExplorerPanel, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { usePGliteDatabase } from '@brainstrike/db';
+import {
+  FileExplorerPanel,
+  RootDataDeletionProvider,
+  useFileSystem,
+} from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
@@ -52,12 +57,28 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
   const rootId = rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined;
+  const db = usePGliteDatabase();
+  // Cascade-delete seam (Phase 6): file-explorer-ui doesn't own the db, so
+  // app-shell injects the deletion. Migration 039: file_records.root_id →
+  // roots.id ON DELETE CASCADE; chunks cascade from file_records. MUST throw
+  // on failure — the disconnect flow aborts and keeps the root connected.
+  const deleteRootData = useCallback(
+    async (rootIdToDelete: string) => {
+      if (!db) {
+        throw new Error('Cannot delete root data: database is not ready.');
+      }
+      await db.query('DELETE FROM roots WHERE id = $1', [rootIdToDelete]);
+    },
+    [db]
+  );
   return (
     <FileTreeProvider
       rootDirectoryHandle={rootDirectoryHandle}
       {...(rootId !== undefined && { rootId })}
     >
-      <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
+      <RootDataDeletionProvider deleteRootData={deleteRootData}>
+        <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
+      </RootDataDeletionProvider>
     </FileTreeProvider>
   );
 }

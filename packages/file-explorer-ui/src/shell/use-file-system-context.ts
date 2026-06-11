@@ -8,6 +8,7 @@ import {
   useAdapters,
   useFileSystem as useCoreFileSystem,
   useFileSystemWatcher,
+  useToastManager,
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -17,6 +18,7 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
+import { useOptionalRootDataDeletion } from './root-data-deletion-context';
 
 const logger = createLogger('FileSystemContext');
 
@@ -115,6 +117,17 @@ export function useFileSystem() {
   // disconnect wrapper below clears the removed root's cached token counts via
   // the (optional) TokenCacheProvider context.
   const tokenCacheContext = useOptionalTokenCacheContext();
+  // Cascade-delete seam (Phase 6): app-shell injects the DB deletion; the
+  // disconnect wrapper aborts (with a toast) when deletion is requested but
+  // fails or no provider is mounted — never a silent no-op.
+  const deleteRootData = useOptionalRootDataDeletion();
+  const { showToast: showToastRaw } = useToastManager();
+  const showToast = useCallback(
+    (description: string) => {
+      showToastRaw({ description, title: 'Disconnect failed', variant: 'destructive' });
+    },
+    [showToastRaw]
+  );
 
   const rehydrateCurrentFolderStateIfNeeded = useCallback(
     (folderId: string) => {
@@ -226,8 +239,31 @@ export function useFileSystem() {
    * store purge) to the core hook, then syncs the store's handle copy and
    * clears the root's cached token counts. Disconnect ≠ delete: indexed DB
    * rows are deliberately KEPT so re-adding the folder resumes instantly.
+   *
+   * Phase 6 opt-in (`options.deleteData`): the root's indexed rows are
+   * deleted FIRST via the app-shell-injected seam — if the delete fails the
+   * disconnect is ABORTED (toast + root stays connected, so the user can
+   * retry). The reverse order would orphan rows with no UI left to retry.
    */
-  const removeRootDirectory = async (rootId: string): Promise<void> => {
+  const removeRootDirectory = async (
+    rootId: string,
+    options?: { deleteData?: boolean }
+  ): Promise<void> => {
+    if (options?.deleteData) {
+      try {
+        if (!deleteRootData) {
+          throw new Error('Root data deletion is not available in this environment.');
+        }
+        await deleteRootData(rootId);
+      } catch (error) {
+        logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
+          error,
+          rootId,
+        });
+        showToast('Could not delete the folder’s indexed data. The folder stays connected.');
+        return;
+      }
+    }
     const nextFocused = await coreApi.removeRootDirectory(rootId);
     // Keep the store's handle copy coherent with the core hook (the store
     // value is the render source of truth for rootDirectoryHandle below).

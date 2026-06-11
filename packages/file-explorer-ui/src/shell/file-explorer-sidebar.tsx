@@ -57,7 +57,9 @@ interface FileExplorerSidebarProps {
    * forest-mode section header shows a disconnect (X) button guarded by a
    * confirmation dialog. Disconnect ≠ delete: indexed DB rows are kept.
    */
-  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
+  onRemoveRoot?:
+    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
+    | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
@@ -194,7 +196,9 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
  * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
  */
 interface RootSectionProps extends PerRootTreePaneProps {
-  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
+  onRemoveRoot?:
+    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
+    | undefined;
   rootIdByPath?: ReadonlyMap<string, string> | undefined;
   setFocusedRoot?: ((path: string) => void) | undefined;
 }
@@ -221,12 +225,15 @@ const RootSection: React.FC<RootSectionProps> = ({
     setIsDisconnectDialogOpen(true);
   }, []);
 
-  const handleDisconnectConfirm = useCallback(() => {
-    setIsDisconnectDialogOpen(false);
-    // Legacy roots without a rootIdByPath entry use their path AS the id
-    // (matches removeRootDirectory's path-doubles-as-id resolution).
-    void onRemoveRoot?.(resolvedRootId ?? rootDirectoryHandle.path);
-  }, [onRemoveRoot, resolvedRootId, rootDirectoryHandle.path]);
+  const handleDisconnectConfirm = useCallback(
+    (options: { deleteData: boolean }) => {
+      setIsDisconnectDialogOpen(false);
+      // Legacy roots without a rootIdByPath entry use their path AS the id
+      // (matches removeRootDirectory's path-doubles-as-id resolution).
+      void onRemoveRoot?.(resolvedRootId ?? rootDirectoryHandle.path, options);
+    },
+    [onRemoveRoot, resolvedRootId, rootDirectoryHandle.path]
+  );
 
   const handleTreeInteraction = useCallback(() => {
     // Any interaction inside the tree container (row click, key press, etc.)
