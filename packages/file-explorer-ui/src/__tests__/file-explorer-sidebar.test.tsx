@@ -333,6 +333,95 @@ describe('FileExplorerSidebar', () => {
     expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');
   });
 
+  // Forest mode: expanding a directory must use the SECTION'S OWN tree loader.
+  // The shared panel props are bound to the FOCUSED root's provider, so wiring
+  // them into per-root trees loads children into the invisible top-level tree
+  // and the section never updates (folders silently fail to open).
+  it('expands an unloaded directory in a NON-focused root section (per-root lazy loading)', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+
+    const subDirB: IFileNode = {
+      ...createDirectoryNode({
+        name: 'sub',
+        path: '/project-b/sub',
+        rootFolderId: '/project-b',
+        children: [],
+      }),
+      // Real streaming loads attach the child's handle; the lazy loader
+      // reads children through it. Structural stub is fine — the adapter is
+      // fully mocked, so no FileSystemDirectoryHandle methods are invoked.
+      handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
+      loadState: 'unloaded',
+    } as unknown as IFileNode;
+    const innerFileB = createFileNode({
+      name: 'inner.ts',
+      path: '/project-b/sub/inner.ts',
+      rootFolderId: '/project-b',
+    });
+
+    const adapter = new MockFileSystemAdapter();
+    // The lazy loader prefers readDirectoryStreaming when present — child
+    // expansion reads flow through the same streaming mock as root loads.
+    const streamingSpy = vi
+      .spyOn(adapter, 'readDirectoryStreaming')
+      .mockImplementation(async (handle, onBatch, _opts) => {
+        if (handle.path === '/project-b') {
+          onBatch([subDirB], { done: true, total: 1 });
+        } else if (handle.path === '/project-b/sub') {
+          onBatch([innerFileB], { done: true, total: 1 });
+        } else {
+          onBatch([], { done: true, total: 0 });
+        }
+      });
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <FileExplorerSidebar
+          {...defaultProps}
+          // Focused root is A; the expansion happens in B's section.
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('sub')).toBeInTheDocument();
+    });
+
+    const { default: userEventModule } = { default: user };
+    const expandButton = screen.getByRole('button', { name: 'Expand' });
+    await userEventModule.click(expandButton);
+
+    // The SECTION'S loader ran (B's subdirectory was read)...
+    await waitFor(() => {
+      const readPaths = streamingSpy.mock.calls.map(([h]) => (h as { path: string }).path);
+      expect(readPaths).toContain('/project-b/sub');
+    });
+    // ...and the loaded child renders inside B's tree.
+    await waitFor(() => {
+      expect(screen.getByText('inner.ts')).toBeInTheDocument();
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Disconnect flow (Phase 5)
   // -------------------------------------------------------------------------

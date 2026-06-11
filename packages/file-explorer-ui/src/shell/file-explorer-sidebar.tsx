@@ -137,14 +137,14 @@ interface PerRootTreePaneProps {
   rootId?: string | undefined;
 }
 
+// NOTE: the shared panel props ALSO carry loadingPaths/onLoadChildren/
+// cancelChildLoading, but those are bound to the FOCUSED root's provider —
+// forest sections deliberately ignore them and use their own tree context.
 const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   rootDirectoryHandle,
   loadingFiles,
   currentFolderId,
   onTreeRender,
-  loadingPaths,
-  onLoadChildren,
-  cancelChildLoading,
   onSelectFolderRecursively,
   isLoadingForSelection,
   loadingPathForSelection,
@@ -157,6 +157,13 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   const deferredTree = useDeferredValue(treeContext.fileTree);
   const isLoading = treeContext.isLoading || isLoadingProp;
   const hasContent = deferredTree.length > 0;
+  // Lazy loading MUST use THIS section's tree loader: the shared panel props
+  // are bound to the FOCUSED root's provider, so routing expansion through
+  // them loads children into the invisible top-level tree and this section
+  // never updates (folders silently fail to open).
+  const sectionLoadChildren = treeContext.loadChildren;
+  const sectionCancelChildLoading = treeContext.cancelChildLoading;
+  const sectionLoadingPaths = treeContext.loadingPaths;
   // Storage v5: use durable RootId UUID when available so the folderId
   // matches IFileNode.rootFolderId (linchpin equality).
   const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
@@ -166,14 +173,14 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
       {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
       {hasContent ? (
         <OptimizedFileTree
-          cancelChildLoading={cancelChildLoading}
+          cancelChildLoading={sectionCancelChildLoading}
           fileTree={deferredTree}
           folderId={folderId}
           isLoadingForSelection={isLoadingForSelection}
           loadingFiles={loadingFiles}
           loadingPathForSelection={loadingPathForSelection}
-          loadingPaths={loadingPaths}
-          onLoadChildren={onLoadChildren}
+          loadingPaths={sectionLoadingPaths}
+          onLoadChildren={sectionLoadChildren}
           onRender={onTreeRender || undefined}
           onSelectFolderRecursively={onSelectFolderRecursively}
         />
