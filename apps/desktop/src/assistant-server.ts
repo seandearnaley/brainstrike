@@ -260,7 +260,7 @@ async function handleAssistantPostStreamError({
   }
   respondJson(res, 500, {
     error: 'assistant_stream_failed',
-    message,
+    message: 'Assistant stream failed.',
   });
 }
 
@@ -1022,11 +1022,13 @@ async function initializeAgentStream(
     };
   } catch (error) {
     logger.error('Failed to initialize assistant stream', { error });
-    const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
       status: 502,
-      payload: { error: 'agent_stream_init_failed', message },
+      payload: {
+        error: 'agent_stream_init_failed',
+        message: 'Assistant stream initialization failed.',
+      },
     };
   }
 }

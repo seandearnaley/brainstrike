@@ -1632,8 +1632,9 @@ describe('assistant-server', () => {
       const data = JSON.parse(response.body) as { error: string; message: string };
       expect(data).toEqual({
         error: 'assistant_stream_failed',
-        message: 'stream pipeline failed',
+        message: 'Assistant stream failed.',
       });
+      expect(response.body).not.toContain('stream pipeline failed');
       expect(loggerErrorSpy).toHaveBeenCalledWith(
         'Failed to update assistant thread run status',
         expect.objectContaining({
@@ -1667,8 +1668,11 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(502);
       const data = JSON.parse(response.body) as { error: string; message: string };
-      expect(data.error).toBe('agent_stream_init_failed');
-      expect(data.message).toBe('Stream initialization failed');
+      expect(data).toEqual({
+        error: 'agent_stream_init_failed',
+        message: 'Assistant stream initialization failed.',
+      });
+      expect(response.body).not.toContain('Stream initialization failed');
     }, 10_000);
   });
 });
