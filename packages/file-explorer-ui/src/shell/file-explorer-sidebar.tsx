@@ -8,6 +8,8 @@ import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { useSelectionManager } from './use-selection-manager-context';
 
 const NoFilesSelected = () => (
   <EmptyState
@@ -137,17 +139,74 @@ interface PerRootTreePaneProps {
   rootId?: string | undefined;
 }
 
+/**
+ * Forest sections run recursive folder selection through their OWN tree
+ * context. The shared panel prop is bound to the FOCUSED root's provider —
+ * its getSubtreeByPath and loading state are wrong for every other section
+ * (and could even shadow a same-named path in another root).
+ */
+function useSectionRecursiveSelect(folderId: string): {
+  isLoadingForSelection: boolean;
+  loadingPathForSelection: string | null;
+  onSelectFolderRecursively: (
+    node: IFileNode
+  ) => Promise<{ success: boolean; filePaths: string[] }>;
+} {
+  const treeContext = useFileTreeContext();
+  const sectionSelectFolderRecursively = treeContext.selectFolderRecursively;
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
+  const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
+  const { selectedCount, selectedFilesList } = useSelectionManager();
+
+  const onSelectFolderRecursively = useCallback(
+    async (node: IFileNode) => {
+      // The node carries its own root identity (stamped by every tree loader
+      // since storage v5); the section folderId is only a legacy fallback.
+      const targetFolderId = node.rootFolderId || folderId;
+      const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
+        selectionKey.startsWith(`${targetFolderId}|@|${node.path}/`)
+      ).length;
+      return sectionSelectFolderRecursively(
+        node,
+        targetFolderId,
+        addMultipleSelectedFiles,
+        maxSelectionCount,
+        selectedCount,
+        selectedDescendantCount,
+        addMultipleSelectedFilesChunked
+      );
+    },
+    [
+      addMultipleSelectedFiles,
+      addMultipleSelectedFilesChunked,
+      folderId,
+      maxSelectionCount,
+      sectionSelectFolderRecursively,
+      selectedCount,
+      selectedFilesList,
+    ]
+  );
+
+  return {
+    onSelectFolderRecursively,
+    isLoadingForSelection: treeContext.isLoadingForSelection,
+    loadingPathForSelection: treeContext.loadingPathForSelection,
+  };
+}
+
 // NOTE: the shared panel props ALSO carry loadingPaths/onLoadChildren/
-// cancelChildLoading, but those are bound to the FOCUSED root's provider —
-// forest sections deliberately ignore them and use their own tree context.
+// cancelChildLoading/onSelectFolderRecursively/isLoadingForSelection/
+// loadingPathForSelection, but those are bound to the FOCUSED root's
+// provider — forest sections deliberately ignore them and use their own
+// tree context.
 const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   rootDirectoryHandle,
   loadingFiles,
   currentFolderId,
   onTreeRender,
-  onSelectFolderRecursively,
-  isLoadingForSelection,
-  loadingPathForSelection,
   isLoadingForSelectAll = false,
   isLoading: isLoadingProp,
   rootId,
@@ -167,6 +226,7 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   // Storage v5: use durable RootId UUID when available so the folderId
   // matches IFileNode.rootFolderId (linchpin equality).
   const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
+  const sectionRecursiveSelect = useSectionRecursiveSelect(folderId);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -176,13 +236,13 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
           cancelChildLoading={sectionCancelChildLoading}
           fileTree={deferredTree}
           folderId={folderId}
-          isLoadingForSelection={isLoadingForSelection}
+          isLoadingForSelection={sectionRecursiveSelect.isLoadingForSelection}
           loadingFiles={loadingFiles}
-          loadingPathForSelection={loadingPathForSelection}
+          loadingPathForSelection={sectionRecursiveSelect.loadingPathForSelection}
           loadingPaths={sectionLoadingPaths}
           onLoadChildren={sectionLoadChildren}
           onRender={onTreeRender || undefined}
-          onSelectFolderRecursively={onSelectFolderRecursively}
+          onSelectFolderRecursively={sectionRecursiveSelect.onSelectFolderRecursively}
         />
       ) : (
         <EmptyStateComponent

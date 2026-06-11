@@ -144,6 +144,10 @@ export function useRecursiveFolderSelect(
     (state) => state.setQuerySelection,
     undefined
   );
+  const currentFolderId = useOptionalFileExplorerStoreSelector(
+    (state) => state.currentFolderId,
+    null
+  );
   const { applyFileFilters } = useFileFilters();
 
   const internalFilterTreeFn = useMemo(() => {
@@ -232,8 +236,15 @@ export function useRecursiveFolderSelect(
           },
         });
 
+        // Query-mode selection lives on the TOP-LEVEL selection model, which
+        // belongs to the FOCUSED root in forest mode. A foreign root's
+        // recursive select must use explicit selection instead — the store
+        // mutators route those keys into that root's folderState. The
+        // null-focus case keeps legacy single-root behavior.
+        const targetsFocusedRoot = currentFolderId === null || currentFolderId === folderId;
         const canUseQuerySelection =
           Boolean(setQuerySelection) &&
+          targetsFocusedRoot &&
           currentSelectionSize === currentDirectorySelectionSize &&
           availableSlots >= result.filePaths.length &&
           !result.limitReached;
@@ -297,6 +308,7 @@ export function useRecursiveFolderSelect(
       }
     },
     [
+      currentFolderId,
       excludeFilters,
       fileSystemAdapter,
       getSubtreeByPath,

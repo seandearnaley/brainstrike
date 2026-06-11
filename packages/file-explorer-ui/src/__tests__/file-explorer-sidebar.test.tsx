@@ -519,6 +519,124 @@ describe('FileExplorerSidebar', () => {
     expect(folderStateA?.selectedFilePaths.has(`${ROOT_ID_B}|@|/project-b/b.ts`)).toBeFalsy();
   });
 
+  // Forest mode: a directory checkbox on an UNLOADED folder in a NON-focused
+  // root must recursively select its descendants WITHOUT requiring expansion
+  // first. The section runs its OWN recursive select (per-root tree context)
+  // and the result routes into that root's folderState as explicit selection —
+  // never into the focused root's top-level query-selection model.
+  it('recursively selects an unloaded directory in a NON-focused root section', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+    const subDirB: IFileNode = {
+      ...createDirectoryNode({
+        name: 'sub',
+        path: '/project-b/sub',
+        rootFolderId: ROOT_ID_B,
+        children: [],
+      }),
+      handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
+      loadState: 'unloaded',
+    } as unknown as IFileNode;
+    const innerFileB = createFileNode({
+      name: 'inner.ts',
+      path: '/project-b/sub/inner.ts',
+      rootFolderId: ROOT_ID_B,
+    });
+
+    const adapter = new MockFileSystemAdapter();
+    // Section root loads stream; the recursive selection scan reads through
+    // the non-streaming readDirectory path.
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes = handle.path === '/project-b' ? [subDirB] : [];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+    vi.spyOn(adapter, 'readDirectory').mockImplementation(async (handle) =>
+      handle.path === '/project-b/sub' ? [innerFileB] : []
+    );
+
+    const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+      current: null,
+    };
+    function StoreProbe() {
+      storeRef.current = useFileExplorerStoreContext();
+      return null;
+    }
+
+    // The focused-root-bound panel handler must NOT be consulted for a click
+    // inside another root's section.
+    const panelSelectFolderRecursively = vi.fn(async () => ({
+      success: true,
+      filePaths: [] as string[],
+    }));
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <>
+          <StoreProbe />
+          <FileExplorerSidebar
+            {...defaultProps}
+            onSelectFolderRecursively={panelSelectFolderRecursively}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={
+              new Map([
+                ['/project-a', ROOT_ID_A],
+                ['/project-b', ROOT_ID_B],
+              ])
+            }
+            setFocusedRoot={vi.fn()}
+          />
+        </>
+      );
+    });
+    act(() => {
+      storeRef.current?.getState().setCurrentFolderId(ROOT_ID_A);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('sub')).toBeInTheDocument();
+    });
+
+    // Click the directory CHECKBOX without expanding the folder first.
+    await user.click(screen.getByLabelText('Select sub'));
+
+    // The descendants land in B's folderState as explicit selection...
+    await waitFor(() => {
+      const folderStateB = storeRef.current?.getState().folderStates[ROOT_ID_B];
+      expect(folderStateB?.selectedFilePaths.has(`${ROOT_ID_B}|@|/project-b/sub/inner.ts`)).toBe(
+        true
+      );
+    });
+    // ...the focused root's top-level model was NOT switched to query mode...
+    expect(storeRef.current?.getState().selectionModel.mode).toBe('explicit');
+    expect(
+      storeRef.current?.getState().selectedFilePaths.has(`${ROOT_ID_B}|@|/project-b/sub/inner.ts`)
+    ).toBe(false);
+    // ...and the focused-root panel handler was never used.
+    expect(panelSelectFolderRecursively).not.toHaveBeenCalled();
+  });
+
   // -------------------------------------------------------------------------
   // Disconnect flow (Phase 5)
   // -------------------------------------------------------------------------

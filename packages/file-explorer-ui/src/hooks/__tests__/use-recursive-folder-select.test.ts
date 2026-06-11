@@ -547,6 +547,81 @@ describe('useRecursiveFolderSelect', () => {
     expect(selectionResult.error).toBeUndefined();
   });
 
+  it('routes a foreign-root recursive selection through explicit selection, never query mode', async () => {
+    // Forest mode: the focused root is root-a; the clicked directory belongs
+    // to root-b. Query-mode selection writes the TOP-LEVEL selection model
+    // (the focused root's), so a foreign target must use explicit selection
+    // (the store mutators route foreign keys into that root's folderState).
+    const root = createDirectory({
+      path: '/project-b/src',
+      loadState: 'unloaded',
+      children: [],
+      rootFolderId: 'root-b',
+    });
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+      currentFolderId: 'root-a',
+    };
+    const fileSystemAdapter = createMockAdapter({
+      '/project-b/src': [
+        createFile({ name: 'b.ts', path: '/project-b/src/b.ts', depth: 1, rootFolderId: 'root-b' }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: () => undefined,
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'root-b', addMultipleSelectedFiles, 10, 0)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual(['/project-b/src/b.ts']);
+    expect(setQuerySelection).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFiles).toHaveBeenCalledWith('root-b', ['/project-b/src/b.ts']);
+  });
+
+  it('still commits through query mode when the target IS the focused root', async () => {
+    const root = createDirectory({
+      path: '/project-b/src',
+      loadState: 'unloaded',
+      children: [],
+      rootFolderId: 'root-b',
+    });
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+      currentFolderId: 'root-b',
+    };
+    const fileSystemAdapter = createMockAdapter({
+      '/project-b/src': [
+        createFile({ name: 'b.ts', path: '/project-b/src/b.ts', depth: 1, rootFolderId: 'root-b' }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'root-b', addMultipleSelectedFiles, 10, 0)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(setQuerySelection).toHaveBeenCalled();
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+  });
+
   it('surfaces adapter errors through onError', async () => {
     const root = createDirectory({
       path: '/root/src',
