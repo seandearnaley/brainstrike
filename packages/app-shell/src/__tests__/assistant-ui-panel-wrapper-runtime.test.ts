@@ -248,7 +248,9 @@ describe('assistant runtime helpers', () => {
   });
 
   it('resolves provider and local runtime model selections', () => {
-    const models = [{ id: 'fast', label: 'Fast', type: 'llm' as const, default: false }];
+    const models = [
+      { id: 'fast', label: 'Fast', type: 'llm' as const, default: false, contextWindow: 200_000 },
+    ];
     expect(
       resolveProviderModelSelection({
         provider: 'openai',
@@ -411,5 +413,58 @@ describe('assistant runtime helpers', () => {
         selectedProvider: 'openai',
       })
     ).toBe('Enable at least one model for OpenAI to continue.');
+  });
+});
+
+describe('buildAgentLoopSettings input-token budget', () => {
+  it('auto-derives inputTokenLimit from the model contextWindow when the pref is unset', () => {
+    // claude-sonnet-4-6: contextWindow=200k, maxOutputTokens=64k
+    // budget = 200_000 − 64_000 − max(1024, ceil(200_000 × 0.05)) = 200_000 − 64_000 − 10_000 = 126_000
+    const settings = buildAgentLoopSettings(
+      { agentMaxSteps: 5 },
+      { contextWindow: 200_000, maxOutputTokens: 64_000 }
+    );
+    expect(settings?.inputTokenLimit).toBe(126_000);
+  });
+
+  it('keeps an explicit user pref over the derived value', () => {
+    const settings = buildAgentLoopSettings(
+      { agentMaxSteps: 5, agentInputTokenLimit: 50_000 },
+      { contextWindow: 200_000, maxOutputTokens: 64_000 }
+    );
+    expect(settings?.inputTokenLimit).toBe(50_000);
+  });
+
+  it('returns a result even when no steps pref is set (budget is the only output)', () => {
+    const settings = buildAgentLoopSettings(undefined, {
+      contextWindow: 200_000,
+      maxOutputTokens: 64_000,
+    });
+    expect(settings?.inputTokenLimit).toBe(126_000);
+    expect(settings?.maxSteps).toBeUndefined();
+  });
+
+  it('omits the derived limit when no model is selected', () => {
+    const settings = buildAgentLoopSettings({ agentMaxSteps: 3 }, undefined);
+    expect(settings?.inputTokenLimit).toBeUndefined();
+    expect(settings?.maxSteps).toBe(3);
+  });
+
+  it('omits the derived limit when both prefs and model are absent', () => {
+    const settings = buildAgentLoopSettings(undefined, undefined);
+    expect(settings).toBeUndefined();
+  });
+
+  it('propagates deriveEffectiveInputBudget throw for a malformed contextWindow', () => {
+    expect(() => buildAgentLoopSettings(undefined, { contextWindow: -1 })).toThrow(
+      /contextWindow must be a positive number/
+    );
+  });
+
+  it('uses conservative floor budget for dynamic local model definitions (32k context)', () => {
+    // toRuntimeProviderModels sets contextWindow: 32_768, no maxOutputTokens
+    // budget = 32_768 − 4_096 (DEFAULT) − max(1024, ceil(32_768 × 0.05)) = 32_768 − 4_096 − 1_639 = 27_033
+    const settings = buildAgentLoopSettings(undefined, { contextWindow: 32_768 });
+    expect(settings?.inputTokenLimit).toBe(27_033);
   });
 });

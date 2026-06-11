@@ -502,7 +502,15 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '0';
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
-      'VITE_EMBED_CONCURRENCY must be a positive integer when configured.'
+      'VITE_EMBED_CONCURRENCY must be a positive integer, received "0".'
+    );
+  });
+
+  it('fails fast when embed concurrency uses non-decimal numeric syntax', () => {
+    import.meta.env['VITE_EMBED_CONCURRENCY'] = '1e3';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_CONCURRENCY must be a positive integer, received "1e3".'
     );
   });
 
@@ -510,7 +518,7 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '0';
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
-      'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer when configured.'
+      'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer, received "0".'
     );
   });
 
@@ -518,7 +526,7 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = 'abc';
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
-      'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer when configured.'
+      'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer, received "abc".'
     );
   });
 
@@ -527,7 +535,7 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_LEASE_MS'] = 'abc';
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
-      'VITE_EMBED_LEASE_MS must be a positive integer when configured.'
+      'VITE_EMBED_LEASE_MS must be a positive integer, received "abc".'
     );
   });
 });

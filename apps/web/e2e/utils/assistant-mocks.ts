@@ -47,7 +47,7 @@ function buildChunks(): Chunk[] {
     {
       delayMs: 100,
       type: 'd',
-      value: { finishReason: 'stop', usage: { promptTokens: 12, completionTokens: 24 }, path: [] },
+      value: { finishReason: 'stop', usage: { inputTokens: 12, outputTokens: 24 }, path: [] },
     },
   ];
 }

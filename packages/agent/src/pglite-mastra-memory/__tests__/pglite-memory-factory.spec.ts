@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES } from '@brainstrike/assistant-contract/memory-settings';
 import { PGlite } from '@electric-sql/pglite';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -139,6 +140,17 @@ describe('createPgliteMastraMemory', () => {
         observationalMemory: {
           model: observationalMemoryModel,
         },
+      },
+    });
+  });
+
+  it('defaults lastMessages to DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES when no memoryOptions supplied', async () => {
+    await createPgliteMastraMemory({ database: db });
+
+    expect(memoryConstructorCalls).toHaveLength(1);
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      options: {
+        lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
       },
     });
   });

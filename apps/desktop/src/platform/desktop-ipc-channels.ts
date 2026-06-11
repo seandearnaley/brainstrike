@@ -7,6 +7,9 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
+  clipboard: {
+    writeText: 'clipboard:write-text',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',
@@ -72,6 +75,10 @@ export const DESKTOP_IPC_CHANNELS = {
     list: 'secrets:list',
     listStored: 'secrets:listStored',
     save: 'secrets:save',
+  },
+  shell: {
+    openPath: 'shell:open-path',
+    showItemInFolder: 'shell:show-item-in-folder',
   },
   storage: {
     clear: 'storage:clear',

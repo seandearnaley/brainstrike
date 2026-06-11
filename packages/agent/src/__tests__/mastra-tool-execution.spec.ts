@@ -166,6 +166,149 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(finalText).toContain('21C in Paris');
   });
 
+  it('terminates the real agent loop when a tool execute never resolves', async () => {
+    const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+    const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+    const abortController = new AbortController();
+    process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
+    process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '200';
+    try {
+      const executeSpy = vi.fn(() => new Promise(() => {}));
+      const hangingTool = createTool({
+        id: 'hang_forever',
+        description: 'Never returns.',
+        inputSchema: z.object({ reason: z.string() }),
+        execute: executeSpy,
+      });
+
+      modelHolder.current = createScriptedToolCallModel({
+        toolName: 'hang_forever',
+        toolCallId: 'call-hang-1',
+        input: JSON.stringify({ reason: 'test' }),
+        finalText: 'The tool timed out.',
+      });
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-timeout', role: 'user', parts: [{ type: 'text', text: 'hang?' }] }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            provider: 'openai',
+            signal: abortController.signal,
+          },
+          tools: { hang_forever: hangingTool },
+        }
+      );
+
+      const chunks: StreamChunk[] = [];
+      await expect(
+        Promise.race([
+          (async () => {
+            for await (const chunk of iterator) {
+              chunks.push(chunk);
+            }
+            return 'completed' as const;
+          })(),
+          new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 1000)),
+        ])
+      ).resolves.toBe('completed');
+
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+      const runEventKinds = chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event'
+        )
+        .map((chunk) => chunk.event.kind);
+      expect(runEventKinds).toContain('tool.failed');
+      expect(JSON.stringify(chunks)).toContain('tool_timeout');
+    } finally {
+      abortController.abort();
+      if (previousToolTimeout === undefined) {
+        delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+      } else {
+        process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        delete process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+      } else {
+        process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = previousStreamInactivity;
+      }
+    }
+  });
+
+  it('surfaces guarded timeouts for tools with output schemas', async () => {
+    const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+    const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+    const abortController = new AbortController();
+    process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
+    process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '200';
+    try {
+      const executeSpy = vi.fn(() => new Promise(() => {}));
+      const hangingTool = createTool({
+        id: 'schema_hang_forever',
+        description: 'Never returns, but declares the normal success shape.',
+        inputSchema: z.object({ reason: z.string() }),
+        outputSchema: z.object({ ok: z.literal(true), value: z.string() }),
+        execute: executeSpy,
+      });
+
+      modelHolder.current = createScriptedToolCallModel({
+        toolName: 'schema_hang_forever',
+        toolCallId: 'call-schema-hang-1',
+        input: JSON.stringify({ reason: 'schema validation coverage' }),
+        finalText: 'The schema-declared tool timed out.',
+      });
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-schema-timeout', role: 'user', parts: [{ type: 'text', text: 'hang?' }] }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            provider: 'openai',
+            signal: abortController.signal,
+          },
+          tools: { schema_hang_forever: hangingTool },
+        }
+      );
+
+      const chunks: StreamChunk[] = [];
+      await expect(
+        Promise.race([
+          (async () => {
+            for await (const chunk of iterator) {
+              chunks.push(chunk);
+            }
+            return 'completed' as const;
+          })(),
+          new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 1000)),
+        ])
+      ).resolves.toBe('completed');
+
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+      const runEventKinds = chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event'
+        )
+        .map((chunk) => chunk.event.kind);
+      expect(runEventKinds).toContain('tool.failed');
+      expect(JSON.stringify(chunks)).toContain('tool_timeout');
+    } finally {
+      abortController.abort();
+      if (previousToolTimeout === undefined) {
+        delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+      } else {
+        process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        delete process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+      } else {
+        process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = previousStreamInactivity;
+      }
+    }
+  });
+
   it('does not invoke execute when the model never calls the tool', async () => {
     const executeSpy = vi.fn(() => Promise.resolve({ ok: true }));
     const noopTool = createTool({
@@ -290,6 +433,87 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(providerErrorLog).toBeDefined();
     expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
+  });
+
+  it('terminates gracefully when the model stream stalls after starting', async () => {
+    const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+    const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+    const abortController = new AbortController();
+    process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
+    process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '30';
+    try {
+      modelHolder.current = {
+        specificationVersion: 'v2',
+        provider: 'fake',
+        modelId: 'fake-model',
+        supportedUrls: {},
+        doGenerate: () => Promise.reject(new Error('unused')),
+        doStream: () =>
+          Promise.resolve({
+            stream: new ReadableStream<LanguageModelV2StreamPart>({
+              start(controller) {
+                controller.enqueue({ type: 'stream-start', warnings: [] });
+              },
+            }),
+          }),
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-stall', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            provider: 'openai',
+            signal: abortController.signal,
+          },
+        }
+      );
+
+      const chunks: StreamChunk[] = [];
+      await expect(
+        Promise.race([
+          (async () => {
+            for await (const chunk of iterator) {
+              chunks.push(chunk);
+            }
+            return 'completed' as const;
+          })(),
+          new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 1000)),
+        ])
+      ).resolves.toBe('completed');
+
+      const text = chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+            chunk.type === 'text-delta'
+        )
+        .map((chunk) => chunk.value)
+        .join('');
+      expect(text).toContain('model stream stalled');
+
+      const runEventKinds = chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event'
+        )
+        .map((chunk) => chunk.event.kind);
+      expect(runEventKinds).toContain('run.failed');
+
+      const finish = chunks.find((chunk) => chunk.type === 'message-finish');
+      expect(finish).toMatchObject({ finishReason: 'error' });
+    } finally {
+      abortController.abort();
+      if (previousToolTimeout === undefined) {
+        delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
+      } else {
+        process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        delete process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;
+      } else {
+        process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = previousStreamInactivity;
+      }
+    }
   });
 
   it('clamps an over-long provider error in the visible message but logs the full detail', async () => {

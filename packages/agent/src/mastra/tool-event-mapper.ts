@@ -1,3 +1,4 @@
+import { isGuardedToolError } from '../tools/guard-tool-execution';
 import type { StreamChunk } from '../types';
 
 type ToolEventPart = {
@@ -70,41 +71,10 @@ export function mapMastraToolEvent(
       });
     }
     case 'tool-result': {
-      const result =
-        readMastraStreamPartValue(candidate, 'result') ??
-        readMastraStreamPartValue(candidate, 'output');
-      const isError = readMastraStreamPartValue(candidate, 'isError') === true;
-      return {
-        type: 'tool-event',
-        name: displayName,
-        status: isError ? 'error' : 'success',
-        payload: {
-          callId,
-          toolCallId: callId,
-          ...(isError ? { error: result } : { output: result }),
-          result,
-          isError,
-          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
-          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
-          preliminary: readMastraStreamPartValue(candidate, 'preliminary'),
-          args: readMastraStreamPartValue(candidate, 'args'),
-        },
-      } satisfies StreamChunk;
+      return mapToolResultEvent(candidate, displayName, callId);
     }
     case 'tool-output': {
-      const output = readMastraStreamPartValue(candidate, 'output');
-      return {
-        type: 'tool-event',
-        name: displayName,
-        status: 'success',
-        payload: {
-          callId,
-          toolCallId: callId,
-          output,
-          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
-          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
-        },
-      } satisfies StreamChunk;
+      return mapToolOutputEvent(candidate, displayName, callId);
     }
     case 'tool-error': {
       const error =
@@ -126,6 +96,55 @@ export function mapMastraToolEvent(
     default:
       return;
   }
+}
+
+function mapToolResultEvent(
+  candidate: ToolEventPart,
+  displayName: string,
+  callId: string | undefined
+): StreamChunk {
+  const result =
+    readMastraStreamPartValue(candidate, 'result') ??
+    readMastraStreamPartValue(candidate, 'output');
+  const errorResult =
+    readMastraStreamPartValue(candidate, 'isError') === true || isGuardedToolError(result);
+  return {
+    type: 'tool-event',
+    name: displayName,
+    status: errorResult ? 'error' : 'success',
+    payload: {
+      callId,
+      toolCallId: callId,
+      ...(errorResult ? { error: result } : { output: result }),
+      result,
+      isError: errorResult,
+      providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+      dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+      preliminary: readMastraStreamPartValue(candidate, 'preliminary'),
+      args: readMastraStreamPartValue(candidate, 'args'),
+    },
+  } satisfies StreamChunk;
+}
+
+function mapToolOutputEvent(
+  candidate: ToolEventPart,
+  displayName: string,
+  callId: string | undefined
+): StreamChunk {
+  const output = readMastraStreamPartValue(candidate, 'output');
+  const guardedError = isGuardedToolError(output);
+  return {
+    type: 'tool-event',
+    name: displayName,
+    status: guardedError ? 'error' : 'success',
+    payload: {
+      callId,
+      toolCallId: callId,
+      ...(guardedError ? { error: output } : { output }),
+      providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+      dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+    },
+  } satisfies StreamChunk;
 }
 
 function progressEvent(

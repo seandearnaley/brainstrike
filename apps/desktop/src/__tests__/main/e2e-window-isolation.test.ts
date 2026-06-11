@@ -59,6 +59,9 @@ vi.mock('electron', async () => {
     shell: {
       openExternal: vi.fn(),
     },
+    clipboard: {
+      writeText: vi.fn(),
+    },
   };
 });
 

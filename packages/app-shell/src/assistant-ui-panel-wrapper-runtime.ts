@@ -1,10 +1,11 @@
-import type {
-  AnthropicProviderOptions,
-  GoogleProviderOptions,
-  LocalProviderOptions,
-  OpenAiProviderOptions,
-  RuntimeAssistantMemorySettings,
-  RuntimeData,
+import {
+  type AnthropicProviderOptions,
+  deriveEffectiveInputBudget,
+  type GoogleProviderOptions,
+  type LocalProviderOptions,
+  type OpenAiProviderOptions,
+  type RuntimeAssistantMemorySettings,
+  type RuntimeData,
 } from '@brainstrike/assistant-contract';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
@@ -461,6 +462,12 @@ export function toRuntimeProviderModels(
     type: 'llm' as const,
     default: index === 0,
     supportsStreaming: true,
+    // Conservative floor: user-supplied local models don't declare their context window.
+    // This intentionally under-budgets large models (a 128k model gets a 32k budget — safe).
+    // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
+    // compose prompts larger than the model holds. Accepted tradeoff — the local server's
+    // own context cap is the real enforcement on that path.
+    contextWindow: 32_768,
   }));
 }
 
@@ -737,17 +744,35 @@ function buildNonNegativeIntegerSetting(value: unknown): number | undefined {
   return Number.isFinite(normalized) && normalized >= 0 ? normalized : undefined;
 }
 
+/**
+ * Minimal model definition shape needed for input-budget derivation.
+ * Matches the required fields on both LlmModelDefinition (static registry)
+ * and the synthesised LlmProviderModelDefinition returned by toRuntimeProviderModels
+ * (dynamic ollama/lmstudio models), so callers can pass either without a re-lookup.
+ */
+export interface SelectedModelBudgetDef {
+  contextWindow: number;
+  maxOutputTokens?: number;
+}
+
 export function buildAgentLoopSettings(
-  settings: AssistantProviderSettings | undefined
+  settings: AssistantProviderSettings | undefined,
+  selectedModelDef?: SelectedModelBudgetDef
 ): RuntimeData['agentLoop'] | undefined {
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
-  const inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
+  let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
+  if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
+    inputTokenLimit = deriveEffectiveInputBudget(
+      selectedModelDef.contextWindow,
+      selectedModelDef.maxOutputTokens
+    );
+  }
   if (!(maxSteps || inputTokenLimit)) {
     return;
   }
   return {
-    ...(maxSteps ? { maxSteps } : {}),
-    ...(inputTokenLimit ? { inputTokenLimit } : {}),
+    ...(maxSteps === undefined ? {} : { maxSteps }),
+    ...(inputTokenLimit === undefined ? {} : { inputTokenLimit }),
   };
 }
 

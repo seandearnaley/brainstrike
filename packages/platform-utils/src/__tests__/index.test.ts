@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectPlatform, type Platform } from '../index';
+import { detectPlatform, type Platform, parsePositiveIntegerConfig } from '../index';
 
 describe('Platform Utils', () => {
   describe('detectPlatform', () => {
@@ -253,6 +253,162 @@ describe('Platform Utils', () => {
 
       expect(webPlatform).toBe('web');
       expect(electronPlatform).toBe('electron');
+    });
+  });
+
+  describe('runtime config parsing', () => {
+    it('should parse trimmed positive integer raw values', () => {
+      expect(
+        parsePositiveIntegerConfig({
+          name: 'PORT',
+          rawValue: ' 5173 ',
+        })
+      ).toBe(5173);
+    });
+
+    it('should parse positive numeric raw values for programmatic runtime options', () => {
+      expect(
+        parsePositiveIntegerConfig({
+          name: 'idlePollInitialMs',
+          rawValue: 400,
+        })
+      ).toBe(400);
+    });
+
+    it('should accept raw values at the configured max bound', () => {
+      expect(
+        parsePositiveIntegerConfig({
+          maxValue: 65_535,
+          name: 'PORT',
+          rawValue: '65535',
+        })
+      ).toBe(65_535);
+      expect(
+        parsePositiveIntegerConfig({
+          maxValue: 1000,
+          name: 'idlePollInitialMs',
+          rawValue: 1000,
+        })
+      ).toBe(1000);
+    });
+
+    it('should use the default value when raw config is absent', () => {
+      expect(
+        parsePositiveIntegerConfig({
+          defaultValue: 5173,
+          name: 'PORT',
+          rawValue: undefined,
+        })
+      ).toBe(5173);
+      expect(
+        parsePositiveIntegerConfig({
+          defaultValue: 5174,
+          name: 'PORT',
+          rawValue: null,
+        })
+      ).toBe(5174);
+      expect(
+        parsePositiveIntegerConfig({
+          defaultValue: 5175,
+          name: 'PORT',
+          rawValue: '   ',
+        })
+      ).toBe(5175);
+    });
+
+    it('should require an explicit default when raw config is absent', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          name: 'PORT',
+          rawValue: undefined,
+        })
+      ).toThrow('PORT must be a positive integer.');
+    });
+
+    it('should reject invalid default values', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          defaultValue: 0,
+          name: 'PORT',
+          rawValue: '',
+        })
+      ).toThrow('PORT default must be a positive integer, received "0".');
+    });
+
+    it('should reject raw values above the configured max bound', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          maxValue: 65_535,
+          name: 'PORT',
+          rawValue: '65536',
+        })
+      ).toThrow('PORT must be <= 65535, received "65536".');
+      expect(() =>
+        parsePositiveIntegerConfig({
+          maxValue: 1000,
+          name: 'idlePollInitialMs',
+          rawValue: 1001,
+        })
+      ).toThrow('idlePollInitialMs must be <= 1000, received "1001".');
+    });
+
+    it('should reject default values above the configured max bound', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          defaultValue: 65_536,
+          maxValue: 65_535,
+          name: 'PORT',
+          rawValue: undefined,
+        })
+      ).toThrow('PORT default must be <= 65535, received "65536".');
+    });
+
+    it('should reject numeric prefixes instead of parsing partial positive integers', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          name: 'PORT',
+          rawValue: '9090abc',
+        })
+      ).toThrow('PORT must be a positive integer, received "9090abc".');
+    });
+
+    it.each([
+      '0',
+      '-1',
+      '1e3',
+      '0x10',
+      '9007199254740992',
+    ])('should reject non-positive, non-decimal, and unsafe integer raw values: %s', (rawValue: string) => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          name: 'PORT',
+          rawValue,
+        })
+      ).toThrow(`PORT must be a positive integer, received "${rawValue}".`);
+    });
+
+    it.each([
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER + 1,
+      Number.NaN,
+    ])('should reject invalid numeric raw values: %s', (rawValue: number) => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          name: 'idlePollInitialMs',
+          rawValue,
+        })
+      ).toThrow(`idlePollInitialMs must be a positive integer, received "${rawValue}".`);
+    });
+
+    it('should accept numeric raw values at compile time for runtime options', () => {
+      const parseNumericRawValue = (): number =>
+        parsePositiveIntegerConfig({
+          name: 'idlePollInitialMs',
+          rawValue: 5173,
+        });
+
+      expect(parseNumericRawValue()).toBe(5173);
     });
   });
 });

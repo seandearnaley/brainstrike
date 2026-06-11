@@ -76,6 +76,7 @@ describe('MarkdownText', () => {
   });
 
   afterEach(() => {
+    (window as unknown as { clipboard?: unknown }).clipboard = undefined;
     vi.unstubAllGlobals();
   });
 
@@ -123,9 +124,9 @@ describe('MarkdownText', () => {
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
   });
 
-  it('uses Electron clipboard when available and blocks duplicate copies while copied', () => {
-    const electronWriteText = vi.fn().mockReturnValue(true);
-    (window as unknown as { clipboard?: { writeText: (text: string) => boolean } }).clipboard = {
+  it('uses Electron clipboard when available and blocks duplicate copies while copied', async () => {
+    const electronWriteText = vi.fn().mockResolvedValue({ ok: true });
+    (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
       writeText: electronWriteText,
     };
 
@@ -133,15 +134,35 @@ describe('MarkdownText', () => {
     const copyButton = screen.getByRole('button', { name: 'Copy code to clipboard' });
 
     fireEvent.click(copyButton);
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copied!');
+    });
     fireEvent.click(copyButton);
 
     expect(electronWriteText).toHaveBeenCalledTimes(1);
     expect(electronWriteText).toHaveBeenCalledWith('const answer = 42;');
-    expect(copyButton).toHaveAttribute('title', 'Copied!');
+  });
+
+  it('falls back to web clipboard when the Electron bridge write fails', async () => {
+    const electronWriteText = vi.fn().mockResolvedValue({ ok: false, error: 'write failed' });
+    (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
+      writeText: electronWriteText,
+    };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText },
+    } as unknown as Navigator);
+
+    render(<MarkdownText />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code to clipboard' }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('const answer = 42;');
+    });
   });
 
   it('falls back to web clipboard when Electron clipboard is unavailable', async () => {
-    (window as unknown as { clipboard?: { writeText?: (text: string) => boolean } }).clipboard = {};
+    (window as unknown as { clipboard?: { writeText?: (text: string) => unknown } }).clipboard = {};
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', {
       clipboard: { writeText },

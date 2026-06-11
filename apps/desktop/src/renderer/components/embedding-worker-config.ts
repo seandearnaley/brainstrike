@@ -10,6 +10,7 @@ import type {
   EmbeddingWorkerOptions,
   ForegroundEmbeddingGate,
 } from '@brainstrike/embeddings/worker';
+import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -37,27 +38,22 @@ const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
 
+type PositiveIntegerEmbeddingEnvKey =
+  | 'VITE_EMBED_CLAIM_BATCH_SIZE'
+  | 'VITE_EMBED_CONCURRENCY'
+  | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
+  | 'VITE_EMBED_LEASE_MS';
+
 interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
 }
 
-function parsePositiveIntegerEnv(
-  name:
-    | 'VITE_EMBED_CLAIM_BATCH_SIZE'
-    | 'VITE_EMBED_CONCURRENCY'
-    | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
-    | 'VITE_EMBED_LEASE_MS',
-  fallback: number
-): number {
-  const raw = import.meta.env[name];
-  if (raw === undefined || raw === '') {
-    return fallback;
-  }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer when configured.`);
-  }
-  return parsed;
+function parsePositiveIntegerEnv(name: PositiveIntegerEmbeddingEnvKey, fallback: number): number {
+  return parsePositiveIntegerConfig({
+    defaultValue: fallback,
+    name,
+    rawValue: import.meta.env[name],
+  });
 }
 
 function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSource {

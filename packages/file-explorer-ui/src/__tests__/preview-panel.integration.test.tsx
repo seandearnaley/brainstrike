@@ -224,6 +224,7 @@ vi.mock('@brainstrike/ui', async () => {
     DropdownMenuContent: sharedUiMock.DropdownMenuContent,
     DropdownMenuRadioGroup: sharedUiMock.DropdownMenuRadioGroup,
     DropdownMenuRadioItem: sharedUiMock.DropdownMenuRadioItem,
+    TreeTable: sharedUiMock.TreeTable,
     useToast: () => ({ toast: () => {} }),
     SortableTableHeader: ({
       title,
@@ -560,7 +561,9 @@ vi.mock('@brainstrike/hooks', () => {
 
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
+  ArrowLeft: () => <div data-testid="arrow-left" />,
   ChevronDown: () => <div data-testid="chevron-down" />,
+  ChevronRight: () => <div data-testid="chevron-right" />,
   ChevronUp: () => <div data-testid="chevron-up" />,
   Columns3: () => <div data-testid="columns3" />,
   Download: () => <div data-testid="download" />,
@@ -725,13 +728,13 @@ describe('PreviewPanel Integration Tests', () => {
       expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
 
       // Sort by file path
-      const pathHeader = screen.getByText('File Path');
+      const pathSortButton = screen.getByRole('button', { name: 'Sort by File Path' });
       act(() => {
-        fireEvent.click(pathHeader);
+        fireEvent.click(pathSortButton);
       });
 
       // Verify sorting was triggered (header remains interactive)
-      expect(pathHeader).toBeInTheDocument();
+      expect(pathSortButton).toBeInTheDocument();
 
       // Navigate to next page
       const nextButton = screen.getByRole('button', { name: 'Go to next page' });
@@ -743,11 +746,11 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Change sort direction
       act(() => {
-        fireEvent.click(pathHeader);
+        fireEvent.click(pathSortButton);
       });
 
       // Verify the header is still interactive after multiple clicks
-      expect(pathHeader).toBeInTheDocument();
+      expect(pathSortButton).toBeInTheDocument();
 
       // Reset sort should go back to page 1
       const resetButton = screen.getByRole('button', { name: 'Reset sort' });
@@ -954,19 +957,20 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Test keyboard sorting
       const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
-      expect(folderHeader).toHaveAttribute('tabIndex', '0');
+      const folderSortButton = within(folderHeader).getByRole('button', { name: 'Sort by Folder' });
+      expect(folderSortButton).toHaveAttribute('type', 'button');
 
       act(() => {
-        fireEvent.keyDown(folderHeader, { key: 'Enter' });
+        fireEvent.keyDown(folderSortButton, { key: 'Enter' });
       });
 
       // Test space key
       act(() => {
-        fireEvent.keyDown(folderHeader, { key: ' ' });
+        fireEvent.keyDown(folderSortButton, { key: ' ' });
       });
 
-      // Verify the header is interactive
-      expect(folderHeader).toHaveAttribute('aria-label', 'Folder');
+      // Verify the header exposes a labeled interactive sort control.
+      expect(folderSortButton).toHaveAttribute('aria-label', 'Sort by Folder');
 
       // All interactive elements should have proper labels
       const selectAllCheckbox = screen.getByLabelText('Select all files on current page');
