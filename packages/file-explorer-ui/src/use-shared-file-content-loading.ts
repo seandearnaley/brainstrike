@@ -273,6 +273,7 @@ function markFileLoading(
   setLoadingFiles((prev) => new Set(prev).add(compositeKey));
 }
 
+/** @internal Exported for focused regression coverage. */
 export function getCachedFileRequestName(path: string): string {
   const lastSlashIndex = path.lastIndexOf('/');
   if (lastSlashIndex === -1) {
