@@ -55,7 +55,11 @@ import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import { AssistantRunTimeline, resolveAssistantRunEventStatus } from './assistant-run-timeline';
+import {
+  AssistantRunTimeline,
+  resolveAssistantRunEventRenderPlan,
+  resolveAssistantRunEventStatus,
+} from './assistant-run-timeline';
 import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
@@ -72,7 +76,19 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   const statusOverride = useAuiState((state) =>
     resolveAssistantRunEventStatus(state.thread.messages, data)
   );
-  return <AssistantRunTimeline data={data} statusOverride={statusOverride} />;
+  // Primitive selectors so re-renders only happen when the values change.
+  const hidden = useAuiState(
+    (state) => resolveAssistantRunEventRenderPlan(state.thread.messages, data).hidden
+  );
+  const repeatCount = useAuiState(
+    (state) => resolveAssistantRunEventRenderPlan(state.thread.messages, data).repeatCount
+  );
+  if (hidden) {
+    return null;
+  }
+  return (
+    <AssistantRunTimeline data={data} repeatCount={repeatCount} statusOverride={statusOverride} />
+  );
 };
 
 const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (

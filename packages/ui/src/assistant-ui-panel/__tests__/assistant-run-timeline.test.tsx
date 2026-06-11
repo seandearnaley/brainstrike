@@ -5,6 +5,7 @@ import { TooltipProvider } from '../../tooltip';
 import {
   AssistantRunTimeline,
   getMatchingCompletedKind,
+  resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
 } from '../assistant-run-timeline';
 
@@ -64,7 +65,134 @@ describe('resolveAssistantRunEventStatus', () => {
   });
 });
 
+describe('resolveAssistantRunEventRenderPlan', () => {
+  const ts = '2026-06-11T00:00:00.000Z';
+
+  it('hides tool.* events when their tool-call part renders as a card', () => {
+    const started = {
+      id: 't1',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'call-1', toolName: 'brainstrike.grepSearch' },
+      status: 'running',
+      timestamp: ts,
+    };
+    const messages = [
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'tool-call', toolCallId: 'call-1', toolName: 'brainstrike.grepSearch' },
+          runEventPart(started),
+        ],
+      },
+    ];
+    expect(resolveAssistantRunEventRenderPlan(messages, started).hidden).toBe(true);
+  });
+
+  it('keeps tool.* events visible when no matching tool-call part exists', () => {
+    const started = {
+      id: 't1',
+      kind: 'tool.started',
+      label: 'Tool started',
+      metadata: { toolCallId: 'call-9', toolName: 'brainstrike.grepSearch' },
+      status: 'running',
+      timestamp: ts,
+    };
+    const messages = [{ role: 'assistant', parts: [runEventPart(started)] }];
+    expect(resolveAssistantRunEventRenderPlan(messages, started)).toEqual({
+      hidden: false,
+      repeatCount: 1,
+    });
+  });
+
+  it('hides a started row once its terminal row exists, but not while running', () => {
+    const started = {
+      id: 's1',
+      kind: 'memory.observation.started',
+      label: 'Observation started',
+      status: 'running',
+      timestamp: ts,
+    };
+    const runningMessages = [{ role: 'assistant', parts: [runEventPart(started)] }];
+    expect(resolveAssistantRunEventRenderPlan(runningMessages, started).hidden).toBe(false);
+
+    const completed = {
+      id: 's2',
+      kind: 'memory.observation.completed',
+      label: 'Observation completed',
+      status: 'completed',
+      timestamp: ts,
+    };
+    const finishedMessages = [
+      { role: 'assistant', parts: [runEventPart(started), runEventPart(completed)] },
+    ];
+    expect(resolveAssistantRunEventRenderPlan(finishedMessages, started).hidden).toBe(true);
+    expect(resolveAssistantRunEventRenderPlan(finishedMessages, completed).hidden).toBe(false);
+  });
+
+  it('collapses consecutive identical rows into the first with a repeat count', () => {
+    const first = {
+      id: 'm1',
+      kind: 'memory.working.loaded',
+      label: 'Observational memory read',
+      status: 'info',
+      timestamp: ts,
+    };
+    const second = { ...first, id: 'm2' };
+    const third = { ...first, id: 'm3' };
+    const messages = [
+      {
+        role: 'assistant',
+        parts: [runEventPart(first), runEventPart(second), runEventPart(third)],
+      },
+    ];
+    expect(resolveAssistantRunEventRenderPlan(messages, first)).toEqual({
+      hidden: false,
+      repeatCount: 3,
+    });
+    expect(resolveAssistantRunEventRenderPlan(messages, second).hidden).toBe(true);
+    expect(resolveAssistantRunEventRenderPlan(messages, third).hidden).toBe(true);
+  });
+
+  it('does not collapse rows with different details', () => {
+    const first = {
+      id: 'm1',
+      kind: 'memory.working.loaded',
+      label: 'Observational memory read',
+      detail: '3 notes',
+      status: 'info',
+      timestamp: ts,
+    };
+    const second = { ...first, id: 'm2', detail: '5 notes' };
+    const messages = [{ role: 'assistant', parts: [runEventPart(first), runEventPart(second)] }];
+    expect(resolveAssistantRunEventRenderPlan(messages, first)).toEqual({
+      hidden: false,
+      repeatCount: 1,
+    });
+    expect(resolveAssistantRunEventRenderPlan(messages, second).hidden).toBe(false);
+  });
+});
+
 describe('AssistantRunTimeline render', () => {
+  it('renders a ×n repeat badge when repeatCount is above one', () => {
+    render(
+      <TooltipProvider>
+        <AssistantRunTimeline
+          data={{
+            id: 'm1',
+            kind: 'memory.working.loaded',
+            label: 'Observational memory read',
+            status: 'info',
+            timestamp: '2026-06-11T00:00:00.000Z',
+          }}
+          repeatCount={2}
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByText('×2')).toBeInTheDocument();
+    expect(screen.getByTitle('Repeated 2 times')).toBeInTheDocument();
+  });
+
   it('tints a memory event, omits the standalone status pill, and hides kind until expanded', () => {
     renderTimeline({
       detail: 'Loaded 3 notes',

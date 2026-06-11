@@ -22,6 +22,8 @@ import { categoryTintClasses, classifyRunEvent } from './tool-visual-classificat
 
 interface AssistantRunTimelineProps {
   data: unknown;
+  /** Number of consecutive identical events this row represents (rendered as ×n). */
+  repeatCount?: number;
   statusOverride?: AssistantRunEventStatus;
 }
 
@@ -178,6 +180,112 @@ function resolveFromLaterRunEvent(
   return null;
 }
 
+/** True when the thread contains a tool-call message part with the event's toolCallId. */
+export function hasToolCallPartForEvent(
+  messages: readonly unknown[],
+  event: AssistantRunEvent
+): boolean {
+  if (!event.kind.startsWith('tool.')) {
+    return false;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  if (typeof toolCallId !== 'string') {
+    return false;
+  }
+  return messages.some((message) =>
+    getMessageParts(message).some(
+      (part) => isRecord(part) && part['type'] === 'tool-call' && part['toolCallId'] === toolCallId
+    )
+  );
+}
+
+function isSameRunEventContent(a: AssistantRunEvent, b: AssistantRunEvent): boolean {
+  return (
+    a.kind === b.kind &&
+    a.label === b.label &&
+    (a.detail ?? '') === (b.detail ?? '') &&
+    a.status === b.status
+  );
+}
+
+/**
+ * True when a later event in the list is the exact terminal counterpart
+ * (completed/failed kind, same run + tool scope) of this `.started` event.
+ * The terminal row carries the label and duration, so the started row is
+ * redundant once it exists.
+ */
+function hasTerminalRowForStartedEvent(
+  events: readonly AssistantRunEvent[],
+  event: AssistantRunEvent,
+  index: number
+): boolean {
+  if (!event.kind.endsWith('.started')) {
+    return false;
+  }
+  const completedKind = getMatchingCompletedKind(event.kind);
+  const failedKind = getMatchingFailedKind(event.kind);
+  return events
+    .slice(index + 1)
+    .some(
+      (candidate) =>
+        (candidate.kind === completedKind || (failedKind && candidate.kind === failedKind)) &&
+        hasSameRunScope(event, candidate) &&
+        hasSameToolScope(event, candidate)
+    );
+}
+
+export interface AssistantRunEventRenderPlan {
+  hidden: boolean;
+  repeatCount: number;
+}
+
+const VISIBLE_ONCE: AssistantRunEventRenderPlan = { hidden: false, repeatCount: 1 };
+const HIDDEN: AssistantRunEventRenderPlan = { hidden: true, repeatCount: 1 };
+
+/**
+ * Decides whether a run-event row should render, and with what repeat count.
+ * Suppresses three kinds of duplication:
+ * 1. tool.* events whose tool call already renders as a ToolFallback card
+ *    (the card is the authoritative status display for that call),
+ * 2. `.started` rows once their terminal (completed/failed) row exists,
+ * 3. consecutive identical rows — the first one renders with a ×n count.
+ */
+export function resolveAssistantRunEventRenderPlan(
+  messages: readonly unknown[],
+  data: unknown
+): AssistantRunEventRenderPlan {
+  const event = isAssistantRunEvent(data) ? data : null;
+  if (!event) {
+    return VISIBLE_ONCE;
+  }
+  if (hasToolCallPartForEvent(messages, event)) {
+    return HIDDEN;
+  }
+
+  const events = getRunEventsFromMessages(messages);
+  const index = events.findIndex((candidate) => candidate.id === event.id);
+  if (index < 0) {
+    return VISIBLE_ONCE;
+  }
+  if (hasTerminalRowForStartedEvent(events, event, index)) {
+    return HIDDEN;
+  }
+
+  const previous = events[index - 1];
+  if (previous && isSameRunEventContent(previous, event)) {
+    return HIDDEN;
+  }
+  let repeatCount = 1;
+  for (let i = index + 1; i < events.length; i++) {
+    const candidate = events[i];
+    if (!(candidate && isSameRunEventContent(candidate, event))) {
+      break;
+    }
+    repeatCount++;
+  }
+  return repeatCount === 1 ? VISIBLE_ONCE : { hidden: false, repeatCount };
+}
+
 export function resolveAssistantRunEventStatus(
   messages: readonly unknown[],
   event: AssistantRunEvent | null
@@ -273,7 +381,11 @@ function AssistantRunTimelineDetails({
   );
 }
 
-export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimelineProps) {
+export function AssistantRunTimeline({
+  data,
+  repeatCount,
+  statusOverride,
+}: AssistantRunTimelineProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
 
@@ -330,6 +442,14 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
           >
             {event.label}
           </span>
+          {repeatCount !== undefined && repeatCount > 1 ? (
+            <span
+              className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground tabular-nums"
+              title={`Repeated ${repeatCount} times`}
+            >
+              ×{repeatCount}
+            </span>
+          ) : null}
           {event.detail ? (
             <span className="truncate text-[11px] text-muted-foreground" title={event.detail}>
               {event.detail}
