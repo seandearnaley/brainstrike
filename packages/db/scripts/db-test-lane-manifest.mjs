@@ -181,6 +181,7 @@ export const dbCoverageLaneDefinitions = {
     'file-chunk-repository.test.ts',
     'file-record-model.test.ts',
     'file-record-repository.test.ts',
+    // Subdirectory test: distinct from the top-level file-record-repository.test.ts.
     'repositories/drizzle/file-record-repository.test.ts',
     'repository-clear.test.ts',
     'repository-factory.test.ts',
