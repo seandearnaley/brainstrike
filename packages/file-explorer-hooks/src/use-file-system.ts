@@ -25,6 +25,14 @@ interface UseFileSystemParams {
    */
   getPersistedCurrentFolderId?: () => string | null;
   /**
+   * Store action to atomically purge a disconnected root from
+   * activeRootIds/rootDescriptors/folderStates/folderAccessOrder.
+   * Called by removeRootDirectory AFTER the focus shift (setCurrentFolderId
+   * snapshots the outgoing folder's state back into folderStates, so the
+   * purge must come last).
+   */
+  removeActiveRoot?: FileExplorerState['removeActiveRoot'];
+  /**
    * Store action to replace all active roots atomically.
    * Called during restoreRoots boot.
    */
@@ -52,6 +60,7 @@ type FileSystemAction =
   | { type: 'setRoot'; handle: DirectoryHandle | null }
   | { type: 'setAccessLoading'; loading: boolean }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
+  | { type: 'removeHandle'; path: string }
   | {
       type: 'setAllHandles';
       handles: DirectoryHandle[];
@@ -64,6 +73,42 @@ function getCanonicalFolderId(handle: DirectoryHandle): string {
     throw new Error('Directory handle is missing its canonical path');
   }
   return handle.path;
+}
+
+/**
+ * Resolve the handle path for a rootId. Legacy roots that never got a
+ * rootIdByPath registration use their path AS the id (the getRootFolderId
+ * fallback), so the rootId doubles as the path.
+ */
+function resolvePathForRootId(rootIdByPath: ReadonlyMap<string, string>, rootId: string): string {
+  for (const [handlePath, mappedRootId] of rootIdByPath) {
+    if (mappedRootId === rootId) {
+      return handlePath;
+    }
+  }
+  return rootId;
+}
+
+/**
+ * Best-effort platform forget for a disconnected root: a failure must not
+ * block the UI removal — the UI state wins, and the stale stored entry is
+ * re-pruned on the next boot restore. No-op for adapters without removeRoot.
+ */
+async function forgetRootInAdapter(adapter: unknown, rootId: string): Promise<void> {
+  const adapterWithRemoveRoot = adapter as {
+    removeRoot?: (rootId: string) => Promise<void>;
+  };
+  if (typeof adapterWithRemoveRoot.removeRoot !== 'function') {
+    return;
+  }
+  try {
+    await adapterWithRemoveRoot.removeRoot.call(adapter, rootId);
+  } catch (error) {
+    logger.warn('removeRootDirectory: adapter removeRoot failed — proceeding', {
+      error,
+      rootId,
+    });
+  }
 }
 
 function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
@@ -105,6 +150,20 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
         ...state,
         rootDirectoryHandle: action.handle,
         rootDirectoryHandles: newHandles,
+        rootIdByPath: newRootIdByPath,
+      };
+    }
+    case 'removeHandle': {
+      const remaining = state.rootDirectoryHandles.filter((h) => h.path !== action.path);
+      const newRootIdByPath = new Map(state.rootIdByPath);
+      newRootIdByPath.delete(action.path);
+      const wasFocused = state.rootDirectoryHandle?.path === action.path;
+      return {
+        ...state,
+        // Focus shift: when the removed root was focused, focus the first
+        // remaining handle (or null when no roots remain).
+        rootDirectoryHandle: wasFocused ? (remaining[0] ?? null) : state.rootDirectoryHandle,
+        rootDirectoryHandles: remaining,
         rootIdByPath: newRootIdByPath,
       };
     }
@@ -225,6 +284,7 @@ export function useFileSystem({
   getPersistedCurrentFolderId,
   getFolderAccessOrder,
   addActiveRoot,
+  removeActiveRoot,
   setActiveRoots,
 }: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
@@ -317,6 +377,62 @@ export function useFileSystem({
       dispatch({ type: 'setAccessLoading', loading: false });
     }
   }, [fileSystemAdapter, isFileSystemAccessSupported, updateCurrentFolderId, addActiveRoot]);
+
+  /**
+   * Disconnect a root (multi-root). Forgets the platform persistence
+   * (best-effort), removes the handle + path→rootId entry, shifts focus when
+   * the removed root was focused, and purges the store entries for the root.
+   *
+   * Disconnect ≠ delete: the adapter never touches the DB — indexed rows are
+   * deliberately KEPT so re-adding the same folder resumes without
+   * re-indexing.
+   *
+   * Returns the new focused handle (unchanged when the removed root was not
+   * focused; null when no roots remain).
+   */
+  const removeRootDirectory = useCallback(
+    async (rootId: string): Promise<DirectoryHandle | null> => {
+      const removedPath = resolvePathForRootId(rootIdByPath, rootId);
+
+      // 1) Platform persistence, best-effort: a failure must not block the UI
+      //    removal — the UI state wins; the stale stored entry is re-pruned on
+      //    the next boot restore.
+      await forgetRootInAdapter(fileSystemAdapter, rootId);
+
+      // 2) Remove the handle (+ the path→rootId entry). The reducer shifts
+      //    handle focus to the first remaining root when needed.
+      const remaining = rootDirectoryHandles.filter((h) => h.path !== removedPath);
+      const wasFocused = rootDirectoryHandle?.path === removedPath;
+      dispatch({ type: 'removeHandle', path: removedPath });
+
+      const nextFocused = wasFocused ? (remaining[0] ?? null) : rootDirectoryHandle;
+
+      // 3) Focus shift BEFORE the store purge: setCurrentFolderId snapshots
+      //    the OUTGOING folder's live state back into folderStates[rootId];
+      //    removeActiveRoot below then purges that snapshot. The reverse order
+      //    would resurrect the removed root's folder state.
+      if (wasFocused) {
+        updateCurrentFolderId(
+          nextFocused ? (rootIdByPath.get(nextFocused.path) ?? nextFocused.path) : null
+        );
+      }
+
+      // 4) Atomic store purge.
+      if (typeof removeActiveRoot === 'function') {
+        removeActiveRoot(rootId);
+      }
+
+      return nextFocused;
+    },
+    [
+      fileSystemAdapter,
+      rootDirectoryHandles,
+      rootDirectoryHandle,
+      rootIdByPath,
+      updateCurrentFolderId,
+      removeActiveRoot,
+    ]
+  );
 
   /**
    * Legacy API: delegates to addRootDirectory for backward compatibility.
@@ -582,6 +698,7 @@ export function useFileSystem({
       isAccessLoading,
       addRootDirectory,
       registerRestoredHandles,
+      removeRootDirectory,
       selectRootDirectory,
       setFocusedRoot,
       isFileSystemAccessSupported,
@@ -596,6 +713,7 @@ export function useFileSystem({
       isAccessLoading,
       addRootDirectory,
       registerRestoredHandles,
+      removeRootDirectory,
       selectRootDirectory,
       setFocusedRoot,
       isFileSystemAccessSupported,

@@ -149,6 +149,49 @@ describe('useFileSystemWatcher', () => {
     expect(disposerA).not.toHaveBeenCalled();
   });
 
+  // Disconnect flow (Phase 5): removeRootDirectory shrinks rootDirectoryHandles,
+  // which shrinks the derived watcherRoots array — the Map diff alone must tear
+  // down the removed root's watcher without restarting the survivors.
+  it('tears down the removed root watcher when the roots array shrinks (disconnect)', () => {
+    const adapter = makeAdapter();
+    const handleA = makeHandle('root-a');
+    const handleB = makeHandle('root-b');
+    const handleC = makeHandle('root-c');
+
+    const { rerender } = renderHook(
+      ({ roots }: { roots: { rootId: string; handle: DirectoryHandle }[] }) =>
+        useFileSystemWatcher({ adapter, roots, onChanges }),
+      {
+        initialProps: {
+          roots: [
+            { rootId: 'root-a', handle: handleA },
+            { rootId: 'root-b', handle: handleB },
+            { rootId: 'root-c', handle: handleC },
+          ],
+        },
+      }
+    );
+
+    expect(adapter.watchCalls).toHaveLength(3);
+    const disposerA = adapter.watchCalls.find((c) => c.handle === handleA)!.disposer;
+    const disposerB = adapter.watchCalls.find((c) => c.handle === handleB)!.disposer;
+    const disposerC = adapter.watchCalls.find((c) => c.handle === handleC)!.disposer;
+
+    // Disconnect root-b: the handles array shrinks from 3 → 2.
+    rerender({
+      roots: [
+        { rootId: 'root-a', handle: handleA },
+        { rootId: 'root-c', handle: handleC },
+      ],
+    });
+
+    expect(disposerB).toHaveBeenCalledOnce();
+    expect(disposerA).not.toHaveBeenCalled();
+    expect(disposerC).not.toHaveBeenCalled();
+    // No watcher was restarted for the surviving roots.
+    expect(adapter.watchCalls).toHaveLength(3);
+  });
+
   it('disposes all watchers on unmount', () => {
     const adapter = makeAdapter();
     const handleA = makeHandle('root-a');

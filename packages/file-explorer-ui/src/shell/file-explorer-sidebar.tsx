@@ -3,6 +3,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useState } from 'react';
+import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
@@ -51,6 +52,12 @@ interface FileExplorerSidebarProps {
   loadingPaths?: Set<string> | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
+  /**
+   * Disconnect a root by RootId (multi-root, Phase 5). When provided, each
+   * forest-mode section header shows a disconnect (X) button guarded by a
+   * confirmation dialog. Disconnect ≠ delete: indexed DB rows are kept.
+   */
+  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
@@ -187,17 +194,20 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
  * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
  */
 interface RootSectionProps extends PerRootTreePaneProps {
+  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   rootIdByPath?: ReadonlyMap<string, string> | undefined;
   setFocusedRoot?: ((path: string) => void) | undefined;
 }
 
 const RootSection: React.FC<RootSectionProps> = ({
+  onRemoveRoot,
   rootDirectoryHandle,
   setFocusedRoot,
   rootIdByPath,
   ...rest
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
   // Storage v5: resolve durable RootId for this root's handle path.
   const resolvedRootId = rootIdByPath?.get(rootDirectoryHandle.path);
 
@@ -206,6 +216,17 @@ const RootSection: React.FC<RootSectionProps> = ({
     setFocusedRoot?.(rootDirectoryHandle.path);
     setIsCollapsed((v) => !v);
   }, [setFocusedRoot, rootDirectoryHandle.path]);
+
+  const handleDisconnectRequest = useCallback(() => {
+    setIsDisconnectDialogOpen(true);
+  }, []);
+
+  const handleDisconnectConfirm = useCallback(() => {
+    setIsDisconnectDialogOpen(false);
+    // Legacy roots without a rootIdByPath entry use their path AS the id
+    // (matches removeRootDirectory's path-doubles-as-id resolution).
+    void onRemoveRoot?.(resolvedRootId ?? rootDirectoryHandle.path);
+  }, [onRemoveRoot, resolvedRootId, rootDirectoryHandle.path]);
 
   const handleTreeInteraction = useCallback(() => {
     // Any interaction inside the tree container (row click, key press, etc.)
@@ -220,7 +241,14 @@ const RootSection: React.FC<RootSectionProps> = ({
       <RootSectionHeader
         displayName={rootDirectoryHandle.name}
         isCollapsed={isCollapsed}
+        onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
         onToggleCollapse={handleToggle}
+      />
+      <DisconnectRootDialog
+        displayName={rootDirectoryHandle.name}
+        onConfirm={handleDisconnectConfirm}
+        onOpenChange={setIsDisconnectDialogOpen}
+        open={isDisconnectDialogOpen}
       />
       {!isCollapsed && (
         // Each root gets its own FileTreeProvider so it runs its own useFileTree
@@ -266,6 +294,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
     onTreeRender,
     loadingPaths,
     onLoadChildren,
+    onRemoveRoot,
     cancelChildLoading,
     onSelectFolderRecursively,
     isLoadingForSelection,
@@ -307,6 +336,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
             {forestHandles.map((handle) => (
               <RootSection
                 key={rootIdByPath?.get(handle.path) ?? handle.path}
+                onRemoveRoot={onRemoveRoot}
                 rootDirectoryHandle={handle}
                 rootIdByPath={rootIdByPath}
                 setFocusedRoot={setFocusedRoot}

@@ -29,6 +29,7 @@ const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
 const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
 const FILE_SYSTEM_READ_FILE_CHANNEL = 'fs:readFile' as const;
+const FILE_SYSTEM_REMOVE_ROOT_CHANNEL = 'fs:removeRoot' as const;
 const FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL = 'fs:requestDirectoryAccess' as const;
 const FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL = 'fs:restoreLastFolder' as const;
 const FILE_SYSTEM_RESTORE_ROOTS_CHANNEL = 'fs:restoreRoots' as const;
@@ -447,6 +448,7 @@ if (shouldExposeBridge('electronAPI')) {
         return unwrapFileReadResult(result);
       },
       exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
+      removeRoot: (rootId: string) => ipcRenderer.invoke(FILE_SYSTEM_REMOVE_ROOT_CHANNEL, rootId),
       restoreLastFolder: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL),
       restoreRoots: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_ROOTS_CHANNEL),
       saveLastFolder: (folderPath: string) =>

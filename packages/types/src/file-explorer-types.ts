@@ -369,6 +369,14 @@ export interface FileExplorerState extends FileExplorerData {
   getFileContent: (compositeKey: string) => string | undefined;
   getFileContentCacheStats: () => CacheStats;
   hydrateFolderState: (folderId: string) => void;
+  /**
+   * Disconnect a root: atomically purge it from activeRootIds, rootDescriptors,
+   * folderStates, and folderAccessOrder (single setState). Does NOT touch
+   * currentFolderId — focus shift is orchestrated by the hook layer BEFORE
+   * this purge (setCurrentFolderId snapshots the outgoing folder's state back
+   * into folderStates, so purging must come last).
+   */
+  removeActiveRoot: (rootId: string) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string, path: string) => void;
 

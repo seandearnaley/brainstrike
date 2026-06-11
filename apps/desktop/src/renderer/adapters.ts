@@ -32,6 +32,15 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireElectronAPI().fileSystem.restoreRoots();
   }
 
+  /**
+   * Disconnect a root by RootId. Disconnect ≠ delete — only the persisted
+   * rootsList entry (and a matching lastFolderPath) is forgotten; DB rows are
+   * deliberately KEPT so re-adding the same folder resumes without re-indexing.
+   */
+  async removeRoot(rootId: string): Promise<void> {
+    return requireElectronAPI().fileSystem.removeRoot(rootId);
+  }
+
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
     return requireElectronAPI().fileSystem.readDirectory(handle);
   }

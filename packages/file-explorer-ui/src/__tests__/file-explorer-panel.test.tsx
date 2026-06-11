@@ -287,6 +287,7 @@ describe('FileExplorerPanel', () => {
       rootDirectoryHandles: [],
       addRootDirectory: vi.fn().mockResolvedValue(null),
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      removeRootDirectory: vi.fn().mockResolvedValue(undefined),
       setFocusedRoot: vi.fn(),
       // Storage v5
       rootIdByPath: new Map<string, string>(),

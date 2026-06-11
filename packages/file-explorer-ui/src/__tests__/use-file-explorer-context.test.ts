@@ -85,6 +85,7 @@ describe('useFileExplorer (context)', () => {
       setAccessLoading: vi.fn(),
       addRootDirectory: vi.fn().mockResolvedValue(null),
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      removeRootDirectory: vi.fn().mockResolvedValue(undefined),
       setFocusedRoot: vi.fn(),
       // Storage v5: empty map (no RootId registrations in these tests)
       rootIdByPath: new Map<string, string>(),
@@ -203,6 +204,7 @@ describe('useFileExplorer (context)', () => {
       activeRootIds: [],
       rootDescriptors: {},
       addActiveRoot: vi.fn(),
+      removeActiveRoot: vi.fn(),
       setActiveRoots: vi.fn(),
     };
     // Mock store function to handle individual selector calls (split selector pattern)

@@ -118,6 +118,11 @@ interface UseFileExplorerReturn {
   refreshFileExplorer: () => Promise<void>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
+  /**
+   * Disconnect a root by RootId (multi-root, Phase 5).
+   * Disconnect ≠ delete: indexed DB rows are kept so re-adding resumes instantly.
+   */
+  removeRootDirectory: ((rootId: string) => Promise<void>) | undefined;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
   rootDirectoryHandle: DirectoryHandle | null;
@@ -222,6 +227,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     setAccessLoading: _hookSetAccessLoading, // Ignore the hook's local setter
     addRootDirectory,
     registerRestoredHandles,
+    removeRootDirectory,
     setFocusedRoot,
     rootIdByPath,
   } = useFileSystem();
@@ -574,6 +580,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     addRootDirectory,
     /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
     registerRestoredHandles,
+    /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
+    removeRootDirectory,
     /** Switch focused root to the given path (multi-root, Phase 4+). */
     setFocusedRoot,
     /** Maps handle.path → RootId UUID (storage v5). */

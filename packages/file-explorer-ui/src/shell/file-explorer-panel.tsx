@@ -236,6 +236,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     isLoadingForSelectAll,
     addRootDirectory,
     registerRestoredHandles,
+    removeRootDirectory,
     setFocusedRoot,
     rootIdByPath,
   } = useFileExplorer();
@@ -857,6 +858,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 loadingPathForSelection={loadingPathForSelection}
                 loadingPaths={loadingPaths}
                 onLoadChildren={loadChildren}
+                onRemoveRoot={removeRootDirectory}
                 onSelectFolderRecursively={handleSelectFolderRecursively}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}

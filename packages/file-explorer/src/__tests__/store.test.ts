@@ -191,6 +191,79 @@ describe('active roots — addActiveRoot', () => {
   });
 });
 
+describe('active roots — removeActiveRoot (disconnect)', () => {
+  it('purges activeRootIds, rootDescriptors, folderStates, and folderAccessOrder atomically', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+    store.getState().addActiveRoot({ rootId: 'root-2', displayName: 'B', path: '/b' });
+    // Seed folderStates + folderAccessOrder entries for both roots.
+    store.getState().setCurrentFolderId('root-1');
+    store.getState().setCurrentFolderId('root-2');
+    expect(store.getState().folderStates['root-1']).toBeDefined();
+    expect(store.getState().folderAccessOrder).toContain('root-1');
+
+    // Atomic: zustand notifies subscribers once per set() — the whole purge
+    // must arrive as exactly one notification.
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => {
+      notifications += 1;
+    });
+    store.getState().removeActiveRoot('root-1');
+    unsubscribe();
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual(['root-2']);
+    expect(state.rootDescriptors['root-1']).toBeUndefined();
+    expect(state.folderStates['root-1']).toBeUndefined();
+    expect(state.folderAccessOrder).not.toContain('root-1');
+    expect(notifications).toBe(1);
+  });
+
+  it('leaves the other roots fully intact', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+    store.getState().addActiveRoot({ rootId: 'root-2', displayName: 'B', path: '/b' });
+    store.getState().setCurrentFolderId('root-2');
+
+    store.getState().removeActiveRoot('root-1');
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual(['root-2']);
+    expect(state.rootDescriptors['root-2']).toEqual({
+      rootId: 'root-2',
+      displayName: 'B',
+      path: '/b',
+    });
+    expect(state.folderStates['root-2']).toBeDefined();
+    expect(state.folderAccessOrder).toContain('root-2');
+  });
+
+  it('is a safe no-op for an unknown rootId', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+
+    store.getState().removeActiveRoot('does-not-exist');
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual(['root-1']);
+    expect(state.rootDescriptors['root-1']).toBeDefined();
+  });
+
+  it('does not touch currentFolderId (focus shift is the hook layer responsibility)', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+    store.getState().setCurrentFolderId('root-1');
+
+    store.getState().removeActiveRoot('root-1');
+
+    expect(store.getState().currentFolderId).toBe('root-1');
+  });
+});
+
 describe('active roots — persist round-trip', () => {
   it('activeRootIds and rootDescriptors survive a serialize/rehydrate cycle', async () => {
     const adapter = new MemoryStorageAdapter();

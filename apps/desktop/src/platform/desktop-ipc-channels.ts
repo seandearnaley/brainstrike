@@ -34,6 +34,7 @@ export const DESKTOP_IPC_CHANNELS = {
     readDirectory: 'fs:readDirectory',
     readFile: 'fs:readFile',
     readFileByPath: 'fs:readFileByPath',
+    removeRoot: 'fs:removeRoot',
     requestDirectoryAccess: 'fs:requestDirectoryAccess',
     restoreLastFolder: 'fs:restoreLastFolder',
     restoreRoots: 'fs:restoreRoots',

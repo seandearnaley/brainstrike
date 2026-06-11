@@ -1553,4 +1553,36 @@ describe('multi-root API', () => {
     expect(roots.every((r) => r.persisted)).toBe(true);
     // requestPermission must never have been called on either handle
   });
+
+  describe('removeRoot (disconnect)', () => {
+    it('forgets the stored handle via removeRootHandle(rootId)', async () => {
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await adapter.removeRoot('root-id-1');
+
+      expect(handleCache.removeRootHandle).toHaveBeenCalledExactlyOnceWith('root-id-1');
+    });
+
+    it('clears the in-memory lastRootFolderId when it matches the removed root', async () => {
+      const { adapter } = setupAdapterWithPicker('my-project');
+      const descriptor = await adapter.addRoot();
+      const internals = adapter as unknown as { lastRootFolderId: string | null };
+      expect(internals.lastRootFolderId).toBe(descriptor.rootId);
+
+      await adapter.removeRoot(descriptor.rootId);
+
+      expect(internals.lastRootFolderId).toBeNull();
+    });
+
+    it('leaves lastRootFolderId untouched when removing a different root', async () => {
+      const { adapter } = setupAdapterWithPicker('my-project');
+      const descriptor = await adapter.addRoot();
+
+      await adapter.removeRoot('some-other-root-id');
+
+      const internals = adapter as unknown as { lastRootFolderId: string | null };
+      expect(internals.lastRootFolderId).toBe(descriptor.rootId);
+    });
+  });
 });

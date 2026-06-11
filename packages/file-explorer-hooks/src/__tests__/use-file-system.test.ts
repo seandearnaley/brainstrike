@@ -18,6 +18,7 @@ import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
 const mockAddActiveRoot = vi.fn();
+const mockRemoveActiveRoot = vi.fn();
 const mockSetActiveRoots = vi.fn();
 vi.mock('@brainstrike/file-explorer', () => ({
   useFileExplorerStore: vi.fn(() => ({
@@ -1406,6 +1407,184 @@ describe('useFileSystem', () => {
         expect(typeof arg.rootId).toBe('string');
         expect(arg.rootId.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe('multi-root: removeRootDirectory (disconnect)', () => {
+    const descriptorA: RootDescriptor = {
+      displayName: 'root-a',
+      handle: { path: '/roots/a', name: 'root-a', kind: 'directory', platform: 'web' },
+      kind: 'fsa',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-id-a',
+    };
+    const descriptorB: RootDescriptor = {
+      displayName: 'root-b',
+      handle: { path: '/roots/b', name: 'root-b', kind: 'directory', platform: 'web' },
+      kind: 'fsa',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-id-b',
+    };
+
+    function createMultiRootAdapter(options: { withRemoveRoot?: boolean } = {}): {
+      adapter: FileSystemAdapter;
+      addRootFn: ReturnType<typeof vi.fn>;
+      removeRootFn: ReturnType<typeof vi.fn>;
+    } {
+      const { withRemoveRoot = true } = options;
+      const addRootFn = vi
+        .fn()
+        .mockResolvedValueOnce(descriptorA)
+        .mockResolvedValueOnce(descriptorB);
+      const removeRootFn = vi.fn().mockResolvedValue(undefined);
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptorA.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: addRootFn,
+        ...(withRemoveRoot ? { removeRoot: removeRootFn } : {}),
+      };
+      return { adapter, addRootFn, removeRootFn };
+    }
+
+    function renderMultiRootHook(adapter: FileSystemAdapter) {
+      const storageAdapter = createStorageAdapter('web');
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+      return renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            removeActiveRoot: mockRemoveActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+    }
+
+    it('calls adapter.removeRoot, removes the handle + rootId mapping, and purges the store', async () => {
+      const { adapter, removeRootFn } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-b');
+      });
+
+      expect(removeRootFn).toHaveBeenCalledExactlyOnceWith('root-id-b');
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandles[0]).toEqual(descriptorA.handle);
+      expect(result.current?.rootIdByPath.has('/roots/b')).toBe(false);
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-b');
+    });
+
+    it('shifts focus to the first remaining root when the focused root is removed', async () => {
+      const { adapter } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      // The second addRoot leaves B focused.
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptorB.handle);
+      mockSetCurrentFolderId.mockClear();
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-b');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptorA.handle);
+      // Focus shift writes the REMAINING root's id via the established action.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledExactlyOnceWith('root-id-a');
+      // Ordering: focus shift must land BEFORE the store purge so the purge
+      // removes the snapshot setCurrentFolderId writes back for the outgoing root.
+      const focusOrder = mockSetCurrentFolderId.mock.invocationCallOrder[0] ?? 0;
+      const purgeOrder = mockRemoveActiveRoot.mock.invocationCallOrder[0] ?? 0;
+      expect(focusOrder).toBeLessThan(purgeOrder);
+    });
+
+    it('does not change focus when a non-focused root is removed', async () => {
+      const { adapter } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      mockSetCurrentFolderId.mockClear();
+
+      await act(async () => {
+        // B is focused; remove A.
+        await result.current?.removeRootDirectory('root-id-a');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptorB.handle);
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-a');
+    });
+
+    it('clears currentFolderId (null) when the last root is removed', async () => {
+      const { adapter } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+      mockSetCurrentFolderId.mockClear();
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-a');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toBeNull();
+      expect(result.current?.rootDirectoryHandles).toHaveLength(0);
+      expect(mockSetCurrentFolderId).toHaveBeenCalledExactlyOnceWith(null);
+    });
+
+    it('proceeds with UI removal when adapter.removeRoot rejects (UI state wins)', async () => {
+      const { adapter, removeRootFn } = createMultiRootAdapter();
+      removeRootFn.mockRejectedValue(new Error('storage unavailable'));
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-b');
+      });
+
+      expect(removeRootFn).toHaveBeenCalledWith('root-id-b');
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-b');
+    });
+
+    it('proceeds with UI removal when the adapter has no removeRoot method', async () => {
+      const { adapter } = createMultiRootAdapter({ withRemoveRoot: false });
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-a');
+      });
+
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-a');
     });
   });
 });

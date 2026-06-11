@@ -399,6 +399,23 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     return descriptors;
   }
 
+  /**
+   * Multi-root: disconnect a root by RootId. Forgets the stored handle in the
+   * IndexedDB handle cache and clears the in-memory `lastRootFolderId` when it
+   * pointed at the removed root.
+   *
+   * Disconnect ≠ delete: this NEVER touches the DB — all
+   * roots/file_records/file_chunks rows are deliberately KEPT so re-adding the
+   * same folder (isSameEntry dedupe in addRoot reuses the rootId) resumes
+   * without re-indexing.
+   */
+  async removeRoot(rootId: string): Promise<void> {
+    await this.handleCache.removeRootHandle(rootId);
+    if (this.lastRootFolderId === rootId) {
+      this.lastRootFolderId = null;
+    }
+  }
+
   async readDirectory(
     handle: DirectoryHandle,
     options?: DirectoryReadOptions

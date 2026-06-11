@@ -511,5 +511,32 @@ export function registerFileSystemIpcHandlers({
     return descriptor;
   });
 
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.removeRoot,
+    async (_event, rootId: string) => {
+      // Disconnect ≠ delete: this forgets ONLY the stored rootsList entry (and
+      // a matching lastFolderPath). It NEVER touches the DB — all
+      // roots/file_records/file_chunks rows are deliberately KEPT so re-adding
+      // the same folder reuses its rootId and resumes without re-indexing.
+      const entries = await readRootsList(storage);
+      const removed = entries.find((entry) => entry.rootId === rootId);
+      if (!removed) {
+        logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
+        return;
+      }
+
+      const remaining = entries.filter((entry) => entry.rootId !== rootId);
+      await writeRootsList(storage, remaining);
+
+      // Keep the dual stores coherent: clear lastFolderPath only when it points
+      // at the removed root's path.
+      const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
+      if (lastFolderPath === removed.path) {
+        await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
+      }
+    }
+  );
+
   return () => registry.unregisterAll();
 }
