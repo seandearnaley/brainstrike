@@ -66,23 +66,30 @@ function useCopyToClipboard({ copiedDuration = 2000 } = {}) {
       return;
     }
     const text = String(value);
-    // Prefer Electron clipboard if available
-    const electronClipboard = (
-      window as unknown as { clipboard?: { writeText?: (t: string) => boolean } }
-    ).clipboard;
-    if (typeof window !== 'undefined' && typeof electronClipboard?.writeText === 'function') {
-      const ok = electronClipboard.writeText?.(text) as boolean;
-      if (ok) {
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), copiedDuration);
-        return;
-      }
-    }
-    // Fallback to web clipboard API
-    navigator.clipboard.writeText(text).then(() => {
+    const markCopied = () => {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), copiedDuration);
-    });
+    };
+    // Prefer the Electron clipboard bridge if available. The write happens in
+    // the main process over IPC, so the bridge resolves a structured outcome.
+    const electronClipboard = (
+      window as unknown as {
+        clipboard?: { writeText?: (t: string) => Promise<{ error?: string; ok?: boolean }> };
+      }
+    ).clipboard;
+    if (typeof window !== 'undefined' && typeof electronClipboard?.writeText === 'function') {
+      void electronClipboard.writeText(text).then((result) => {
+        if (result?.ok === true) {
+          markCopied();
+          return;
+        }
+        // Fallback to web clipboard API
+        return navigator.clipboard.writeText(text).then(markCopied);
+      });
+      return;
+    }
+    // Fallback to web clipboard API
+    navigator.clipboard.writeText(text).then(markCopied);
   };
   return { isCopied, copyToClipboard } as const;
 }

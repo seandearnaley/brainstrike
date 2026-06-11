@@ -1,7 +1,13 @@
 /// <reference types="vitest" />
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@brainstrike/platform-utils': resolve(import.meta.dirname, '../platform-utils/src'),
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

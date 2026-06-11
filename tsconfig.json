@@ -105,6 +105,9 @@
       "@brainstrike/platform-utils": [
         "packages/platform-utils/src"
       ],
+      "@brainstrike/context-actions": [
+        "packages/context-actions/src"
+      ],
       "@brainstrike/pipeline": [
         "packages/pipeline/src"
       ],
@@ -236,6 +239,9 @@
     },
     {
       "path": "./packages/platform-utils"
+    },
+    {
+      "path": "./packages/context-actions"
     },
     {
       "path": "./packages/pipeline"

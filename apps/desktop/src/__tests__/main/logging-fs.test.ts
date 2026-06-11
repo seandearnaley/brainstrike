@@ -93,6 +93,9 @@ vi.mock('electron', async () => {
     shell: {
       showItemInFolder: vi.fn(),
     },
+    clipboard: {
+      writeText: vi.fn(),
+    },
     webContents: {
       getAllWebContents: vi.fn(() => []),
     },
