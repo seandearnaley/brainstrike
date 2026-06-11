@@ -237,6 +237,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     addRootDirectory,
     registerRestoredHandles,
     setFocusedRoot,
+    rootIdByPath,
   } = useFileExplorer();
 
   const {
@@ -290,7 +291,12 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   // This allows FileExplorerSidebar to call with just the node
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
-      const folderId = getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
+      // Storage v5: use durable RootId UUID when available; fall back to path.
+      const folderId =
+        (rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined) ??
+        getRootFolderId(rootDirectoryHandle) ??
+        currentFolderId ??
+        '';
       const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
         selectionKey.startsWith(`${folderId}|@|${node.path}/`)
       ).length;
@@ -307,6 +313,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     [
       selectFolderRecursively,
       rootDirectoryHandle,
+      rootIdByPath,
       currentFolderId,
       addMultipleSelectedFiles,
       addMultipleSelectedFilesChunked,
@@ -851,6 +858,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
                 rootDirectoryHandles={rootDirectoryHandles}
+                rootIdByPath={rootIdByPath}
                 setFocusedRoot={setFocusedRoot}
                 treeError={error}
               />
@@ -866,7 +874,11 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
               addMultipleSelectedFiles={addMultipleSelectedFiles}
               addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
               cancelSelectAll={cancelSelectAll}
-              currentFolderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId}
+              currentFolderId={
+                (rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined) ??
+                getRootFolderId(rootDirectoryHandle) ??
+                currentFolderId
+              }
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
               filteredTree={quickFilteredTree ?? []}

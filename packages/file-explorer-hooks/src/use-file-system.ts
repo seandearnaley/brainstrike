@@ -191,8 +191,10 @@ async function runMultiRootRestore({
 
     if (focused) {
       const focusedPath = getCanonicalFolderId(focused);
-      if (getPersistedCurrentFolderId?.() !== focusedPath) {
-        updateCurrentFolderId(focusedPath);
+      // Prefer the durable RootId UUID when available (storage v5).
+      const focusedRootId = newRootIdByPath.get(focusedPath) ?? focusedPath;
+      if (getPersistedCurrentFolderId?.() !== focusedRootId) {
+        updateCurrentFolderId(focusedRootId);
       }
     }
 
@@ -288,7 +290,8 @@ export function useFileSystem({
         const descriptor = await adapterWithAddRoot.addRoot();
         const { handle, rootId, displayName, persisted } = descriptor;
         dispatch({ type: 'addOrFocusHandle', handle, rootId });
-        updateCurrentFolderId(getCanonicalFolderId(handle));
+        // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
+        updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
         if (persisted && typeof addActiveRoot === 'function') {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
@@ -299,7 +302,8 @@ export function useFileSystem({
       const handle = await fileSystemAdapter.requestDirectoryAccess();
       const rootId = crypto.randomUUID();
       dispatch({ type: 'addOrFocusHandle', handle, rootId });
-      updateCurrentFolderId(getCanonicalFolderId(handle));
+      // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
+      updateCurrentFolderId(rootId);
       if (typeof addActiveRoot === 'function') {
         addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
       }
@@ -325,6 +329,8 @@ export function useFileSystem({
 
   /**
    * Switch focus to an already-loaded root by path.
+   * Keeps the path PARAMETER (callers have handles/paths) but resolves to the
+   * durable RootId UUID before writing to the store (storage v5 contract).
    * No-op if the path is not found in the current handles list.
    */
   const setFocusedRoot = useCallback(
@@ -335,9 +341,11 @@ export function useFileSystem({
         return;
       }
       dispatch({ type: 'addOrFocusHandle', handle: match });
-      updateCurrentFolderId(path);
+      // Write rootId (not path) to the store — folderStates keys by RootId (storage v5).
+      const rootId = rootIdByPath.get(path) ?? path;
+      updateCurrentFolderId(rootId);
     },
-    [rootDirectoryHandles, updateCurrentFolderId]
+    [rootDirectoryHandles, rootIdByPath, updateCurrentFolderId]
   );
 
   /**
@@ -385,7 +393,9 @@ export function useFileSystem({
       const first = handles[0];
       if (first) {
         dispatch({ type: 'addOrFocusHandle', handle: first });
-        updateCurrentFolderId(getCanonicalFolderId(first));
+        // Write rootId (not path) to the store — folderStates keys by RootId (storage v5).
+        const firstRootId = adapterRootIdByPath.get(first.path) ?? getCanonicalFolderId(first);
+        updateCurrentFolderId(firstRootId);
       }
     },
     [fileSystemAdapter, addActiveRoot, updateCurrentFolderId]
@@ -438,19 +448,21 @@ export function useFileSystem({
       if (isCancelled()) {
         return;
       }
-      dispatch({ type: 'setRoot', handle: restored });
-      const restoredFolderId = getCanonicalFolderId(restored);
+      // Legacy single-root: generate a synthetic rootId and register it in the
+      // rootIdByPath map so the storage v5 contract holds (currentFolderId = RootId).
+      const rootId = crypto.randomUUID();
+      dispatch({ type: 'addOrFocusHandle', handle: restored, rootId });
 
-      // Check if the persisted currentFolderId already matches.
+      // Check if the persisted currentFolderId already matches the rootId.
       // If so, skip calling setCurrentFolderId to avoid triggering the
       // folder-switching logic which would read from stale folderStates.
       const persistedFolderId = getPersistedCurrentFolderId?.();
-      if (persistedFolderId === restoredFolderId) {
+      if (persistedFolderId === rootId) {
         logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
-          folderId: restoredFolderId,
+          folderId: rootId,
         });
       } else {
-        updateCurrentFolderId(restoredFolderId);
+        updateCurrentFolderId(rootId);
       }
     },
     [getPersistedCurrentFolderId, updateCurrentFolderId, waitForHydration]

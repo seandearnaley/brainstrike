@@ -124,6 +124,11 @@ interface UseFileExplorerReturn {
   /** All active root handles (multi-root, Phase 4+). */
   rootDirectoryHandles: DirectoryHandle[];
   /**
+   * Maps handle.path → RootId UUID (storage v5).
+   * Consumers use this to resolve the durable identity for folderId/composite keys.
+   */
+  rootIdByPath: ReadonlyMap<string, string>;
+  /**
    * Select all files in the provided tree, loading if needed.
    * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
    */
@@ -218,6 +223,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     addRootDirectory,
     registerRestoredHandles,
     setFocusedRoot,
+    rootIdByPath,
   } = useFileSystem();
 
   // Use the store's isAccessLoading (shared across all components)
@@ -370,7 +376,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   // Initial load is when we have a root but tree is still loading
   const isInitialLoad = Boolean(rootDirectoryHandle) && isTreeLoading;
-  const currentRootFolderId = getRootFolderId(rootDirectoryHandle);
+  // Storage v5: resolve rootFolderId via rootIdByPath first so it carries the
+  // durable UUID. Falls back to handle.path for handles that predate registration.
+  const currentRootFolderId = getRootFolderId(rootDirectoryHandle, rootIdByPath);
 
   // Track the stale clearing timer ID so we can cancel it from outside the effect
   const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -568,5 +576,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     registerRestoredHandles,
     /** Switch focused root to the given path (multi-root, Phase 4+). */
     setFocusedRoot,
+    /** Maps handle.path → RootId UUID (storage v5). */
+    rootIdByPath,
   };
 }

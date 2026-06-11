@@ -193,7 +193,13 @@ export function useFileSystem() {
     const handle = await selectDirectoryWithErrorMapping(coreApi);
     if (handle) {
       setRootDirectoryHandle(handle);
-      rehydrateCurrentFolderStateIfNeeded(handle.path);
+      // v5: currentFolderId is now a RootId UUID (set by coreApi.selectRootDirectory
+      // → addRootDirectory → updateCurrentFolderId(rootId)).  Read it from the store
+      // rather than using handle.path so the rehydration key matches the store key.
+      const rootId = store.getState().currentFolderId;
+      if (rootId) {
+        rehydrateCurrentFolderStateIfNeeded(rootId);
+      }
     }
     return handle;
   };
@@ -215,7 +221,11 @@ export function useFileSystem() {
     const first = handles[0];
     if (first) {
       setRootDirectoryHandle(first);
-      rehydrateCurrentFolderStateIfNeeded(first.path);
+      // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
+      const rootId = store.getState().currentFolderId;
+      if (rootId) {
+        rehydrateCurrentFolderStateIfNeeded(rootId);
+      }
     }
   };
 
@@ -227,7 +237,10 @@ export function useFileSystem() {
     coreApi.setRootDirectoryHandle(handle);
     setRootDirectoryHandle(handle);
     if (handle) {
-      rehydrateCurrentFolderStateIfNeeded(handle.path);
+      // v5: prefer the RootId UUID from the store after coreApi has updated currentFolderId.
+      // Fall back to handle.path for legacy paths that still write the path as currentFolderId.
+      const rootId = store.getState().currentFolderId ?? handle.path;
+      rehydrateCurrentFolderStateIfNeeded(rootId);
     }
   };
 
@@ -237,7 +250,9 @@ export function useFileSystem() {
   useLayoutEffect(() => {
     if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
-      rehydrateCurrentFolderStateIfNeeded(coreApi.rootDirectoryHandle.path);
+      // v5: use the RootId UUID from the store after coreApi's restore has set currentFolderId.
+      const rootId = store.getState().currentFolderId ?? coreApi.rootDirectoryHandle.path;
+      rehydrateCurrentFolderStateIfNeeded(rootId);
     }
   }, [
     storedRootDirectoryHandle,
@@ -326,6 +341,11 @@ export function useFileSystem() {
       registerRestoredHandles,
       /** Switch focused root to the given path (multi-root, Phase 4+). */
       setFocusedRoot: coreApi.setFocusedRoot,
+      /**
+       * Maps handle.path → RootId UUID (storage v5).
+       * Consumers use this to resolve the durable identity for a given handle path.
+       */
+      rootIdByPath: coreApi.rootIdByPath,
     }),
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope
@@ -334,6 +354,7 @@ export function useFileSystem() {
       coreApi.rootDirectoryHandle,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
+      coreApi.rootIdByPath,
     ]
   );
 }

@@ -28,6 +28,13 @@ function HookExposer({ onReady }: { onReady: (hooks: ExposedHooks) => void }) {
 
 describe('FileExplorerProvider integration', () => {
   it('persists state between provider instances', async () => {
+    // v5: currentFolderId is a durable RootId UUID (not handle.path). Mock randomUUID
+    // so we get a predictable UUID to build selection keys and cross-check persistence.
+    const MOCK_ROOT_ID = 'cccccccc-dddd-eeee-ffff-000000000001';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      MOCK_ROOT_ID as ReturnType<typeof crypto.randomUUID>
+    );
+
     const storage = new MemoryStorageAdapter();
     const fsAdapter = new MockFileSystemAdapter(MockFileSystemAdapter.createSimpleFileSystem());
 
@@ -61,7 +68,8 @@ describe('FileExplorerProvider integration', () => {
     }
     expect(handle.name).toBe('mock-root');
     const folderId = store.getState().currentFolderId;
-    expect(folderId).toBe('mock-root');
+    // v5: currentFolderId is the durable RootId UUID assigned on selectRootDirectory.
+    expect(folderId).toBe(MOCK_ROOT_ID);
 
     const filePath = `${handle.path}/README.md`;
     act(() => {
@@ -76,7 +84,8 @@ describe('FileExplorerProvider integration', () => {
     await flushAllTimersAndMicrotasks();
     vi.useRealTimers();
 
-    const key = encodeFileSelection('mock-root', filePath);
+    // v5: selection key uses the RootId UUID, not the path.
+    const key = encodeFileSelection(MOCK_ROOT_ID, filePath);
     expect(store.getState().selectedFilePaths.has(key)).toBe(true);
 
     unmount();
@@ -108,7 +117,10 @@ describe('FileExplorerProvider integration', () => {
     });
     vi.useRealTimers();
 
-    expect(store2.getState().currentFolderId).toBe('mock-root');
+    // v5: persisted currentFolderId is the RootId UUID.
+    expect(store2.getState().currentFolderId).toBe(MOCK_ROOT_ID);
     expect(store2.getState().selectedFilePaths.has(key)).toBe(true);
+
+    vi.restoreAllMocks();
   });
 });

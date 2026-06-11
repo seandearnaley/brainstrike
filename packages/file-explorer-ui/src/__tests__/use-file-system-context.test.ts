@@ -56,7 +56,8 @@ describe('useFileSystem context hook', () => {
 
     expect(handle).toEqual(mockHandle);
     expect(result.current.fs.rootDirectoryHandle).toEqual(mockHandle);
-    expect(result.current.store.getState().currentFolderId).toBe('mock-root');
+    // v5: currentFolderId is a durable RootId UUID, not the handle path.
+    expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
     expect(result.current.fs.isAccessLoading).toBe(false);
   });
 
@@ -388,6 +389,13 @@ describe('useFileSystem context hook', () => {
   });
 
   it('rehydrates persisted folder state when selecting the already-current folder id', async () => {
+    // v5: folderStates keys are durable RootId UUIDs. Mock randomUUID so the
+    // generated rootId is predictable, then pre-seed folderStates with that UUID.
+    const CONTROLLED_ROOT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      CONTROLLED_ROOT_ID as ReturnType<typeof crypto.randomUUID>
+    );
+
     const restoredHandle: DirectoryHandle = {
       path: 'selected-restored-root',
       name: 'selected-restored-root',
@@ -407,9 +415,10 @@ describe('useFileSystem context hook', () => {
       });
     const { result } = renderHook(() => useExposed(), { wrapper });
 
+    const SELECTION_KEY = `${CONTROLLED_ROOT_ID}|@|file-0.ts`;
     act(() => {
       result.current.store.setState({
-        currentFolderId: 'selected-restored-root',
+        currentFolderId: CONTROLLED_ROOT_ID,
         selectedFilePaths: new Set<string>(),
         selectionModel: {
           mode: 'explicit',
@@ -420,11 +429,11 @@ describe('useFileSystem context hook', () => {
           queryDescriptor: null,
         },
         folderStates: {
-          'selected-restored-root': {
-            selectedFilePaths: new Set<string>(['selected-restored-root|@|file-0.ts']),
+          [CONTROLLED_ROOT_ID]: {
+            selectedFilePaths: new Set<string>([SELECTION_KEY]),
             selectionModel: {
               mode: 'explicit',
-              explicitPaths: new Set<string>(['selected-restored-root|@|file-0.ts']),
+              explicitPaths: new Set<string>([SELECTION_KEY]),
               ruleSetJson: null,
               materializedPaths: null,
               materializedAt: null,
@@ -477,7 +486,8 @@ describe('useFileSystem context hook', () => {
     await waitFor(() => {
       expect(result.current.fs.rootDirectoryHandle).toEqual(restoredHandle);
       expect(result.current.store.getState().rootDirectoryHandle).toEqual(restoredHandle);
-      expect(result.current.store.getState().currentFolderId).toBe('restored-root');
+      // v5: currentFolderId is a durable RootId UUID, not the handle path.
+      expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
     });
   });
 });

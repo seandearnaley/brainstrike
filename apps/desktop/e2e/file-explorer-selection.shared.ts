@@ -3,7 +3,10 @@ import path from 'node:path';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Locator, Page } from 'playwright';
-import { FILE_EXPLORER_STORAGE_VERSION } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
+import {
+  FILE_EXPLORER_STORAGE_KEY,
+  FILE_EXPLORER_STORAGE_VERSION,
+} from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
 import { serializeState } from '../../../packages/file-explorer/src/persistence/state-serialization.ts';
 import { buildQuerySelectionFingerprint } from '../../../packages/file-explorer/src/utils/query-selection-manifest.ts';
 import { expect, test } from './fixtures/electron-fixture';
@@ -679,7 +682,7 @@ export async function seedRestoredExplicitSelectionState(args: {
   const nextStorage = {
     ...existingStorage,
     lastFolderPath: rootPath,
-    'file-explorer-storage-v4': JSON.stringify(persistedState),
+    [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
   await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
@@ -745,7 +748,7 @@ export async function seedRestoredQuerySelectionState(args: {
   const nextStorage = {
     ...existingStorage,
     lastFolderPath: rootPath,
-    'file-explorer-storage-v4': JSON.stringify(persistedState),
+    [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
   await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');

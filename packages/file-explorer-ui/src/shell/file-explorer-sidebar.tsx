@@ -60,6 +60,12 @@ interface FileExplorerSidebarProps {
   rootDirectoryHandle: DirectoryHandle | null;
   /** All active root handles. When length > 1, renders a forest (one tree per root). */
   rootDirectoryHandles?: DirectoryHandle[] | undefined;
+  /**
+   * Maps handle.path → RootId UUID (storage v5).
+   * Used to resolve the durable identity for `OptimizedFileTree`'s `folderId` prop.
+   * When absent the sidebar falls back to `getRootFolderId(handle)` (path).
+   */
+  rootIdByPath?: ReadonlyMap<string, string> | undefined;
   /** Switch focus to the root at the given path (forest mode). */
   setFocusedRoot?: ((path: string) => void) | undefined;
   treeError: Error | null;
@@ -115,6 +121,11 @@ interface PerRootTreePaneProps {
     | undefined;
   onTreeRender?: (() => void) | undefined;
   rootDirectoryHandle: DirectoryHandle;
+  /**
+   * Durable RootId UUID for this root (storage v5). When provided, used as
+   * `folderId` for OptimizedFileTree instead of the handle path.
+   */
+  rootId?: string | undefined;
 }
 
 const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
@@ -130,13 +141,16 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   loadingPathForSelection,
   isLoadingForSelectAll = false,
   isLoading: isLoadingProp,
+  rootId,
 }) => {
   // Reads the real file tree for THIS root from its enclosing FileTreeProvider.
   const treeContext = useFileTreeContext();
   const deferredTree = useDeferredValue(treeContext.fileTree);
   const isLoading = treeContext.isLoading || isLoadingProp;
   const hasContent = deferredTree.length > 0;
-  const folderId = getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
+  // Storage v5: use durable RootId UUID when available so the folderId
+  // matches IFileNode.rootFolderId (linchpin equality).
+  const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -173,15 +187,20 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
  * and call setFocusedRoot — this is the per-root-boundary focus-switch site.
  */
 interface RootSectionProps extends PerRootTreePaneProps {
+  rootIdByPath?: ReadonlyMap<string, string> | undefined;
   setFocusedRoot?: ((path: string) => void) | undefined;
 }
 
 const RootSection: React.FC<RootSectionProps> = ({
   rootDirectoryHandle,
   setFocusedRoot,
+  rootIdByPath,
   ...rest
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // Storage v5: resolve durable RootId for this root's handle path.
+  const resolvedRootId = rootIdByPath?.get(rootDirectoryHandle.path);
+
   const handleToggle = useCallback(() => {
     // Header click: focus this root AND toggle collapse.
     setFocusedRoot?.(rootDirectoryHandle.path);
@@ -207,14 +226,23 @@ const RootSection: React.FC<RootSectionProps> = ({
         // Each root gets its own FileTreeProvider so it runs its own useFileTree
         // independently — previously all non-focused roots received an empty
         // quickFilteredTree=[]; now each loads and shows its own real content.
-        // Keyed by handle.path so React remounts the provider when the root path
-        // changes (handles the theoretical same-slot path-swap case).
-        <FileTreeProvider key={rootDirectoryHandle.path} rootDirectoryHandle={rootDirectoryHandle}>
+        // Keyed by resolvedRootId (UUID) when available — if two roots share the
+        // same path but have different UUIDs they get correctly distinct providers.
+        // Falls back to handle.path for pre-v5 handles.
+        <FileTreeProvider
+          key={resolvedRootId ?? rootDirectoryHandle.path}
+          rootDirectoryHandle={rootDirectoryHandle}
+          {...(resolvedRootId !== undefined && { rootId: resolvedRootId })}
+        >
           {/* biome-ignore lint/a11y/useKeyWithClickEvents: tree rows have their own keyboard handlers; this is a focus-switch affordance only */}
           {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: intentional event-bubbling capture boundary for focus-switch */}
           {/* biome-ignore lint/a11y/noStaticElementInteractions: intentional event-bubbling capture boundary for focus-switch */}
           <div onClick={handleTreeInteraction}>
-            <PerRootTreePane rootDirectoryHandle={rootDirectoryHandle} {...rest} />
+            <PerRootTreePane
+              rootDirectoryHandle={rootDirectoryHandle}
+              rootId={resolvedRootId}
+              {...rest}
+            />
           </div>
         </FileTreeProvider>
       )}
@@ -226,6 +254,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
   ({
     rootDirectoryHandle,
     rootDirectoryHandles,
+    rootIdByPath,
     setFocusedRoot,
     treeError,
     filterError,
@@ -277,8 +306,9 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {forestHandles.map((handle) => (
               <RootSection
-                key={handle.path}
+                key={rootIdByPath?.get(handle.path) ?? handle.path}
                 rootDirectoryHandle={handle}
+                rootIdByPath={rootIdByPath}
                 setFocusedRoot={setFocusedRoot}
                 {...sharedProps}
               />
@@ -290,6 +320,12 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
 
     // SINGLE-ROOT LAYOUT (original, golden-path regression safety)
     const hasContent = deferredTree && deferredTree.length > 0;
+    // Storage v5: resolve RootId for single-root mode folderId.
+    const singleRootFolderId =
+      (rootDirectoryHandle && rootIdByPath?.get(rootDirectoryHandle.path)) ??
+      getRootFolderId(rootDirectoryHandle) ??
+      currentFolderId ??
+      '';
 
     return (
       <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
@@ -302,7 +338,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
               <OptimizedFileTree
                 cancelChildLoading={cancelChildLoading}
                 fileTree={deferredTree}
-                folderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? ''}
+                folderId={singleRootFolderId}
                 isLoadingForSelection={isLoadingForSelection}
                 loadingFiles={loadingFiles}
                 loadingPathForSelection={loadingPathForSelection}

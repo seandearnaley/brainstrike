@@ -82,6 +82,13 @@ export interface FileTreeProviderProps {
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
   rootDirectoryHandle: DirectoryHandle | null;
+  /**
+   * Durable RootId UUID for this root (storage v5).
+   * When provided, nodes are stamped with the UUID as their `rootFolderId` and
+   * the FileTreeIndex is keyed by this id — satisfying the linchpin equality in
+   * use-shared-file-content-loading. Falls back to `handle.path` when absent.
+   */
+  rootId?: string;
 }
 
 /**
@@ -98,6 +105,7 @@ export function FileTreeProvider({
   children,
   rootDirectoryHandle,
   filterTreeFn,
+  rootId,
 }: FileTreeProviderProps): React.ReactElement {
   const store = useFileExplorerStoreContext();
   const setExpandedPaths = useFileExplorerStoreSelector((state) => state.setExpandedPaths);
@@ -121,20 +129,25 @@ export function FileTreeProvider({
     });
   }, []);
 
-  // Track the last root handle path to detect root changes
-  const lastRootPathRef = useRef<string | null>(null);
+  // Storage v5: key the index by rootId (UUID) when available; fall back to path.
+  // This ensures the FileTreeIndex and composite keys always carry the same identity
+  // as IFileNode.rootFolderId (both resolved via the same getRootFolderId lookup).
   const currentRootPath = rootDirectoryHandle?.path ?? null;
+  const currentRootIndexKey = rootId ?? currentRootPath;
 
-  // Clear index when root changes using useEffect to avoid render-phase mutations
+  // Track the last index key to detect identity changes that require a clear
+  const lastRootIndexKeyRef = useRef<string | null>(null);
+
+  // Clear index when root identity changes using useEffect to avoid render-phase mutations
   // which are unsafe in React's Concurrent Mode (render can be called multiple times)
   // biome-ignore lint/plugin: This is intentional - index.clear() is a mutation that must run after commit, not during render
   useEffect(() => {
-    if (lastRootPathRef.current !== currentRootPath) {
+    if (lastRootIndexKeyRef.current !== currentRootIndexKey) {
       index.clear();
-      lastRootPathRef.current = currentRootPath;
+      lastRootIndexKeyRef.current = currentRootIndexKey;
       bumpIndexVersion();
     }
-  }, [currentRootPath, index, bumpIndexVersion]);
+  }, [currentRootIndexKey, index, bumpIndexVersion]);
 
   // Callback to add nodes to the index - passed to useFileTree
   const onNodesIndexed = useCallback(
@@ -147,19 +160,27 @@ export function FileTreeProvider({
 
   // Build options object conditionally to satisfy exactOptionalPropertyTypes
   const options = useMemo(() => {
-    const base: { onNodesIndexed: typeof onNodesIndexed; filterTreeFn?: typeof filterTreeFn } = {
-      onNodesIndexed,
-    };
+    const base: {
+      onNodesIndexed: typeof onNodesIndexed;
+      filterTreeFn?: typeof filterTreeFn;
+      rootId?: string;
+    } = { onNodesIndexed };
     if (filterTreeFn) {
       base.filterTreeFn = filterTreeFn;
     }
+    if (rootId !== undefined) {
+      base.rootId = rootId;
+    }
     return base;
-  }, [onNodesIndexed, filterTreeFn]);
+  }, [onNodesIndexed, filterTreeFn, rootId]);
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
-  const restorationKey = currentRootPath ?? 'none';
+  // Storage v5: restoration uses rootId (UUID) when available so
+  // persisted expandedDirectoryPaths/folderStates look up by the correct key.
+  const restorationFolderId = rootId ?? currentRootPath;
+  const restorationKey = restorationFolderId ?? 'none';
   const restorationState = useExpandedPathRestoration({
-    currentRootFolderId: rootDirectoryHandle?.path ?? null,
+    currentRootFolderId: restorationFolderId,
     fileTree: fileTreeState.fileTree,
     isTreeLoading: fileTreeState.isLoading,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
@@ -168,7 +189,7 @@ export function FileTreeProvider({
     store,
   });
   useExpandSelectedFileParentDirectories({
-    currentRootFolderId: rootDirectoryHandle?.path ?? null,
+    currentRootFolderId: restorationFolderId,
     isRestorationSettled: restorationState.isRestorationSettled,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
     selectionVersion,

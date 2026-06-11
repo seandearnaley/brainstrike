@@ -86,6 +86,8 @@ describe('useFileExplorer (context)', () => {
       addRootDirectory: vi.fn().mockResolvedValue(null),
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       setFocusedRoot: vi.fn(),
+      // Storage v5: empty map (no RootId registrations in these tests)
+      rootIdByPath: new Map<string, string>(),
       ...overrides,
     };
   }

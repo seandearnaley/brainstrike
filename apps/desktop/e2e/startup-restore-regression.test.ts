@@ -174,7 +174,7 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
         },
       });
 
-      await api.storage.setItem('file-explorer-storage-v4', JSON.stringify(nextFileExplorerState));
+      await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
       await api.fileSystem.saveLastFolder(restoredFolderPath);
     },
     {

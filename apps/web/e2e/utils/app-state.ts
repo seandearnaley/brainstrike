@@ -7,7 +7,7 @@ const APP_STATE_KEYS = [
   'tools-panel.v1',
   'panelLayout.v1',
   'fileExplorerSettings',
-  'file-explorer-storage-v4',
+  'file-explorer-storage-v5',
   'previewPanelPreferences.v1',
   'collection-browser.v1',
   'database-demo.v2',

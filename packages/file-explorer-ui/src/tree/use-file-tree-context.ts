@@ -134,6 +134,13 @@ export interface UseFileTreeOptions {
    * @param parentPath - The parent path, or null for root-level nodes
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
+
+  /**
+   * Durable RootId UUID for this root (storage v5).
+   * Forwarded to the lazy tree so nodes carry the UUID as their `rootFolderId`
+   * rather than `handle.path`. When absent the lazy tree falls back to the path.
+   */
+  rootId?: string;
 }
 
 /**
@@ -150,6 +157,8 @@ export function useFileTree(
   rootDirectoryHandle: DirectoryHandle | null,
   options: UseFileTreeOptions = {}
 ): CancellableFileTreeHook {
+  // Forward all options including rootId so the lazy tree can stamp the correct
+  // RootId UUID on nodes (storage v5 identity contract).
   const {
     fileTree,
     isLoading,

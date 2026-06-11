@@ -167,10 +167,10 @@ async function readStoredImportSettingsSnapshot(page: Page): Promise<string | nu
 
 async function clearPersistedExplorerIncludeFilters(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const storageKey = 'file-explorer-storage-v4';
+    const storageKey = 'file-explorer-storage-v5';
     const stored = window.localStorage.getItem(storageKey);
     if (!stored) {
-      throw new Error('file-explorer-storage-v4 is missing');
+      throw new Error('file-explorer-storage-v5 is missing');
     }
 
     const parsed = JSON.parse(stored) as {
@@ -189,12 +189,12 @@ async function clearPersistedExplorerIncludeFilters(page: Page): Promise<void> {
     };
 
     if (!parsed.state || typeof parsed.state !== 'object') {
-      throw new Error('file-explorer-storage-v4 is missing state');
+      throw new Error('file-explorer-storage-v5 is missing state');
     }
 
     const folderStates = parsed.state.folderStates;
     if (!folderStates || typeof folderStates !== 'object') {
-      throw new Error('file-explorer-storage-v4 is missing folderStates');
+      throw new Error('file-explorer-storage-v5 is missing folderStates');
     }
 
     const normalizedFolderStates = Object.fromEntries(

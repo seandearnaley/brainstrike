@@ -288,6 +288,8 @@ describe('FileExplorerPanel', () => {
       addRootDirectory: vi.fn().mockResolvedValue(null),
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       setFocusedRoot: vi.fn(),
+      // Storage v5
+      rootIdByPath: new Map<string, string>(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 

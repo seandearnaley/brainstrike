@@ -42,9 +42,15 @@ interface DebouncedPanelLayoutState {
 }
 
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
-  const { rootDirectoryHandle } = useFileSystem();
+  const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
+  // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
+  // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
+  const rootId = rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined;
   return (
-    <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
+    <FileTreeProvider
+      rootDirectoryHandle={rootDirectoryHandle}
+      {...(rootId !== undefined && { rootId })}
+    >
       <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
     </FileTreeProvider>
   );

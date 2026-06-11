@@ -32,7 +32,7 @@ const CACHED_SELECT_ALL_TREE: FileTree = {
   ),
 };
 const STALE_SELECTION_ROOT_NAME = 'brainstrike';
-const CURRENT_FILE_EXPLORER_STORAGE_VERSION = 3;
+const CURRENT_FILE_EXPLORER_STORAGE_VERSION = 5;
 
 async function supportsOpfs(page: Page): Promise<boolean> {
   return page.evaluate(() => typeof navigator.storage?.getDirectory === 'function');
@@ -188,7 +188,7 @@ async function setMaxSelectionCount(page: Page, value: number | string): Promise
 
 async function readPersistedExplorerState(page: Page): Promise<unknown> {
   return page.evaluate(() => {
-    const raw = localStorage.getItem('file-explorer-storage-v4');
+    const raw = localStorage.getItem('file-explorer-storage-v5');
     return raw ? JSON.parse(raw) : null;
   });
 }
@@ -230,7 +230,7 @@ async function seedPersistedSelectionState(
       };
 
       localStorage.setItem(
-        'file-explorer-storage-v4',
+        'file-explorer-storage-v5',
         JSON.stringify({
           state: {
             currentFolderId: id,
