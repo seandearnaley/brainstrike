@@ -332,4 +332,27 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
       target: 'opfs-pglite',
     });
   });
+
+  it('reports incomplete reset results when OPFS pglite directory enumeration fails', async () => {
+    const enumerateFailure = new Error('opfs enumeration failed');
+    async function* keys(): AsyncGenerator<string> {
+      yield 'app-pg18';
+      throw enumerateFailure;
+    }
+    Object.defineProperty(nav, 'storage', {
+      configurable: true,
+      value: { getDirectory: vi.fn(async () => ({ keys, removeEntry })) },
+    });
+
+    const result: ClearPersistentUiStateResult = await clearPersistentUiStateWithResult();
+
+    expect(removeEntry).toHaveBeenCalledWith('app-pg18', { recursive: true });
+    expect(result.success).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatchObject({
+      error: enumerateFailure,
+      operation: 'enumerate',
+      target: 'opfs-pglite',
+    });
+  });
 });

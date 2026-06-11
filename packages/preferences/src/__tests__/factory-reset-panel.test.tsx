@@ -278,7 +278,7 @@ describe('FactoryResetPanel', () => {
       expect(mockToast).not.toHaveBeenCalled();
     });
 
-    it('treats incomplete renderer storage cleanup as a failed desktop reset', async () => {
+    it('attempts the desktop reset bridge before failing incomplete renderer storage cleanup', async () => {
       const resetLocal = vi.fn().mockResolvedValue({ success: true });
       const noteReloadIntent = vi.fn().mockResolvedValue(undefined);
       mockClearPersistentUiState.mockResolvedValue({
@@ -315,7 +315,13 @@ describe('FactoryResetPanel', () => {
       });
 
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      expect(resetLocal).not.toHaveBeenCalled();
+      expect(resetLocal).toHaveBeenCalled();
+      const clearOrder = mockClearPersistentUiState.mock.invocationCallOrder[0];
+      const resetOrder = resetLocal.mock.invocationCallOrder[0];
+      if (clearOrder === undefined || resetOrder === undefined) {
+        throw new Error('Expected clear and reset invocation order to be recorded');
+      }
+      expect(clearOrder).toBeLessThan(resetOrder);
       expect(noteReloadIntent).toHaveBeenCalledWith('factory-reset-failed-after-renderer-clear');
       expect(mockToast).not.toHaveBeenCalled();
     });

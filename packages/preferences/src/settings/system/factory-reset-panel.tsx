@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   type ClearPersistentUiStateFailure,
   type ClearPersistentUiStateOptions,
+  type ClearPersistentUiStateResult,
   clearPersistentUiStateWithResult,
 } from './factory-reset-helpers';
 
@@ -47,16 +48,19 @@ function describePersistentUiStateFailure(failure: ClearPersistentUiStateFailure
   return `${failure.target}:${failure.operation}${name}`;
 }
 
-async function clearPersistentUiStateOrThrow(
-  options: ClearPersistentUiStateOptions
-): Promise<void> {
-  const result = await clearPersistentUiStateWithResult(options);
+function assertPersistentUiStateResetComplete(result: ClearPersistentUiStateResult): void {
   if (result.success) {
     return;
   }
 
   const failedTargets = result.failures.map(describePersistentUiStateFailure).join(', ');
   throw new Error(`Factory reset did not clear all renderer storage: ${failedTargets}`);
+}
+
+async function clearPersistentUiStateOrThrow(
+  options: ClearPersistentUiStateOptions
+): Promise<void> {
+  assertPersistentUiStateResetComplete(await clearPersistentUiStateWithResult(options));
 }
 
 export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
@@ -93,11 +97,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
         // clearing storage because localStorage/sessionStorage are cleared first,
         // which makes same-session toast recovery unreliable.
         rendererStorageResetStarted = true;
-        await clearPersistentUiStateOrThrow({ skipIndexedDb: false });
+        const rendererStorageResetResult = await clearPersistentUiStateWithResult({
+          skipIndexedDb: false,
+        });
         const result = await desktopResetBridge();
         if (!result.success) {
           throw new Error(result.message ?? 'Desktop factory reset failed.');
         }
+        assertPersistentUiStateResetComplete(rendererStorageResetResult);
       } else {
         // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
         if (typeof resetFn !== 'function') {

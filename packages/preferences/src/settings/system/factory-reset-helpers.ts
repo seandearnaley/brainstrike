@@ -46,7 +46,11 @@ export interface ClearPersistentUiStateOptions {
 
 export type ClearPersistentUiStateTarget = 'cache-storage' | 'opfs-pglite';
 
-export type ClearPersistentUiStateOperation = 'clear' | 'getDirectory' | 'removeEntry';
+export type ClearPersistentUiStateOperation =
+  | 'clear'
+  | 'enumerate'
+  | 'getDirectory'
+  | 'removeEntry';
 
 export interface ClearPersistentUiStateFailure {
   readonly error: unknown;
@@ -208,6 +212,7 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
     return [{ error, operation: 'getDirectory', target: 'opfs-pglite' }];
   }
 
+  const failures: ClearPersistentUiStateFailure[] = [];
   const names: string[] = [];
   if (typeof root.keys === 'function') {
     try {
@@ -218,6 +223,7 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
       }
     } catch (error) {
       logger.warn('Failed to enumerate OPFS root; falling back to known names', { error });
+      failures.push({ error, operation: 'enumerate', target: 'opfs-pglite' });
     }
   }
   if (names.length === 0) {
@@ -243,9 +249,10 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
       }
     })
   );
-  return removalResults.filter(
+  const removalFailures = removalResults.filter(
     (failure): failure is ClearPersistentUiStateFailure => failure !== null
   );
+  return [...failures, ...removalFailures];
 }
 
 function isMissingStorageEntryError(error: unknown): boolean {
@@ -361,8 +368,9 @@ async function clearCacheStorage(): Promise<void> {
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
  * If any storage survives, the user gets phantom data. This is a true nuke.
  *
- * Throws when CacheStorage cannot be fully cleared or verified. Factory reset callers must
- * treat an unverifiable cache state as a failed reset, not as a best-effort warning.
+ * Throws when CacheStorage cannot be fully cleared or verified. The legacy void API intentionally
+ * keeps OPFS cleanup failures non-fatal; callers that need full reset integrity must use
+ * clearPersistentUiStateWithResult and inspect every failure.
  */
 export async function clearPersistentUiState(
   options: ClearPersistentUiStateOptions = {}
