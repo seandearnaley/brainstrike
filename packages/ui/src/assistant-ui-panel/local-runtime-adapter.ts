@@ -4,21 +4,31 @@
  * the assistant runtime implementation package.
  */
 import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react';
-import {
-  ASSISTANT_RUN_EVENT_DATA_NAME,
-  type AssistantRunEvent,
-  type AssistantRunEventKind,
-  type AssistantRunEventMetadata,
-  type AssistantRunEventStatus,
-  type LocalLlmBackend,
-  type LocalLlmBackendFactory,
-  type LocalLlmGenerationOptions,
-  type LocalLlmGenerationResult,
-  type LocalLlmMessage,
-  type LocalLlmToolCall,
+import type {
+  AssistantRunEventKind,
+  AssistantRunEventMetadata,
+  AssistantRunEventStatus,
+  LocalLlmBackend,
+  LocalLlmBackendFactory,
+  LocalLlmGenerationOptions,
+  LocalLlmGenerationResult,
+  LocalLlmMessage,
+  LocalLlmToolCall,
 } from '@brainstrike/assistant-contract';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  type AssistantContentPart,
+  type AssistantDataContentPart,
+  type AssistantToolCallContentPart,
+  buildAssistantContentParts,
+  createLocalRunEvent,
+  createRunEventPart,
+  createToolCallPart,
+  createToolCallParts,
+  drainPendingUpdate,
+  mergeToolCallParts,
+} from './local-runtime-content-parts';
 import { convertMessages } from './local-runtime-message-conversion';
 import {
   buildLocalToolDefinitions,
@@ -29,70 +39,6 @@ import {
 export type { LocalRuntimeToolConfig } from './local-runtime-tool-definitions';
 
 const logger = createLogger('LocalRuntimeAdapter');
-
-/**
- * JSON types compatible with assistant-ui's ReadonlyJSONObject.
- * Defined locally since assistant-stream is a transitive dependency.
- */
-type JsonValue = null | string | number | boolean | JsonObject | JsonArray;
-interface JsonObject {
-  readonly [key: string]: JsonValue;
-}
-type JsonArray = readonly JsonValue[];
-
-interface AssistantTextContentPart {
-  text: string;
-  type: 'text';
-}
-
-interface AssistantReasoningContentPart {
-  text: string;
-  type: 'reasoning';
-}
-
-interface AssistantToolCallContentPart {
-  args: JsonObject;
-  argsText: string;
-  isError?: boolean;
-  result?: unknown;
-  toolCallId: string;
-  toolName: string;
-  type: 'tool-call';
-}
-interface AssistantDataContentPart {
-  data: AssistantRunEvent;
-  name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
-  type: 'data';
-}
-type AssistantContentPart =
-  | AssistantDataContentPart
-  | AssistantReasoningContentPart
-  | AssistantTextContentPart
-  | AssistantToolCallContentPart;
-
-/**
- * Type guard to validate that a parsed JSON value is a valid JsonObject.
- * Prevents prototype pollution and ensures the value is a plain object.
- */
-function isJsonObject(value: unknown): value is JsonObject {
-  // Must be a non-null object
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  // Must not be an array or null (typeof null === 'object')
-  if (Array.isArray(value) || value === null) {
-    return false;
-  }
-
-  // Prototype pollution prevention: only accept plain objects
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) {
-    return false;
-  }
-
-  return true;
-}
 
 type LocalLlmStreamHandlers = NonNullable<LocalLlmGenerationOptions['stream']>;
 
@@ -206,39 +152,6 @@ export interface LocalRuntimeAdapterOptions {
   tools?: readonly LocalRuntimeToolConfig[];
 }
 
-function createToolCallParts(result: LocalLlmGenerationResult): AssistantToolCallContentPart[] {
-  if (!(result.toolCalls && result.toolCalls.length > 0)) {
-    return [];
-  }
-
-  return result.toolCalls.map((toolCall: LocalLlmToolCall) => createToolCallPart(toolCall));
-}
-
-function createToolCallPart(
-  toolCall: LocalLlmToolCall,
-  overrides?: Pick<AssistantToolCallContentPart, 'isError' | 'result'>
-): AssistantToolCallContentPart {
-  let parsedArgs: JsonObject = {};
-  try {
-    const parsed: unknown = JSON.parse(toolCall.function.arguments);
-    if (isJsonObject(parsed)) {
-      parsedArgs = parsed;
-    }
-  } catch {
-    // Malformed JSON - fall back to empty object while preserving argsText.
-  }
-
-  return {
-    type: 'tool-call',
-    toolCallId: toolCall.id,
-    toolName: toolCall.function.name,
-    args: parsedArgs,
-    argsText: toolCall.function.arguments,
-    ...(overrides?.result === undefined ? {} : { result: overrides.result }),
-    ...(overrides?.isError === undefined ? {} : { isError: overrides.isError }),
-  };
-}
-
 async function yieldToUi(): Promise<void> {
   await Promise.resolve();
 }
@@ -275,62 +188,6 @@ function createGeneratingMessage(stage: string | undefined): string {
 
 function createReadyMessage(): string {
   return 'Response complete.';
-}
-
-function createLocalRunEvent(
-  kind: AssistantRunEventKind,
-  status: AssistantRunEventStatus,
-  label: string,
-  metadata?: AssistantRunEventMetadata
-): AssistantRunEvent {
-  return {
-    id: `local-run-event-${crypto.randomUUID()}`,
-    kind,
-    label,
-    status,
-    timestamp: new Date().toISOString(),
-    ...(metadata ? { metadata } : {}),
-  };
-}
-
-function createRunEventPart(event: AssistantRunEvent): AssistantDataContentPart {
-  return {
-    type: 'data',
-    name: ASSISTANT_RUN_EVENT_DATA_NAME,
-    data: event,
-  };
-}
-
-function buildAssistantContentParts(
-  reasoningText: string | undefined,
-  text: string,
-  toolCallParts: AssistantToolCallContentPart[],
-  runEventParts: readonly AssistantDataContentPart[] = []
-): AssistantContentPart[] {
-  return [
-    ...(reasoningText?.trim() ? [{ type: 'reasoning', text: reasoningText.trim() } as const] : []),
-    ...toolCallParts,
-    ...(text.trim() ? [{ type: 'text', text } as const] : []),
-    ...runEventParts,
-  ];
-}
-
-function mergeToolCallParts(
-  existingParts: readonly AssistantToolCallContentPart[],
-  nextParts: readonly AssistantToolCallContentPart[]
-): AssistantToolCallContentPart[] {
-  if (nextParts.length === 0) {
-    return [...existingParts];
-  }
-
-  const merged = new Map<string, AssistantToolCallContentPart>();
-  for (const part of existingParts) {
-    merged.set(part.toolCallId, part);
-  }
-  for (const part of nextParts) {
-    merged.set(part.toolCallId, part);
-  }
-  return [...merged.values()];
 }
 
 async function executeToolCalls(
@@ -608,23 +465,6 @@ function getToolExecutor(): {
     };
   };
   return toolWindow.tools ?? null;
-}
-
-function drainPendingUpdate(pendingUpdate: ChatModelRunResult | null): {
-  nextPendingUpdate: ChatModelRunResult | null;
-  update: ChatModelRunResult | null;
-} {
-  if (!pendingUpdate) {
-    return {
-      nextPendingUpdate: null,
-      update: null,
-    };
-  }
-
-  return {
-    nextPendingUpdate: null,
-    update: pendingUpdate,
-  };
 }
 
 function handleDesktopProgressEvent(
