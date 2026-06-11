@@ -378,6 +378,75 @@ describe('agent-runtime edge cases', () => {
     });
   });
 
+  describe('context-budget note injection', () => {
+    it('appends budget note to default instructions when inputTokenLimit is set', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          agentLoop: { inputTokenLimit: 126_000 },
+        },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).toMatch(/Context budget:/);
+      expect(instructions).toContain(
+        'Context budget: about 126.0K tokens of input context are available this run. Suggest starting a new thread if context runs low.'
+      );
+      await runtime.dispose();
+    });
+
+    it('appends budget note to caller-provided instructions when inputTokenLimit is set', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          agentLoop: { inputTokenLimit: 8192 },
+        },
+        instructions: 'Custom system instructions',
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).toContain('Custom system instructions');
+      expect(instructions).toMatch(/Context budget:/);
+      await runtime.dispose();
+    });
+
+    it('does not inject budget note when inputTokenLimit is absent', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).not.toContain('Context budget:');
+      await runtime.dispose();
+    });
+
+    it('does not inject budget note when runtime is undefined', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      // options.runtime stays undefined; the pre-resolved configuration carries
+      // no agentLoop, so no budget note may be injected.
+      const runtime = await createMastraAgentRuntime({
+        resolved: {
+          runtime: { provider: 'openai' },
+          provider: 'openai',
+          apiKey: 'test-key',
+        },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).not.toContain('Context budget:');
+      await runtime.dispose();
+    });
+  });
+
   describe('streamMastraAgent with signals', () => {
     it('handles abort signal during streaming', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');

@@ -31,6 +31,7 @@ import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
+  useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -63,6 +64,7 @@ import {
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderModelSelection,
+  type SelectedModelBudgetDef,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -311,10 +313,33 @@ export function AssistantUiPanelWrapper({
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
+  // Resolve the selected model's budget definition from the runtime model list.
+  // Using the runtime list (not getLlmModelDefinition) covers both static registry
+  // models AND dynamically-discovered ollama/lmstudio models, which have a conservative
+  // contextWindow floor set by toRuntimeProviderModels.
+  const selectedModelBudgetDef = useMemo<SelectedModelBudgetDef | undefined>(() => {
+    if (!(selectedProvider && resolvedModelName)) {
+      return;
+    }
+    const modelDef = getProviderLlmModels(selectedProvider).find(
+      (m: LlmProviderModelDefinition) => m.id === resolvedModelName
+    );
+    if (!modelDef) {
+      return;
+    }
+    return {
+      contextWindow: modelDef.contextWindow,
+      ...(modelDef.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: modelDef.maxOutputTokens }),
+    };
+  }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
+
   const agentLoopSettings = useMemo(
-    () => buildAgentLoopSettings(selectedProviderSettings),
-    [selectedProviderSettings]
+    () => buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
+    [selectedModelBudgetDef, selectedProviderSettings]
   );
+  const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
     () => buildAssistantMemoryOptions(selectedProviderSettings),
     [selectedProviderSettings]
@@ -988,11 +1013,26 @@ export function AssistantUiPanelWrapper({
   );
   const disabledReason = memoryDisabledReason ?? providerDisabledReason;
 
+  // Record provider token usage keyed by the active memory thread id.
+  // Falls back to a stable per-panel constant when no thread is identified
+  // (non-memory-backed sessions) so usage is still captured for the current
+  // panel and cleared on the next turn or session.
+  const handleUsage = useCallback(
+    (usage: { inputTokens: number; outputTokens: number }) => {
+      const threadId = selectedMemoryThreadId ?? 'active';
+      useContextUsageStore.getState().recordUsage(threadId, usage);
+    },
+    [selectedMemoryThreadId]
+  );
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
+      contextWindow={selectedModelBudgetDef?.contextWindow}
+      effectiveInputBudget={effectiveInputBudget}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}
+      onUsage={handleUsage}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       prepareRequestData={prepareRequestData}

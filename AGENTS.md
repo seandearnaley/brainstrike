@@ -251,6 +251,10 @@ When changing the model catalog:
    - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
 5. Register any new `packages/db/__tests__/*.test.ts` in BOTH `packages/db/scripts/test-lanes.mjs` AND `packages/db/scripts/coverage-lanes.mjs` — they are two separate lane registries (unit lanes vs nightly coverage lanes) and each errors on an unassigned test file. Registering only `test-lanes.mjs` passes every PR check but silently breaks the **Nightly Coverage** job (the historical cause of issue #1101). Verify both: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR).
+6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
+   packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
+   (no DB migration). It drives the thread context meter and the auto-derived
+   `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
 
 ---
 
@@ -282,6 +286,29 @@ The assistant's search verbs, in the order the default instructions present them
 3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
+
+---
+
+## CONTEXT USAGE METER (TOKEN AWARENESS)
+
+One derivation feeds three consumers per request — keep them consistent:
+`buildAgentLoopSettings(prefs, selectedModelBudgetDef)` in packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts
+produces `agentLoopSettings.inputTokenLimit` (explicit user pref wins, else
+`deriveEffectiveInputBudget(contextWindow, maxOutputTokens)` from
+packages/assistant-contract/src/context-budget.ts — throws, never clamps). That ONE number is:
+1. the Mastra `TokenLimiter` budget (`runtimeData.agentLoop.inputTokenLimit` → `buildToolLoopOptions`),
+2. the meter denominator (`effectiveInputBudget` prop on `AssistantUiPanel`),
+3. the instruction budget note (`buildContextBudgetNote`, appended per-request at Agent construction).
+
+Runtime invariants:
+- Usage store (packages/ui/src/assistant-ui-panel/context-usage-store.ts) is session-lived, NOT
+  persisted; key = `selectedMemoryThreadId ?? 'active'` — the writer (`handleUsage` in the app-shell
+  wrapper) and the reader (`ContextUsageMeter`, via the panel's `threadKey` prop) MUST use the same key.
+- Both turn paths report usage: hosted via the data-stream `message-finish` tap
+  (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
+  local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
+- The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
+  must never lie — wire-format usage is `{inputTokens, outputTokens}` (e2e mocks must use those names).
 
 ---
 

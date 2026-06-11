@@ -118,6 +118,7 @@ export function useAssistantModelPickerConfig({
           providerId,
           name: model.label ?? model.id,
           description: null,
+          contextWindow: model.contextWindow,
           capabilities: {
             type: 'llm',
             streaming: model.supportsStreaming ?? false,

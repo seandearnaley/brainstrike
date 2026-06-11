@@ -9,6 +9,7 @@ const openAiDefaultModel: LlmProviderModelDefinition = {
   type: 'llm',
   supportsStreaming: true,
   default: true,
+  contextWindow: 200_000,
 };
 
 const openAiDisabledModel: LlmProviderModelDefinition = {
@@ -16,6 +17,7 @@ const openAiDisabledModel: LlmProviderModelDefinition = {
   label: 'Hosted Disabled',
   type: 'llm',
   supportsStreaming: true,
+  contextWindow: 200_000,
 };
 
 const ollamaModel: LlmProviderModelDefinition = {
@@ -23,6 +25,7 @@ const ollamaModel: LlmProviderModelDefinition = {
   label: 'Llama 3.2',
   type: 'llm',
   supportsStreaming: true,
+  contextWindow: 200_000,
 };
 
 describe('useAssistantModelPickerConfig', () => {
@@ -111,6 +114,7 @@ describe('useAssistantModelPickerConfig', () => {
         providerId: 'openai',
         name: 'Hosted Default',
         description: null,
+        contextWindow: 200_000,
         capabilities: { type: 'llm', streaming: true },
       },
       {
@@ -118,6 +122,7 @@ describe('useAssistantModelPickerConfig', () => {
         providerId: 'ollama',
         name: 'Llama 3.2',
         description: null,
+        contextWindow: 200_000,
         capabilities: { type: 'llm', streaming: true },
       },
     ]);
