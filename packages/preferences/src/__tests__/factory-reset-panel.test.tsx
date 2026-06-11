@@ -13,6 +13,15 @@ const mockClearPersistentUiState = vi.fn<() => Promise<ClearPersistentUiStateRes
     success: true,
   })
 );
+const mockClearPersistentUiStateIncompleteError = class extends Error {
+  readonly result: ClearPersistentUiStateResult;
+
+  constructor(result: ClearPersistentUiStateResult) {
+    super('Factory reset storage cleanup incomplete');
+    this.name = 'ClearPersistentUiStateIncompleteError';
+    this.result = result;
+  }
+};
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
@@ -33,6 +42,7 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 vi.mock('../settings/system/factory-reset-helpers', () => ({
+  ClearPersistentUiStateIncompleteError: mockClearPersistentUiStateIncompleteError,
   clearPersistentUiStateWithResult: mockClearPersistentUiState,
 }));
 
@@ -250,31 +260,6 @@ describe('FactoryResetPanel', () => {
         throw new Error('Expected clear and reset invocation order to be recorded');
       }
       expect(clearOrder).toBeLessThan(resetOrder);
-    });
-
-    it('still runs the desktop reset bridge when renderer storage cleanup fails', async () => {
-      const resetLocal = vi.fn().mockResolvedValue({ success: true });
-      Object.defineProperty(window, 'electronAPI', {
-        configurable: true,
-        value: {
-          db: { resetLocal },
-        },
-        writable: true,
-      });
-      mockUseFactoryReset.mockReturnValue(null);
-      mockClearPersistentUiState.mockRejectedValue(new Error('locked OPFS handle'));
-
-      render(<FactoryResetPanel doFactoryReset={null} />);
-
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
-
-      await waitFor(() => {
-        expect(resetLocal).toHaveBeenCalled();
-        expect(mockReload).toHaveBeenCalled();
-      });
-
-      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {

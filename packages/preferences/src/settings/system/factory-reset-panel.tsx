@@ -3,7 +3,7 @@ import { Button, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  type ClearPersistentUiStateFailure,
+  ClearPersistentUiStateIncompleteError,
   type ClearPersistentUiStateOptions,
   type ClearPersistentUiStateResult,
   clearPersistentUiStateWithResult,
@@ -45,18 +45,12 @@ function getDesktopResetBridge(): DesktopResetBridge | null {
   return typeof resetLocal === 'function' ? resetLocal : null;
 }
 
-function describePersistentUiStateFailure(failure: ClearPersistentUiStateFailure): string {
-  const name = failure.name ? `:${failure.name}` : '';
-  return `${failure.target}:${failure.operation}${name}`;
-}
-
 function assertPersistentUiStateResetComplete(result: ClearPersistentUiStateResult): void {
   if (result.success) {
     return;
   }
 
-  const failedTargets = result.failures.map(describePersistentUiStateFailure).join(', ');
-  throw new Error(`Factory reset did not clear all renderer storage: ${failedTargets}`);
+  throw new ClearPersistentUiStateIncompleteError(result);
 }
 
 async function clearPersistentUiStateOrThrow(
@@ -66,24 +60,14 @@ async function clearPersistentUiStateOrThrow(
 }
 
 async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): Promise<void> {
-  let rendererStorageResetError: unknown;
-  let rendererStorageResetResult: ClearPersistentUiStateResult | null = null;
-  try {
-    rendererStorageResetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: false });
-  } catch (error) {
-    rendererStorageResetError = error;
-  }
-
+  const rendererStorageResetResult = await clearPersistentUiStateWithResult({
+    skipIndexedDb: false,
+  });
   const result = await desktopResetBridge();
   if (!result.success) {
     throw new Error(result.message ?? 'Desktop factory reset failed.');
   }
-  if (rendererStorageResetError) {
-    throw rendererStorageResetError;
-  }
-  if (rendererStorageResetResult) {
-    assertPersistentUiStateResetComplete(rendererStorageResetResult);
-  }
+  assertPersistentUiStateResetComplete(rendererStorageResetResult);
 }
 
 export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
