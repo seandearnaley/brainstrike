@@ -13,6 +13,15 @@ const mockClearPersistentUiState = vi.fn<() => Promise<ClearPersistentUiStateRes
     success: true,
   })
 );
+const mockClearPersistentUiStateIncompleteError = class extends Error {
+  readonly result: ClearPersistentUiStateResult;
+
+  constructor(result: ClearPersistentUiStateResult) {
+    super('Factory reset storage cleanup incomplete');
+    this.name = 'ClearPersistentUiStateIncompleteError';
+    this.result = result;
+  }
+};
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
@@ -33,6 +42,7 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 vi.mock('../settings/system/factory-reset-helpers', () => ({
+  ClearPersistentUiStateIncompleteError: mockClearPersistentUiStateIncompleteError,
   clearPersistentUiStateWithResult: mockClearPersistentUiState,
 }));
 

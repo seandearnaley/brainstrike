@@ -355,4 +355,35 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
       target: 'opfs-pglite',
     });
   });
+
+  it('rejects the void reset API when OPFS cleanup is incomplete', async () => {
+    const resetFailure = new Error('locked opfs directory');
+    removeEntry.mockImplementation(async (name: string) => {
+      if (name === 'app-pg18') {
+        throw resetFailure;
+      }
+    });
+
+    let thrown: unknown;
+    try {
+      await clearPersistentUiState();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).toMatchObject({
+      result: {
+        failures: [
+          expect.objectContaining({
+            error: resetFailure,
+            name: 'app-pg18',
+            operation: 'removeEntry',
+            target: 'opfs-pglite',
+          }),
+        ],
+        success: false,
+      },
+    });
+  });
 });
