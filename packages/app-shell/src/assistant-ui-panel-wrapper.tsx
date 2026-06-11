@@ -42,10 +42,6 @@ import {
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
-  type AssistantForegroundActivityLease,
-  acquireAssistantForegroundActivity,
-} from './assistant-foreground-activity';
-import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
@@ -62,8 +58,6 @@ import {
   buildModelSettings,
   buildProviderOptions,
   copyProviderSettingsMap,
-  createAssistantThreadRunPromise,
-  extractPreparedRunId,
   findFirstProviderWithEnabledModels,
   formatToolLabel,
   getBuiltInLocalPreferenceModelIds,
@@ -88,6 +82,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -832,107 +827,17 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
-  const assistantForegroundActivityLeaseByRunIdRef = useRef(
-    new Map<string, AssistantForegroundActivityLease>()
-  );
-  // The run currently streaming (runs are serialized per panel). Stream
-  // activity renews ONLY this run's lease — renewing all leases would let an
-  // unrelated active run keep a leaked sibling lease alive indefinitely.
-  const activeAssistantForegroundRunIdRef = useRef<string | null>(null);
-  useEffect(
-    () => () => {
-      for (const lease of assistantForegroundActivityLeaseByRunIdRef.current.values()) {
-        lease.release();
-      }
-      assistantForegroundActivityLeaseByRunIdRef.current.clear();
-      activeAssistantForegroundRunIdRef.current = null;
-    },
-    []
-  );
-  const renewActiveAssistantForegroundActivity = useCallback(() => {
-    const runId = activeAssistantForegroundRunIdRef.current;
-    if (!runId) {
-      return;
-    }
-    assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.renew();
-  }, []);
-
-  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
-    const runId = await createAssistantThreadRunPromise({
+  const { completePreparedRequest, prepareRequestData, renewActiveAssistantForegroundActivity } =
+    useAssistantRequestLifecycle({
       assistantThreadRepository,
       memoryResourceId,
       modelSettings,
       providerOptions,
+      requestData,
       resolvedModelName,
       selectedMemoryThreadId,
       selectedProvider,
     });
-    const memoryContext = requestData['memory'];
-    if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
-      throw new Error('Assistant request preparation requires Mastra memory context.');
-    }
-    if (runId) {
-      assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
-      assistantForegroundActivityLeaseByRunIdRef.current.set(
-        runId,
-        acquireAssistantForegroundActivity({
-          onExpired: () => {
-            assistantForegroundActivityLeaseByRunIdRef.current.delete(runId);
-            if (activeAssistantForegroundRunIdRef.current === runId) {
-              activeAssistantForegroundRunIdRef.current = null;
-            }
-          },
-        })
-      );
-      activeAssistantForegroundRunIdRef.current = runId;
-    }
-
-    return {
-      ...requestData,
-      memory: {
-        ...memoryContext,
-        ...(runId ? { runId } : {}),
-      },
-    };
-  }, [
-    assistantThreadRepository,
-    memoryResourceId,
-    modelSettings,
-    providerOptions,
-    requestData,
-    resolvedModelName,
-    selectedMemoryThreadId,
-    selectedProvider,
-  ]);
-
-  const completePreparedRequest = useCallback(
-    async (
-      preparedRequestData: Record<string, unknown> | undefined,
-      status: 'cancelled' | 'completed' | 'failed',
-      error?: string
-    ): Promise<void> => {
-      const runId = extractPreparedRunId(preparedRequestData);
-      if (!runId) {
-        return;
-      }
-      if (!assistantThreadRepository) {
-        throw new Error('Assistant run completion requires an active thread repository.');
-      }
-      try {
-        await assistantThreadRepository.completeThreadRun(runId, {
-          status,
-          ...(error ? { error } : {}),
-        });
-      } finally {
-        assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
-        assistantForegroundActivityLeaseByRunIdRef.current.delete(runId);
-        if (activeAssistantForegroundRunIdRef.current === runId) {
-          activeAssistantForegroundRunIdRef.current = null;
-        }
-      }
-    },
-    [assistantThreadRepository]
-  );
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
