@@ -17,6 +17,10 @@ const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
   'google',
   'openrouter',
 ]);
+// The removed-model remap contract was introduced with the 2026 frontier
+// catalog refresh. Earlier migrations are historical input used to reconstruct
+// the catalog snapshot; future deletions from this version onward are enforced.
+const REMOVED_MODEL_REMAP_CONTRACT_START_VERSION = 33;
 
 function extractMigrationExportName(source) {
   return source.match(MIGRATION_EXPORT_PATTERN)?.[1] ?? null;
@@ -422,20 +426,22 @@ function memoryModelTarget(row) {
   return `${row.providerId}/${row.id}`;
 }
 
-function collectLatestDeletedRows(migrationSummaries) {
-  const latestDeleteMigration = migrationSummaries.findLast((migration) =>
-    migration.operations.some((operation) => operation.kind.startsWith('delete-'))
-  );
+function migrationFileVersion(file) {
+  const match = file.match(/(?:^|\/)(\d{3})-/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
 
-  if (!latestDeleteMigration) {
-    return [];
-  }
+function requiresRemovedModelRemaps(file) {
+  const version = migrationFileVersion(file);
+  return version === null || version >= REMOVED_MODEL_REMAP_CONTRACT_START_VERSION;
+}
 
+function collectDeletedRowsRequiringRemaps(migrationSummaries) {
   const snapshot = new Map();
   const deletedRows = [];
 
   for (const migration of migrationSummaries) {
-    const collectDeletes = migration.file === latestDeleteMigration.file;
+    const collectDeletes = requiresRemovedModelRemaps(migration.file);
     for (const operation of migration.operations) {
       if (operation.kind === 'delete-ids') {
         for (const id of operation.ids) {
@@ -488,7 +494,7 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
   );
   const failures = [];
 
-  for (const row of collectLatestDeletedRows(migrationSummaries)) {
+  for (const row of collectDeletedRowsRequiringRemaps(migrationSummaries)) {
     if (row.type !== 'llm') {
       continue;
     }
