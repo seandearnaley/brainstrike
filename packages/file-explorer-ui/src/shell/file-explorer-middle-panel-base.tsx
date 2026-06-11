@@ -73,6 +73,13 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   );
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager();
+  // Multi-root (Phase 6): resolve a RootId to its display name so the context
+  // snapshot can label same-relative-path files from different roots.
+  const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
+  const resolveRootDisplayName = useCallback(
+    (rootId: string): string | undefined => rootDescriptors[rootId]?.displayName,
+    [rootDescriptors]
+  );
   const [projectTreeUsesViewFilters, setProjectTreeUsesViewFilters] = useState(false);
 
   const fileNodeCache = useMemo(() => buildFileNodeCache(unfilteredFileTree), [unfilteredFileTree]);
@@ -241,6 +248,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
           <div className="flex-1 overflow-hidden bg-card/50">
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}
+              resolveRootDisplayName={resolveRootDisplayName}
               {...(estimateTokenCost ? { estimateTokenCost } : {})}
               fileContents={fileContents}
               fileSizes={fileSizes}

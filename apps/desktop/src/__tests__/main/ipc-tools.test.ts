@@ -280,6 +280,57 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('passes through file root identity (Phase 6) and drops malformed values', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceContext': {
+          execute: vi.fn().mockResolvedValue({ files: [] }),
+        },
+      } as never);
+
+      await toolsExecuteHandler(
+        mockEvent,
+        'brainstrike.readWorkspaceContext',
+        {},
+        {
+          workspaceContext: {
+            files: [
+              {
+                path: 'src/notes.md',
+                rootId: 'aaaaaaaa-0000-4000-8000-000000000001',
+                rootDisplayName: 'docs',
+              },
+              {
+                path: 'src/other.md',
+                // Malformed identities must be dropped, not forwarded.
+                rootId: 42,
+                rootDisplayName: '',
+              },
+            ],
+          },
+        }
+      );
+
+      expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
+        {
+          workspaceContext: {
+            files: [
+              {
+                path: 'src/notes.md',
+                rootId: 'aaaaaaaa-0000-4000-8000-000000000001',
+                rootDisplayName: 'docs',
+              },
+              {
+                path: 'src/other.md',
+              },
+            ],
+          },
+        },
+        { embeddingHostManager: undefined }
+      );
+    });
+
     it('omits invalid workspace indexing mode values before assistant runtime tool execution', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);

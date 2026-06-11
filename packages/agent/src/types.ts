@@ -142,6 +142,10 @@ export interface RuntimeWorkspaceContextFileMetadata {
   outputApproxTokens?: number | null;
   path: string;
   ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
+  /** Display name of the root, for disambiguating the same relative path across roots. */
+  rootDisplayName?: string;
+  /** Durable RootId of the file's root (multi-root); absent for legacy snapshots. */
+  rootId?: string;
 }
 
 export type RuntimeWorkspaceIndexStatusState =

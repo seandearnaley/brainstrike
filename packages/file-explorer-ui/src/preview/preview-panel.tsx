@@ -90,6 +90,11 @@ interface PreviewPanelProps {
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
   projectTreeUsesViewFilters?: boolean;
+  /**
+   * Resolve a RootId to its display name (multi-root, Phase 6) so context
+   * snapshots can label same-relative-path files from different roots.
+   */
+  resolveRootDisplayName?: ((rootId: string) => string | undefined) | undefined;
   selectedFiles: Set<string>;
   tokenBudget?: number;
   tokenCounting: TokenCountingState;
@@ -139,6 +144,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onSelectionChange,
     fileSizes,
     decodeFileSelection,
+    resolveRootDisplayName,
     tokenCounting,
     performUndoableAction,
     onFileClick,
@@ -349,11 +355,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           isActive: range.isActive !== false,
         }));
         const hasRanges = ranges.length > 0;
+        const rootDisplayName = resolveRootDisplayName?.(item.rootFolderId);
         return {
           path: item.path,
           approxTokens: item.tokens ?? null,
           outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
           ranges,
+          // Multi-root (Phase 6): citations need the root identity to
+          // disambiguate the same relative path across roots.
+          rootId: item.rootFolderId,
+          ...(rootDisplayName !== undefined && { rootDisplayName }),
         };
       });
     const selectionFolderId =
@@ -376,6 +387,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     includeProjectTree,
     projectTreeTokenCount,
     projectTreeTokenCountLoading,
+    resolveRootDisplayName,
     selectedFiles,
     setWorkspaceContextSnapshot,
     tableData,
