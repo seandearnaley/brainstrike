@@ -10,6 +10,7 @@
 **Tech Stack:** React 19, Zustand, PGlite, Vitest. Branch `feat/multi-root-6-cross-root` stacked on `feat/multi-root-5-root-identity`; ships as PR #6 (base #1191's branch).
 
 **Explicitly deferred (NOT silently dropped):**
+- Assistant-server tools key workspace-context files by PATH (`apps/desktop/src/assistant-server/assistant-tools.ts` maps at ~560/614) — two selected files with the same relative path from different roots collide there. Task 5 threads the rootId those tools need; the tool-side per-root resolution is follow-up scope.
 - `source_root_path` + 029-index retirement → its own post-merge cleanup PR. It is woven through 9+ production files including `root-registry.ts`'s legacy reconciliation; retiring it while the 5-PR stack is unmerged would churn every open review. Gate: the stack lands on main first.
 - Snapshot tier (Safari/Firefox → OPFS import) + PWA install prompt → own plan (`2026-06-XX-multi-root-phase-7-snapshot-pwa.md`), per the roadmap's "Deferrable" marking. Still committed scope (locked decisions #4/#5).
 
