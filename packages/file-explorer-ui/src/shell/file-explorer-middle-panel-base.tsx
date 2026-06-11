@@ -80,6 +80,10 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     (rootId: string): string | undefined => rootDescriptors[rootId]?.displayName,
     [rootDescriptors]
   );
+  const resolveRootPath = useCallback(
+    (rootId: string): string | undefined => rootDescriptors[rootId]?.path,
+    [rootDescriptors]
+  );
   const [projectTreeUsesViewFilters, setProjectTreeUsesViewFilters] = useState(false);
 
   const fileNodeCache = useMemo(() => buildFileNodeCache(unfilteredFileTree), [unfilteredFileTree]);
@@ -249,6 +253,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}
               resolveRootDisplayName={resolveRootDisplayName}
+              resolveRootPath={resolveRootPath}
               {...(estimateTokenCost ? { estimateTokenCost } : {})}
               fileContents={fileContents}
               fileSizes={fileSizes}

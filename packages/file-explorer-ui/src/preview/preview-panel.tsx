@@ -95,6 +95,11 @@ interface PreviewPanelProps {
    * snapshots can label same-relative-path files from different roots.
    */
   resolveRootDisplayName?: ((rootId: string) => string | undefined) | undefined;
+  /**
+   * Resolve a RootId to its absolute root path (storage v5 descriptor) so
+   * table rows can relativize file paths for display.
+   */
+  resolveRootPath?: ((rootId: string) => string | undefined) | undefined;
   selectedFiles: Set<string>;
   tokenBudget?: number;
   tokenCounting: TokenCountingState;
@@ -145,6 +150,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     fileSizes,
     decodeFileSelection,
     resolveRootDisplayName,
+    resolveRootPath,
     tokenCounting,
     performUndoableAction,
     onFileClick,
@@ -324,6 +330,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           return null;
         }
 
+        // Storage v5: folderId is a RootId UUID — resolve display metadata
+        // from the descriptor registry so no surface ever renders the UUID.
+        const rootDisplayName = resolveRootDisplayName?.(decoded.folderId);
+        const rootPath = resolveRootPath?.(decoded.folderId);
         const result: TableRowData = {
           id: fileItem.compositeKey,
           rootFolderId: decoded.folderId,
@@ -332,6 +342,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           compositeKey: fileItem.compositeKey,
         };
 
+        if (rootDisplayName !== undefined) {
+          result.rootDisplayName = rootDisplayName;
+        }
+        if (rootPath !== undefined) {
+          result.rootPath = rootPath;
+        }
         if (fileItem.size !== undefined) {
           result.size = fileItem.size;
         }
@@ -342,7 +358,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         return result;
       })
       .filter((item): item is TableRowData => item !== null);
-  }, [deferredFlatListItems, decodeFileSelection]);
+  }, [deferredFlatListItems, decodeFileSelection, resolveRootDisplayName, resolveRootPath]);
 
   useEffect(() => {
     const selectedFolderIds = new Set<string>();

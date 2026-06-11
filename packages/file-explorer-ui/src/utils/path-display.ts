@@ -15,10 +15,20 @@ interface DirPathDisplayOptions {
 interface DirectoryGroupIdentity {
   allowExistingRootPrefix: boolean;
   relativeDirPath: string;
+  /**
+   * Human-readable root label (storage v5 descriptor displayName). When set,
+   * labels render it instead of deriving anything from rootFolderId — which
+   * is a RootId UUID since storage v5, not a path.
+   */
+  rootDisplayName?: string | undefined;
   rootFolderId: string;
 }
 
 const DIRECTORY_GROUP_KEY_PREFIX = 'dg1';
+/** Identity v2: carries the root displayName as a 5th field. */
+const DIRECTORY_GROUP_KEY_PREFIX_V2 = 'dg2';
+/** Short rootId suffix length used to disambiguate same-named roots. */
+const CANONICAL_ROOT_SUFFIX_CHARS = 8;
 
 function normalizePathIdentity(inputPath: string): string {
   return stripTrailingSlashes(normalizeSeparators(inputPath));
@@ -312,13 +322,22 @@ function joinRootFolderPath(args: {
   return `${rootLabel}/${displayDirPath}`;
 }
 
+function getCanonicalRootLabel(identity: DirectoryGroupIdentity): string {
+  if (identity.rootDisplayName) {
+    // Disambiguate same-named roots with a short, stable rootId suffix —
+    // never the raw UUID alone.
+    return `${identity.rootDisplayName} (${identity.rootFolderId.slice(0, CANONICAL_ROOT_SUFFIX_CHARS)})`;
+  }
+  return getRootFolderDisplayName(identity.rootFolderId);
+}
+
 function getDirectoryGroupLabelFromIdentity(args: {
   identity: DirectoryGroupIdentity;
   useCanonicalRootLabel?: boolean | undefined;
 }): string {
   const rootLabel = args.useCanonicalRootLabel
-    ? getRootFolderDisplayName(args.identity.rootFolderId)
-    : getRootFolderPathLabel(args.identity.rootFolderId);
+    ? getCanonicalRootLabel(args.identity)
+    : (args.identity.rootDisplayName ?? getRootFolderPathLabel(args.identity.rootFolderId));
 
   if (rootLabel) {
     return joinRootFolderPath({
@@ -332,6 +351,15 @@ function getDirectoryGroupLabelFromIdentity(args: {
 }
 
 function serializeDirectoryGroupIdentity(identity: DirectoryGroupIdentity): string {
+  if (identity.rootDisplayName !== undefined) {
+    return [
+      DIRECTORY_GROUP_KEY_PREFIX_V2,
+      identity.allowExistingRootPrefix ? '1' : '0',
+      encodeURIComponent(identity.rootFolderId),
+      encodeURIComponent(identity.relativeDirPath),
+      encodeURIComponent(identity.rootDisplayName),
+    ].join('|');
+  }
   return [
     DIRECTORY_GROUP_KEY_PREFIX,
     identity.allowExistingRootPrefix ? '1' : '0',
@@ -341,12 +369,15 @@ function serializeDirectoryGroupIdentity(identity: DirectoryGroupIdentity): stri
 }
 
 function parseEncodedDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity | null {
-  const [prefix, allowExistingRootPrefix, rootFolderId, relativeDirPath] = groupKey.split('|');
+  const [prefix, allowExistingRootPrefix, rootFolderId, relativeDirPath, rootDisplayName] =
+    groupKey.split('|');
+  const isV2 = prefix === DIRECTORY_GROUP_KEY_PREFIX_V2;
   if (
-    prefix !== DIRECTORY_GROUP_KEY_PREFIX ||
+    !(isV2 || prefix === DIRECTORY_GROUP_KEY_PREFIX) ||
     (allowExistingRootPrefix !== '0' && allowExistingRootPrefix !== '1') ||
     rootFolderId === undefined ||
-    relativeDirPath === undefined
+    relativeDirPath === undefined ||
+    (isV2 && rootDisplayName === undefined)
   ) {
     return null;
   }
@@ -356,6 +387,9 @@ function parseEncodedDirectoryGroupIdentity(groupKey: string): DirectoryGroupIde
       allowExistingRootPrefix: allowExistingRootPrefix === '1',
       rootFolderId: decodeURIComponent(rootFolderId),
       relativeDirPath: decodeURIComponent(relativeDirPath),
+      ...(isV2 && rootDisplayName !== undefined
+        ? { rootDisplayName: decodeURIComponent(rootDisplayName) }
+        : {}),
     };
   } catch {
     return null;
@@ -385,14 +419,24 @@ function parseDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity {
   }
 }
 
-export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: string }): string {
+export function formatFilePathSubtitle(args: {
+  filePath: string;
+  rootFolderId: string;
+  /** Absolute root path (storage v5 descriptor) used to relativize the file path. */
+  rootPath?: string | undefined;
+  /** Human-readable root label (storage v5 descriptor displayName). */
+  rootDisplayName?: string | undefined;
+}): string {
+  // Storage v5: rootFolderId is a RootId UUID — relativize against the
+  // descriptor's path instead. Legacy path-as-id keys pass through unchanged.
+  const relativizeBase = args.rootPath ?? args.rootFolderId;
   const normalizedFilePath = normalizePathIdentity(args.filePath);
   const { dirPath } = splitFilePath(normalizedFilePath);
   const displayDirPath = formatDirPathForDisplay({
     dirPath,
-    rootFolderId: args.rootFolderId,
+    rootFolderId: relativizeBase,
   });
-  const rootLabel = getRootFolderPathLabel(args.rootFolderId);
+  const rootLabel = args.rootDisplayName ?? getRootFolderPathLabel(relativizeBase);
 
   if (!rootLabel) {
     return displayDirPath;
@@ -405,8 +449,18 @@ export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: s
   });
 }
 
-export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: string }): string {
+export function getDirectoryGroupKey(args: {
+  filePath: string;
+  rootFolderId: string;
+  /** Absolute root path (storage v5 descriptor) used to relativize the file path. */
+  rootPath?: string | undefined;
+  /** Human-readable root label carried into the group identity for display. */
+  rootDisplayName?: string | undefined;
+}): string {
   const normalizedRootFolderId = normalizePathIdentity(args.rootFolderId);
+  // Storage v5: relativize against the descriptor path; group identity stays
+  // keyed by rootFolderId so same-named roots never merge.
+  const relativizeBase = args.rootPath ?? args.rootFolderId;
   const { dirPath } = splitFilePath(args.filePath);
   const normalizedDirPath = stripTrailingSlashes(normalizeSeparators(dirPath));
   const allowExistingRootPrefix = !isProbablyAbsolutePath(normalizedDirPath);
@@ -416,12 +470,13 @@ export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: str
       rootFolderId: normalizedRootFolderId,
       relativeDirPath: '',
       allowExistingRootPrefix,
+      rootDisplayName: args.rootDisplayName,
     });
   }
 
   const { segments, trimmedToFolderRoot } = getFolderRelativeSegments({
     normalizedDirPath,
-    rootFolderId: args.rootFolderId,
+    rootFolderId: relativizeBase,
   });
 
   if (segments.length === 0) {
@@ -429,6 +484,7 @@ export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: str
       rootFolderId: normalizedRootFolderId,
       relativeDirPath: trimmedToFolderRoot ? '' : normalizedDirPath,
       allowExistingRootPrefix,
+      rootDisplayName: args.rootDisplayName,
     });
   }
 
@@ -436,6 +492,7 @@ export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: str
     rootFolderId: normalizedRootFolderId,
     relativeDirPath: trimmedToFolderRoot ? segments.join('/') : normalizedDirPath,
     allowExistingRootPrefix,
+    rootDisplayName: args.rootDisplayName,
   });
 }
 

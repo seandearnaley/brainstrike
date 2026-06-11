@@ -75,6 +75,7 @@ export function buildTapestryFileBase(args: {
     id: item.compositeKey,
     compositeKey: item.compositeKey,
     rootFolderId: item.rootFolderId,
+    ...(item.rootDisplayName === undefined ? {} : { rootDisplayName: item.rootDisplayName }),
     path: item.path,
     name: fileName || item.path,
     language: item.type.toLowerCase(),

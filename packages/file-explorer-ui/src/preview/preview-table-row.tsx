@@ -31,8 +31,12 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   const displayDirPath = formatFilePathSubtitle({
     filePath: item.path,
     rootFolderId: item.rootFolderId,
+    rootPath: item.rootPath,
+    rootDisplayName: item.rootDisplayName,
   });
-  const displayRootFolder = getRootFolderDisplayName(item.rootFolderId);
+  // Storage v5: rootFolderId is a RootId UUID — show the descriptor's
+  // displayName (path-derived fallback only serves legacy path ids).
+  const displayRootFolder = item.rootDisplayName ?? getRootFolderDisplayName(item.rootFolderId);
 
   const handleCheckedChange = useCallback(
     (checked: boolean | 'indeterminate') => onToggleSelection(item.compositeKey, !!checked),

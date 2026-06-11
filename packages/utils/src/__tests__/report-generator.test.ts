@@ -490,6 +490,36 @@ describe('reportGenerator', () => {
     expect(report).not.toContain('<project_tree>');
   });
 
+  it('renders human-readable file paths for storage-v5 composite selection keys', async () => {
+    // Storage v5: selection keys are `${rootId}|@|${absolutePath}` where
+    // rootId is a UUID. The <file path> attribute must render the root's
+    // displayName + relative path, never the UUID composite key.
+    const ROOT_ID = '11111111-0000-4000-8000-000000000011';
+    const compositeKey = `${ROOT_ID}|@|/Users/me/BrainStrike/src/utils.ts`;
+    const selectedFiles = new Set([compositeKey]);
+    const fileContents = { [compositeKey]: 'export const x = 1;' };
+
+    const report = await generateReport(
+      selectedFiles,
+      fileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        rootDisplayInfoById: {
+          [ROOT_ID]: { displayName: 'BrainStrike', path: '/Users/me/BrainStrike' },
+        },
+      }
+    );
+
+    expect(report).toContain('<file path="BrainStrike/src/utils.ts">');
+    expect(report).toContain('export const x = 1;');
+    expect(report).not.toContain(ROOT_ID);
+  });
+
   it('generates a report with project tree', async () => {
     const selectedFiles = new Set([
       'src/components/ui/Button.tsx',
