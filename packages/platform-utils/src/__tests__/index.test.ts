@@ -275,6 +275,23 @@ describe('Platform Utils', () => {
       ).toBe(400);
     });
 
+    it('should accept raw values at the configured max bound', () => {
+      expect(
+        parsePositiveIntegerConfig({
+          maxValue: 65_535,
+          name: 'PORT',
+          rawValue: '65535',
+        })
+      ).toBe(65_535);
+      expect(
+        parsePositiveIntegerConfig({
+          maxValue: 1000,
+          name: 'idlePollInitialMs',
+          rawValue: 1000,
+        })
+      ).toBe(1000);
+    });
+
     it('should use the default value when raw config is absent', () => {
       expect(
         parsePositiveIntegerConfig({
@@ -316,6 +333,34 @@ describe('Platform Utils', () => {
           rawValue: '',
         })
       ).toThrow('PORT default must be a positive integer, received "0".');
+    });
+
+    it('should reject raw values above the configured max bound', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          maxValue: 65_535,
+          name: 'PORT',
+          rawValue: '65536',
+        })
+      ).toThrow('PORT must be <= 65535, received "65536".');
+      expect(() =>
+        parsePositiveIntegerConfig({
+          maxValue: 1000,
+          name: 'idlePollInitialMs',
+          rawValue: 1001,
+        })
+      ).toThrow('idlePollInitialMs must be <= 1000, received "1001".');
+    });
+
+    it('should reject default values above the configured max bound', () => {
+      expect(() =>
+        parsePositiveIntegerConfig({
+          defaultValue: 65_536,
+          maxValue: 65_535,
+          name: 'PORT',
+          rawValue: undefined,
+        })
+      ).toThrow('PORT default must be <= 65535, received "65536".');
     });
 
     it('should reject numeric prefixes instead of parsing partial positive integers', () => {

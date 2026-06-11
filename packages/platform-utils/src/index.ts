@@ -29,6 +29,7 @@ export function detectPlatform(): Platform {
 
 export interface PositiveIntegerConfigInput {
   defaultValue?: number;
+  maxValue?: number;
   name: string;
   rawValue: number | string | null | undefined;
 }
@@ -40,19 +41,34 @@ function assertPositiveInteger(value: number, label: string): number {
   return value;
 }
 
+function assertMaxValue(value: number, label: string, maxValue: number | undefined): number {
+  if (maxValue !== undefined && value > maxValue) {
+    throw new Error(`${label} must be <= ${maxValue}, received "${value}".`);
+  }
+  return value;
+}
+
 export function parsePositiveIntegerConfig({
   defaultValue,
+  maxValue,
   name,
   rawValue,
 }: PositiveIntegerConfigInput): number {
+  const validatedMaxValue =
+    maxValue === undefined ? undefined : assertPositiveInteger(maxValue, `${name} max`);
+
   if (typeof rawValue === 'number') {
-    return assertPositiveInteger(rawValue, name);
+    return assertMaxValue(assertPositiveInteger(rawValue, name), name, validatedMaxValue);
   }
   if (rawValue === undefined || rawValue === null || rawValue.trim() === '') {
     if (defaultValue === undefined) {
       throw new Error(`${name} must be a positive integer.`);
     }
-    return assertPositiveInteger(defaultValue, `${name} default`);
+    return assertMaxValue(
+      assertPositiveInteger(defaultValue, `${name} default`),
+      `${name} default`,
+      validatedMaxValue
+    );
   }
 
   const trimmedValue = rawValue.trim();
@@ -63,5 +79,5 @@ export function parsePositiveIntegerConfig({
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer, received "${rawValue}".`);
   }
-  return parsed;
+  return assertMaxValue(parsed, name, validatedMaxValue);
 }

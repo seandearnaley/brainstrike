@@ -135,4 +135,16 @@ describe('environment variable handling', () => {
       `${name} must be a positive integer, received "${value}".`
     );
   });
+
+  test.each([
+    'PORT',
+    'DESKTOP_PORT',
+  ])('should reject %s values above the TCP port ceiling', async (name) => {
+    if (globalThis.process) {
+      globalThis.process.env = { ...originalEnv, [name]: '65536' };
+    }
+    await expect(import('../server')).rejects.toThrow(
+      `${name} must be <= 65535, received "65536".`
+    );
+  });
 });
