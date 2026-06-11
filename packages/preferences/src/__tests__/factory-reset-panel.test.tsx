@@ -2,11 +2,17 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ClearPersistentUiStateResult } from '../settings/system/factory-reset-helpers';
 
 const mockToast = vi.fn();
 const mockUseToast = vi.fn(() => ({ toast: mockToast }));
 const mockUseFactoryReset = vi.fn(() => null);
-const mockClearPersistentUiState = vi.fn(() => Promise.resolve());
+const mockClearPersistentUiState = vi.fn<() => Promise<ClearPersistentUiStateResult>>(() =>
+  Promise.resolve({
+    failures: [],
+    success: true,
+  })
+);
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
@@ -27,7 +33,7 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 vi.mock('../settings/system/factory-reset-helpers', () => ({
-  clearPersistentUiState: mockClearPersistentUiState,
+  clearPersistentUiStateWithResult: mockClearPersistentUiState,
 }));
 
 // Import after mocks are set up
@@ -60,10 +66,18 @@ describe('FactoryResetPanel', () => {
       value: undefined,
       writable: true,
     });
+    Object.defineProperty(window, 'desktopLifecycle', {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
 
     // Reset default mocks
     mockUseFactoryReset.mockReturnValue(null);
-    mockClearPersistentUiState.mockResolvedValue();
+    mockClearPersistentUiState.mockResolvedValue({
+      failures: [],
+      success: true,
+    });
 
     // Setup window.confirm mock
     mockConfirm = vi.fn<(message?: string) => boolean>();
@@ -261,6 +275,54 @@ describe('FactoryResetPanel', () => {
       });
 
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
+      expect(mockToast).not.toHaveBeenCalled();
+    });
+
+    it('attempts the desktop reset bridge before failing incomplete renderer storage cleanup', async () => {
+      const resetLocal = vi.fn().mockResolvedValue({ success: true });
+      const noteReloadIntent = vi.fn().mockResolvedValue(undefined);
+      mockClearPersistentUiState.mockResolvedValue({
+        failures: [
+          {
+            error: new Error('locked opfs directory'),
+            name: 'app-pg18',
+            operation: 'removeEntry',
+            target: 'opfs-pglite',
+          },
+        ],
+        success: false,
+      });
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: {
+          db: { resetLocal },
+        },
+        writable: true,
+      });
+      Object.defineProperty(window, 'desktopLifecycle', {
+        configurable: true,
+        value: { noteReloadIntent },
+        writable: true,
+      });
+      mockUseFactoryReset.mockReturnValue(null);
+
+      render(<FactoryResetPanel doFactoryReset={null} />);
+
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
+
+      await waitFor(() => {
+        expect(mockReload).toHaveBeenCalled();
+      });
+
+      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
+      expect(resetLocal).toHaveBeenCalled();
+      const clearOrder = mockClearPersistentUiState.mock.invocationCallOrder[0];
+      const resetOrder = resetLocal.mock.invocationCallOrder[0];
+      if (clearOrder === undefined || resetOrder === undefined) {
+        throw new Error('Expected clear and reset invocation order to be recorded');
+      }
+      expect(clearOrder).toBeLessThan(resetOrder);
+      expect(noteReloadIntent).toHaveBeenCalledWith('factory-reset-failed-after-renderer-clear');
       expect(mockToast).not.toHaveBeenCalled();
     });
 

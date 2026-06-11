@@ -44,6 +44,26 @@ export interface ClearPersistentUiStateOptions {
   skipIndexedDb?: boolean;
 }
 
+export type ClearPersistentUiStateTarget = 'cache-storage' | 'opfs-pglite';
+
+export type ClearPersistentUiStateOperation =
+  | 'clear'
+  | 'enumerate'
+  | 'getDirectory'
+  | 'removeEntry';
+
+export interface ClearPersistentUiStateFailure {
+  readonly error: unknown;
+  readonly name?: string;
+  readonly operation: ClearPersistentUiStateOperation;
+  readonly target: ClearPersistentUiStateTarget;
+}
+
+export interface ClearPersistentUiStateResult {
+  readonly failures: readonly ClearPersistentUiStateFailure[];
+  readonly success: boolean;
+}
+
 /**
  * Desktop bridges expose storage, secrets, and settings stores via IPC.
  * Nuclear option: clear ALL electron stores without exceptions.
@@ -177,9 +197,9 @@ const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
  * to the known names otherwise. Best-effort per entry: a held handle or absent dir
  * must not fail the reset.
  */
-async function clearOpfsPGliteStores(): Promise<void> {
+async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]> {
   if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
-    return;
+    return [];
   }
 
   let root: (FileSystemDirectoryHandle & { keys?: () => AsyncIterable<string> }) | null = null;
@@ -189,9 +209,10 @@ async function clearOpfsPGliteStores(): Promise<void> {
     };
   } catch (error) {
     logger.warn('Failed to open OPFS root during factory reset', { error });
-    return;
+    return [{ error, operation: 'getDirectory', target: 'opfs-pglite' }];
   }
 
+  const failures: ClearPersistentUiStateFailure[] = [];
   const names: string[] = [];
   if (typeof root.keys === 'function') {
     try {
@@ -202,6 +223,7 @@ async function clearOpfsPGliteStores(): Promise<void> {
       }
     } catch (error) {
       logger.warn('Failed to enumerate OPFS root; falling back to known names', { error });
+      failures.push({ error, operation: 'enumerate', target: 'opfs-pglite' });
     }
   }
   if (names.length === 0) {
@@ -209,16 +231,91 @@ async function clearOpfsPGliteStores(): Promise<void> {
   }
 
   const opfsRoot = root;
-  await Promise.all(
-    [...new Set(names)].map(async (name) => {
+  const removalResults = await Promise.all(
+    [...new Set(names)].map(async (name): Promise<ClearPersistentUiStateFailure | null> => {
       try {
         await opfsRoot.removeEntry(name, { recursive: true });
-      } catch {
-        // best-effort: an absent entry or a handle still held by another tab must
-        // not fail the reset.
+        return null;
+      } catch (error) {
+        if (isMissingStorageEntryError(error)) {
+          return null;
+        }
+        return {
+          error,
+          name,
+          operation: 'removeEntry',
+          target: 'opfs-pglite',
+        } satisfies ClearPersistentUiStateFailure;
       }
     })
   );
+  const removalFailures = removalResults.filter(
+    (failure): failure is ClearPersistentUiStateFailure => failure !== null
+  );
+  return [...failures, ...removalFailures];
+}
+
+function isMissingStorageEntryError(error: unknown): boolean {
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+    return error.name === 'NotFoundError';
+  }
+  if (typeof error !== 'object' || error === null || !('name' in error)) {
+    return false;
+  }
+  return error.name === 'NotFoundError';
+}
+
+function clearBrowserStorage(): void {
+  // Clear localStorage - blanket clear, no fallback lists
+  try {
+    if (typeof localStorage !== 'undefined' && typeof localStorage.clear === 'function') {
+      localStorage.clear();
+    }
+  } catch (error) {
+    logger.warn('Failed to clear localStorage', { error });
+  }
+
+  // Clear sessionStorage - future-proofed for any transient state
+  try {
+    if (typeof sessionStorage !== 'undefined' && typeof sessionStorage.clear === 'function') {
+      sessionStorage.clear();
+    }
+  } catch (error) {
+    logger.warn('Failed to clear sessionStorage', { error });
+  }
+}
+
+async function collectPersistentUiStateResetFailures(
+  options: ClearPersistentUiStateOptions
+): Promise<ClearPersistentUiStateFailure[]> {
+  const { skipIndexedDb = false } = options;
+
+  clearBrowserStorage();
+
+  const noFailures = (): ClearPersistentUiStateFailure[] => [];
+  const tasks: Promise<ClearPersistentUiStateFailure[]>[] = [
+    clearElectronStorage().then(noFailures),
+    clearCacheStorage()
+      .then(noFailures)
+      .catch((error: unknown) => [{ error, operation: 'clear', target: 'cache-storage' }]),
+    clearOpfsPGliteStores(),
+  ];
+  if (!skipIndexedDb) {
+    tasks.push(clearIndexedDbDatabases().then(noFailures));
+  }
+
+  const failuresByTask = await Promise.all(tasks);
+  return failuresByTask.flat();
+}
+
+export async function clearPersistentUiStateWithResult(
+  options: ClearPersistentUiStateOptions = {}
+): Promise<ClearPersistentUiStateResult> {
+  const failures = await collectPersistentUiStateResetFailures(options);
+  return {
+    failures,
+    success: failures.length === 0,
+  };
 }
 
 /**
@@ -271,39 +368,16 @@ async function clearCacheStorage(): Promise<void> {
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
  * If any storage survives, the user gets phantom data. This is a true nuke.
  *
- * Throws when CacheStorage cannot be fully cleared or verified. Factory reset callers must
- * treat an unverifiable cache state as a failed reset, not as a best-effort warning.
+ * Throws when CacheStorage cannot be fully cleared or verified. The legacy void API intentionally
+ * keeps OPFS cleanup failures non-fatal; callers that need full reset integrity must use
+ * clearPersistentUiStateWithResult and inspect every failure.
  */
 export async function clearPersistentUiState(
   options: ClearPersistentUiStateOptions = {}
 ): Promise<void> {
-  const { skipIndexedDb = false } = options;
-  // Clear localStorage - blanket clear, no fallback lists
-  try {
-    if (typeof localStorage !== 'undefined' && typeof localStorage.clear === 'function') {
-      localStorage.clear();
-    }
-  } catch (error) {
-    logger.warn('Failed to clear localStorage', { error });
+  const result = await clearPersistentUiStateWithResult(options);
+  const cacheStorageFailure = result.failures.find((failure) => failure.target === 'cache-storage');
+  if (cacheStorageFailure) {
+    throw cacheStorageFailure.error;
   }
-
-  // Clear sessionStorage - future-proofed for any transient state
-  try {
-    if (typeof sessionStorage !== 'undefined' && typeof sessionStorage.clear === 'function') {
-      sessionStorage.clear();
-    }
-  } catch (error) {
-    logger.warn('Failed to clear sessionStorage', { error });
-  }
-
-  // OPFS clearing always runs (even with skipIndexedDb): OPFS-AHP is a distinct
-  // persistent layer from IndexedDB, and removing absent/already-cleared dirs is a
-  // harmless no-op, so it can't double-delete with a DB-layer reset.
-  const tasks = [clearElectronStorage(), clearCacheStorage(), clearOpfsPGliteStores()];
-  if (!skipIndexedDb) {
-    tasks.push(clearIndexedDbDatabases());
-  }
-
-  // Clear all other storage layers in parallel (optionally skipping IndexedDB if already deleted)
-  await Promise.all(tasks);
 }
