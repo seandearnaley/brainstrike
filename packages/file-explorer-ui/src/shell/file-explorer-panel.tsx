@@ -1,10 +1,17 @@
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import { Button, cn, LoadingFallback } from '@brainstrike/ui';
+import {
+  Button,
+  cn,
+  LoadingFallback,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
@@ -160,6 +167,8 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     toggleFilterEnabled,
     isFiltersExpanded,
     setFiltersExpanded,
+    isFilterChipsVisible,
+    setFilterChipsVisible,
   ] = useFileExplorerStoreSelector(
     (s) =>
       [
@@ -180,6 +189,8 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
         s.toggleFilterEnabled,
         s.isFiltersExpanded,
         s.setFiltersExpanded,
+        s.isFilterChipsVisible,
+        s.setFilterChipsVisible,
       ] as const,
     shallow
   );
@@ -770,20 +781,61 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 inert={!isFiltersExpanded}
               >
                 <div className="overflow-hidden">
-                  <div className="space-y-2 px-2 py-2">
-                    <ToolbarPresetSelector
-                      className="@[300px]:h-9 h-8 w-full"
-                      onFilterChange={handleFilterChange}
-                    />
-                    <FilterStatus
-                      disabledExcludeFilters={disabledExcludeFilters}
-                      disabledIncludeFilters={disabledIncludeFilters}
-                      excludeFilters={excludeFilters}
-                      includeFilters={includeFilters}
-                      onToggleFilter={toggleFilterEnabled}
-                      quickFilter={quickFilter}
-                      useRegex={useRegex}
-                    />
+                  <div className="px-2 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <ToolbarPresetSelector
+                        className="@[300px]:h-9 h-8 min-w-0 flex-1"
+                        onFilterChange={handleFilterChange}
+                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            aria-label={
+                              isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips'
+                            }
+                            aria-pressed={isFilterChipsVisible}
+                            className="@[300px]:h-9 h-8 @[300px]:w-9 w-8 shrink-0"
+                            data-testid="toggle-filter-chips-button"
+                            onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
+                            size="icon"
+                            variant="ghost"
+                          >
+                            {isFilterChipsVisible ? (
+                              <Eye className="h-4 w-4" />
+                            ) : (
+                              <EyeOff className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips'}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    {/* Filter chips - independently collapsible to reclaim vertical
+                        space. Same grid-rows technique as the section collapse so
+                        toggling animates to natural height without clipping. */}
+                    <div
+                      className={cn(
+                        'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                        isFilterChipsVisible
+                          ? 'grid-rows-[1fr] opacity-100'
+                          : 'grid-rows-[0fr] opacity-0'
+                      )}
+                      inert={!isFilterChipsVisible}
+                    >
+                      <div className="overflow-hidden">
+                        <FilterStatus
+                          disabledExcludeFilters={disabledExcludeFilters}
+                          disabledIncludeFilters={disabledIncludeFilters}
+                          excludeFilters={excludeFilters}
+                          includeFilters={includeFilters}
+                          onToggleFilter={toggleFilterEnabled}
+                          quickFilter={quickFilter}
+                          useRegex={useRegex}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
