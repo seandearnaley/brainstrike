@@ -141,4 +141,179 @@ export const migrations = [];
       },
     ]);
   });
+
+  it('requires preference remaps for removed assistant model IDs', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
+  customMigration('custom-033-update-provider-models-2026-frontier', migration033UpdateProviderModels2026Frontier),
+];
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/032-previous-catalog.ts',
+          'migration032PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/033-update-provider-models-2026-frontier.ts',
+          'migration033UpdateProviderModels2026Frontier',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-4.5');
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.6', 'openrouter', 'Claude Sonnet 4.6', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration032PreviousCatalog,
+  migration033UpdateProviderModels2026Frontier,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        message:
+          'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
+      },
+      {
+        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        message:
+          'Removed assistant memory model target openrouter/anthropic/claude-sonnet-4.5 is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
+      },
+    ]);
+  });
+
+  it('checks every assistant model delete migration for preference remaps', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {
+    'anthropic/claude-sonnet-4.6': 'anthropic/claude-sonnet-4.7',
+  },
+};
+`,
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
+  customMigration('custom-033-frontier-catalog', migration033FrontierCatalog),
+  customMigration('custom-034-next-catalog', migration034NextCatalog),
+];
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
+  'openrouter/anthropic/claude-sonnet-4.6': 'openrouter/anthropic/claude-sonnet-4.7',
+};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/032-previous-catalog.ts',
+          'migration032PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/033-frontier-catalog.ts',
+          'migration033FrontierCatalog',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-4.5');
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.6', 'openrouter', 'Claude Sonnet 4.6', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/034-next-catalog.ts',
+          'migration034NextCatalog',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-4.6');
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.7', 'openrouter', 'Claude Sonnet 4.7', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration032PreviousCatalog,
+  migration033FrontierCatalog,
+  migration034NextCatalog,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        message:
+          'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
+      },
+      {
+        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        message:
+          'Removed assistant memory model target openrouter/anthropic/claude-sonnet-4.5 is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
+      },
+    ]);
+  });
+
+  it('does not require remaps for models reinserted by the final catalog snapshot', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
+  customMigration('custom-033-frontier-refresh', migration033FrontierRefresh),
+];
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/032-previous-catalog.ts',
+          'migration032PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/033-frontier-refresh.ts',
+          'migration033FrontierRefresh',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-4.5');
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration032PreviousCatalog,
+  migration033FrontierRefresh,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
 });
