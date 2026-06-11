@@ -61,6 +61,10 @@ export default defineConfig({
       electron: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
       '@': path.resolve(import.meta.dirname, './src/renderer'),
       ...createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent')),
+      '@brainstrike/platform-utils': path.resolve(
+        import.meta.dirname,
+        '../../packages/platform-utils/src'
+      ),
       '@brainstrike/embeddings/runtime-config': path.resolve(
         import.meta.dirname,
         '../../packages/embeddings/src/runtime-config.ts'

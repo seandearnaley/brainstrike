@@ -280,15 +280,17 @@ function renderTableHeader<T>({
             >
               <div className={cn('flex items-center gap-1', column.headerContentClassName)}>
                 {column.header ?? column.id}
-                {column.sortable && sortState?.columnId === column.id && (
-                  <span aria-hidden="true" className="text-xs">
-                    {sortState.direction === 'asc'
-                      ? '\u2191'
-                      : sortState.direction === 'desc'
-                        ? '\u2193'
-                        : ''}
-                  </span>
-                )}
+                {column.sortable &&
+                  column.showSortIndicator !== false &&
+                  sortState?.columnId === column.id && (
+                    <span aria-hidden="true" className="text-xs">
+                      {sortState.direction === 'asc'
+                        ? '\u2191'
+                        : sortState.direction === 'desc'
+                          ? '\u2193'
+                          : ''}
+                    </span>
+                  )}
               </div>
               {showHandle && resolvedWidth !== undefined ? (
                 <ColumnResizeHandle

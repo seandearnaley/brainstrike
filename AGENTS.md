@@ -197,42 +197,36 @@ When changing this flow, update this doc.
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
-net below is LIVE. Two server-side resilience layers (per-tool guard + stream
-watchdog) exist as utilities but are **deliberately UNWIRED from the live path** —
-see the warning below before re-wiring them.
+net and the two server-side resilience layers below are LIVE.
 
 1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
-   and rethrow (never swallows). This is the only resilience layer currently
-   active on the assistant path.
+   and rethrow (never swallows).
 
-2. **Per-tool guard (UTILITY ONLY — NOT WIRED)** —
-   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` is meant
-   to wrap every tool at `collectCombinedTools` and resolve timeouts/throws to a
-   structured `GuardedToolError`. It is NOT currently called: `collectCombinedTools`
-   in `mcp-tool-loader.ts` matches `main` and does no guard wrapping.
+2. **Per-tool guard (LIVE)** —
+   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
+   the combined Mastra tool map in `createMastraAgentRuntime` after local and MCP
+   tools are sanitized/discovered. Tool timeouts and throws resolve to structured
+   `GuardedToolError` payloads; guarded timeout/failure payloads are surfaced as
+   failed tool events, not successful completions.
 
-3. **Stream inactivity watchdog (UTILITY ONLY — NOT WIRED)** —
+3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
-   `StreamStalledError`). Meant to wrap the Mastra iterator in
-   `streamChunksFromMastra`. It is NOT currently applied: `agent-runtime.ts`
-   iterates the raw stream directly, matching `main`.
+   `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
+   A stream stall emits a visible assistant message, a terminal `run.failed`
+   event, and an error finish so the renderer does not remain in-flight forever.
 
-> **DO NOT re-wire layers 2/3 without LIVE validation.** A prior attempt wired the
-> guard + watchdog into the live path and BROKE real Mastra tool calling
-> (hosted-provider tools silently stopped executing) while every unit/e2e test
-> stayed green. Root cause: ALL agent tests mock `@mastra/core/agent` and inject
-> pre-baked stream parts, and desktop e2e mocks `fetch` — so NOTHING exercises
-> real Mastra tool execution. The wrapping was reverted. Before reintroducing
-> either layer you MUST add coverage that runs the actual Mastra agent loop end to
-> end (real tool `execute`), not mocked stream parts. The modules and
-> `resilience-config.ts` are kept so this can be done deliberately later.
+> **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
+> the live path and BROKE real Mastra tool calling (hosted-provider tools silently
+> stopped executing) while mocked tests stayed green. Future changes to these
+> layers MUST preserve coverage that runs the actual Mastra agent loop end to end
+> with real tool `execute`, not only mocked stream parts. The current proof lives
+> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts`.
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
-defined in `packages/agent/src/config/resilience-config.ts`, consumed only when the
-layers are wired:
-- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000)
+defined in `packages/agent/src/config/resilience-config.ts`:
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
 - Invariant: tool timeout < stream inactivity.
 
@@ -257,6 +251,10 @@ When changing the model catalog:
    - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
 5. Register any new `packages/db/__tests__/*.test.ts` in BOTH `packages/db/scripts/test-lanes.mjs` AND `packages/db/scripts/coverage-lanes.mjs` — they are two separate lane registries (unit lanes vs nightly coverage lanes) and each errors on an unassigned test file. Registering only `test-lanes.mjs` passes every PR check but silently breaks the **Nightly Coverage** job (the historical cause of issue #1101). Verify both: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR).
+6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
+   packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
+   (no DB migration). It drives the thread context meter and the auto-derived
+   `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
 
 ---
 
@@ -288,6 +286,29 @@ The assistant's search verbs, in the order the default instructions present them
 3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
+
+---
+
+## CONTEXT USAGE METER (TOKEN AWARENESS)
+
+One derivation feeds three consumers per request — keep them consistent:
+`buildAgentLoopSettings(prefs, selectedModelBudgetDef)` in packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts
+produces `agentLoopSettings.inputTokenLimit` (explicit user pref wins, else
+`deriveEffectiveInputBudget(contextWindow, maxOutputTokens)` from
+packages/assistant-contract/src/context-budget.ts — throws, never clamps). That ONE number is:
+1. the Mastra `TokenLimiter` budget (`runtimeData.agentLoop.inputTokenLimit` → `buildToolLoopOptions`),
+2. the meter denominator (`effectiveInputBudget` prop on `AssistantUiPanel`),
+3. the instruction budget note (`buildContextBudgetNote`, appended per-request at Agent construction).
+
+Runtime invariants:
+- Usage store (packages/ui/src/assistant-ui-panel/context-usage-store.ts) is session-lived, NOT
+  persisted; key = `selectedMemoryThreadId ?? 'active'` — the writer (`handleUsage` in the app-shell
+  wrapper) and the reader (`ContextUsageMeter`, via the panel's `threadKey` prop) MUST use the same key.
+- Both turn paths report usage: hosted via the data-stream `message-finish` tap
+  (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
+  local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
+- The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
+  must never lie — wire-format usage is `{inputTokens, outputTokens}` (e2e mocks must use those names).
 
 ---
 
@@ -371,6 +392,59 @@ When modifying TreeTable strategy or pagination behavior:
 - Update the related collection browser/file explorer/context preview adapters.
 - Add or update tests validating grouped slicing semantics and selection correctness.
 - Document intentional tradeoffs (e.g., paged vs virtual) in code comments or PR notes.
+
+---
+
+## CONTEXT ACTION SYSTEM
+
+Right-click menus are projections of a shared action system. Do not hand-roll
+per-surface context menus (coordinate state + positioned DropdownMenu is the
+legacy pattern; it was removed from the collection browser).
+
+Layers:
+- Headless core: packages/context-actions — ContextTarget union, ContextAction,
+  createActionRegistry, ClipboardService, path helpers. No React rendering, no
+  Electron imports.
+- Renderer: packages/ui/src/context-menu — Radix ContextMenu wrapper +
+  ActionRegistryProvider + ActionContextMenu + useContextMenuTarget.
+- Composition: packages/app-shell/src/context-action-registry.ts builds the
+  registry (capabilities from the bridges that exist) and mounts the provider
+  in root-layout-content.tsx. Feature actions are imported via subpath exports
+  (@brainstrike/db-explorer/context-actions,
+  @brainstrike/file-explorer-ui/context-actions) to preserve code-splitting —
+  do NOT import the feature-package root barrels from always-mounted code.
+- Desktop bridge: window.platform (preload) → 'shell' IPC domain →
+  apps/desktop/src/ipc-shell.ts (validates absolute paths, catches shell throws).
+- Desktop clipboard: window.clipboard.writeText (preload) → 'clipboard' IPC
+  domain → apps/desktop/src/ipc-clipboard.ts; the write runs in MAIN and the
+  bridge resolves { ok, error? }. It must NOT call Electron's clipboard module
+  from the preload — sandboxed preloads (sandbox is on outside test mode)
+  cannot require it, which silently breaks every write on real builds.
+
+Rules:
+- Capability gating hides actions (no disabled "available on desktop" items).
+  Web simply never constructs 'fs.reveal'. No isElectron() checks in action or
+  menu code.
+- Every action run resolves to ActionOutcome; failures MUST toast + log
+  (createLogger('ContextActions')). Thrown/rejected runs are caught by the menu
+  and surfaced as "Action failed unexpectedly". No silent fallbacks: a
+  present-but-broken bridge reports failure, never degrades quietly.
+- Adding an action: define it with defineContextAction in the owning feature
+  package, add it to that package's exported action array, cover run/gating in
+  unit tests.
+- Adding a surface: add a target kind to ContextTarget, write a node→target
+  adapter, claim the target in the surface's row contextmenu handler via
+  controller.setTarget, reset it with onContextMenuCapture on the container,
+  wrap with ActionContextMenu. Surface-local actions (closures over surface
+  stores) go through the localActions prop, not the global registry.
+- Adding a capability: extend CapabilityKey, construct it in
+  createAppActionRegistry only when the backing bridge is fully formed
+  (malformed bridges log an error and stay absent).
+- Known limitation: Radix touch/pen long-press (~700ms) bypasses the
+  contextmenu claiming protocol — desktop-first tradeoff, documented in
+  action-context-menu.tsx.
+
+When changing this flow, update this section and the related tests.
 
 ---
 

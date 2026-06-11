@@ -32,6 +32,9 @@
       "path": "../assistant-contract"
     },
     {
+      "path": "../context-actions"
+    },
+    {
       "path": "../../packages/types"
     },
     {

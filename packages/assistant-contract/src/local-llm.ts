@@ -67,7 +67,13 @@ export interface LocalLlmGenerationResult {
   reasoningText?: string;
   text: string;
   toolCalls?: LocalLlmToolCall[];
-  usage: {
+  /**
+   * Tokenizer-true usage for this generation. The built-in Gemma engine always
+   * produces it, but results cross the desktop IPC boundary (hidden llm-host →
+   * visible renderer), so a host implementation may omit it. Consumers must
+   * guard before reading.
+   */
+  usage?: {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;

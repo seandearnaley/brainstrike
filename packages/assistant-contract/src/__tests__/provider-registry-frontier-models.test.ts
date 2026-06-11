@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   type EmbeddingModelDefinition,
+  getLlmModelDefinition,
   listProviderEmbeddingModels,
   listProviderLlmModels,
+  listProviders,
   resolveDefaultModel,
 } from '../provider-registry.js';
 
@@ -116,5 +118,26 @@ describe('frontier model refresh (2026-05)', () => {
     it('defaults to openai/gpt-5.4', () => {
       expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.4');
     });
+  });
+});
+
+describe('contextWindow metadata', () => {
+  it('every LLM model declares a positive contextWindow', () => {
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        if (model.type === 'llm') {
+          expect(model.contextWindow, `${provider.id}/${model.id}`).toBeGreaterThan(0);
+          if (model.maxOutputTokens !== undefined) {
+            expect(model.maxOutputTokens).toBeLessThan(model.contextWindow);
+          }
+        }
+      }
+    }
+  });
+
+  it('getLlmModelDefinition resolves a known model and throws on unknown ids', () => {
+    expect(getLlmModelDefinition('anthropic', 'claude-sonnet-4-6').contextWindow).toBe(200_000);
+    expect(() => getLlmModelDefinition('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/);
+    expect(() => getLlmModelDefinition('openai', 'claude-sonnet-4-6')).toThrow(/Unknown LLM model/);
   });
 });

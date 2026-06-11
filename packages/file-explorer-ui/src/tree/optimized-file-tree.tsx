@@ -2,9 +2,12 @@ import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useEventCallback } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import {
+  ActionContextMenu,
   LightweightCheckbox,
+  type TreeNode,
   TreeTable,
   type TreeTableColumn,
+  useContextMenuTarget,
   useIdeFileEditor,
 } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
@@ -28,6 +31,7 @@ import {
   useMemo,
   useRef,
 } from 'react';
+import { fileNodeToTarget } from '../context-actions/file-entry-target';
 import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
 import {
   useFileExplorerStoreContext,
@@ -799,6 +803,19 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
 
+    // Right-click context-menu target plumbing. Depend on the destructured
+    // `setTarget` (stable) rather than the controller object, which is NOT
+    // referentially stable across renders — keeping handleRowContextMenu
+    // stable preserves TreeTable row memoization.
+    const contextMenuController = useContextMenuTarget();
+    const { setTarget: setContextMenuTarget } = contextMenuController;
+    const handleRowContextMenu = useCallback(
+      (_nodeId: string, node: TreeNode<FileTreeRowData>, _event: MouseEvent) => {
+        setContextMenuTarget(fileNodeToTarget(node.data.fileNode));
+      },
+      [setContextMenuTarget]
+    );
+
     // Columns are now STABLE across selection changes. Selection state is handled
     // inside FileTreeCellContent via context, not via column cell closures.
     // This prevents all visible rows from re-rendering on every checkbox toggle.
@@ -855,12 +872,18 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     return (
       <FileTreeSelectionContext.Provider value={selectionContextValue}>
-        <div
-          className="relative h-full min-h-0 flex-1 overflow-y-auto"
-          data-testid="file-tree-scroll-container"
-        >
-          <div className="relative h-full" data-testid="file-tree">
-            {/*
+        <ActionContextMenu controller={contextMenuController}>
+          {/* Capture-phase reset: runs before any row's onContextMenu so every
+              right-click starts with a clean target; rows then claim it via
+              handleRowContextMenu. An unclaimed right-click leaves the target
+              null and ActionContextMenu suppresses the empty menu. */}
+          <div
+            className="relative h-full min-h-0 flex-1 overflow-y-auto"
+            data-testid="file-tree-scroll-container"
+            onContextMenuCapture={() => setContextMenuTarget(null)}
+          >
+            <div className="relative h-full" data-testid="file-tree">
+              {/*
               selectionMode="single" + selectedId={null} is intentional: we use the
               tree's keyboard-driven `onSelect` callback as a one-shot "activate this
               row" gesture (Enter/Space → open file as a tab), not as a persistent
@@ -875,25 +898,27 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               to either teach TreeTable to opt out of aria-selected, or to maintain
               a real selectedId that follows the focused row.
             */}
-            <TreeTable
-              ariaLabel="File tree"
-              className="file-tree h-full min-h-0 flex-1"
-              columns={columns}
-              expandedIds={renderedExpandedDirectoryPaths}
-              maxHeight="none"
-              nodes={treeRows}
-              nodesArePreFlattened={true}
-              onSelect={handleTreeRowSelect}
-              onToggleExpand={handleToggleExpand}
-              overscan={10}
-              rowHeight={ROW_HEIGHT}
-              selectedId={null}
-              selectionMode="single"
-              showHeader={false}
-              windowingStrategy="virtual"
-            />
+              <TreeTable
+                ariaLabel="File tree"
+                className="file-tree h-full min-h-0 flex-1"
+                columns={columns}
+                expandedIds={renderedExpandedDirectoryPaths}
+                maxHeight="none"
+                nodes={treeRows}
+                nodesArePreFlattened={true}
+                onRowContextMenu={handleRowContextMenu}
+                onSelect={handleTreeRowSelect}
+                onToggleExpand={handleToggleExpand}
+                overscan={10}
+                rowHeight={ROW_HEIGHT}
+                selectedId={null}
+                selectionMode="single"
+                showHeader={false}
+                windowingStrategy="virtual"
+              />
+            </div>
           </div>
-        </div>
+        </ActionContextMenu>
       </FileTreeSelectionContext.Provider>
     );
   }

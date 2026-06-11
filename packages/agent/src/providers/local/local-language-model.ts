@@ -335,11 +335,12 @@ export class LocalLanguageModel implements LanguageModelV2 {
       }
     }
 
-    // Build usage info (V2 format)
+    // Build usage info (V2 format). `usage` is optional at the IPC boundary;
+    // V2 usage fields are `number | undefined`, so missing counts pass through.
     const usage: LanguageModelV2Usage = {
-      inputTokens: result.usage.promptTokens,
-      outputTokens: result.usage.completionTokens,
-      totalTokens: result.usage.totalTokens,
+      inputTokens: result.usage?.promptTokens,
+      outputTokens: result.usage?.completionTokens,
+      totalTokens: result.usage?.totalTokens,
     };
 
     // Build warnings array (required in V2)

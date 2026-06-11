@@ -60,6 +60,9 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
     if (navigator.clipboard) {
       const originalWriteText = navigator.clipboard.writeText;
       navigator.clipboard.writeText = async (text) => {
+        // Always log so tests can assert the written text via console messages,
+        // even when the real clipboard API succeeds headlessly.
+        console.log('Clipboard mock: writeText called with:', text);
         try {
           return await originalWriteText.call(navigator.clipboard, text);
         } catch {
