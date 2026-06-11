@@ -849,6 +849,16 @@ export function useLazyFileTree(
     removeChildController,
   } = useAbortControllers();
 
+  /**
+   * Storage v5: durable RootId UUID when provided, otherwise the root path.
+   * Pre-computed outside loadRoot to avoid adding a ?? branch inside the
+   * already-complex callback (Biome noExcessiveCognitiveComplexity limit = 20).
+   */
+  const resolvedRootFolderId = useMemo(
+    () => rootId ?? rootDirectoryHandle?.path ?? '',
+    [rootId, rootDirectoryHandle?.path]
+  );
+
   // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
     fileSystemAdapter,
@@ -856,10 +866,12 @@ export function useLazyFileTree(
     onError: handleWorkerError,
   });
 
-  // Keep root handle ref in sync
+  // Keep root handle ref in sync. The RootId is threaded alongside so that
+  // worker-loaded (expand-all) subtree nodes carry the durable identity
+  // instead of the path (storage v5).
   useEffect(() => {
-    setRootHandle(rootDirectoryHandle);
-  }, [rootDirectoryHandle, setRootHandle]);
+    setRootHandle(rootDirectoryHandle, resolvedRootFolderId);
+  }, [rootDirectoryHandle, resolvedRootFolderId, setRootHandle]);
 
   useEffect(() => {
     isUnmountedRef.current = false;
@@ -912,16 +924,6 @@ export function useLazyFileTree(
     selectAllRecursively,
     cancelSelectAll,
   } = useRecursiveSelectAll(selectAllHookOptions);
-
-  /**
-   * Storage v5: durable RootId UUID when provided, otherwise the root path.
-   * Pre-computed outside loadRoot to avoid adding a ?? branch inside the
-   * already-complex callback (Biome noExcessiveCognitiveComplexity limit = 20).
-   */
-  const resolvedRootFolderId = useMemo(
-    () => rootId ?? rootDirectoryHandle?.path ?? '',
-    [rootId, rootDirectoryHandle?.path]
-  );
 
   /**
    * Load root directory contents

@@ -415,12 +415,15 @@ export function useFileSystem({
     (handle: DirectoryHandle | null) => {
       dispatch({ type: 'setRoot', handle });
       if (handle) {
-        updateCurrentFolderId(getCanonicalFolderId(handle));
+        // Storage v5: write the durable RootId when the handle is already
+        // registered. The path fallback covers handles set BEFORE registration
+        // (no id yet) — registerRestoredHandles corrects the id afterwards.
+        updateCurrentFolderId(rootIdByPath.get(handle.path) ?? getCanonicalFolderId(handle));
       } else {
         updateCurrentFolderId(null);
       }
     },
-    [updateCurrentFolderId]
+    [rootIdByPath, updateCurrentFolderId]
   );
 
   /**
@@ -448,21 +451,26 @@ export function useFileSystem({
       if (isCancelled()) {
         return;
       }
-      // Legacy single-root: generate a synthetic rootId and register it in the
-      // rootIdByPath map so the storage v5 contract holds (currentFolderId = RootId).
-      const rootId = crypto.randomUUID();
+      // Legacy single-root (Branch B): REUSE the persisted currentFolderId as
+      // this root's RootId. For the single restored root, the persisted id IS
+      // the prior session's identity — reusing it keeps the storage v5
+      // contract (currentFolderId = RootId) and preserves the keyed
+      // folderStates entry. A per-boot crypto.randomUUID() could never match
+      // any persisted id. Only mint a fresh UUID when nothing was persisted
+      // (true first run).
+      const persistedFolderId = getPersistedCurrentFolderId?.() ?? null;
+      const rootId = persistedFolderId ?? crypto.randomUUID();
       dispatch({ type: 'addOrFocusHandle', handle: restored, rootId });
 
-      // Check if the persisted currentFolderId already matches the rootId.
-      // If so, skip calling setCurrentFolderId to avoid triggering the
-      // folder-switching logic which would read from stale folderStates.
-      const persistedFolderId = getPersistedCurrentFolderId?.();
-      if (persistedFolderId === rootId) {
-        logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
+      if (persistedFolderId === null) {
+        updateCurrentFolderId(rootId);
+      } else {
+        // currentFolderId already equals rootId in the persisted store; skip
+        // the redundant write so the folder-switching logic doesn't re-run
+        // against freshly-hydrated state.
+        logger.debug('Skipping setCurrentFolderId - reusing persisted folder id as rootId', {
           folderId: rootId,
         });
-      } else {
-        updateCurrentFolderId(rootId);
       }
     },
     [getPersistedCurrentFolderId, updateCurrentFolderId, waitForHydration]

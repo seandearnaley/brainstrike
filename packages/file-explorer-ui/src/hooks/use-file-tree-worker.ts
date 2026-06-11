@@ -104,8 +104,16 @@ export interface UseFileTreeWorkerReturn {
   portRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Current root directory handle ref (for use in handlers) */
   rootHandleRef: React.RefObject<DirectoryHandle | null>;
-  /** Update the root handle ref */
-  setRootHandle: (handle: DirectoryHandle | null) => void;
+  /**
+   * Update the root handle ref.
+   *
+   * @param handle - The root directory handle (or null to clear).
+   * @param rootFolderId - Durable RootId UUID for this root (storage v5).
+   *   Worker-loaded subtree nodes are stamped with this identity so the
+   *   linchpin equality `fileNode.rootFolderId === folderId` holds. Falls
+   *   back to `handle.path` when omitted (matches getRootFolderId fallback).
+   */
+  setRootHandle: (handle: DirectoryHandle | null, rootFolderId?: string) => void;
 }
 
 /**
@@ -129,15 +137,20 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
   // Root directory handle ref (used in worker handlers)
   const rootHandleRef = useRef<DirectoryHandle | null>(null);
 
+  // Durable RootId for the current root (storage v5). Falls back to the root
+  // path when the caller has not threaded an identity (legacy behaviour).
+  const rootFolderIdRef = useRef<string | null>(null);
+
   // Store callbacks in refs so effect doesn't depend on them (avoids worker recreation)
   const onProgressRef = useRef(onProgress);
   const onErrorRef = useRef(onError);
   onProgressRef.current = onProgress;
   onErrorRef.current = onError;
 
-  // Set root handle
-  const setRootHandle = (handle: DirectoryHandle | null) => {
+  // Set root handle (and the RootId identity stamped on worker-loaded nodes)
+  const setRootHandle = (handle: DirectoryHandle | null, rootFolderId?: string) => {
     rootHandleRef.current = handle;
+    rootFolderIdRef.current = handle ? (rootFolderId ?? handle.path) : null;
   };
 
   // Initialize worker and set up handlers
@@ -190,6 +203,10 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
           }));
         }
 
+        // Storage v5: stamp worker-loaded subtree nodes with the durable
+        // RootId so they satisfy `fileNode.rootFolderId === folderId`.
+        const rootFolderId = rootFolderIdRef.current ?? rootPath;
+
         // Load directories with concurrency limit to prevent overwhelming the browser
         const results = await runWithConcurrency(
           paths,
@@ -199,7 +216,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
               return await loadSingleDirectory(
                 path,
                 rootPath,
-                rootPath,
+                rootFolderId,
                 handleMapRef.current,
                 fileSystemAdapter,
                 abortController.signal

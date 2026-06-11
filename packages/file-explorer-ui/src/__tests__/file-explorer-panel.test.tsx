@@ -1226,6 +1226,106 @@ describe('FileExplorerPanel', () => {
     expect(displayedFiles).toContain('/dir/bar.ts');
   });
 
+  it('does not clobber a UUID currentFolderId with the handle path when rootIdByPath knows the handle', () => {
+    // Storage v5 regression (CRITICAL-1): the panel effect must resolve the
+    // handle through rootIdByPath. Pre-fix it called the one-arg
+    // getRootFolderId(handle) — always the path — and overwrote the durable
+    // UUID identity (wiping the keyed folder state) on every pick/restore.
+    const ROOT_UUID = '11111111-2222-3333-4444-555555555555';
+    const setCurrentFolderId = vi.fn();
+    const hydrateFolderState = vi.fn();
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      viewFilterPresetId: null,
+      setFilters: vi.fn(),
+      setUseRegex: vi.fn(),
+      setViewFilterPresetId: vi.fn(),
+      currentFolderId: ROOT_UUID,
+      setCurrentFolderId,
+      hydrateFolderState,
+      maxSelectionCount: 5,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      },
+      setMaterializedPaths: vi.fn(),
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      isFiltersExpanded: true,
+      setFiltersExpanded: vi.fn(),
+      disabledIncludeFilters: new Set<string>(),
+      disabledExcludeFilters: new Set<string>(),
+      toggleFilterEnabled: vi.fn(),
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
+      folderStates: {
+        [ROOT_UUID]: {
+          selectedFilePaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
+          selectionModel: {
+            mode: 'explicit' as const,
+            explicitPaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
+            ruleSetJson: null,
+            materializedPaths: null,
+            materializedAt: null,
+            queryDescriptor: null,
+          },
+          expandedDirectoryPaths: new Set<string>(['src']),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100_000,
+          folderSummaryThreshold: 5,
+          maxSelectionCount: 5,
+          lastActiveTab: 'files' as const,
+          lastAccessed: Date.now(),
+          viewFilterPresetId: null,
+        },
+      },
+    };
+    const mockStore = Object.assign(
+      (selector?: (s: typeof storeState) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+      mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+    );
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+      // The handle's path maps to the durable UUID identity.
+      rootIdByPath: new Map<string, string>([['/root', ROOT_UUID]]),
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    // The effect resolved the UUID — it must NOT write the path over it.
+    expect(setCurrentFolderId).not.toHaveBeenCalledWith('/root');
+    expect(setCurrentFolderId).not.toHaveBeenCalled();
+    // Folder state for the UUID is rehydrated, not wiped.
+    expect(hydrateFolderState).toHaveBeenCalledWith(ROOT_UUID);
+  });
+
   it('syncs current folder ID with root directory handle', async () => {
     const setCurrentFolderId = vi.fn();
     const storeState = {

@@ -292,11 +292,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
       // Storage v5: use durable RootId UUID when available; fall back to path.
-      const folderId =
-        (rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined) ??
-        getRootFolderId(rootDirectoryHandle) ??
-        currentFolderId ??
-        '';
+      const folderId = getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '';
       const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
         selectionKey.startsWith(`${folderId}|@|${node.path}/`)
       ).length;
@@ -628,7 +624,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (rootDirectoryHandle) {
-      const id = getRootFolderId(rootDirectoryHandle);
+      // Storage v5: resolve the durable RootId UUID via rootIdByPath. The
+      // one-arg form would return handle.path and clobber the UUID identity
+      // in the store (wiping the keyed folder state via buildResetState).
+      const id = getRootFolderId(rootDirectoryHandle, rootIdByPath);
       if (!id) {
         // Throwing synchronously inside useEffect bypasses React error boundaries.
         // Log the invariant violation and bail out instead of crashing the tree.
@@ -668,6 +667,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     }
   }, [
     rootDirectoryHandle,
+    // rootIdByPath gets a new Map identity on each root registration; the
+    // effect body is idempotent when the resolved id is stable, so the extra
+    // re-fires are safe.
+    rootIdByPath,
     setCurrentFolderId,
     hydrateFolderState,
     store,
@@ -875,9 +878,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
               addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
               cancelSelectAll={cancelSelectAll}
               currentFolderId={
-                (rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined) ??
-                getRootFolderId(rootDirectoryHandle) ??
-                currentFolderId
+                getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId
               }
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
@@ -912,7 +913,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
 
         {/* Selection Rules Editor Dialog */}
         <SelectionRulesEditor
-          folderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? ''}
+          folderId={getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? ''}
           isOpen={isRulesEditorOpen}
           onOpenChange={setIsRulesEditorOpen}
         />

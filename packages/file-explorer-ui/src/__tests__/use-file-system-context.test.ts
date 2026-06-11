@@ -475,10 +475,15 @@ describe('useFileSystem context hook', () => {
       restoreLastFolder: vi.fn(async () => restoredHandle),
     });
 
+    // Isolated storage: legacy single-root restore REUSES a persisted
+    // currentFolderId as the rootId (storage v5). Without isolation, ids
+    // persisted by earlier tests in this file leak into this fresh-boot case.
+    const isolatedStorageAdapter = new MemoryStorageAdapter();
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(FileExplorerTestWrapper, {
         children,
         mockFileSystemAdapter: adapterWithRestore,
+        mockStorageAdapter: isolatedStorageAdapter,
       });
 
     const { result } = renderHook(() => useExposed(), { wrapper });
@@ -486,7 +491,8 @@ describe('useFileSystem context hook', () => {
     await waitFor(() => {
       expect(result.current.fs.rootDirectoryHandle).toEqual(restoredHandle);
       expect(result.current.store.getState().rootDirectoryHandle).toEqual(restoredHandle);
-      // v5: currentFolderId is a durable RootId UUID, not the handle path.
+      // v5: on a true first run (nothing persisted) currentFolderId is a
+      // freshly minted durable RootId UUID, not the handle path.
       expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
     });
   });

@@ -67,6 +67,49 @@ describe('useFileTree', () => {
     expect(result.current.error).toBeNull();
   });
 
+  describe('rootFolderId stamping (storage v5)', () => {
+    const seedRootWithOneFile = () => {
+      MockFileSystemAdapter.setMockDirectoryData('root', [
+        {
+          name: 'file.ts',
+          path: 'root/file.ts',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'adapter-supplied',
+        },
+      ]);
+    };
+
+    it('stamps nodes with options.rootFolderId when provided', async () => {
+      seedRootWithOneFile();
+
+      const { result } = renderHook(
+        () => useFileTree(mockDirectoryHandle, { rootFolderId: 'root-uuid-1234' }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      await waitFor(() => expect(result.current.fileTree.length).toBeGreaterThan(0));
+
+      expect(result.current.fileTree[0]?.rootFolderId).toBe('root-uuid-1234');
+    });
+
+    it('defaults node rootFolderId to the root handle path when no option is provided', async () => {
+      seedRootWithOneFile();
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      await waitFor(() => expect(result.current.fileTree.length).toBeGreaterThan(0));
+
+      expect(result.current.fileTree[0]?.rootFolderId).toBe('root');
+    });
+  });
+
   describe('Partial Refresh Scenarios', () => {
     it('should throw PartialRefreshError when some subdirectories fail to load', async () => {
       // Create a structure with files and subdirectories

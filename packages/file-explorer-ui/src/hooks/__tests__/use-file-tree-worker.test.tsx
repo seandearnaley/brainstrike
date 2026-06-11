@@ -197,6 +197,70 @@ describe('useFileTreeWorker', () => {
     expect(adapter.readDirectory).toHaveBeenCalledTimes(2);
   });
 
+  it('stamps worker-loaded children with the RootId passed to setRootHandle (storage v5)', async () => {
+    const adapter = createAdapter(
+      vi.fn(async (handle) => [
+        createFileNode({ name: 'child.txt', path: `${handle.path}/child.txt` }),
+      ])
+    );
+    const { result } = renderHook(() => useFileTreeWorker({ fileSystemAdapter: adapter }));
+
+    act(() => {
+      result.current.setRootHandle(createRootHandle(), 'root-uuid-1234');
+      result.current.handleMapRef.current.set('/root/dir', {
+        kind: 'directory',
+        name: 'dir',
+        path: '/root/dir',
+      } as unknown as FileSystemDirectoryHandle);
+    });
+
+    const results = await getRequestLoadHandler()('req-rootid', ['/root/dir']);
+
+    expect(results).toEqual([
+      {
+        path: '/root/dir',
+        children: [
+          expect.objectContaining({
+            path: '/root/dir/child.txt',
+            rootFolderId: 'root-uuid-1234',
+          }),
+        ],
+      },
+    ]);
+  });
+
+  it('falls back to the root path identity when setRootHandle has no RootId', async () => {
+    const adapter = createAdapter(
+      vi.fn(async (handle) => [
+        createFileNode({ name: 'child.txt', path: `${handle.path}/child.txt` }),
+      ])
+    );
+    const { result } = renderHook(() => useFileTreeWorker({ fileSystemAdapter: adapter }));
+
+    act(() => {
+      result.current.setRootHandle(createRootHandle());
+      result.current.handleMapRef.current.set('/root/dir', {
+        kind: 'directory',
+        name: 'dir',
+        path: '/root/dir',
+      } as unknown as FileSystemDirectoryHandle);
+    });
+
+    const results = await getRequestLoadHandler()('req-path-fallback', ['/root/dir']);
+
+    expect(results).toEqual([
+      {
+        path: '/root/dir',
+        children: [
+          expect.objectContaining({
+            path: '/root/dir/child.txt',
+            rootFolderId: '/root',
+          }),
+        ],
+      },
+    ]);
+  });
+
   it('maps abort exceptions from worker-requested directory loads', async () => {
     const adapter = createAdapter(
       vi.fn(async () => {
