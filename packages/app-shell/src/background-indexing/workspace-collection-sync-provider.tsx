@@ -320,6 +320,11 @@ export function WorkspaceCollectionSyncProvider({
         continue;
       }
       registrationAttemptedRootIdsRef.current.add(rootId);
+      // Fire-and-forget: registerRoot never rejects (failures are logged and
+      // swallowed inside the hook). The cost of a failed registration is that
+      // THIS session's imports for the root write root_id = NULL (no retry —
+      // the rootId stays in the attempted set above); the boot reconcile
+      // self-heals it next launch, since it reconciles ALL adapter roots.
       void registerRoot({
         displayName: handle.name,
         handle,

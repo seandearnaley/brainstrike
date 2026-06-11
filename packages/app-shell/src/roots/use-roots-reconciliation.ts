@@ -164,6 +164,11 @@ export function useRootsReconciliation({
       // Reconciliation can never run on this adapter — settle with an empty
       // map so resolveDbRootId waiters don't hang (adapters without
       // restoreRoots also have no sync consumers needing real ids).
+      // hasRunRef is deliberately NOT set here: if the adapter is later
+      // replaced by one WITH restoreRoots, the boot reconcile still runs and
+      // seeds pathMapRef. The promise is already settled (resolve is a no-op
+      // the second time), but resolveDbRootId reads through pathMapRef, so
+      // the late mappings remain fully observable.
       settlingRef.current.resolve(new Map());
       return;
     }
