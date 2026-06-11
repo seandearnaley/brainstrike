@@ -303,4 +303,79 @@ describe('useFileExplorerStore Actions Integration', () => {
 
   // Persistence/Rehydration aspects are implicitly tested by setup/initial state checks
   // Folder state switching logic is tested in use-file-explorer-store.folder-state-actions.test.ts
+
+  describe('cross-root selection routing (Phase 6 forest hardening)', () => {
+    const ROOT_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const ROOT_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const keyA = (p: string) => `${ROOT_A}|@|${p}`;
+    const keyB = (p: string) => `${ROOT_B}|@|${p}`;
+
+    beforeEach(() => {
+      store.setCurrentFolderId(ROOT_A);
+    });
+
+    it('addSelectedFile for a NON-focused root writes its folderState, not the top-level set', () => {
+      store.addSelectedFile(ROOT_B, 'x.ts');
+
+      const s = store.getState();
+      expect(s.selectedFilePaths.has(keyB('x.ts'))).toBe(false);
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
+      expect(s.folderStates[ROOT_B]?.selectionModel.explicitPaths.has(keyB('x.ts'))).toBe(true);
+    });
+
+    it('toggleSelectedFile toggles within the foreign folderState', () => {
+      store.toggleSelectedFile(ROOT_B, 'x.ts');
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
+
+      store.toggleSelectedFile(ROOT_B, 'x.ts');
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.has(keyB('x.ts'))).toBe(
+        false
+      );
+      // The focused top-level set is never touched by foreign toggles.
+      expect(store.getState().selectedFilePaths.size).toBe(0);
+    });
+
+    it('add/removeMultipleSelectedFiles route foreign batches to the foreign folderState', () => {
+      store.addMultipleSelectedFiles(ROOT_B, ['p1.ts', 'p2.ts']);
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths).toEqual(
+        new Set([keyB('p1.ts'), keyB('p2.ts')])
+      );
+
+      store.removeMultipleSelectedFiles(ROOT_B, ['p1.ts']);
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths).toEqual(
+        new Set([keyB('p2.ts')])
+      );
+      expect(store.getState().selectedFilePaths.size).toBe(0);
+    });
+
+    it('write-then-focus-switch keeps the key (checkbox stays checked) and never contaminates the outgoing snapshot', () => {
+      // The forest race: the checkbox handler fires BEFORE the click-bubble
+      // focus switch. The foreign write must be order-independent.
+      store.addSelectedFile(ROOT_A, 'a.ts'); // focused write → top-level
+      store.addSelectedFile(ROOT_B, 'x.ts'); // foreign write → B's folderState
+      store.setCurrentFolderId(ROOT_B); // the bubble's focus switch
+
+      const s = store.getState();
+      // B's key survives the switch into the now-focused top-level set.
+      expect(s.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
+      // A's snapshot holds ONLY A's keys — no cross-root contamination.
+      expect(s.folderStates[ROOT_A]?.selectedFilePaths).toEqual(new Set([keyA('a.ts')]));
+    });
+
+    it('focus-switch snapshot partitions any foreign key that leaked into the top-level set', () => {
+      // Defense in depth: even if a foreign key somehow lands in the focused
+      // set, the switch routes it to ITS root instead of snapshotting it into
+      // the outgoing root's folderState.
+      store.setState({
+        selectedFilePaths: new Set([keyA('a.ts'), keyB('leak.ts')]),
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.folderStates[ROOT_A]?.selectedFilePaths).toEqual(new Set([keyA('a.ts')]));
+      // The leaked key belongs to B — now focused, it appears in the top-level set.
+      expect(s.selectedFilePaths.has(keyB('leak.ts'))).toBe(true);
+    });
+  });
 });

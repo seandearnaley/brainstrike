@@ -8,6 +8,7 @@ import {
   IDLE_CALLBACK_TIMEOUT_MS,
 } from '../constants/selection-constants';
 import type { GetState, SetState } from '../types/store-types';
+import { createNewFolderState } from '../utils/file-explorer-utils';
 import { resolveQuerySelection } from '../utils/query-selection-manifest';
 
 const logger = createLogger('FileSelectionActions');
@@ -395,6 +396,90 @@ async function computeKeysInChunks(
   };
 }
 
+/**
+ * Phase 6 forest hardening: route an explicit-mode mutation for a NON-focused
+ * root into that root's folderState. Checkbox writes in a non-focused section
+ * race the click-bubble focus switch — written to the top-level (focused) set
+ * they get snapshotted into the WRONG root's folderState by setCurrentFolderId
+ * and the checkbox flickers/arrives late. Routing by the mutation's folderId
+ * makes the write order-independent: whichever of the write and the focus
+ * switch lands first, the key ends up in the same place.
+ *
+ * Additions respect the target folder's own maxSelectionCount (per-root
+ * limit, consistent with the recorded union-limit deferral).
+ */
+function applyForeignExplicitMutation(
+  state: FileExplorerState,
+  folderId: string,
+  additions: readonly string[],
+  removals: readonly string[]
+): {
+  changes: Partial<FileExplorerState>;
+  addedCount: number;
+  limitReached: boolean;
+} {
+  const base = state.folderStates[folderId] ?? createNewFolderState(state);
+  const selected = new Set(base.selectedFilePaths);
+  const limit = base.maxSelectionCount ?? state.maxSelectionCount;
+  let addedCount = 0;
+  let limitReached = false;
+  for (const path of additions) {
+    if (selected.size >= limit) {
+      limitReached = true;
+      break;
+    }
+    const key = encodeFileSelection(folderId, path);
+    if (!selected.has(key)) {
+      selected.add(key);
+      addedCount++;
+    }
+  }
+  for (const path of removals) {
+    selected.delete(encodeFileSelection(folderId, path));
+  }
+  return {
+    addedCount,
+    limitReached,
+    changes: {
+      folderStates: {
+        ...state.folderStates,
+        [folderId]: {
+          ...base,
+          lastAccessed: Date.now(),
+          selectedFilePaths: selected,
+          selectionModel: {
+            ...base.selectionModel,
+            mode: 'explicit',
+            explicitPaths: new Set(selected),
+          },
+        },
+      },
+      selectionVersion: state.selectionVersion + 1,
+    },
+  };
+}
+
+/** True when the mutation targets a root other than the focused one. */
+function isForeignFolderMutation(state: FileExplorerState, folderId: string): boolean {
+  return state.currentFolderId !== null && folderId !== state.currentFolderId;
+}
+
+/** Toggle within a foreign root's folderState (see applyForeignExplicitMutation). */
+function applyForeignToggleMutation(
+  state: FileExplorerState,
+  folderId: string,
+  path: string
+): Partial<FileExplorerState> {
+  const key = encodeFileSelection(folderId, path);
+  const isSelected = state.folderStates[folderId]?.selectedFilePaths.has(key) ?? false;
+  return applyForeignExplicitMutation(
+    state,
+    folderId,
+    isSelected ? [] : [path],
+    isSelected ? [path] : []
+  ).changes;
+}
+
 export const createFileSelectionActions = (
   set: SetState<FileExplorerState>,
   get: GetState<FileExplorerState>
@@ -436,6 +521,9 @@ export const createFileSelectionActions = (
           removals: [],
         });
       }
+      if (isForeignFolderMutation(state, folderId)) {
+        return applyForeignExplicitMutation(state, folderId, [path], []).changes;
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       // Check against maxSelectionCount before adding
       if (newSelectedFiles.size < state.maxSelectionCount) {
@@ -465,6 +553,9 @@ export const createFileSelectionActions = (
           additions: [],
           removals: [path],
         });
+      }
+      if (isForeignFolderMutation(state, folderId)) {
+        return applyForeignExplicitMutation(state, folderId, [], [path]).changes;
       }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       newSelectedFiles.delete(encodeFileSelection(folderId, path));
@@ -497,6 +588,9 @@ export const createFileSelectionActions = (
           additions: isCurrentlySelected ? [] : [path],
           removals: isCurrentlySelected ? [path] : [],
         });
+      }
+      if (isForeignFolderMutation(state, folderId)) {
+        return applyForeignToggleMutation(state, folderId, path);
       }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const compositeKey = encodeFileSelection(folderId, path);
@@ -546,6 +640,9 @@ export const createFileSelectionActions = (
           removals: [],
         });
       }
+      if (isForeignFolderMutation(state, folderId)) {
+        return applyForeignExplicitMutation(state, folderId, paths, []).changes;
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const previousSize = newSelectedFiles.size;
       let currentSize = previousSize;
@@ -590,6 +687,9 @@ export const createFileSelectionActions = (
           removals: paths,
         });
       }
+      if (isForeignFolderMutation(state, folderId)) {
+        return applyForeignExplicitMutation(state, folderId, [], paths).changes;
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       for (const path of paths) {
         const compositeKey = encodeFileSelection(folderId, path);
@@ -619,6 +719,25 @@ export const createFileSelectionActions = (
       pathCount: paths.length,
       chunkSize,
     });
+
+    // Phase 6: foreign-root batches merge into that root's folderState in one
+    // update — the chunked optimization targets huge TOP-LEVEL set rebuilds.
+    const entryState = get();
+    if (
+      entryState.selectionModel.mode !== 'query' &&
+      isForeignFolderMutation(entryState, folderId)
+    ) {
+      let addedCount = 0;
+      let limitReached = false;
+      set((state) => {
+        const result = applyForeignExplicitMutation(state, folderId, paths, []);
+        addedCount = result.addedCount;
+        limitReached = result.limitReached;
+        return result.changes;
+      });
+      onProgress?.(paths.length, paths.length);
+      return { addedCount, cancelled: false, limitReached };
+    }
 
     // For small selections, use the synchronous version
     if (paths.length <= chunkSize) {

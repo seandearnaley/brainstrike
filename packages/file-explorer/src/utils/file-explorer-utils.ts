@@ -8,15 +8,42 @@ import {
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
 
-// Helper function to save current folder state
+// Helper function to save current folder state.
+// Phase 6 forest hardening: the snapshot PARTITIONS the live selection by key
+// identity — only the outgoing folder's OWN composite keys belong in its
+// snapshot. Foreign keys (cross-root writes that raced a focus switch into
+// the top-level set) are routed to THEIR roots' folderStates instead of
+// contaminating the outgoing snapshot, which made checkboxes flicker and
+// selections "arrive late" in forest mode.
 export const saveFolderState = (
   state: FileExplorerData,
   folderId: string,
   now = Date.now()
 ): Record<string, FolderState> => {
+  const ownPrefix = `${folderId}|@|`;
+  const ownKeys = new Set<string>();
+  const foreignByFolder = new Map<string, Set<string>>();
+  for (const key of state.selectedFilePaths) {
+    const separatorIndex = key.indexOf('|@|');
+    if (separatorIndex <= 0 || key.startsWith(ownPrefix)) {
+      // Own keys and legacy separator-less keys stay with the snapshot.
+      ownKeys.add(key);
+      continue;
+    }
+    const keyFolderId = key.slice(0, separatorIndex);
+    const bucket = foreignByFolder.get(keyFolderId) ?? new Set<string>();
+    bucket.add(key);
+    foreignByFolder.set(keyFolderId, bucket);
+  }
+  const baseModel = state.selectionModel ?? createEmptySelectionModel();
+  const snapshotModel =
+    baseModel.mode === 'explicit' && foreignByFolder.size > 0
+      ? { ...baseModel, explicitPaths: new Set(ownKeys) }
+      : baseModel;
+
   const folderState: FolderState = {
-    selectedFilePaths: state.selectedFilePaths,
-    selectionModel: state.selectionModel ?? createEmptySelectionModel(),
+    selectedFilePaths: ownKeys,
+    selectionModel: snapshotModel,
     expandedDirectoryPaths: state.expandedDirectoryPaths,
     includeFilters: state.includeFilters,
     excludeFilters: state.excludeFilters,
@@ -30,10 +57,31 @@ export const saveFolderState = (
     viewFilterPresetId: state.viewFilterPresetId,
   };
 
-  return {
+  let folderStates: Record<string, FolderState> = {
     ...state.folderStates,
     [folderId]: folderState,
   };
+  for (const [foreignFolderId, keys] of foreignByFolder) {
+    const base = folderStates[foreignFolderId] ?? createNewFolderState(state, now);
+    const merged = new Set(base.selectedFilePaths);
+    for (const key of keys) {
+      merged.add(key);
+    }
+    folderStates = {
+      ...folderStates,
+      [foreignFolderId]: {
+        ...base,
+        lastAccessed: now,
+        selectedFilePaths: merged,
+        selectionModel: {
+          ...base.selectionModel,
+          mode: 'explicit',
+          explicitPaths: new Set(merged),
+        },
+      },
+    };
+  }
+  return folderStates;
 };
 
 // Helper function to clean up old folder states

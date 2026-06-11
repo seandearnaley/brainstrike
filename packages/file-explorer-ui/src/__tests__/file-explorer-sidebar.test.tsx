@@ -9,6 +9,7 @@ import {
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -420,6 +421,102 @@ describe('FileExplorerSidebar', () => {
     await waitFor(() => {
       expect(screen.getByText('inner.ts')).toBeInTheDocument();
     });
+  });
+
+  // Forest mode: a checkbox click in a NON-focused root must stick instantly.
+  // Writes route to that root's folderState (not the focused top-level set,
+  // where the focus-switch snapshot would misattribute them) and the section's
+  // tree derives its checks from that same folderState — no flicker, no
+  // "selection arrives later".
+  it('checkbox selection in a NON-focused root section sticks immediately', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+    const fileB = createFileNode({
+      name: 'b.ts',
+      path: '/project-b/b.ts',
+      rootFolderId: ROOT_ID_B,
+    });
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes = handle.path === '/project-b' ? [fileB] : [];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+
+    // Probe grabs the real store so the test can focus root A — modelling the
+    // user's scenario: focused A, checkbox click in B's (foreign) section.
+    const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+      current: null,
+    };
+    function StoreProbe() {
+      storeRef.current = useFileExplorerStoreContext();
+      return null;
+    }
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <>
+          <StoreProbe />
+          <FileExplorerSidebar
+            {...defaultProps}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={
+              new Map([
+                ['/project-a', 'aaaaaaaa-0000-4000-8000-0000000000aa'],
+                ['/project-b', ROOT_ID_B],
+              ])
+            }
+            setFocusedRoot={vi.fn()}
+          />
+        </>
+      );
+    });
+    act(() => {
+      storeRef.current?.getState().setCurrentFolderId('aaaaaaaa-0000-4000-8000-0000000000aa');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('b.ts')).toBeInTheDocument();
+    });
+
+    const checkbox = screen.getByLabelText('Select b.ts');
+    await user.click(checkbox);
+    // In production the same click BUBBLES to the section wrapper, which
+    // switches focus to B — the race that used to misattribute the key into
+    // A's snapshot and uncheck the box. Reproduce that ordering explicitly
+    // (setFocusedRoot is mocked in this harness).
+    act(() => {
+      storeRef.current?.getState().setCurrentFolderId(ROOT_ID_B);
+    });
+
+    // The check SURVIVES the focus switch...
+    await waitFor(() => {
+      expect(screen.getByLabelText('Select b.ts')).toBeChecked();
+    });
+    // ...and A's snapshot was never contaminated with B's key.
+    const folderStateA =
+      storeRef.current?.getState().folderStates['aaaaaaaa-0000-4000-8000-0000000000aa'];
+    expect(folderStateA?.selectedFilePaths.has(`${ROOT_ID_B}|@|/project-b/b.ts`)).toBeFalsy();
   });
 
   // -------------------------------------------------------------------------
