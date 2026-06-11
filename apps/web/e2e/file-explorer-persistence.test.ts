@@ -32,6 +32,11 @@ const CACHED_SELECT_ALL_TREE: FileTree = {
   ),
 };
 const STALE_SELECTION_ROOT_NAME = 'brainstrike';
+// Storage v5: folderStates/currentFolderId are keyed by a durable RootId UUID,
+// never the root name/path. The stale-selection seeds use a fixed RootId and
+// pre-store the OPFS handle in the web handle cache under that id, so the live
+// pick's isSameEntry dedupe reuses it and folderStates[rootId] rehydrates.
+const STALE_SELECTION_ROOT_ID = 'e2e-web-root-00000000-0000-4000-8000-000000000001';
 const CURRENT_FILE_EXPLORER_STORAGE_VERSION = 5;
 
 async function supportsOpfs(page: Page): Promise<boolean> {
@@ -114,6 +119,65 @@ async function setupOpfsDirectoryPicker(
       root: rootName,
       contents: tree,
     }
+  );
+}
+
+/**
+ * Pre-store the OPFS directory handle in the WebHandleCache IndexedDB store
+ * ('brainstrike-file-handles', v2 schema, root-handles keyed by rootId) so the
+ * next live pick's isSameEntry dedupe scan finds it and REUSES `rootId`
+ * instead of minting a fresh UUID.
+ *
+ * Must run AFTER the app has booted (post-reload): seeding before boot would
+ * trigger the multi-root auto-restore of the granted OPFS handle, defeating
+ * any "stale until the user re-picks" scenario.
+ *
+ * The handle stored here and the handle returned by the mocked picker must be
+ * the SAME OPFS directory (same `rootName` path) for isSameEntry to match.
+ */
+async function seedRootHandleInCache(page: Page, rootId: string, rootName: string): Promise<void> {
+  await page.evaluate(
+    async ({ id, root }) => {
+      if (typeof navigator.storage?.getDirectory !== 'function') {
+        throw new Error('OPFS not supported');
+      }
+      const opfsRoot = await navigator.storage.getDirectory();
+      const rootHandle = await opfsRoot.getDirectoryHandle(root, { create: true });
+
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('brainstrike-file-handles', 2);
+        request.onupgradeneeded = () => {
+          // Mirror WebHandleCache's v2 schema exactly (web-handle-cache.ts).
+          const upgradeDb = request.result;
+          if (!upgradeDb.objectStoreNames.contains('root-handles')) {
+            const store = upgradeDb.createObjectStore('root-handles', { keyPath: 'folderId' });
+            store.createIndex('by-last-accessed', 'lastAccessedAt');
+          }
+          if (!upgradeDb.objectStoreNames.contains('file-handles')) {
+            const store = upgradeDb.createObjectStore('file-handles', { keyPath: 'path' });
+            store.createIndex('by-folder', 'folderId');
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('root-handles', 'readwrite');
+        tx.objectStore('root-handles').put({
+          folderId: id,
+          name: root,
+          handle: rootHandle,
+          storedAt: Date.now(),
+          lastAccessedAt: Date.now(),
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+      db.close();
+    },
+    { id: rootId, root: rootName }
   );
 }
 
@@ -588,7 +652,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     }
 
     await resetExplorerState(page);
-    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_NAME, 2000);
+    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_ID, 2000);
     await page.reload();
     await waitForAppLoad(page);
 
@@ -604,6 +668,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
         'file-0.ts': 'export const zero = 0;',
       },
     });
+    // Pre-store the same OPFS directory in the handle cache under the seeded
+    // RootId so addRoot's isSameEntry dedupe reuses it on the live pick and
+    // folderStates[STALE_SELECTION_ROOT_ID] rehydrates.
+    await seedRootHandleInCache(page, STALE_SELECTION_ROOT_ID, STALE_SELECTION_ROOT_NAME);
 
     await explorer.selectRoot();
     await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
@@ -629,7 +697,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     }
 
     await resetExplorerState(page);
-    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_NAME, 2000, 2);
+    // Old (version 2) snapshot — must be DISCARDED, so the seeded identity is
+    // irrelevant; the RootId constant is used purely for seed-signature
+    // consistency with the rehydration test above.
+    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_ID, 2000, 2);
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
 
