@@ -82,3 +82,7 @@
 ## 2026-06-09 - Collection tree search ID prefix stripping avoids regex
 **Learning:** `packages/ui/src/collection-browser/use-collection-tree.ts` builds searchable fields for every candidate node while filtering and highlighting collection-browser search results. Replacing `node.id.replace(/^(collection|file|chunk|embedding)-/, '')` with explicit known-prefix checks measured 241.75ms -> 228.93ms over 500k node IDs x 20 runs on Node 24.16.0 with identical output totals.
 **Action:** Keep collection-browser searchable node ID normalization on explicit `startsWith`/`slice` checks for the fixed node-id prefixes; do not reintroduce regex replacement in this per-node search path.
+
+## 2026-06-11 - Cached file-content handle names avoid split arrays
+**Learning:** `packages/file-explorer-ui/src/use-shared-file-content-loading.ts` prepares cached browser file handles during selected-file content loading. The old `path.split('/').pop() || path` allocated a segment array per cached path and measured 326.20ms over 100k paths x 30 runs on Node 24.16.0; `lastIndexOf('/')` plus `slice()` measured 62.63ms with identical checksums and preserved trailing-slash fallback behavior.
+**Action:** Keep cached file request names on `getCachedFileRequestName()` and avoid reintroducing split/pop in bulk cached handle preparation.
