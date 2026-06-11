@@ -7,8 +7,9 @@ import type { Migration } from './migration-runner';
  * platform adapter reconciles legacy roots into 'path' (desktop) or 'fsa'
  * (web) on first restore in phase 2; SQL cannot know the platform.
  *
- * display_name strips everything up to the last '/' or '\\'; web legacy
- * values are bare folder names (no separator) and pass through unchanged.
+ * display_name trims trailing separators, then strips everything up to the
+ * last '/' or '\\' ('/a/b/' → 'b', not the full path); web legacy values are
+ * bare folder names (no separator) and pass through unchanged.
  * Degenerate roots ('/' or 'C:\\') would strip to '' — NULLIF/COALESCE
  * falls back to the full path so display_name is never empty.
  *
@@ -45,8 +46,17 @@ export const migration039RootsTable: Migration = {
     INSERT INTO roots (kind, display_name, path)
     SELECT
       'legacy',
+      -- Inner replace trims trailing separators first: '/a/b/' would otherwise
+      -- greedily strip to '' and COALESCE to the FULL path instead of 'b'.
       COALESCE(
-        NULLIF(regexp_replace(s.source_root_path, '^.*[/\\\\]', ''), ''),
+        NULLIF(
+          regexp_replace(
+            regexp_replace(s.source_root_path, '[/\\\\]+$', ''),
+            '^.*[/\\\\]',
+            ''
+          ),
+          ''
+        ),
         s.source_root_path
       ),
       s.source_root_path
