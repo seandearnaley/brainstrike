@@ -43,12 +43,16 @@ describe('boundToolOutputForModel structural degradation', () => {
     expect(JSON.stringify(bounded.output).length).toBeLessThanOrEqual(12_000);
   });
 
-  it('keeps the error+preview path for oversized non-collection outputs', () => {
+  it('keeps the error+preview path for oversized non-collection outputs, reported in tokens', () => {
     const bounded = boundToolOutputForModel('filesystem.read_file', 'x'.repeat(20_000));
     expect(bounded.errorText).toContain('returned too much output');
+    expect(bounded.errorText).toContain('tokens');
     expect(bounded.output).toMatchObject({
       code: TOOL_RESULT_TOO_LARGE_CODE,
       truncated: true,
+      maxTokens: 3000,
+      // 20_002 serialized chars (string quotes) at 4 chars/token.
+      approxTokens: Math.ceil(20_002 / 4),
     });
   });
 

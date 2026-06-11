@@ -6,7 +6,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.readWorkspaceDirectory':
     'List a workspace directory in a compact, token-efficient format',
   'brainstrike.listWorkspaceContext':
-    'Inspect the current workspace root, selected context paths, and workspace index hint without reading file contents',
+    'Inspect the current workspace root, selected context paths, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
   'brainstrike.readWorkspaceContext':
     'Read selected or explicit workspace files under strict file and token budgets after semantic search needs exact source',
   'brainstrike.updateWorkspaceContextSelection':

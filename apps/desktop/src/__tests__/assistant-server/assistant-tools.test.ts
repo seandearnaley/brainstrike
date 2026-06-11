@@ -415,8 +415,26 @@ describe('assistant-tools', () => {
       },
     } as RuntimeData);
 
-    const result = await tools['brainstrike.listWorkspaceContext'].execute({
+    const conciseResult = await tools['brainstrike.listWorkspaceContext'].execute({
       context: { includeTokenEstimates: true },
+    });
+
+    // Concise default: counts and token budgets only, no per-file range metadata.
+    expect(conciseResult.curatedContext).toBeUndefined();
+    expect(conciseResult.curatedContextSummary).toEqual({
+      fileCount: 2,
+      rangeCount: 1,
+      tokenBudget: 8192,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1800,
+      selectedSourceApproxTokens: 240,
+      selectedOutputApproxTokens: 140,
+    });
+    expect(conciseResult.truncated).toBe(false);
+
+    const result = await tools['brainstrike.listWorkspaceContext'].execute({
+      context: { includeTokenEstimates: true, detail: true },
     });
 
     expect(result.curatedContext).toEqual({
@@ -442,6 +460,34 @@ describe('assistant-tools', () => {
       { path: '/README.md', approxTokens: 40 },
     ]);
     expect(JSON.stringify(result)).not.toContain('line 1');
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('bounds huge selected-file listings with offset paging and a hint', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const selectionFilePaths = Array.from(
+      { length: 2000 },
+      (_, i) => `/packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`
+    );
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths,
+    } as RuntimeData);
+    const tool = tools['brainstrike.listWorkspaceContext'];
+
+    const firstPage = await tool.execute({ context: {} });
+    expect(firstPage.selectedFileCount).toBe(2000);
+    expect(firstPage.selectedFiles.length).toBeLessThan(2000);
+    expect(firstPage.truncated).toBe(true);
+    expect(firstPage.hint).toContain('offset:');
+    expect(JSON.stringify(firstPage).length).toBeLessThanOrEqual(11_000);
+
+    const secondPage = await tool.execute({
+      context: { offset: firstPage.selectedFiles.length },
+    });
+    expect(secondPage.offset).toBe(firstPage.selectedFiles.length);
+    expect(secondPage.selectedFiles[0]).not.toBe(firstPage.selectedFiles[0]);
+
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 

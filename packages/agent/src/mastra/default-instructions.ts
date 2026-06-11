@@ -101,7 +101,7 @@ function formatAvailableToolNames(names: ModelFacingToolNames): string {
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}.`
+    ? `First inspect available selected context, token budgets, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}; pass detail: true only when you need per-file Tapestry ranges.`
     : 'Workspace-selection inspection is unavailable in this run.';
   const grepSearchInstruction = names.grepSearch
     ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`

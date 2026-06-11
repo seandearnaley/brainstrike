@@ -4,7 +4,16 @@ import { toJsonSafe } from './json';
 
 export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
 
-const MAX_TOOL_RESULT_SERIALIZED_CHARS = 12_000;
+/** Mirrors countTokensHeuristic (ceil(chars / 4)) so budgets stay deterministic. */
+const APPROX_CHARS_PER_TOKEN = 4;
+
+/**
+ * Tool result budgets are denominated in (heuristic) tokens — the unit the
+ * model reasons in — and enforced deterministically on serialized characters
+ * via the chars-per-token approximation.
+ */
+export const MAX_TOOL_RESULT_TOKENS = 3000;
+const MAX_TOOL_RESULT_SERIALIZED_CHARS = MAX_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;
 
 /**
@@ -12,7 +21,13 @@ const TOOL_RESULT_PREVIEW_CHARS = 8000;
  * the transport limit so envelope fields (hints, totals) never tip a
  * self-bounded result over the guard.
  */
-export const NATIVE_TOOL_RESULT_CHAR_BUDGET = 11_000;
+export const NATIVE_TOOL_RESULT_TOKEN_BUDGET = 2750;
+export const NATIVE_TOOL_RESULT_CHAR_BUDGET =
+  NATIVE_TOOL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
+
+function approxTokensFromChars(charCount: number): number {
+  return Math.max(1, Math.ceil(charCount / APPROX_CHARS_PER_TOKEN));
+}
 
 /**
  * Fit the largest prefix of `items` whose built result serializes within
@@ -199,14 +214,18 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
     typeof jsonSafeOutput === 'string'
       ? sliceCodePoints(jsonSafeOutput, TOOL_RESULT_PREVIEW_CHARS)
       : sliceCodePoints(serialized, TOOL_RESULT_PREVIEW_CHARS);
-  const errorText = `${toolName} returned too much output (${serialized.length} serialized characters; limit ${MAX_TOOL_RESULT_SERIALIZED_CHARS}). Narrow the request or use a more specific query.`;
+  const errorText = `${toolName} returned too much output (~${approxTokensFromChars(serialized.length)} tokens; budget ~${MAX_TOOL_RESULT_TOKENS} tokens). Narrow the request or use a more specific query.`;
   return {
     errorText,
     output: {
       code: TOOL_RESULT_TOO_LARGE_CODE,
       error: errorText,
+      // Char-denominated fields keep the shape of previously persisted bounded
+      // results (the idempotency check above matches on them).
       maxLength: MAX_TOOL_RESULT_SERIALIZED_CHARS,
       originalLength: serialized.length,
+      approxTokens: approxTokensFromChars(serialized.length),
+      maxTokens: MAX_TOOL_RESULT_TOKENS,
       preview,
       truncated: true,
     },

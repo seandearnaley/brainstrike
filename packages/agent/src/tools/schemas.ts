@@ -194,6 +194,19 @@ export const ListWorkspaceContextInputSchema = z
       .boolean()
       .optional()
       .describe('Include token estimates for selected files when available'),
+    detail: z
+      .boolean()
+      .optional()
+      .describe(
+        'Include full curated-context metadata with per-file Tapestry ranges (default: compact summary with counts and token budgets)'
+      ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(10_000)
+      .optional()
+      .describe('Skip this many selected file paths to continue a truncated listing'),
   })
   .strict();
 

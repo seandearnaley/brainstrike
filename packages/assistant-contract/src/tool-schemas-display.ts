@@ -198,8 +198,25 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.listWorkspaceContext': {
     toolId: 'brainstrike.listWorkspaceContext',
     description:
-      'Inspect the selected workspace context and workspace index hint without returning file contents. Use this before reading selected files.',
+      'Inspect the selected workspace context and workspace index hint without returning file contents. Compact summary by default; detail: true adds per-file Tapestry ranges. Use this before reading selected files.',
     parameters: [
+      {
+        name: 'detail',
+        type: 'boolean',
+        description:
+          'Include full curated-context metadata with per-file Tapestry ranges (default: compact summary)',
+        required: false,
+        default: false,
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        description: 'Skip this many selected file paths to continue a truncated listing',
+        required: false,
+        default: 0,
+        min: 0,
+        max: 10_000,
+      },
       {
         name: 'includeTokenEstimates',
         type: 'boolean',

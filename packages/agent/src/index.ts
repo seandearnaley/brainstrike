@@ -243,7 +243,9 @@ export {
 } from './stream/json';
 export {
   fitItemsToCharBudget,
+  MAX_TOOL_RESULT_TOKENS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  NATIVE_TOOL_RESULT_TOKEN_BUDGET,
 } from './stream/tool-output-limits';
 export {
   clearToolRegistry,

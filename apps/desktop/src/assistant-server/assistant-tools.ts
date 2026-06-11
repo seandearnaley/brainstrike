@@ -626,18 +626,62 @@ function normalizeRuntimeWorkspaceIndex(
   };
 }
 
+interface CuratedContextSummary {
+  fileCount: number;
+  includeProjectTree?: boolean;
+  projectTreeApproxTokens?: number | null;
+  rangeCount: number;
+  selectedOutputApproxTokens?: number | null;
+  selectedSourceApproxTokens?: number | null;
+  tokenBudget?: number;
+  useTapestryRanges?: boolean;
+}
+
+/** Counts and token budgets only — the per-file range metadata stays behind detail: true. */
+function summarizeCuratedContext(context: RuntimeWorkspaceContextMetadata): CuratedContextSummary {
+  const files = Array.isArray(context.files) ? context.files : [];
+  const rangeCount = files.reduce((total, file) => total + (file.ranges?.length ?? 0), 0);
+  return {
+    fileCount: files.length,
+    rangeCount,
+    ...(context.tokenBudget === undefined ? {} : { tokenBudget: context.tokenBudget }),
+    ...(context.useTapestryRanges === undefined
+      ? {}
+      : { useTapestryRanges: context.useTapestryRanges }),
+    ...(context.includeProjectTree === undefined
+      ? {}
+      : { includeProjectTree: context.includeProjectTree }),
+    ...(context.projectTreeApproxTokens === undefined
+      ? {}
+      : { projectTreeApproxTokens: context.projectTreeApproxTokens }),
+    ...(context.selectedSourceApproxTokens === undefined
+      ? {}
+      : { selectedSourceApproxTokens: context.selectedSourceApproxTokens }),
+    ...(context.selectedOutputApproxTokens === undefined
+      ? {}
+      : { selectedOutputApproxTokens: context.selectedOutputApproxTokens }),
+  };
+}
+
+interface ListWorkspaceContextToolResult {
+  curatedContext?: RuntimeWorkspaceContextMetadata;
+  curatedContextSummary?: CuratedContextSummary;
+  /** Actionable next step when the selected-file listing was truncated. */
+  hint?: string;
+  offset: number;
+  selectedFileCount: number;
+  selectedFiles: string[];
+  selectionFolderId?: string;
+  tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
+  truncated: boolean;
+  workspaceIndex: WorkspaceIndexSummary;
+  workspaceRootPath: string;
+}
+
 function runListWorkspaceContext(
   input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
-): {
-  curatedContext?: RuntimeWorkspaceContextMetadata;
-  workspaceRootPath: string;
-  selectionFolderId?: string;
-  selectedFileCount: number;
-  selectedFiles: string[];
-  tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
-  workspaceIndex: WorkspaceIndexSummary;
-} {
+): ListWorkspaceContextToolResult {
   const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
   const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
   const curatedContext = getRuntimeWorkspaceContext(runtimeData);
@@ -647,32 +691,46 @@ function runListWorkspaceContext(
       file,
     ])
   );
-  const result: {
-    curatedContext?: RuntimeWorkspaceContextMetadata;
-    workspaceRootPath: string;
-    selectionFolderId?: string;
-    selectedFileCount: number;
-    selectedFiles: string[];
-    tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
-    workspaceIndex: WorkspaceIndexSummary;
-  } = {
-    workspaceRootPath,
-    selectedFileCount: selectedFiles.length,
-    selectedFiles,
-    workspaceIndex: normalizeRuntimeWorkspaceIndex(runtimeData),
-  };
-  if (curatedContext) {
-    result.curatedContext = curatedContext;
-  }
-  if (typeof runtimeData?.selectionFolderId === 'string') {
-    result.selectionFolderId = runtimeData.selectionFolderId;
-  }
-  if (input.includeTokenEstimates === true) {
-    result.tokenEstimates = selectedFiles.map((filePath) => ({
-      path: filePath,
-      approxTokens: curatedFilesByPath.get(filePath)?.approxTokens ?? null,
-    }));
-  }
+  const detail = input.detail ?? false;
+  const offset = input.offset ?? 0;
+  const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
+  const pagedFiles = selectedFiles.slice(offset);
+
+  // Large selections can hold thousands of paths; bound the listing (and its
+  // parallel token-estimate list) to the tool output budget, with the hint
+  // built inside the fitted candidate.
+  const { result } = fitItemsToCharBudget(pagedFiles, (files): ListWorkspaceContextToolResult => {
+    const truncated = offset + files.length < selectedFiles.length;
+    const hint = truncated
+      ? `Showing selected files ${offset + 1}-${offset + files.length} of ${selectedFiles.length}. ` +
+        `Continue with offset: ${offset + files.length}.`
+      : undefined;
+    return {
+      workspaceRootPath,
+      selectedFileCount: selectedFiles.length,
+      selectedFiles: files,
+      workspaceIndex,
+      offset,
+      truncated,
+      ...(hint ? { hint } : {}),
+      ...(typeof runtimeData?.selectionFolderId === 'string'
+        ? { selectionFolderId: runtimeData.selectionFolderId }
+        : {}),
+      ...(curatedContext
+        ? detail
+          ? { curatedContext }
+          : { curatedContextSummary: summarizeCuratedContext(curatedContext) }
+        : {}),
+      ...(input.includeTokenEstimates === true
+        ? {
+            tokenEstimates: files.map((filePath) => ({
+              path: filePath,
+              approxTokens: curatedFilesByPath.get(filePath)?.approxTokens ?? null,
+            })),
+          }
+        : {}),
+    };
+  });
   return result;
 }
 
@@ -1424,7 +1482,7 @@ export function buildDesktopAssistantTools(
     [LIST_WORKSPACE_CONTEXT_TOOL_ID]: {
       id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
       description:
-        'Inspect the current workspace root, selected context paths, and workspace index hint without returning file contents. Use before reading selected context.',
+        'Inspect the current workspace root, selected context paths, token budgets, and workspace index hint without returning file contents. Compact summary by default; set detail: true for per-file Tapestry ranges. Use before reading selected context.',
       inputSchema: ListWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
         const resolvedInput = parseToolExecuteInput(ListWorkspaceContextInputSchema, input);
