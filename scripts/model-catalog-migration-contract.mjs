@@ -436,6 +436,11 @@ function requiresRemovedModelRemaps(file) {
   return version === null || version >= REMOVED_MODEL_REMAP_CONTRACT_START_VERSION;
 }
 
+function rowRemainsInFinalSnapshot(row, snapshot) {
+  const finalRow = snapshot.get(row.id);
+  return finalRow?.providerId === row.providerId && finalRow.type === row.type;
+}
+
 function collectDeletedRowsRequiringRemaps(migrationSummaries) {
   const snapshot = new Map();
   const deletedRows = [];
@@ -474,7 +479,7 @@ function collectDeletedRowsRequiringRemaps(migrationSummaries) {
     }
   }
 
-  return deletedRows;
+  return deletedRows.filter((row) => !rowRemainsInFinalSnapshot(row, snapshot));
 }
 
 function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {

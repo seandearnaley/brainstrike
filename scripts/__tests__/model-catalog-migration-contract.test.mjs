@@ -270,4 +270,50 @@ export const migrations = [
       },
     ]);
   });
+
+  it('does not require remaps for models reinserted by the final catalog snapshot', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-032-previous-catalog', migration032PreviousCatalog),
+  customMigration('custom-033-frontier-refresh', migration033FrontierRefresh),
+];
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/032-previous-catalog.ts',
+          'migration032PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages/db/src/migrations/033-frontier-refresh.ts',
+          'migration033FrontierRefresh',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-4.5');
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-4.5', 'openrouter', 'Claude Sonnet 4.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration032PreviousCatalog,
+  migration033FrontierRefresh,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
 });
