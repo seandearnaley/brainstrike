@@ -733,11 +733,6 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
             onDirectorySelect={handleToolbarDirectorySelect}
             rootDirectoryHandle={rootDirectoryHandle}
           />
-          {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
-          <RestorationStatus
-            isRestoring={isRestoringExpandedPaths}
-            progress={restorationProgress}
-          />
           {/* Filter section: Collapsible view filters + Quick filter input */}
           {rootDirectoryHandle && (
             <div className="border-b">
@@ -763,28 +758,33 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 )}
               </Button>
 
-              {/* Collapsible content - Preset selector + Filter chips */}
+              {/* Collapsible content - Preset selector + Filter chips.
+                  grid-rows 0fr->1fr animates to natural content height (unlike a
+                  max-height cap, which clips when many filter chips wrap). */}
               <div
                 className={cn(
-                  'overflow-hidden transition-[max-height,opacity] duration-200 ease-out',
-                  isFiltersExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
+                  'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                  isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
                 )}
                 id="view-filters-content"
+                inert={!isFiltersExpanded}
               >
-                <div className="space-y-2 px-2 py-2">
-                  <ToolbarPresetSelector
-                    className="@[300px]:h-9 h-8 w-full"
-                    onFilterChange={handleFilterChange}
-                  />
-                  <FilterStatus
-                    disabledExcludeFilters={disabledExcludeFilters}
-                    disabledIncludeFilters={disabledIncludeFilters}
-                    excludeFilters={excludeFilters}
-                    includeFilters={includeFilters}
-                    onToggleFilter={toggleFilterEnabled}
-                    quickFilter={quickFilter}
-                    useRegex={useRegex}
-                  />
+                <div className="overflow-hidden">
+                  <div className="space-y-2 px-2 py-2">
+                    <ToolbarPresetSelector
+                      className="@[300px]:h-9 h-8 w-full"
+                      onFilterChange={handleFilterChange}
+                    />
+                    <FilterStatus
+                      disabledExcludeFilters={disabledExcludeFilters}
+                      disabledIncludeFilters={disabledIncludeFilters}
+                      excludeFilters={excludeFilters}
+                      includeFilters={includeFilters}
+                      onToggleFilter={toggleFilterEnabled}
+                      quickFilter={quickFilter}
+                      useRegex={useRegex}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -816,6 +816,14 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
 
         {/* Scrollable Middle Content - File Tree */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
+          {/* Restoration indicator - floats above the tree as an overlay so
+              mounting/unmounting never shifts the tree rows below it. */}
+          <div className="pointer-events-none absolute inset-x-2 top-2 z-10">
+            <RestorationStatus
+              isRestoring={isRestoringExpandedPaths}
+              progress={restorationProgress}
+            />
+          </div>
           {/* Scrollable content */}
           <div className="h-full overflow-y-auto">
             <Suspense fallback={<LoadingFallback />}>
