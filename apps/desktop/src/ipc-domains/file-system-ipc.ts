@@ -133,6 +133,80 @@ function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null 
   return fixture ?? null;
 }
 
+function isE2eTestMode(): boolean {
+  return (
+    process.argv.includes('--test-mode') ||
+    process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+    process.env['NODE_ENV'] === 'test'
+  );
+}
+
+/**
+ * Resolve the picked directory handle for access-request flows. In test mode
+ * the OS dialog cannot open, so the registered E2E fixture's root handle (or
+ * the default mock handle) is returned WITHOUT touching the real adapter —
+ * the real `requestDirectoryAccess` stats the picked path, which fails with
+ * ENOENT for mock paths. Shared by fs:requestDirectoryAccess and fs:addRoot
+ * so both pick flows follow the exact same test-mode contract.
+ */
+async function resolveRequestedDirectoryHandle(
+  fileSystem: ElectronFileSystemAdapter
+): Promise<DirectoryHandle> {
+  if (isE2eTestMode()) {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.requestDirectoryAccessCount += 1;
+      return fixture.rootHandle;
+    }
+    return {
+      id: 'mock-directory-handle',
+      kind: 'directory',
+      name: 'mock-test-directory',
+      path: '/mock/test/directory',
+      platform: 'electron',
+      type: 'directory',
+    } as DirectoryHandle;
+  }
+
+  return fileSystem.requestDirectoryAccess();
+}
+
+/**
+ * Existence check shared by the fs:exists channel and stored-root pruning
+ * (fs:restoreRoots). Consults the registered E2E fixture first, then treats
+ * mock-prefixed paths as existing (mirrors every other mock-aware handler in
+ * this file) — a raw `fileSystem.exists` here would stat the real disk and
+ * silently prune e2e-seeded roots from rootsList.
+ */
+async function ipcPathExists(
+  fileSystem: ElectronFileSystemAdapter,
+  requestedPath: string
+): Promise<boolean> {
+  const fixture = getElectronE2eFileSystemFixture();
+  if (fixture) {
+    return (
+      requestedPath === fixture.rootHandle.path ||
+      requestedPath in fixture.directoriesByPath ||
+      requestedPath in fixture.fileContentsByPath
+    );
+  }
+
+  if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
+    return true;
+  }
+
+  const resolved = await resolveValidatedPath({ requestedPath });
+  if (!resolved.ok) {
+    logger.debug('Invalid path provided during exists check', {
+      error: resolved.error,
+      path: requestedPath,
+    });
+    return false;
+  }
+
+  return fileSystem.exists(resolved.path);
+}
+
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
   if (!error || typeof error !== 'object') {
     return false;
@@ -181,30 +255,9 @@ export function registerFileSystemIpcHandlers({
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () => {
-    const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-    const nodeEnv = process.env['NODE_ENV'];
-    const isTestMode =
-      process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
-
-    if (isTestMode) {
-      const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
-        fixture.requestDirectoryAccessCount += 1;
-        return fixture.rootHandle;
-      }
-      return {
-        id: 'mock-directory-handle',
-        kind: 'directory',
-        name: 'mock-test-directory',
-        path: '/mock/test/directory',
-        platform: 'electron',
-        type: 'directory',
-      };
-    }
-
-    return fileSystem.requestDirectoryAccess();
-  });
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () =>
+    resolveRequestedDirectoryHandle(fileSystem)
+  );
 
   registry.registerInvoke(
     'files',
@@ -318,31 +371,7 @@ export function registerFileSystemIpcHandlers({
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.exists,
-    async (_event, requestedPath: string) => {
-      const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
-        return (
-          requestedPath === fixture.rootHandle.path ||
-          requestedPath in fixture.directoriesByPath ||
-          requestedPath in fixture.fileContentsByPath
-        );
-      }
-
-      if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
-        return true;
-      }
-
-      const resolved = await resolveValidatedPath({ requestedPath });
-      if (!resolved.ok) {
-        logger.debug('Invalid path provided during exists check', {
-          error: resolved.error,
-          path: requestedPath,
-        });
-        return false;
-      }
-
-      return fileSystem.exists(resolved.path);
-    }
+    async (_event, requestedPath: string) => ipcPathExists(fileSystem, requestedPath)
   );
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () => {
@@ -353,7 +382,8 @@ export function registerFileSystemIpcHandlers({
       }
 
       const resolvedPath = await resolveFileSystemIpcPath(lastFolderPath, 'stored folder');
-      const exists = await fileSystem.exists(resolvedPath);
+      // Mock-aware existence (same class as restoreRoots — see ipcPathExists).
+      const exists = await ipcPathExists(fileSystem, resolvedPath);
       if (!exists) {
         await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
         return null;
@@ -419,7 +449,9 @@ export function registerFileSystemIpcHandlers({
     for (const entry of entries) {
       try {
         const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
-        const exists = await fileSystem.exists(resolvedPath);
+        // Mock-aware existence: a raw fileSystem.exists would stat the real
+        // disk and prune e2e-seeded mock roots (see ipcPathExists).
+        const exists = await ipcPathExists(fileSystem, resolvedPath);
         if (!exists) {
           logger.debug('Pruning stale root from rootsList', { path: entry.path });
           continue;
@@ -452,7 +484,9 @@ export function registerFileSystemIpcHandlers({
   });
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
-    const handle = await fileSystem.requestDirectoryAccess();
+    // Test-mode aware (same contract as fs:requestDirectoryAccess): the real
+    // adapter stats the picked path, which ENOENTs on e2e mock paths.
+    const handle = await resolveRequestedDirectoryHandle(fileSystem);
     const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
     const basename = path.basename(resolvedPath);
 

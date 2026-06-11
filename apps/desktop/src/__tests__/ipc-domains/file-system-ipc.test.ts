@@ -4,7 +4,7 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -260,6 +260,45 @@ describe('fs:restoreRoots', () => {
     expect(result).toEqual([]);
     expect(fileSystem.exists).not.toHaveBeenCalled();
   });
+
+  // Regression: a raw fileSystem.exists stats the real disk, so e2e-seeded
+  // mock-path roots ('/mock/...') were silently pruned from rootsList on the
+  // first restore — breaking every startup-restore spec that seeds roots.
+  it('does NOT prune mock-path roots (e2e seeds) on restore', async () => {
+    const mockEntry = { addedAt: 1000, path: '/mock/test/directory', rootId: 'mock-root-id' };
+    fileSystem = {
+      exists: vi.fn(async () => false), // real disk says it doesn't exist
+      readDirectory: vi.fn(async () => []),
+      readFile: vi.fn(async () => ''),
+      readFileByPath: vi.fn(async () => ''),
+      requestDirectoryAccess: vi.fn(),
+      watchDirectory: vi.fn(),
+    } as unknown as ElectronFileSystemAdapter;
+    storage = createStorage({ rootsList: JSON.stringify([mockEntry]) });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toEqual([
+      {
+        displayName: 'directory',
+        handle: {
+          kind: 'directory',
+          name: 'directory',
+          path: '/mock/test/directory',
+          platform: 'electron',
+        },
+        kind: 'path',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'mock-root-id',
+      },
+    ]);
+    // Mock paths never reach the real adapter's exists().
+    expect(fileSystem.exists).not.toHaveBeenCalled();
+    // Nothing was pruned, so the list is not rewritten.
+    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
+  });
 });
 
 describe('fs:addRoot', () => {
@@ -269,6 +308,16 @@ describe('fs:addRoot', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
+    // Vitest sets NODE_ENV='test', which trips the handler's e2e test-mode
+    // short-circuit. The real-flow tests below stub 'production' to exercise
+    // the dialog branch; test-mode tests re-stub 'test' explicitly.
+    vi.stubEnv('NODE_ENV', 'production');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
   });
 
   it('opens the directory dialog, generates a rootId, appends to rootsList, returns the descriptor', async () => {
@@ -370,6 +419,51 @@ describe('fs:addRoot', () => {
           record.level === LogLevel.WARN && record.message === 'addRoot: failed to write rootsList'
       )
     ).toBe(true);
+  });
+
+  // Regression: phase-5 routed the FIRST pick through fs:addRoot, which called
+  // the real adapter directly — in e2e the real requestDirectoryAccess stats
+  // the mock path and throws ENOENT, breaking every desktop smoke spec that
+  // selects a root. fs:addRoot must follow the same test-mode contract as
+  // fs:requestDirectoryAccess.
+  it('test mode: returns the E2E fixture handle without calling the real adapter', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    const rootHandle = {
+      id: 'fixture-root',
+      kind: 'directory',
+      name: 'fixture',
+      path: '/fixture',
+      type: 'directory',
+    } as DirectoryHandle & { id: string; type: 'directory' };
+    const fixture = {
+      directoriesByPath: { '/fixture': [] },
+      fileContentsByPath: {},
+      readDirectoryCalls: [],
+      readFileByPathCalls: [],
+      readFileCalls: [],
+      requestDirectoryAccessCount: 0,
+      rootHandle,
+    };
+    (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY] =
+      fixture;
+
+    fileSystem = createFileSystem();
+    storage = createStorage();
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toMatchObject({
+      displayName: 'fixture',
+      handle: { path: '/fixture' },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+    });
+    expect(fileSystem.requestDirectoryAccess).not.toHaveBeenCalled();
+    expect(fixture.requestDirectoryAccessCount).toBe(1);
+    // The fixture root still gets a rootsList entry (rootId reuse on re-pick).
+    expect(storage.setItem).toHaveBeenCalledWith('rootsList', expect.stringContaining('/fixture'));
   });
 });
 
