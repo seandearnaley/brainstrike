@@ -1,8 +1,22 @@
-import { getProviderModelDefinitions } from '@brainstrike/assistant-contract/provider-metadata';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LlmProviderModelDefinition } from '../assistant-ui-panel-wrapper-runtime';
 import { useAssistantModelPickerConfig } from '../hooks/use-assistant-model-picker-config';
+
+const openAiDefaultModel: LlmProviderModelDefinition = {
+  id: 'hosted-default',
+  label: 'Hosted Default',
+  type: 'llm',
+  supportsStreaming: true,
+  default: true,
+};
+
+const openAiDisabledModel: LlmProviderModelDefinition = {
+  id: 'hosted-disabled',
+  label: 'Hosted Disabled',
+  type: 'llm',
+  supportsStreaming: true,
+};
 
 const ollamaModel: LlmProviderModelDefinition = {
   id: 'llama3.2',
@@ -17,12 +31,10 @@ describe('useAssistantModelPickerConfig', () => {
       if (provider === 'ollama') {
         return [ollamaModel];
       }
-      return getProviderModelDefinitions(provider).filter(
-        (model): model is LlmProviderModelDefinition => model.type === 'llm'
-      );
+      return [openAiDefaultModel, openAiDisabledModel];
     });
     const isModelEnabled = vi.fn((_providerId, modelId) =>
-      ['gpt-5.4', 'llama3.2'].includes(modelId)
+      ['hosted-default', 'llama3.2'].includes(modelId)
     );
 
     const { result } = renderHook(() =>
@@ -48,15 +60,15 @@ describe('useAssistantModelPickerConfig', () => {
             }),
             models: expect.arrayContaining([
               expect.objectContaining({
-                id: 'gpt-5.4',
-                label: 'GPT-5.4',
+                id: 'hosted-default',
+                label: 'Hosted Default',
                 enabled: true,
                 default: true,
                 supportsStreaming: true,
                 type: 'llm',
               }),
               expect.objectContaining({
-                id: 'gpt-5.5',
+                id: 'hosted-disabled',
                 enabled: false,
               }),
             ]),
@@ -95,9 +107,9 @@ describe('useAssistantModelPickerConfig', () => {
     ]);
     expect(result.current.pickerModels).toEqual([
       {
-        id: 'gpt-5.4',
+        id: 'hosted-default',
         providerId: 'openai',
-        name: 'GPT-5.4',
+        name: 'Hosted Default',
         description: null,
         capabilities: { type: 'llm', streaming: true },
       },
