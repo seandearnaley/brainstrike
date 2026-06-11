@@ -4,6 +4,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const MIGRATION_EXPORT_PATTERN = /export\s+const\s+(migration\d{3}[A-Za-z0-9_]*)\s*:\s*Migration\s*=/;
+// Keep this literal table list in sync with the model catalog schema. The check
+// intentionally scans whole migration files, including down blocks/comments, so
+// ambiguous catalog mentions fail closed instead of silently bypassing ledger checks.
 const CATALOG_ROW_MUTATION_PATTERN =
   /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(?:models|providers)"?\b/i;
 
@@ -51,7 +54,15 @@ export function analyzeModelCatalogMigrationContract(input) {
   const failures = [];
 
   for (const migration of migrationSummaries) {
-    if (!(migration.catalogMutating && migration.exportName)) {
+    if (migration.catalogMutating && !migration.exportName) {
+      failures.push({
+        file: migration.file,
+        message: `Catalog-mutating migration in ${migration.file} has no recognizable \`export const migrationNNN: Migration =\` declaration; the contract checker cannot verify its registration.`,
+      });
+      continue;
+    }
+
+    if (!migration.catalogMutating) {
       continue;
     }
 

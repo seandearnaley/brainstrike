@@ -56,6 +56,40 @@ const customMigrations = [
     ]);
   });
 
+  it('fails closed when a catalog-mutating migration has no recognizable export declaration', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      drizzleMigrateSource: `
+const customMigrations = [];
+`,
+      migrationFiles: [
+        {
+          file: 'packages/db/src/migrations/039-catalog-refresh.ts',
+          source: `
+import type { Migration } from './migration-runner';
+
+export const migration039CatalogRefresh = {
+  version: 39,
+  name: 'catalog refresh',
+  up: \`
+    UPDATE models SET label = 'GPT Next' WHERE id = 'gpt-next';
+  \`,
+  down: \`\`,
+} satisfies Migration;
+`,
+        },
+      ],
+      migrationIndexSource,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/db/src/migrations/039-catalog-refresh.ts',
+        message:
+          'Catalog-mutating migration in packages/db/src/migrations/039-catalog-refresh.ts has no recognizable `export const migrationNNN: Migration =` declaration; the contract checker cannot verify its registration.',
+      },
+    ]);
+  });
+
   it('allows catalog schema migrations that do not mutate catalog rows', () => {
     const result = analyzeModelCatalogMigrationContract({
       drizzleMigrateSource: `
