@@ -16,6 +16,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -62,6 +63,48 @@ export interface FileTreeIndexContextValue {
 }
 
 const FileTreeIndexContext = createContext<FileTreeIndexContextValue | null>(null);
+
+/**
+ * Forest index sharing (Phase 6): one FileTreeIndex serves every nested
+ * FileTreeProvider so the panel-level content loader can resolve nodes from
+ * ALL roots during a cross-root import. Folder entries are refcounted —
+ * a folder's entries clear only when its LAST registrant releases it:
+ * - single-root workspace switch (one provider re-keys) → old folder clears;
+ * - forest focus switch (outer provider re-keys while the root's own
+ *   RootSection provider stays mounted) → nothing clears;
+ * - disconnecting a root (its section provider unmounts) → its folder clears.
+ */
+interface FileTreeIndexRegistry {
+  readonly index: FileTreeIndex;
+  register(folderId: string, ownerId: string): void;
+  unregister(folderId: string, ownerId: string): void;
+}
+
+function createFileTreeIndexRegistry(): FileTreeIndexRegistry {
+  const index = new FileTreeIndex();
+  const registrants = new Map<string, Set<string>>();
+  return {
+    index,
+    register(folderId, ownerId) {
+      const owners = registrants.get(folderId) ?? new Set<string>();
+      owners.add(ownerId);
+      registrants.set(folderId, owners);
+    },
+    unregister(folderId, ownerId) {
+      const owners = registrants.get(folderId);
+      if (!owners) {
+        return;
+      }
+      owners.delete(ownerId);
+      if (owners.size === 0) {
+        registrants.delete(folderId);
+        index.clearFolder(folderId);
+      }
+    },
+  };
+}
+
+const FileTreeIndexRegistryContext = createContext<FileTreeIndexRegistry | null>(null);
 
 export interface FileTreeNormalizedContextValue {
   getDescendantFileCount: (path: string) => number;
@@ -110,9 +153,17 @@ export function FileTreeProvider({
   const store = useFileExplorerStoreContext();
   const setExpandedPaths = useFileExplorerStoreSelector((state) => state.setExpandedPaths);
   const selectionVersion = useFileExplorerStoreSelector((state) => state.selectionVersion);
-  // Create a single FileTreeIndex instance that persists across renders
-  // Using useState with lazy initializer avoids reading ref during render
-  const [index] = useState<FileTreeIndex>(() => new FileTreeIndex());
+  // Forest sharing (Phase 6): inherit the registry (and its index) from an
+  // ancestor FileTreeProvider when nested (RootSections under the app-shell
+  // provider); otherwise own a fresh one. Lazy useState keeps the owned
+  // instance stable across renders.
+  const inheritedRegistry = useContext(FileTreeIndexRegistryContext);
+  const [ownedRegistry] = useState<FileTreeIndexRegistry>(
+    () => inheritedRegistry ?? createFileTreeIndexRegistry()
+  );
+  const registry = inheritedRegistry ?? ownedRegistry;
+  const index = registry.index;
+  const registrantId = useId();
 
   // Version counter to signal index mutations to consumers
   // Coalesced via microtask to avoid excessive re-renders during multi-step updates
@@ -135,19 +186,24 @@ export function FileTreeProvider({
   const currentRootPath = rootDirectoryHandle?.path ?? null;
   const currentRootIndexKey = rootId ?? currentRootPath;
 
-  // Track the last index key to detect identity changes that require a clear
-  const lastRootIndexKeyRef = useRef<string | null>(null);
-
-  // Clear index when root identity changes using useEffect to avoid render-phase mutations
-  // which are unsafe in React's Concurrent Mode (render can be called multiple times)
-  // biome-ignore lint/plugin: This is intentional - index.clear() is a mutation that must run after commit, not during render
+  // Refcounted folder registration replaces clear-on-identity-change: the
+  // effect cleanup releases the OLD key (clearing its entries only when this
+  // provider was the last registrant — see FileTreeIndexRegistry), so a
+  // forest focus switch never wipes a sibling root's entries while a
+  // single-root workspace switch still clears the departed folder.
+  // biome-ignore lint/plugin: intentional — index mutation must run after commit, not during render
   useEffect(() => {
-    if (lastRootIndexKeyRef.current !== currentRootIndexKey) {
-      index.clear();
-      lastRootIndexKeyRef.current = currentRootIndexKey;
-      bumpIndexVersion();
+    if (!currentRootIndexKey) {
+      return;
     }
-  }, [currentRootIndexKey, index, bumpIndexVersion]);
+    registry.register(currentRootIndexKey, registrantId);
+    bumpIndexVersion();
+    const releasedKey = currentRootIndexKey;
+    return () => {
+      registry.unregister(releasedKey, registrantId);
+      bumpIndexVersion();
+    };
+  }, [currentRootIndexKey, registry, registrantId, bumpIndexVersion]);
 
   // Callback to add nodes to the index - passed to useFileTree
   const onNodesIndexed = useCallback(
@@ -246,7 +302,9 @@ export function FileTreeProvider({
     >
       <FileTreeNormalizedContext.Provider value={normalizedContextValue}>
         <FileTreeIndexContext.Provider value={indexContextValue}>
-          {children}
+          <FileTreeIndexRegistryContext.Provider value={registry}>
+            {children}
+          </FileTreeIndexRegistryContext.Provider>
         </FileTreeIndexContext.Provider>
       </FileTreeNormalizedContext.Provider>
     </FileTreeContext.Provider>

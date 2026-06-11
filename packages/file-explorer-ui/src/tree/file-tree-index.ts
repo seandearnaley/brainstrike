@@ -133,6 +133,32 @@ export class FileTreeIndex {
   }
 
   /**
+   * Remove ONLY the given folder's entries (Phase 6 forest sharing: multiple
+   * FileTreeProviders write into one shared index, so a root switch/disconnect
+   * must not wipe sibling roots' entries the way `clear()` would).
+   *
+   * @param folderId - RootId UUID (or legacy path) whose entries to remove
+   */
+  clearFolder(folderId: string): void {
+    // Prefix matches encodeFileSelection's key shape (folderId|@|path);
+    // encodeFileSelection itself rejects an empty path, so build directly.
+    const prefix = `${folderId}|@|`;
+    for (const [key, node] of this.nodeByKey) {
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
+      this.nodeByKey.delete(key);
+      this.handleByKey.delete(key);
+      this._stats.totalNodes--;
+      if (node.type === 'file') {
+        this._stats.totalFiles--;
+      } else if (node.type === 'directory') {
+        this._stats.totalDirectories--;
+      }
+    }
+  }
+
+  /**
    * Extract handle information from a file node.
    * Returns null if the node has no valid handle.
    *

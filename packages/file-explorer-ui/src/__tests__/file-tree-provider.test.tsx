@@ -14,6 +14,7 @@ import {
 
 const {
   addNodesMock,
+  clearFolderMock,
   clearMock,
   getHandleMock,
   getNodeMock,
@@ -24,6 +25,7 @@ const {
   useFileTreeMock,
 } = vi.hoisted(() => ({
   addNodesMock: vi.fn(),
+  clearFolderMock: vi.fn(),
   clearMock: vi.fn(),
   getHandleMock: vi.fn(),
   getNodeMock: vi.fn(),
@@ -67,6 +69,7 @@ vi.mock('../tree/file-tree-index', () => ({
 
     public addNodes = addNodesMock;
     public clear = clearMock;
+    public clearFolder = clearFolderMock;
     public getHandle = getHandleMock;
     public getNode = getNodeMock;
   },
@@ -165,9 +168,9 @@ describe('FileTreeProvider', () => {
       store: storeMock,
     });
 
-    await waitFor(() => {
-      expect(clearMock).toHaveBeenCalledTimes(1);
-    });
+    // Phase 6: mount REGISTERS the folder (refcounted) — nothing clears yet.
+    expect(clearFolderMock).not.toHaveBeenCalled();
+    expect(clearMock).not.toHaveBeenCalled();
 
     const options = useFileTreeMock.mock.calls[0]?.[1];
     expect(options).toBeDefined();
@@ -178,7 +181,9 @@ describe('FileTreeProvider', () => {
 
     await waitFor(() => {
       expect(addNodesMock).toHaveBeenCalledWith([], null);
-      expect(screen.getByTestId('index-version')).toHaveTextContent('2');
+      // Bumps are microtask-coalesced: registration + onNodesIndexed may land
+      // as one increment — assert the version ADVANCED, not an exact count.
+      expect(screen.getByTestId('index-version')).not.toHaveTextContent('0');
     });
 
     expect(screen.getByTestId('root-path')).toHaveTextContent('/workspace');
@@ -199,9 +204,12 @@ describe('FileTreeProvider', () => {
       </FileTreeProvider>
     );
 
+    // Phase 6: identity change releases the OLD folder; as the only
+    // registrant, its entries clear via clearFolder (never a full clear()).
     await waitFor(() => {
-      expect(clearMock).toHaveBeenCalledTimes(2);
+      expect(clearFolderMock).toHaveBeenCalledWith('/workspace');
     });
+    expect(clearMock).not.toHaveBeenCalled();
 
     expect(useExpandedPathRestorationMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
