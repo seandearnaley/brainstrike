@@ -149,6 +149,9 @@ function resolveOptionalPositiveIntegerRuntimeConfig(
   if (typeof rawValue === 'string' && rawValue.trim() === '') {
     return 0;
   }
+  if (rawValue === 0 || (typeof rawValue === 'string' && rawValue.trim() === '0')) {
+    return 0;
+  }
   return parsePositiveIntegerConfig({ name, rawValue });
 }
 
@@ -276,6 +279,8 @@ export async function startEmbeddingWorker(
     DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD,
     'statsRefreshCompletedChunkThreshold'
   );
+  const reinitEveryN = resolveReinitEveryN(options.reinitEveryN);
+  const metricsInterval = resolveMetricsIntervalMs(options.metricsIntervalMs);
   const now = options.now ?? Date.now;
   const statsRefreshController = createEmbeddingStatsRefreshController({
     completedChunkThreshold: statsRefreshCompletedChunkThreshold,
@@ -396,7 +401,6 @@ export async function startEmbeddingWorker(
   let idleStartedAt: number | null = null;
   let hasLoggedMaxIdleBackoff = false;
   let nextIdlePollDelayMs = idlePollBackoff.initialMs;
-  const reinitEveryN = resolveReinitEveryN(options.reinitEveryN);
 
   function triggerFatalLocalWorkerError(error: Error): void {
     if (!options.stopOnFatalLocalError || fatalWorkerError) {
@@ -1465,7 +1469,6 @@ export async function startEmbeddingWorker(
     }
   }
 
-  const metricsInterval = resolveMetricsIntervalMs(options.metricsIntervalMs);
   const loops: Promise<void>[] = [];
   for (let i = 0; i < concurrency; i++) {
     loops.push(

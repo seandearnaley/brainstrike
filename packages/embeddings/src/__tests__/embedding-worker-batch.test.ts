@@ -853,6 +853,32 @@ describe('Embedding Worker Batch Optimization', () => {
     );
   });
 
+  it('allows EMBED_REINIT_EVERY zero to disable scheduled reinitialization', async () => {
+    const originalValue = process.env['EMBED_REINIT_EVERY'];
+    process.env['EMBED_REINIT_EVERY'] = '0';
+    let controller: { stop: () => Promise<void> } | undefined;
+
+    try {
+      controller = await startEmbeddingWorker({
+        db: db as unknown as IDatabase,
+        concurrency: 1,
+        leaseMs: 5000,
+        log: () => {},
+        modelKey: 'jinaai/jina-embeddings-v2-base-code',
+        service: new FakeEmbeddingService(),
+        statsRefreshCompletedChunkThreshold: 512,
+        statsRefreshMinIntervalMs: 60_000,
+      });
+    } finally {
+      await controller?.stop();
+      if (originalValue === undefined) {
+        Reflect.deleteProperty(process.env, 'EMBED_REINIT_EVERY');
+      } else {
+        process.env['EMBED_REINIT_EVERY'] = originalValue;
+      }
+    }
+  });
+
   it('allows explicit reinitEveryN zero to disable scheduled reinitialization', async () => {
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
@@ -867,6 +893,35 @@ describe('Embedding Worker Batch Optimization', () => {
     });
 
     await controller.stop();
+  });
+
+  it('validates metrics interval config before initializing the embedding service', async () => {
+    const originalValue = process.env['WORKER_METRICS_INTERVAL_MS'];
+    process.env['WORKER_METRICS_INTERVAL_MS'] = 'abc';
+    const service = new FakeEmbeddingService();
+    const generateEmbeddingSpy = vi.spyOn(service, 'generateEmbedding');
+
+    try {
+      await expect(
+        startEmbeddingWorker({
+          db: db as unknown as IDatabase,
+          concurrency: 1,
+          leaseMs: 5000,
+          log: () => {},
+          modelKey: 'missing-custom-model',
+          service,
+          statsRefreshCompletedChunkThreshold: 512,
+          statsRefreshMinIntervalMs: 60_000,
+        })
+      ).rejects.toThrow('WORKER_METRICS_INTERVAL_MS must be a positive integer, received "abc".');
+      expect(generateEmbeddingSpy).not.toHaveBeenCalled();
+    } finally {
+      if (originalValue === undefined) {
+        Reflect.deleteProperty(process.env, 'WORKER_METRICS_INTERVAL_MS');
+      } else {
+        process.env['WORKER_METRICS_INTERVAL_MS'] = originalValue;
+      }
+    }
   });
 
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {
