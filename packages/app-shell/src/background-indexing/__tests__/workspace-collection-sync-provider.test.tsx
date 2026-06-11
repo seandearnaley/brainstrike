@@ -60,7 +60,11 @@ const {
   fileTreeContextState,
   idleSchedulerSnapshot,
   resolveWorkspaceIndexingQosPolicyMock,
+  registerRootMock,
+  resolveDbRootIdMock,
 } = vi.hoisted(() => ({
+  registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
+  resolveDbRootIdMock: vi.fn(async (_rootPath: string) => null),
   runEnhancedImportMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
   processFilesMock: vi.fn(),
@@ -172,6 +176,7 @@ const {
       path: string;
       platform: string;
     }>,
+    rootIdByPath: new Map<string, string>([['/workspace/root', 'root-id-1']]),
   },
   fileTreeContextState: {
     current: {
@@ -324,6 +329,14 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     isAccessLoading: fileSystemState.isAccessLoading,
     rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
     rootDirectoryHandles: fileSystemState.rootDirectoryHandles,
+    rootIdByPath: fileSystemState.rootIdByPath,
+  }),
+}));
+
+vi.mock('../../roots/use-roots-reconciliation', () => ({
+  useRootsReconciliation: () => ({
+    registerRoot: registerRootMock,
+    resolveDbRootId: resolveDbRootIdMock,
   }),
 }));
 
@@ -408,6 +421,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         platform: 'electron',
       },
     ];
+    fileSystemState.rootIdByPath = new Map<string, string>([['/workspace/root', 'root-id-1']]);
     fileTreeContextState.current = {
       isLoading: false,
       isRestorationSettled: true,
@@ -1817,5 +1831,70 @@ describe('WorkspaceCollectionSyncProvider', () => {
     } finally {
       syncSpy.mockRestore();
     }
+  });
+
+  // ─── Task 4 (phase 5): mid-session root registration ───────────────────────
+
+  it('registers only the newly added root when rootDirectoryHandles grows mid-session', async () => {
+    const { rerender } = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    // The mount-time handle gets exactly one registration call (the hook
+    // dedupes against the boot reconcile internally, so this is a no-op for
+    // boot roots).
+    await waitFor(() => expect(registerRootMock).toHaveBeenCalledTimes(1));
+    expect(registerRootMock.mock.calls[0]?.[0]).toMatchObject({
+      displayName: 'workspace',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-id-1',
+    });
+
+    // A new root arrives mid-session (Add Folder).
+    const root2 = {
+      kind: 'directory',
+      name: 'second',
+      path: '/workspace/second',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandles = [...fileSystemState.rootDirectoryHandles, root2];
+    fileSystemState.rootIdByPath = new Map<string, string>([
+      ['/workspace/root', 'root-id-1'],
+      ['/workspace/second', 'root-id-2'],
+    ]);
+    rerender(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(registerRootMock).toHaveBeenCalledTimes(2));
+    expect(registerRootMock.mock.calls[1]?.[0]).toMatchObject({
+      displayName: 'second',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-id-2',
+    });
+    // The pre-existing root is NOT re-registered by the growth.
+    const root1Calls = registerRootMock.mock.calls.filter(
+      (call) => (call[0] as { rootId: string }).rootId === 'root-id-1'
+    );
+    expect(root1Calls).toHaveLength(1);
+  });
+
+  it('does not register handles that have no rootId mapping yet', async () => {
+    fileSystemState.rootIdByPath = new Map<string, string>();
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+    expect(registerRootMock).not.toHaveBeenCalled();
   });
 });
