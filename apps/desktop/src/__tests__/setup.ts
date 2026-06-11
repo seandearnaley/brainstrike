@@ -41,6 +41,10 @@ vi.mock('electron', () => ({
   dialog: {
     showMessageBox: vi.fn(async () => ({ response: 0 })),
   },
+  shell: {
+    openPath: vi.fn().mockResolvedValue(''),
+    showItemInFolder: vi.fn(),
+  },
 }));
 
 // Mock `electron-store` globally. Its module body destructures

@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/server-config",
   "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/platform-utils": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^25.6.0"
   },

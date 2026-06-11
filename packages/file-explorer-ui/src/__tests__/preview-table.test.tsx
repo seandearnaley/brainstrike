@@ -57,6 +57,7 @@ interface PreviewTableTestOverrides {
   pagination?: { startIndex: number; endIndex: number };
   previewSelections?: Set<string>;
   toggleGroupCollapse?: (groupKey: string | number) => void;
+  visibleFilesOnPage?: TableRowData[];
 }
 
 function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
@@ -69,7 +70,7 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
     currentPageData: overrides.currentPageData ?? [],
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
     previewSelections: overrides.previewSelections ?? new Set<string>(),
-    visibleFilesOnPage: [FILE_ONE, FILE_TWO],
+    visibleFilesOnPage: overrides.visibleFilesOnPage ?? [FILE_ONE, FILE_TWO],
     onSort: vi.fn(),
     onToggleSelection: vi.fn(),
     onSelectAllOnPage: vi.fn(),
@@ -109,16 +110,17 @@ const DESKTOP_NESTED_FILE: TableRowData = {
 };
 
 function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverrides> = {}) {
+  const currentPageData = overrides.currentPageData ?? [FILE_ONE, FILE_TWO];
   const props = {
     columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
     sortField: 'path' as const,
     sortDirection: 'asc' as const,
     groupingConfig: 'none',
     groupedData: overrides.groupedData ?? [],
-    currentPageData: [FILE_ONE, FILE_TWO],
+    currentPageData,
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
     previewSelections: overrides.previewSelections ?? new Set<string>(),
-    visibleFilesOnPage: [FILE_ONE, FILE_TWO],
+    visibleFilesOnPage: currentPageData,
     onSort: vi.fn(),
     onToggleSelection: vi.fn(),
     onSelectAllOnPage: vi.fn(),
@@ -408,6 +410,32 @@ describe('PreviewTable grouped mode', () => {
     );
 
     expect(screen.getByLabelText('Select src/file-one.ts')).toBeChecked();
+  });
+
+  it('renders zero-token grouped items as indexed empty files, not pending counts', () => {
+    const emptyFileItem: TableRowData = {
+      ...FILE_ONE,
+      id: 'empty',
+      path: 'src/empty.ts',
+      tokens: 0,
+      compositeKey: 'workspace:src/empty.ts',
+    };
+    const zeroTokenGroup: GroupedData<TableRowData> = {
+      ...DEFAULT_GROUP,
+      items: [emptyFileItem],
+      count: 1,
+      totalTokens: 0,
+    };
+
+    renderGroupedPreviewTable({
+      groupedData: [zeroTokenGroup],
+      visibleFilesOnPage: [emptyFileItem],
+    });
+
+    const itemRow = screen.getByText('empty.ts').closest('tr');
+    expect(itemRow).not.toBeNull();
+    expect(within(itemRow as HTMLTableRowElement).getByText('0')).toBeInTheDocument();
+    expect(within(itemRow as HTMLTableRowElement).queryByText('—')).not.toBeInTheDocument();
   });
 
   it('updates grouped item checkbox state after deselecting a checked row', () => {
@@ -883,6 +911,16 @@ describe('PreviewTable file path display', () => {
 });
 
 describe('PreviewTable ungrouped mode', () => {
+  it('renders ungrouped rows through the shared treegrid surface', () => {
+    renderUngroupedPreviewTable();
+
+    expect(screen.getByRole('treegrid', { name: 'Context explorer table' })).toBeInTheDocument();
+
+    const firstItemRow = screen.getByText('file-one.ts').closest('tr');
+    expect(firstItemRow).toHaveAttribute('aria-level', '1');
+    expect(firstItemRow).not.toHaveAttribute('aria-expanded');
+  });
+
   it('keeps the checkbox header and body cells on the same compact width contract', () => {
     renderUngroupedPreviewTable();
 
@@ -894,6 +932,36 @@ describe('PreviewTable ungrouped mode', () => {
       'w-8',
       'px-0'
     );
+  });
+
+  it('renders zero-token ungrouped items as indexed empty files, not pending counts', () => {
+    const emptyFileItem: TableRowData = {
+      ...FILE_ONE,
+      id: 'empty',
+      path: 'src/empty.ts',
+      tokens: 0,
+      compositeKey: 'workspace:src/empty.ts',
+    };
+
+    renderUngroupedPreviewTable({
+      currentPageData: [emptyFileItem],
+    });
+
+    const itemRow = screen.getByText('empty.ts').closest('tr');
+    expect(itemRow).not.toBeNull();
+    expect(within(itemRow as HTMLTableRowElement).getByText('0')).toBeInTheDocument();
+    expect(within(itemRow as HTMLTableRowElement).queryByText('—')).not.toBeInTheDocument();
+  });
+
+  it('exposes the active sort direction on ungrouped sortable column headers', () => {
+    renderUngroupedPreviewTable();
+
+    const pathHeader = screen.getByRole('button', { name: 'Sort by File Path' }).closest('th');
+    const typeHeader = screen.getByRole('button', { name: 'Sort by Type' }).closest('th');
+
+    expect(pathHeader).toHaveAttribute('aria-sort', 'ascending');
+    expect(typeHeader).not.toHaveAttribute('aria-sort');
+    expect(pathHeader?.textContent?.match(/↑/g) ?? []).toHaveLength(1);
   });
 });
 

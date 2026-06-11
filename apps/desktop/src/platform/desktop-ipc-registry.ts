@@ -3,6 +3,7 @@ import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } fro
 export type DesktopIpcDomain =
   | 'agent'
   | 'chunking-host'
+  | 'clipboard'
   | 'db'
   | 'diagnostics'
   | 'embeddings'
@@ -12,6 +13,7 @@ export type DesktopIpcDomain =
   | 'mcp'
   | 'preferences'
   | 'runtime'
+  | 'shell'
   | 'storage'
   | 'tools';
 

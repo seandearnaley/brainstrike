@@ -10,6 +10,11 @@ export interface ExplorerBootstrapOptions {
    */
   clearStorageKeys?: string[];
   /**
+   * Install the clipboard mock so navigator.clipboard.writeText logs to the
+   * console (asserted via page console messages).
+   */
+  clipboard?: boolean;
+  /**
    * Optional label to use for the mocked root directory.
    * Defaults to "test-root" for historical parity with existing tests.
    */
@@ -51,9 +56,10 @@ export async function bootstrapFileExplorer(
     clearStorageKeys = [],
     reloadAfterClear = true,
     waitForDatabase = false,
+    clipboard = false,
   } = options;
 
-  await mockBrowserApis(page, projectName, tree);
+  await mockBrowserApis(page, projectName, tree, { clipboard });
 
   const home = new HomePage(page);
   await home.goto({ waitForDatabase });

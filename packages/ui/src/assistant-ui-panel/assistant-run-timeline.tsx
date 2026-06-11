@@ -77,7 +77,7 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
   );
 }
 
-function getMessageParts(message: unknown): readonly unknown[] {
+export function getMessageParts(message: unknown): readonly unknown[] {
   if (!isRecord(message)) {
     return [];
   }

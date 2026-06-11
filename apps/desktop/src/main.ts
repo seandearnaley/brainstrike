@@ -34,6 +34,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
+import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import {
@@ -50,6 +51,7 @@ import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp'
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
+import { registerShellIpcHandlers } from './ipc-shell';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { LlmHostManager } from './llm-host-manager';
 import {
@@ -602,6 +604,8 @@ let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
 let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
+let unregisterShellIpcHandlers: null | (() => void) = null;
+let unregisterClipboardIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -856,6 +860,8 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
     getRuntimeMetrics: collectBackgroundRuntimeMetrics,
   },
 });
+unregisterShellIpcHandlers = registerShellIpcHandlers();
+unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1394,6 +1400,14 @@ app.on('will-quit', () => {
   if (unregisterMcpIpcHandlers) {
     unregisterMcpIpcHandlers();
     unregisterMcpIpcHandlers = null;
+  }
+  if (unregisterShellIpcHandlers) {
+    unregisterShellIpcHandlers();
+    unregisterShellIpcHandlers = null;
+  }
+  if (unregisterClipboardIpcHandlers) {
+    unregisterClipboardIpcHandlers();
+    unregisterClipboardIpcHandlers = null;
   }
   removeLogBufferListener();
 });

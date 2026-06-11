@@ -1,14 +1,32 @@
+import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { ActionRegistryProvider } from '@brainstrike/ui';
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ButtonHTMLAttributes, MouseEvent, ReactElement, ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { collectionActions } from '../../context-actions';
 import {
   __resetCollectionBrowserStoreForTests,
   useCollectionBrowserStore,
 } from '../../stores/collection-browser-store';
 import { CollectionBrowserView } from '../collection-browser-view';
+
+// Recreated per test (beforeEach) so writtenTexts never leaks across tests.
+let testRegistry = createTestActionRegistry({ actions: collectionActions });
+
+function RegistryWrapper({ children }: { children: ReactNode }) {
+  return (
+    <ActionRegistryProvider registry={testRegistry.registry}>{children}</ActionRegistryProvider>
+  );
+}
+
+// All renders need the action registry: CollectionBrowserView mounts the
+// shared ActionContextMenu, whose useActionRegistry throws without a provider.
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: RegistryWrapper });
+}
 
 const collectionBrowserPropsSpy = vi.fn<(props: Record<string, unknown>) => void>();
 const semanticSearchMock = vi.hoisted(() => ({
@@ -150,10 +168,17 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
             >
               Double-click embedding
             </button>
+            {/* Right-click rows claim the shared context-menu target on the
+                REAL contextmenu event so Radix's ContextMenu can open. */}
             <button
               aria-label="Right-click first file"
-              onClick={(e) =>
-                onContextMenu?.(`file-${firstFile.id}`, 'file', {}, e as unknown as MouseEvent)
+              onContextMenu={(e) =>
+                onContextMenu?.(
+                  `file-${firstFile.id}`,
+                  'file',
+                  { name: 'one.ts', path: '/one.ts' },
+                  e as unknown as MouseEvent
+                )
               }
               type="button"
             >
@@ -161,8 +186,13 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
             </button>
             <button
               aria-label="Right-click first chunk"
-              onClick={(e) =>
-                onContextMenu?.('chunk-chunk-1', 'chunk', {}, e as unknown as MouseEvent)
+              onContextMenu={(e) =>
+                onContextMenu?.(
+                  'chunk-chunk-1',
+                  'chunk',
+                  { content: 'const one = 1;' },
+                  e as unknown as MouseEvent
+                )
               }
               type="button"
             >
@@ -170,7 +200,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
             </button>
             <button
               aria-label="Right-click collection"
-              onClick={(e) =>
+              onContextMenu={(e) =>
                 onContextMenu?.('collection-current', 'collection', {}, e as unknown as MouseEvent)
               }
               type="button"
@@ -179,7 +209,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
             </button>
             <button
               aria-label="Right-click group"
-              onClick={(e) =>
+              onContextMenu={(e) =>
                 onContextMenu?.('group-status-complete', 'group', {}, e as unknown as MouseEvent)
               }
               type="button"
@@ -406,42 +436,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   );
   const FilterBar = () => <div data-testid="filter-bar" />;
 
-  // DropdownMenu mocks for context menu
-  const DropdownMenu = ({
-    children,
-    open,
-  }: {
-    children: ReactNode;
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-  }) => (open ? <div data-testid="context-menu">{children}</div> : null);
-  const DropdownMenuTrigger = ({ children }: { children: ReactNode }) => <>{children}</>;
-  const DropdownMenuContent = ({ children }: { children: ReactNode }) => (
-    <div data-testid="context-menu-content">{children}</div>
-  );
-  const DropdownMenuItem = ({
-    children,
-    onClick,
-  }: {
-    children: ReactNode;
-    onClick?: () => void;
-  }) => (
-    <button onClick={onClick} type="button">
-      {children}
-    </button>
-  );
-  const DropdownMenuSeparator = () => <hr />;
-
   return {
     ...actual,
     Button,
     CollectionBrowser,
     CollectionBrowserToolbar,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
     FilterBar,
     NodeInspector,
     SearchConfigPanel,
@@ -503,6 +502,51 @@ const TEST_CHUNKS: FileChunk[] = [
   },
 ];
 
+/** Open the shared context menu by firing a REAL contextmenu event on a mock row. */
+async function openContextMenuOn(rowButtonName: string): Promise<void> {
+  fireEvent.contextMenu(screen.getByRole('button', { name: rowButtonName }), {
+    clientX: 10,
+    clientY: 10,
+  });
+  await screen.findByRole('menu');
+}
+
+/**
+ * Deterministic teardown for Radix's FocusScope: its effect cleanup defers
+ * focus-restore in a setTimeout(0). A test that returns with the menu still
+ * open (or just closed) leaks that timer; it then fires during the NEXT test,
+ * focuses body, and the new menu's onFocusOutside dismisses it mid-assertion.
+ * Close the menu while still mounted, then flush the 0ms timer.
+ */
+async function closeMenuAndFlushFocusRestore(): Promise<void> {
+  if (screen.queryByRole('menu')) {
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  }
+  await act(
+    () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      })
+  );
+}
+
+/** Click a context-menu item, then wait for the menu to close and flush focus restore. */
+async function clickMenuItem(itemName: string): Promise<void> {
+  fireEvent.click(screen.getByRole('menuitem', { name: itemName }));
+  await waitFor(() => {
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+  await act(
+    () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      })
+  );
+}
+
 describe('CollectionBrowserView', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
@@ -521,6 +565,14 @@ describe('CollectionBrowserView', () => {
       searchResults: [],
     };
     collectionBrowserPropsSpy.mockClear();
+    testRegistry = createTestActionRegistry({ actions: collectionActions });
+  });
+
+  afterEach(async () => {
+    // Runs BEFORE RTL auto-cleanup (vitest afterEach hooks run in reverse
+    // registration order; auto-cleanup registers in the setup file), so the
+    // menu is still mounted here and can be closed deterministically.
+    await closeMenuAndFlushFocusRestore();
   });
 
   it('renders inspector panel only while an inspectable node is selected', async () => {
@@ -1255,8 +1307,6 @@ describe('CollectionBrowserView', () => {
   });
 
   it('opens context menu on right-click', async () => {
-    const user = userEvent.setup();
-
     render(
       <CollectionBrowserView
         activeCollectionId={null}
@@ -1267,18 +1317,36 @@ describe('CollectionBrowserView', () => {
     );
 
     // No context menu initially
-    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
 
     // Right-click file node
-    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
+    await openContextMenuOn('Right-click first file');
 
-    // Context menu should appear
-    expect(screen.getByTestId('context-menu')).toBeInTheDocument();
+    // Shared action context menu should appear with registry + local actions
+    expect(screen.getByRole('menuitem', { name: 'Copy ID' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Inspect' })).toBeInTheDocument();
+  });
+
+  it('does not open a context menu on group headers', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    // Intentional v1 simplification: group headers map to no context target.
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Right-click group' }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   it('copies and selects context-menu node ids', async () => {
     const user = userEvent.setup();
-    const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
 
     render(
       <CollectionBrowserView
@@ -1289,23 +1357,41 @@ describe('CollectionBrowserView', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
-    await user.click(screen.getByRole('button', { name: 'Copy ID' }));
+    await openContextMenuOn('Right-click first file');
+    // Select is hidden until multi-select is enabled
+    expect(screen.queryByRole('menuitem', { name: 'Select' })).not.toBeInTheDocument();
+    await clickMenuItem('Copy ID');
 
-    expect(writeTextSpy).toHaveBeenCalledWith('1');
-    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(testRegistry.writtenTexts).toEqual(['1']);
+    });
 
     await user.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
-    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
-    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await openContextMenuOn('Right-click first file');
+    await clickMenuItem('Select');
 
     expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
-    expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument();
+  });
+
+  it('copies chunk content from the context menu', async () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    await openContextMenuOn('Right-click first chunk');
+    await clickMenuItem('Copy Content');
+
+    await waitFor(() => {
+      expect(testRegistry.writtenTexts).toEqual(['const one = 1;']);
+    });
   });
 
   it('handles collection and chunk context menu expansion branches', async () => {
-    const user = userEvent.setup();
-
     render(
       <CollectionBrowserView
         activeCollectionId="collection-1"
@@ -1327,17 +1413,20 @@ describe('CollectionBrowserView', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Right-click collection' }));
-    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    await openContextMenuOn('Right-click collection');
+    await clickMenuItem('Expand');
     expect(useCollectionBrowserStore.getState().expandedIds).toContain('collection-current');
 
-    await user.click(screen.getByRole('button', { name: 'Right-click first chunk' }));
-    await user.click(screen.getByRole('button', { name: 'Expand' }));
+    await openContextMenuOn('Right-click first chunk');
+    await clickMenuItem('Expand');
     expect(useCollectionBrowserStore.getState().expandedIds).toContain('chunk-chunk-1');
+
+    // Label flips once the node is expanded
+    await openContextMenuOn('Right-click first chunk');
+    expect(screen.getByRole('menuitem', { name: 'Collapse' })).toBeInTheDocument();
   });
 
   it('expands freshly loaded chunk children from the context menu', async () => {
-    const user = userEvent.setup();
     const loadFileChunkSummaries = vi.fn().mockResolvedValue([
       {
         id: 'loaded-chunk-1',
@@ -1384,14 +1473,16 @@ describe('CollectionBrowserView', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
-    await user.click(screen.getByRole('button', { name: 'Expand All Children' }));
+    await openContextMenuOn('Right-click first file');
+    await clickMenuItem('Expand All Children');
 
+    await waitFor(() => {
+      expect(useCollectionBrowserStore.getState().expandedIds).toEqual([
+        'file-1',
+        'chunk-loaded-chunk-1',
+      ]);
+    });
     expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
-    expect(useCollectionBrowserStore.getState().expandedIds).toEqual([
-      'file-1',
-      'chunk-loaded-chunk-1',
-    ]);
   });
 
   it('loads file chunk summaries when expanding all files from the toolbar', async () => {
@@ -1652,7 +1743,6 @@ describe('CollectionBrowserView', () => {
   });
 
   it('opens the inspector from the context menu when it starts collapsed', async () => {
-    const user = userEvent.setup();
     act(() => {
       useCollectionBrowserStore.getState().setInspectorCollapsed(true);
     });
@@ -1666,8 +1756,8 @@ describe('CollectionBrowserView', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
-    await user.click(screen.getByRole('button', { name: 'Inspect' }));
+    await openContextMenuOn('Right-click first file');
+    await clickMenuItem('Inspect');
 
     expect(useCollectionBrowserStore.getState()).toMatchObject({
       selectedId: 'file-1',

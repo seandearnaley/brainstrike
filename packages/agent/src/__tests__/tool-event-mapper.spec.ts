@@ -54,6 +54,40 @@ describe('mapMastraToolEvent', () => {
     });
   });
 
+  it('maps guarded tool timeout results to error events', () => {
+    const toolNames = new Map<string, string>([['call-1', 'filesystem.search']]);
+    const timeoutResult = {
+      ok: false,
+      error: {
+        code: 'tool_timeout',
+        message:
+          'The tool timed out before returning a result. Try a smaller request or another approach.',
+        toolName: 'filesystem.search',
+      },
+    };
+
+    const chunk = mapMastraToolEvent(
+      {
+        type: 'tool-result',
+        toolCallId: 'call-1',
+        result: timeoutResult,
+      },
+      toolNames
+    );
+
+    expect(chunk).toMatchObject({
+      type: 'tool-event',
+      name: 'filesystem.search',
+      status: 'error',
+      payload: {
+        callId: 'call-1',
+        error: timeoutResult,
+        isError: true,
+        result: timeoutResult,
+      },
+    });
+  });
+
   it('maps tool-call-delta payloads to progress events', () => {
     const toolNames = new Map<string, string>([['call-1', 'filesystem.search']]);
 

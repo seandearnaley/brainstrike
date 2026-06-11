@@ -40,8 +40,12 @@ export interface ProviderGroupConfig {
 
 export interface AssistantUiPanelProps {
   className?: string;
+  /** Full model context window size. Passed to the context meter. */
+  contextWindow?: number | undefined;
   disabled?: boolean;
   disabledReason?: string;
+  /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
+  effectiveInputBudget?: number | undefined;
   onModelChange?: (model: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderChange?: (provider: string) => void;
@@ -49,6 +53,7 @@ export interface AssistantUiPanelProps {
   providers?: ProviderConfig[];
   selectedModel?: string;
   selectedProvider?: string;
+  threadKey?: string | undefined;
 }
 
 export declare const AssistantUiPanel: React.FC<AssistantUiPanelProps>;

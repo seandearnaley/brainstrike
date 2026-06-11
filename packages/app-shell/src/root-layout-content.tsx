@@ -8,7 +8,12 @@ import {
   usePanelLayoutStore,
 } from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
+import {
+  ActionRegistryProvider,
+  IdeLayout,
+  PanelLayoutProvider,
+  type PanelLayoutState,
+} from '@brainstrike/ui';
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
@@ -30,6 +35,7 @@ import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
+import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
@@ -262,6 +268,9 @@ export function RootLayoutContent({
   const setState = usePanelLayoutStore((state) => state.setState);
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([activeTab]));
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
+  // useMemo with [] is correct: the preload bridge exists before React mounts,
+  // so capability detection at first render is stable for the window's lifetime.
+  const actionRegistry = useMemo(() => createAppActionRegistry(), []);
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {
@@ -303,45 +312,47 @@ export function RootLayoutContent({
       {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
           unless a feature explicitly opts into them. */}
-      <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-        <EmbeddingRuntimeProvider>
-          <IndexingActivityCoordinator />
-          <div
-            aria-hidden={activeTab !== 'explorer'}
-            className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-            data-testid="explorer-route"
-          >
-            <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-              <ExplorerAppSurface
-                contextExplorerPageContent={contextExplorerPageContent}
-                contextExplorerPanelContent={contextExplorerPanelContent}
-                databaseTabChunkingMode={databaseTabChunkingMode}
-                loadEmbeddingQueue={loadEmbeddingQueue}
-                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-              />
-            </PanelLayoutProvider>
-          </div>
-          {mountedTabs.has('prompts') ? (
+      <ActionRegistryProvider registry={actionRegistry}>
+        <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
+          <EmbeddingRuntimeProvider>
+            <IndexingActivityCoordinator />
             <div
-              aria-hidden={activeTab !== 'prompts'}
-              className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-              data-testid="prompts-route"
+              aria-hidden={activeTab !== 'explorer'}
+              className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+              data-testid="explorer-route"
             >
-              {promptsPageContent ?? null}
+              <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+                <ExplorerAppSurface
+                  contextExplorerPageContent={contextExplorerPageContent}
+                  contextExplorerPanelContent={contextExplorerPanelContent}
+                  databaseTabChunkingMode={databaseTabChunkingMode}
+                  loadEmbeddingQueue={loadEmbeddingQueue}
+                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                />
+              </PanelLayoutProvider>
             </div>
-          ) : null}
-          {mountedTabs.has('settings') ? (
-            <div
-              aria-hidden={activeTab !== 'settings'}
-              className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
-              data-testid="settings-route"
-            >
-              {settingsPageContent}
-            </div>
-          ) : null}
-        </EmbeddingRuntimeProvider>
-      </ChunkingWorkerProvider>
+            {mountedTabs.has('prompts') ? (
+              <div
+                aria-hidden={activeTab !== 'prompts'}
+                className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
+                data-testid="prompts-route"
+              >
+                {promptsPageContent ?? null}
+              </div>
+            ) : null}
+            {mountedTabs.has('settings') ? (
+              <div
+                aria-hidden={activeTab !== 'settings'}
+                className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
+                data-testid="settings-route"
+              >
+                {settingsPageContent}
+              </div>
+            ) : null}
+          </EmbeddingRuntimeProvider>
+        </ChunkingWorkerProvider>
+      </ActionRegistryProvider>
     </AppLayout>
   );
 }

@@ -449,13 +449,15 @@ describe('PreviewPanel', () => {
 
       // Click on folder header to sort - use the sortable header specifically
       const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
+      const folderSortButton = within(folderHeader).getByRole('button', {
+        name: 'Sort by Folder',
+      });
 
       // Verify header is clickable and has proper attributes
-      expect(folderHeader).toHaveAttribute('scope', 'col');
-      expect(folderHeader).toHaveAttribute('tabIndex', '0');
+      expect(folderSortButton).toHaveAttribute('type', 'button');
 
       // Click to trigger sorting
-      fireEvent.click(folderHeader);
+      fireEvent.click(folderSortButton);
 
       // Verify the header remains interactive after click
       expect(folderHeader).toBeInTheDocument();
@@ -465,32 +467,33 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
+      const folderSortButton = within(folderHeader).getByRole('button', {
+        name: 'Sort by Folder',
+      });
 
       // First click - should trigger sorting
-      fireEvent.click(folderHeader);
+      fireEvent.click(folderSortButton);
       expect(folderHeader).toBeInTheDocument();
 
       // Second click - should toggle direction
-      fireEvent.click(folderHeader);
+      fireEvent.click(folderSortButton);
       expect(folderHeader).toBeInTheDocument();
 
       // Verify the header remains interactive
-      expect(folderHeader).toHaveAttribute('tabIndex', '0');
+      expect(folderSortButton).toHaveAttribute('type', 'button');
     });
 
     it('should sort by tokens ascending and descending', async () => {
       render(<PreviewPanel {...mockProps} />);
 
-      let tokensHeader = screen.getByRole('columnheader', { name: 'Tokens' });
-      fireEvent.click(tokensHeader); // ascending
+      fireEvent.click(screen.getByRole('button', { name: 'Sort by Tokens' })); // ascending
 
       await waitFor(() => {
         const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
         expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
       });
 
-      tokensHeader = screen.getByRole('columnheader', { name: 'Tokens' });
-      fireEvent.click(tokensHeader); // descending
+      fireEvent.click(screen.getByRole('button', { name: 'Sort by Tokens' })); // descending
 
       await waitFor(() => {
         const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
@@ -501,16 +504,14 @@ describe('PreviewPanel', () => {
     it('should sort by size ascending and descending', async () => {
       render(<PreviewPanel {...mockProps} />);
 
-      let sizeHeader = screen.getByRole('columnheader', { name: 'Size' });
-      fireEvent.click(sizeHeader); // ascending
+      fireEvent.click(screen.getByRole('button', { name: 'Sort by Size' })); // ascending
 
       await waitFor(() => {
         const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
         expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
       });
 
-      sizeHeader = screen.getByRole('columnheader', { name: 'Size' });
-      fireEvent.click(sizeHeader); // descending
+      fireEvent.click(screen.getByRole('button', { name: 'Sort by Size' })); // descending
 
       await waitFor(() => {
         const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
@@ -522,8 +523,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Change sort first
-      const pathHeader = screen.getByText('File Path');
-      fireEvent.click(pathHeader);
+      fireEvent.click(screen.getByRole('button', { name: 'Sort by File Path' }));
 
       // Reset sort
       const resetButton = screen.getByTestId('reset-sort-button');
@@ -1270,8 +1270,8 @@ describe('PreviewPanel', () => {
       const headers = screen.getAllByRole('columnheader');
       expect(headers.length).toBeGreaterThan(0);
 
-      // Check that table structure exists
-      expect(screen.getByRole('table')).toBeInTheDocument();
+      // Check that the shared treegrid structure exists
+      expect(screen.getByRole('treegrid', { name: 'Context explorer table' })).toBeInTheDocument();
     });
 
     it('should have proper ARIA labels for group headers', () => {

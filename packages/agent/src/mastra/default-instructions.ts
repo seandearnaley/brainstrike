@@ -1,3 +1,12 @@
+import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
+
+export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
+  if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
+    return null;
+  }
+  return `Context budget: about ${formatTokenCount(budgetTokens)} of input context are available this run. Suggest starting a new thread if context runs low.`;
+}
+
 const HARNESS_FRAMING =
   'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
 
