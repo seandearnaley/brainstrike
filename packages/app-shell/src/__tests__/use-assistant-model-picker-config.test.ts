@@ -114,6 +114,7 @@ describe('useAssistantModelPickerConfig', () => {
         providerId: 'openai',
         name: 'Hosted Default',
         description: null,
+        contextWindow: 200_000,
         capabilities: { type: 'llm', streaming: true },
       },
       {
@@ -121,6 +122,7 @@ describe('useAssistantModelPickerConfig', () => {
         providerId: 'ollama',
         name: 'Llama 3.2',
         description: null,
+        contextWindow: 200_000,
         capabilities: { type: 'llm', streaming: true },
       },
     ]);
