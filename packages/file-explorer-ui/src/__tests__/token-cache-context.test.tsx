@@ -1,13 +1,21 @@
 import type { TokenCacheEntry, TokenCountingMode } from '@brainstrike/token-cache/cache-runtime';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __resetTokenCacheRekeyWipeForTests,
   __resetTokenCacheWorkerInitErrorsForTests,
+  runTokenCacheRekeyWipeOnce,
+  TOKEN_CACHE_REKEY_V5_MARKER,
   type TokenCacheContextValue,
   TokenCacheProvider,
   useOptionalTokenCacheContext,
   useTokenCacheContext,
 } from '../indexing/token-cache-context';
+
+const { tokenCacheStoreInstances } = vi.hoisted(() => ({
+  tokenCacheStoreInstances: [] as { clearAll: ReturnType<typeof vi.fn> }[],
+}));
 
 // Mock dependencies
 vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
@@ -27,8 +35,13 @@ vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
     init = vi.fn().mockResolvedValue(undefined);
   },
   TokenCacheStore: class {
+    clearAll = vi.fn().mockResolvedValue(0);
     get = vi.fn().mockResolvedValue(null);
     set = vi.fn().mockResolvedValue(undefined);
+
+    constructor() {
+      tokenCacheStoreInstances.push(this as unknown as { clearAll: ReturnType<typeof vi.fn> });
+    }
   },
   useTokenCache: vi.fn(() => ({
     getTokenCount: (_folderId: string, _filePath: string) => 100,
@@ -100,6 +113,9 @@ describe('TokenCacheContext', () => {
   afterEach(() => {
     vi.clearAllMocks();
     __resetTokenCacheWorkerInitErrorsForTests();
+    __resetTokenCacheRekeyWipeForTests();
+    localStorage.removeItem(TOKEN_CACHE_REKEY_V5_MARKER);
+    tokenCacheStoreInstances.length = 0;
   });
 
   it('provides token cache context when within provider', async () => {
@@ -505,6 +521,108 @@ describe('TokenCacheContext', () => {
         await expect(result.current.countTextTokens('hello world')).resolves.toBeGreaterThan(0);
       });
       expect(vi.mocked(createTokenCacheWorkerPool)).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('RootId re-key wipe (storage v5)', () => {
+    let logEntries: LogRecord[];
+    let removeLogListener: () => void;
+
+    beforeEach(() => {
+      __resetTokenCacheRekeyWipeForTests();
+      localStorage.removeItem(TOKEN_CACHE_REKEY_V5_MARKER);
+      logEntries = [];
+      removeLogListener = addLogListener((entry) => {
+        logEntries.push(entry);
+      });
+    });
+
+    afterEach(() => {
+      removeLogListener();
+    });
+
+    it('clears the cache exactly once and sets the marker only after the clear resolves', async () => {
+      let resolveClear: (removed: number) => void = () => {};
+      const clearAll = vi.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            resolveClear = resolve;
+          })
+      );
+
+      // Concurrent invocations (StrictMode double-effect analog) must coalesce.
+      const first = runTokenCacheRekeyWipeOnce({ clearAll });
+      const second = runTokenCacheRekeyWipeOnce({ clearAll });
+
+      expect(clearAll).toHaveBeenCalledTimes(1);
+      // Marker must NOT be set while the clear is still in flight.
+      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBeNull();
+
+      resolveClear(3);
+      await Promise.all([first, second]);
+
+      expect(clearAll).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
+    });
+
+    it('does not clear when the marker is already set', async () => {
+      localStorage.setItem(TOKEN_CACHE_REKEY_V5_MARKER, 'true');
+      const clearAll = vi.fn().mockResolvedValue(0);
+
+      await runTokenCacheRekeyWipeOnce({ clearAll });
+
+      expect(clearAll).not.toHaveBeenCalled();
+      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
+    });
+
+    it('logs a warning, leaves the marker unset on clear failure, and retries next boot', async () => {
+      const clearAll = vi.fn().mockRejectedValue(new Error('db unavailable'));
+
+      await runTokenCacheRekeyWipeOnce({ clearAll });
+
+      expect(clearAll).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBeNull();
+      const warnRecords = logEntries.filter((entry) => entry.level === LogLevel.WARN);
+      expect(warnRecords.length).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(warnRecords)).toContain('db unavailable');
+
+      // Simulate the next boot: module state resets, marker still absent → retry.
+      __resetTokenCacheRekeyWipeForTests();
+      clearAll.mockResolvedValue(2);
+
+      await runTokenCacheRekeyWipeOnce({ clearAll });
+
+      expect(clearAll).toHaveBeenCalledTimes(2);
+      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
+    });
+
+    it('runs the wipe through the persistent store when the provider gets a db', async () => {
+      const db = { query: vi.fn() } as any;
+
+      render(
+        <TokenCacheProvider db={db}>
+          <div />
+        </TokenCacheProvider>
+      );
+
+      await waitFor(() => {
+        expect(tokenCacheStoreInstances).toHaveLength(1);
+        expect(tokenCacheStoreInstances[0]?.clearAll).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBe('true');
+      });
+    });
+
+    it('does not wipe or set the marker when only the in-memory store is available', async () => {
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      await waitFor(() => expect(result.current.isOperational).toBe(true));
+
+      expect(tokenCacheStoreInstances).toHaveLength(0);
+      expect(localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER)).toBeNull();
     });
   });
 });
