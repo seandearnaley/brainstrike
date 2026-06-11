@@ -1428,6 +1428,116 @@ describe('multi-root API', () => {
     expect(storedRootId).toMatch(/^[0-9a-f-]{36}$/); // NOT dirHandle.name any more
   });
 
+  describe('addRoot dedupe (isSameEntry)', () => {
+    /**
+     * Stateful cache mock: storeRootHandle records into a Map and
+     * getAllRootHandles returns the live records, so the dedupe scan in
+     * addRoot sees what previous addRoot calls stored.
+     */
+    function createStatefulHandleCache(): {
+      cache: HandleCache;
+      records: Map<string, StoredRootHandle>;
+    } {
+      const records = new Map<string, StoredRootHandle>();
+      const cache = createHandleCache({
+        storeRootHandle: vi.fn(async (folderId: string, handle: FileSystemDirectoryHandle) => {
+          const existing = records.get(folderId);
+          records.set(folderId, {
+            folderId,
+            name: handle.name,
+            handle,
+            storedAt: existing?.storedAt ?? Date.now(),
+            lastAccessedAt: Date.now(),
+          });
+        }),
+        getAllRootHandles: vi.fn(async () => Array.from(records.values())),
+      });
+      return { cache, records };
+    }
+
+    function makeSameEntryAwareDirHandle(name: string): FileSystemDirectoryHandle {
+      const handle = {
+        name,
+        kind: 'directory' as const,
+        entries: vi.fn(),
+        queryPermission: vi.fn().mockResolvedValue('granted'),
+        isSameEntry: vi.fn(async (other: FileSystemHandle) => other === (handle as unknown)),
+      };
+      return handle as unknown as FileSystemDirectoryHandle;
+    }
+
+    it('re-picking the same directory reuses the existing RootId and does not grow the cache', async () => {
+      const dirHandle = makeSameEntryAwareDirHandle('my-project');
+      (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker = vi.fn().mockResolvedValue(dirHandle);
+      const { cache, records } = createStatefulHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache: cache });
+
+      const first = await adapter.addRoot();
+      const second = await adapter.addRoot();
+
+      expect(second.rootId).toBe(first.rootId);
+      expect(records.size).toBe(1);
+      // Reuse mirrors desktop semantics: same descriptor shape, granted, persisted.
+      expect(second.kind).toBe('fsa');
+      expect(second.displayName).toBe('my-project');
+      expect(second.permissionState).toBe('granted');
+      expect(second.persisted).toBe(true);
+      // The fresh handle is re-stored under the existing RootId.
+      expect(cache.storeRootHandle).toHaveBeenCalledTimes(2);
+      expect((cache.storeRootHandle as Mock).mock.calls[1]).toEqual([first.rootId, dirHandle]);
+    });
+
+    it('picking a different directory mints a new RootId', async () => {
+      const firstDir = makeSameEntryAwareDirHandle('project-a');
+      const secondDir = makeSameEntryAwareDirHandle('project-b');
+      const picker = vi.fn().mockResolvedValueOnce(firstDir).mockResolvedValueOnce(secondDir);
+      (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker = picker;
+      const { cache, records } = createStatefulHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache: cache });
+
+      const first = await adapter.addRoot();
+      const second = await adapter.addRoot();
+
+      expect(second.rootId).not.toBe(first.rootId);
+      expect(second.rootId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(records.size).toBe(2);
+    });
+
+    it('skips a stale stored handle whose isSameEntry throws without failing addRoot', async () => {
+      const { cache, records } = createStatefulHandleCache();
+      const staleHandle = {
+        name: 'stale',
+        kind: 'directory' as const,
+        entries: vi.fn(),
+        isSameEntry: vi.fn().mockRejectedValue(new Error('InvalidStateError: handle is dead')),
+      } as unknown as FileSystemDirectoryHandle;
+      records.set('stale-root-id', {
+        folderId: 'stale-root-id',
+        name: 'stale',
+        handle: staleHandle,
+        storedAt: Date.now(),
+        lastAccessedAt: Date.now(),
+      });
+
+      const dirHandle = makeSameEntryAwareDirHandle('fresh-project');
+      (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker = vi.fn().mockResolvedValue(dirHandle);
+      const adapter = new WebFileSystemAdapter({ handleCache: cache });
+
+      const descriptor = await adapter.addRoot();
+
+      expect(descriptor.rootId).not.toBe('stale-root-id');
+      expect(descriptor.rootId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(descriptor.persisted).toBe(true);
+      expect(staleHandle.isSameEntry).toHaveBeenCalled();
+    });
+  });
+
   it('restoreRoots returns one descriptor per stored root with queried permission, never prompting', async () => {
     // two stored roots: one granted, one prompt
     const { adapter } = setupAdapterWithStoredRoots([
