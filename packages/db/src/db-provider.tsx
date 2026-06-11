@@ -681,6 +681,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const deletedFiles = filesRow?.count || 0;
       await tx.query('DELETE FROM file_records');
 
+      // After file_records (the FK child): stale roots would otherwise
+      // survive a clear and resurface as ghost workspaces once consumers
+      // read the roots table.
+      try {
+        await tx.query('DELETE FROM roots');
+      } catch (error) {
+        logger.warn('[DbProvider] Failed to clear roots (table may not exist):', error);
+      }
+
       // Also clear embedding sets and queue to avoid stale state
       try {
         await tx.query('DELETE FROM collection_indexing_stats');
@@ -764,6 +773,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await tx.query('DELETE FROM file_records');
     } catch (err) {
       logger.warn('Failed to clear file_records during reset:', err);
+    }
+    try {
+      // After file_records (the FK child): stale roots would otherwise
+      // survive a reset and resurface as ghost workspaces once consumers
+      // read the roots table.
+      await tx.query('DELETE FROM roots');
+    } catch (err) {
+      logger.warn('Failed to clear roots during reset:', err);
     }
   }, []);
 
