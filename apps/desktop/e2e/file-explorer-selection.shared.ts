@@ -474,12 +474,35 @@ export async function getExpandedDirectoryCount(page: Page): Promise<number> {
   });
 }
 
+/**
+ * Fixed RootId used by every seeded selection fixture (storage v5).
+ *
+ * The app now keys `currentFolderId` / `folderStates` by a durable RootId UUID,
+ * not by the root path. The desktop main process resolves a path to its RootId
+ * via the `rootsList` storage entry (see file-system-ipc.ts `restoreRoots`), so
+ * the seed functions below write a matching `rootsList` entry — the restored
+ * root then carries this exact id and the seeded folder state hydrates.
+ */
+export const E2E_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000001';
+
+/** Fixed addedAt for the seeded rootsList entry — deterministic fixture data. */
+const E2E_ROOT_ADDED_AT = 1_700_000_000_000;
+
 export function createBaseExplorerState(rootPath: string): FileExplorerState {
   return {
     ...DEFAULT_STATE,
-    currentFolderId: rootPath,
+    // Storage v5: identity is the RootId UUID; the path lives in rootDescriptors.
+    activeRootIds: [E2E_ROOT_ID],
+    rootDescriptors: {
+      [E2E_ROOT_ID]: {
+        displayName: path.basename(rootPath),
+        path: rootPath,
+        rootId: E2E_ROOT_ID,
+      },
+    },
+    currentFolderId: E2E_ROOT_ID,
     folderStates: {},
-    folderAccessOrder: [rootPath],
+    folderAccessOrder: [E2E_ROOT_ID],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
     quickFilter: DEFAULT_STATE.quickFilter,
@@ -495,16 +518,17 @@ export function createRestoredExplicitSelectionSnapshot(args: {
   selectedFilePaths: string[];
 }) {
   const { expandedDirectoryPaths, rootPath, selectedFilePaths } = args;
-  const selectedCompositeKeys = selectedFilePaths.map((filePath) => `${rootPath}|@|${filePath}`);
+  // Storage v5: the folderId component of composite keys is the RootId UUID.
+  const selectedCompositeKeys = selectedFilePaths.map((filePath) => `${E2E_ROOT_ID}|@|${filePath}`);
   const explicitSelectionModel = {
     ...createEmptySelectionModel(),
     explicitPaths: new Set(selectedCompositeKeys),
   };
   const state: FileExplorerState = {
     ...createBaseExplorerState(rootPath),
-    currentFolderId: rootPath,
+    currentFolderId: E2E_ROOT_ID,
     folderStates: {
-      [rootPath]: {
+      [E2E_ROOT_ID]: {
         selectedFilePaths: new Set(selectedCompositeKeys),
         selectionModel: explicitSelectionModel,
         expandedDirectoryPaths: new Set(expandedDirectoryPaths),
@@ -520,7 +544,7 @@ export function createRestoredExplicitSelectionSnapshot(args: {
         viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
       },
     },
-    folderAccessOrder: [rootPath],
+    folderAccessOrder: [E2E_ROOT_ID],
     selectedFilePaths: new Set(selectedCompositeKeys),
     expandedDirectoryPaths: new Set(expandedDirectoryPaths),
     includeFilters: [...DEFAULT_STATE.includeFilters],
@@ -571,7 +595,9 @@ export function createRestoredQuerySelectionSnapshot(args: {
   const uniqueSelectedPathCount = new Set([...materializedPaths, ...includedPaths]).size;
   const descriptor = {
     kind: 'recursive-folder' as const,
-    folderId: rootPath,
+    // Storage v5: SelectionQueryDescriptor.folderId is the RootId UUID;
+    // rootPath stays an absolute path (scoping/display only — not identity).
+    folderId: E2E_ROOT_ID,
     rootPath: selectionRootPath,
     coveredDirectoryPaths,
     includeFilters,
@@ -580,7 +606,7 @@ export function createRestoredQuerySelectionSnapshot(args: {
     excludedPaths,
     manifestFingerprint: buildQuerySelectionFingerprint({
       excludeFilters,
-      folderId: rootPath,
+      folderId: E2E_ROOT_ID,
       includeFilters,
       kind: 'recursive-folder',
       rootPath: selectionRootPath,
@@ -593,9 +619,9 @@ export function createRestoredQuerySelectionSnapshot(args: {
 
   const state: FileExplorerState = {
     ...createBaseExplorerState(rootPath),
-    currentFolderId: rootPath,
+    currentFolderId: E2E_ROOT_ID,
     folderStates: {
-      [rootPath]: {
+      [E2E_ROOT_ID]: {
         selectedFilePaths: new Set<string>(),
         selectionModel: {
           ...createEmptySelectionModel(),
@@ -617,7 +643,7 @@ export function createRestoredQuerySelectionSnapshot(args: {
         viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
       },
     },
-    folderAccessOrder: [rootPath],
+    folderAccessOrder: [E2E_ROOT_ID],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set(expandedDirectoryPaths),
     includeFilters: [...includeFilters],
@@ -682,6 +708,11 @@ export async function seedRestoredExplicitSelectionState(args: {
   const nextStorage = {
     ...existingStorage,
     lastFolderPath: rootPath,
+    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
+    // entry, so the restored root carries the same RootId the snapshot is keyed by.
+    rootsList: JSON.stringify([
+      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
+    ]),
     [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
@@ -748,6 +779,11 @@ export async function seedRestoredQuerySelectionState(args: {
   const nextStorage = {
     ...existingStorage,
     lastFolderPath: rootPath,
+    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
+    // entry, so the restored root carries the same RootId the snapshot is keyed by.
+    rootsList: JSON.stringify([
+      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
+    ]),
     [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 

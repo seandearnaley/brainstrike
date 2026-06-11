@@ -1,5 +1,6 @@
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
+import { FILE_EXPLORER_STORAGE_VERSION } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
 import { expect, test } from './fixtures/electron-fixture';
 
 interface BufferedLogRecord {
@@ -13,23 +14,41 @@ interface BufferedLogRecord {
 
 interface PersistedEnvelope<TState> {
   readonly state: TState;
-  readonly version: 1;
+  readonly version: number;
 }
 
 const RESTORED_FOLDER_PATH = '/mock/test/directory';
-const RESTORED_FOLDER_ID = 'directory';
+/** Display name of the restored root (handle.name) — NOT its identity. */
+const RESTORED_FOLDER_NAME = 'directory';
+/**
+ * Fixed RootId for the seeded state (storage v5): currentFolderId, folderStates
+ * keys, and selection composite keys all carry this UUID, never the path. The
+ * seed also writes a matching `rootsList` entry so main's restoreRoots resolves
+ * RESTORED_FOLDER_PATH to this exact id after restart.
+ */
+const RESTORED_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000002';
+const RESTORED_ROOT_ADDED_AT = 1_700_000_000_000;
 const RESTORED_FILE_NAME = 'mock-file1.txt';
 const RESTORED_FILE_PATH = `${RESTORED_FOLDER_PATH}/${RESTORED_FILE_NAME}`;
-const RESTORED_COMPOSITE_KEY = `${RESTORED_FOLDER_ID}|@|${RESTORED_FILE_PATH}`;
-const RESTORED_TAB_ID = `${RESTORED_FOLDER_ID}:${RESTORED_COMPOSITE_KEY}`;
+const RESTORED_COMPOSITE_KEY = `${RESTORED_ROOT_ID}|@|${RESTORED_FILE_PATH}`;
+const RESTORED_TAB_ID = `${RESTORED_ROOT_ID}:${RESTORED_COMPOSITE_KEY}`;
 
 function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> {
   return {
-    version: 1,
+    // Storage v5: older versions are discarded by the migration guard.
+    version: FILE_EXPLORER_STORAGE_VERSION,
     state: {
-      currentFolderId: RESTORED_FOLDER_ID,
+      activeRootIds: [RESTORED_ROOT_ID],
+      rootDescriptors: {
+        [RESTORED_ROOT_ID]: {
+          displayName: RESTORED_FOLDER_NAME,
+          path: RESTORED_FOLDER_PATH,
+          rootId: RESTORED_ROOT_ID,
+        },
+      },
+      currentFolderId: RESTORED_ROOT_ID,
       folderStates: {
-        [RESTORED_FOLDER_ID]: {
+        [RESTORED_ROOT_ID]: {
           selectedFilePaths: [],
           expandedDirectoryPaths: [],
           includeFilters: [...DEFAULT_STATE.includeFilters],
@@ -44,7 +63,7 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
           viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
         },
       },
-      folderAccessOrder: [RESTORED_FOLDER_ID],
+      folderAccessOrder: [RESTORED_ROOT_ID],
       selectedFilePaths: [],
       expandedDirectoryPaths: [],
       includeFilters: [...DEFAULT_STATE.includeFilters],
@@ -95,7 +114,14 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
   const tabState = createPersistedTabState();
 
   await page.evaluate(
-    async ({ nextFileExplorerState, nextTabState, restoredFolderId, restoredFolderPath }) => {
+    async ({
+      nextFileExplorerState,
+      nextTabState,
+      restoredFolderName,
+      restoredFolderPath,
+      restoredRootAddedAt,
+      restoredRootId,
+    }) => {
       localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
 
       const fileExplorerStore = (
@@ -140,11 +166,11 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
       };
 
       fileExplorerStore.setState({
-        currentFolderId: restoredFolderId,
+        currentFolderId: restoredRootId,
         folderStates: {
-          [restoredFolderId]: runtimeFolderState,
+          [restoredRootId]: runtimeFolderState,
         },
-        folderAccessOrder: [restoredFolderId],
+        folderAccessOrder: [restoredRootId],
         selectedFilePaths: new Set<string>(),
         expandedDirectoryPaths: new Set<string>(),
         includeFilters: [...nextFileExplorerState.state.includeFilters],
@@ -168,20 +194,31 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
         isFiltersExpanded: nextFileExplorerState.state.isFiltersExpanded ?? true,
         rootDirectoryHandle: {
           path: restoredFolderPath,
-          name: restoredFolderId,
+          name: restoredFolderName,
           kind: 'directory',
           platform: 'electron',
         },
       });
 
       await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
+      // Storage v5: write the rootsList entry FIRST with the fixed RootId so the
+      // saveLastFolder upsert below finds the path and keeps our id (it only
+      // inserts a random-UUID entry when the path is absent).
+      await api.storage.setItem(
+        'rootsList',
+        JSON.stringify([
+          { addedAt: restoredRootAddedAt, path: restoredFolderPath, rootId: restoredRootId },
+        ])
+      );
       await api.fileSystem.saveLastFolder(restoredFolderPath);
     },
     {
       nextFileExplorerState: fileExplorerState,
       nextTabState: tabState,
-      restoredFolderId: RESTORED_FOLDER_ID,
+      restoredFolderName: RESTORED_FOLDER_NAME,
       restoredFolderPath: RESTORED_FOLDER_PATH,
+      restoredRootAddedAt: RESTORED_ROOT_ADDED_AT,
+      restoredRootId: RESTORED_ROOT_ID,
     }
   );
 }
