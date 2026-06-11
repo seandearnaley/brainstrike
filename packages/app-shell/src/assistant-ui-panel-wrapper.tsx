@@ -1,12 +1,9 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
-  getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
   type ProviderModelDefinition,
-  type ProviderRuntime,
   type SupportedProvider,
-  supportsStandardEmbeddingDimension,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
@@ -32,20 +29,12 @@ import type {
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
   type AssistantProviderSettingsUpdate,
-  type AssistantToolMenuConfig,
   type AssistantToolMenuItem,
   AssistantUiPanel,
-  type ModelPickerModel,
-  type ModelPickerProvider,
-  type ProviderGroupConfig,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import {
-  type AssistantForegroundActivityLease,
-  acquireAssistantForegroundActivity,
-} from './assistant-foreground-activity';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -55,16 +44,12 @@ import {
   addValuesToSet,
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
-  buildAssistantRequestData,
   buildAssistantTapestryRange,
   buildDraftRuntimeForProvider,
   buildEnabledModelIdSet,
-  buildMcpMenuItems,
   buildModelSettings,
   buildProviderOptions,
   copyProviderSettingsMap,
-  createAssistantThreadRunPromise,
-  extractPreparedRunId,
   findFirstProviderWithEnabledModels,
   formatToolLabel,
   getBuiltInLocalPreferenceModelIds,
@@ -73,13 +58,7 @@ import {
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LlmProviderModelDefinition,
-  LOCAL_RUNTIME_PROVIDER_IDS,
-  type LocalRuntimeModelCatalogMap,
   type LocalRuntimeProviderId,
-  type LocalRuntimeStatusMap,
-  type McpAction,
-  type McpToolMap,
-  mcpReducer,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveLocalRuntimeSelection,
@@ -90,6 +69,11 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
+import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
+import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
+import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
+import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -110,13 +94,6 @@ declare global {
 }
 
 // App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
-const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
-  hosted: 'Hosted',
-  gateway: 'Gateway',
-  local: 'Local',
-  browser: 'Browser',
-};
-
 function resolveProviderFromComposite(
   composite: string | null | undefined
 ): SupportedProvider | null {
@@ -145,12 +122,6 @@ export function AssistantUiPanelWrapper({
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
   );
-  const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
-    null
-  );
-  const [localRuntimeModels, setLocalRuntimeModels] = useState<LocalRuntimeModelCatalogMap | null>(
-    null
-  );
 
   const {
     setModel,
@@ -162,6 +133,10 @@ export function AssistantUiPanelWrapper({
     getSelectedProvider,
     setProviderSettings,
   } = useAssistantPreferencesStore();
+  const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
+    getLocalRuntimeModels,
+    getLocalRuntimeStatuses,
+  });
   const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
   const draftRuntimeByThreadId = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
@@ -191,23 +166,6 @@ export function AssistantUiPanelWrapper({
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const [mcpState, dispatchMcp] = useReducer(mcpReducer, { tools: [], loading: false });
-  const mcpTools = mcpState.tools;
-  const mcpLoading = mcpState.loading;
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const dispatchMcpIfMounted = useCallback((action: McpAction) => {
-    if (isMountedRef.current) {
-      dispatchMcp(action);
-    }
-  }, []);
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -641,71 +599,6 @@ export function AssistantUiPanelWrapper({
       }),
     [nativeToolStates]
   );
-  const enabledNativeToolIds = useMemo(
-    () => nativeToolItems.filter((tool) => tool.enabled !== false).map((tool) => tool.id),
-    [nativeToolItems]
-  );
-
-  const loadMcpTools = useCallback(async () => {
-    if (typeof window === 'undefined' || !window.mcp?.listTools) {
-      dispatchMcpIfMounted({ type: 'LOADED', tools: [] });
-      return;
-    }
-
-    dispatchMcpIfMounted({ type: 'LOADING' });
-    try {
-      const toolsByServer = (await window.mcp.listTools()) as McpToolMap;
-      dispatchMcpIfMounted({ type: 'LOADED', tools: buildMcpMenuItems(toolsByServer) });
-    } catch {
-      dispatchMcpIfMounted({ type: 'ERROR' });
-    }
-  }, [dispatchMcpIfMounted]);
-
-  useEffect(() => {
-    void loadMcpTools();
-  }, [loadMcpTools]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.mcp?.onToolsUpdated) {
-      return;
-    }
-
-    return window.mcp.onToolsUpdated((toolsByServer: McpToolMap) => {
-      dispatchMcpIfMounted({ type: 'LOADED', tools: buildMcpMenuItems(toolsByServer) });
-    });
-  }, [dispatchMcpIfMounted]);
-
-  const toolMenuItems = useMemo(
-    () => [...nativeToolItems, ...mcpTools],
-    [nativeToolItems, mcpTools]
-  );
-
-  const toolSourceById = useMemo(() => {
-    const entries = toolMenuItems.map((tool) => [tool.id, tool.source] as const);
-    return new Map(entries);
-  }, [toolMenuItems]);
-
-  const handleToggleTool = useCallback(
-    async (toolId: string, enabled: boolean) => {
-      const source = toolSourceById.get(toolId);
-      if (!source) {
-        return;
-      }
-      if (source === 'native') {
-        setNativeToolEnabled(toolId, enabled);
-        return;
-      }
-
-      if (enabled) {
-        await window.mcp?.enableTools?.([toolId]);
-      } else {
-        await window.mcp?.disableTools?.([toolId]);
-      }
-      await loadMcpTools();
-    },
-    [toolSourceById, setNativeToolEnabled, loadMcpTools]
-  );
-
   const handleOpenToolSettings = useCallback(() => {
     setActiveTab('settings');
     if (typeof window !== 'undefined') {
@@ -713,30 +606,11 @@ export function AssistantUiPanelWrapper({
     }
   }, [setActiveTab]);
 
-  const canRefreshMcp =
-    typeof window !== 'undefined' && typeof window.mcp?.listTools === 'function';
-
-  const toolMenu = useMemo<AssistantToolMenuConfig>(() => {
-    const summary = toolMenuItems.length
-      ? `${toolMenuItems.filter((tool) => tool.enabled).length} of ${toolMenuItems.length} enabled`
-      : undefined;
-
-    return {
-      items: toolMenuItems,
-      isLoading: mcpLoading,
-      onToggleTool: handleToggleTool,
-      onOpenSettings: handleOpenToolSettings,
-      ...(summary ? { summary } : {}),
-      ...(canRefreshMcp ? { onRefresh: loadMcpTools } : {}),
-    };
-  }, [
-    canRefreshMcp,
-    handleOpenToolSettings,
-    handleToggleTool,
-    loadMcpTools,
-    mcpLoading,
-    toolMenuItems,
-  ]);
+  const { enabledNativeToolIds, toolMenu } = useAssistantMcpMenuState({
+    nativeToolItems,
+    onOpenToolSettings: handleOpenToolSettings,
+    setNativeToolEnabled,
+  });
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
   const workspaceIndexEmbeddingSetId = useBackgroundIndexingPreferencesStore(
@@ -815,149 +689,34 @@ export function AssistantUiPanelWrapper({
     });
   }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
 
-  const runtimeMemorySettings = useMemo(
-    () => ({
-      observationalMemory: observationalMemorySettings,
-      semanticRecall: semanticRecallSettings,
-    }),
-    [observationalMemorySettings, semanticRecallSettings]
-  );
+  const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
+    agentLoopSettings,
+    enabledNativeToolIds,
+    hostedMemoryBackendAvailable,
+    memoryOptions: assistantMemoryOptions,
+    memoryResourceId,
+    modelSettings,
+    observationalMemorySettings,
+    providerOptions,
+    runtimeWorkspaceContext,
+    selectedMemoryThreadId,
+    selectionData,
+    semanticRecallSettings,
+    workspaceIndex,
+    workspaceRootPath,
+  });
 
-  const requestData = useMemo(
-    () =>
-      buildAssistantRequestData({
-        agentLoopSettings,
-        enabledNativeToolIds,
-        hostedMemoryBackendAvailable,
-        memoryOptions: assistantMemoryOptions,
-        memoryResourceId,
-        memorySettings: runtimeMemorySettings,
-        modelSettings,
-        providerOptions,
-        selectedMemoryThreadId,
-        selectionData,
-        workspaceContext: runtimeWorkspaceContext,
-        workspaceIndex,
-        workspaceRootPath,
-      }),
-    [
-      agentLoopSettings,
-      assistantMemoryOptions,
-      enabledNativeToolIds,
-      hostedMemoryBackendAvailable,
-      memoryResourceId,
-      modelSettings,
-      providerOptions,
-      runtimeMemorySettings,
-      selectedMemoryThreadId,
-      selectionData,
-      runtimeWorkspaceContext,
-      workspaceIndex,
-      workspaceRootPath,
-    ]
-  );
-
-  const assistantForegroundActivityLeaseByRunIdRef = useRef(
-    new Map<string, AssistantForegroundActivityLease>()
-  );
-  // The run currently streaming (runs are serialized per panel). Stream
-  // activity renews ONLY this run's lease — renewing all leases would let an
-  // unrelated active run keep a leaked sibling lease alive indefinitely.
-  const activeAssistantForegroundRunIdRef = useRef<string | null>(null);
-  useEffect(
-    () => () => {
-      for (const lease of assistantForegroundActivityLeaseByRunIdRef.current.values()) {
-        lease.release();
-      }
-      assistantForegroundActivityLeaseByRunIdRef.current.clear();
-      activeAssistantForegroundRunIdRef.current = null;
-    },
-    []
-  );
-  const renewActiveAssistantForegroundActivity = useCallback(() => {
-    const runId = activeAssistantForegroundRunIdRef.current;
-    if (!runId) {
-      return;
-    }
-    assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.renew();
-  }, []);
-
-  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
-    const runId = await createAssistantThreadRunPromise({
+  const { completePreparedRequest, prepareRequestData, renewActiveAssistantForegroundActivity } =
+    useAssistantRequestLifecycle({
       assistantThreadRepository,
       memoryResourceId,
       modelSettings,
       providerOptions,
+      requestData,
       resolvedModelName,
       selectedMemoryThreadId,
       selectedProvider,
     });
-    const memoryContext = requestData['memory'];
-    if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
-      throw new Error('Assistant request preparation requires Mastra memory context.');
-    }
-    if (runId) {
-      assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
-      assistantForegroundActivityLeaseByRunIdRef.current.set(
-        runId,
-        acquireAssistantForegroundActivity({
-          onExpired: () => {
-            assistantForegroundActivityLeaseByRunIdRef.current.delete(runId);
-            if (activeAssistantForegroundRunIdRef.current === runId) {
-              activeAssistantForegroundRunIdRef.current = null;
-            }
-          },
-        })
-      );
-      activeAssistantForegroundRunIdRef.current = runId;
-    }
-
-    return {
-      ...requestData,
-      memory: {
-        ...memoryContext,
-        ...(runId ? { runId } : {}),
-      },
-    };
-  }, [
-    assistantThreadRepository,
-    memoryResourceId,
-    modelSettings,
-    providerOptions,
-    requestData,
-    resolvedModelName,
-    selectedMemoryThreadId,
-    selectedProvider,
-  ]);
-
-  const completePreparedRequest = useCallback(
-    async (
-      preparedRequestData: Record<string, unknown> | undefined,
-      status: 'cancelled' | 'completed' | 'failed',
-      error?: string
-    ): Promise<void> => {
-      const runId = extractPreparedRunId(preparedRequestData);
-      if (!runId) {
-        return;
-      }
-      if (!assistantThreadRepository) {
-        throw new Error('Assistant run completion requires an active thread repository.');
-      }
-      try {
-        await assistantThreadRepository.completeThreadRun(runId, {
-          status,
-          ...(error ? { error } : {}),
-        });
-      } finally {
-        assistantForegroundActivityLeaseByRunIdRef.current.get(runId)?.release();
-        assistantForegroundActivityLeaseByRunIdRef.current.delete(runId);
-        if (activeAssistantForegroundRunIdRef.current === runId) {
-          activeAssistantForegroundRunIdRef.current = null;
-        }
-      }
-    },
-    [assistantThreadRepository]
-  );
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1017,122 +776,6 @@ export function AssistantUiPanelWrapper({
     };
     // secretsVersion triggers re-check when API keys are added/removed
   }, [initialProviders, getAvailableProviders, secretsVersion]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLocalRuntimeStatuses({
-      ollama: { state: 'checking' },
-      lmstudio: { state: 'checking' },
-    });
-
-    void getLocalRuntimeStatuses()
-      .then((statuses) => {
-        if (!cancelled) {
-          setLocalRuntimeStatuses(statuses);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          const fallback = {
-            state: 'unavailable' as const,
-            checkedAt: Date.now(),
-            message: 'Local runtime probe failed',
-          };
-          setLocalRuntimeStatuses({
-            ollama: fallback,
-            lmstudio: fallback,
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getLocalRuntimeStatuses]);
-
-  useEffect(() => {
-    if (!localRuntimeStatuses) {
-      return;
-    }
-    const isCheckingStatuses = LOCAL_RUNTIME_PROVIDER_IDS.some(
-      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'checking'
-    );
-    if (isCheckingStatuses) {
-      return;
-    }
-    const hasReachableRuntime = LOCAL_RUNTIME_PROVIDER_IDS.some((runtimeId) => {
-      const state = localRuntimeStatuses[runtimeId].state;
-      return state === 'available' || state === 'stale';
-    });
-    if (!hasReachableRuntime) {
-      setLocalRuntimeModels(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    void getLocalRuntimeModels()
-      .then((catalog) => {
-        if (!cancelled) {
-          setLocalRuntimeModels(catalog);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLocalRuntimeModels(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getLocalRuntimeModels, localRuntimeStatuses]);
-
-  const localRuntimeHint = useMemo(() => {
-    if (!localRuntimeStatuses) {
-      return;
-    }
-
-    const labelByRuntime = {
-      ollama: 'Ollama',
-      lmstudio: 'LM Studio',
-    } as const;
-
-    const detected = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>)
-      .filter((runtimeId) => {
-        const status = localRuntimeStatuses[runtimeId];
-        return status.state === 'available' || status.state === 'stale';
-      })
-      .map((runtimeId) => {
-        const modelState = localRuntimeModels?.[runtimeId];
-        if (modelState?.state === 'loaded_non_empty' || modelState?.state === 'stale_cached') {
-          return `${labelByRuntime[runtimeId]} (${modelState.models.length} models)`;
-        }
-        if (modelState?.state === 'loaded_empty') {
-          return `${labelByRuntime[runtimeId]} (no models)`;
-        }
-        return labelByRuntime[runtimeId];
-      });
-
-    if (detected.length > 0) {
-      return `Detected local runtime: ${detected.join(' + ')} on localhost.`;
-    }
-
-    const blockedRuntime = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>).find(
-      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'blocked_web'
-    );
-    if (blockedRuntime) {
-      return `${labelByRuntime[blockedRuntime]} probe was blocked by browser networking policy.`;
-    }
-
-    const checking = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>).some(
-      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'checking'
-    );
-    if (checking) {
-      return 'Checking local runtime availability on localhost.';
-    }
-    return;
-  }, [localRuntimeStatuses, localRuntimeModels]);
 
   const shouldSkipSelectionReconcile = useCallback(
     (currentProvider: SupportedProvider | null) =>
@@ -1314,97 +957,11 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
-  const providerGroups = useMemo<ProviderGroupConfig[]>(() => {
-    const runtimeOrder: ProviderRuntime[] = ['hosted', 'gateway', 'local', 'browser'];
-    const groups = new Map<ProviderRuntime, ProviderGroupConfig>();
-
-    runtimeOrder.forEach((runtime) => {
-      groups.set(runtime, {
-        runtime,
-        label: RUNTIME_LABELS[runtime] ?? runtime,
-        providers: [],
-      });
-    });
-
-    for (const providerId of configuredProviders) {
-      const definition = getProviderDefinition(providerId);
-      const runtime = definition.runtime;
-      const modelDefinitions = getProviderLlmModels(providerId);
-
-      const models = modelDefinitions.map((model: LlmProviderModelDefinition) => ({
-        id: model.id,
-        label: model.label ?? model.id,
-        type: 'llm' as const,
-        enabled: isModelEnabled(providerId, model.id),
-        default: Boolean(model.default),
-        supportsStreaming: Boolean(model.supportsStreaming),
-      }));
-
-      const group = groups.get(runtime);
-      if (!group) {
-        continue;
-      }
-
-      group.providers.push({
-        id: providerId,
-        name: definition.displayName,
-        runtime,
-        capabilities: {
-          ...definition.capabilities,
-          supportsStandardEmbeddingDimension: supportsStandardEmbeddingDimension(providerId),
-        },
-        models,
-      });
-    }
-
-    return runtimeOrder
-      .map((runtime) => groups.get(runtime))
-      .filter((group): group is ProviderGroupConfig =>
-        Boolean(group && group.providers.length > 0)
-      );
-  }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
-
-  // Transform provider groups to ModelPicker-compatible format
-  const pickerProviders = useMemo<ModelPickerProvider[]>(() => {
-    return configuredProviders.map((providerId) => {
-      const definition = getProviderDefinition(providerId);
-      return {
-        id: providerId,
-        name: definition.displayName,
-        icon: null, // Icons are handled by the ModelPicker's internal icon mapping
-      };
-    });
-  }, [configuredProviders]);
-
-  // Transform models to ModelPicker-compatible format (only enabled LLM models)
-  const pickerModels = useMemo<ModelPickerModel[]>(() => {
-    const models: ModelPickerModel[] = [];
-
-    for (const providerId of configuredProviders) {
-      const modelDefinitions = getProviderLlmModels(providerId);
-
-      for (const model of modelDefinitions) {
-        // Check enabled status using the unified helper
-        if (!isModelEnabled(providerId, model.id)) {
-          continue;
-        }
-
-        models.push({
-          capabilities: {
-            streaming: model.supportsStreaming ?? false,
-            type: 'llm',
-          },
-          contextWindow: model.contextWindow,
-          description: null, // LLM models don't have descriptions in the agent definitions
-          id: model.id,
-          name: model.label ?? model.id,
-          providerId,
-        });
-      }
-    }
-
-    return models;
-  }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
+  const { pickerModels, pickerProviders, providerGroups } = useAssistantModelPickerConfig({
+    configuredProviders,
+    getProviderLlmModels,
+    isModelEnabled,
+  });
 
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)

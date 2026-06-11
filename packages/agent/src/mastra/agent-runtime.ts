@@ -8,6 +8,10 @@ import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
+import {
+  type AssistantResilienceConfig,
+  resolveAssistantResilienceConfig,
+} from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import type {
@@ -16,6 +20,8 @@ import type {
   AssistantRunEventStatus,
 } from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
+import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import { applyToolGuards } from '../tools/guard-tool-execution';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -57,6 +63,7 @@ export interface MastraAgentRuntime {
   agent: Agent;
   dispose: () => Promise<void>;
   mcpClient?: MCPClient;
+  resilienceConfig: AssistantResilienceConfig;
   toolNameMap: Map<string, string>;
 }
 
@@ -205,6 +212,13 @@ export async function createMastraAgentRuntime(
     toolNameMap,
     timeoutOverrideMs: mcpTimeoutMs,
   });
+  const resilienceConfig = resolveAssistantResilienceConfig();
+  // Intentional global guard: every native and MCP tool execution shares this
+  // ceiling so a single slow tool cannot freeze the assistant stream.
+  const guardedTools = applyToolGuards(combinedTools, {
+    logger,
+    timeoutMs: resilienceConfig.toolTimeoutMs,
+  });
 
   // Create provider-specific model instance
   const modelName = model ?? getDefaultModel(normalizedProvider);
@@ -224,7 +238,7 @@ export async function createMastraAgentRuntime(
     name: 'Brainstrike Assistant',
     instructions: budgetNote ? `${resolvedInstructions}\n${budgetNote}` : resolvedInstructions,
     model: languageModel,
-    tools: combinedTools,
+    tools: guardedTools,
     ...(memory ? { memory } : {}),
   });
 
@@ -242,6 +256,7 @@ export async function createMastraAgentRuntime(
       await mastra?.shutdown();
       await mcpClient?.disconnect();
     },
+    resilienceConfig,
     toolNameMap,
     ...(mcpClient ? { mcpClient } : {}),
   };
@@ -882,6 +897,28 @@ function makeProviderErrorTermination(
   };
 }
 
+function makeStreamStalledTermination(
+  error: StreamStalledError,
+  lifecycleState: ToolLifecycleState
+): StreamChunk[] {
+  logger.error('mastra stream stalled by inactivity timeout', {
+    code: 'mastra_agent_stream_inactivity_timeout',
+    inactivityMs: error.inactivityMs,
+  });
+  return [
+    ...makePendingToolOutputRunEventChunks(lifecycleState),
+    {
+      type: 'text-delta',
+      value: `The model stream stalled after ${error.inactivityMs}ms without output.`,
+    },
+    makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
+      code: error.code,
+      inactivityMs: error.inactivityMs,
+    }),
+    makeErrorFinishChunk(),
+  ];
+}
+
 function extractErrorMessage(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return;
@@ -1111,7 +1148,11 @@ async function* streamChunksFromMastra({
   };
 
   try {
-    for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
+    const source = withInactivityTimeout(
+      readableStreamIterator(stream, runtimeData?.signal),
+      runtime.resilienceConfig.streamInactivityMs
+    );
+    for await (const part of source) {
       const { chunks, finished } = processMastraStreamPart(
         part,
         toolNames,
@@ -1135,6 +1176,17 @@ async function* streamChunksFromMastra({
       }
       yield makeSyntheticFinishChunk();
     }
+  } catch (error) {
+    if (error instanceof StreamStalledError) {
+      if (runtimeData?.signal?.aborted) {
+        return;
+      }
+      for (const chunk of makeStreamStalledTermination(error, lifecycleState)) {
+        yield chunk;
+      }
+      return;
+    }
+    throw error;
   } finally {
     if (runtimeData?.signal?.aborted) {
       logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });

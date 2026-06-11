@@ -197,42 +197,36 @@ When changing this flow, update this doc.
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
-net below is LIVE. Two server-side resilience layers (per-tool guard + stream
-watchdog) exist as utilities but are **deliberately UNWIRED from the live path** —
-see the warning below before re-wiring them.
+net and the two server-side resilience layers below are LIVE.
 
 1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
-   and rethrow (never swallows). This is the only resilience layer currently
-   active on the assistant path.
+   and rethrow (never swallows).
 
-2. **Per-tool guard (UTILITY ONLY — NOT WIRED)** —
-   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` is meant
-   to wrap every tool at `collectCombinedTools` and resolve timeouts/throws to a
-   structured `GuardedToolError`. It is NOT currently called: `collectCombinedTools`
-   in `mcp-tool-loader.ts` matches `main` and does no guard wrapping.
+2. **Per-tool guard (LIVE)** —
+   `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
+   the combined Mastra tool map in `createMastraAgentRuntime` after local and MCP
+   tools are sanitized/discovered. Tool timeouts and throws resolve to structured
+   `GuardedToolError` payloads; guarded timeout/failure payloads are surfaced as
+   failed tool events, not successful completions.
 
-3. **Stream inactivity watchdog (UTILITY ONLY — NOT WIRED)** —
+3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
-   `StreamStalledError`). Meant to wrap the Mastra iterator in
-   `streamChunksFromMastra`. It is NOT currently applied: `agent-runtime.ts`
-   iterates the raw stream directly, matching `main`.
+   `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
+   A stream stall emits a visible assistant message, a terminal `run.failed`
+   event, and an error finish so the renderer does not remain in-flight forever.
 
-> **DO NOT re-wire layers 2/3 without LIVE validation.** A prior attempt wired the
-> guard + watchdog into the live path and BROKE real Mastra tool calling
-> (hosted-provider tools silently stopped executing) while every unit/e2e test
-> stayed green. Root cause: ALL agent tests mock `@mastra/core/agent` and inject
-> pre-baked stream parts, and desktop e2e mocks `fetch` — so NOTHING exercises
-> real Mastra tool execution. The wrapping was reverted. Before reintroducing
-> either layer you MUST add coverage that runs the actual Mastra agent loop end to
-> end (real tool `execute`), not mocked stream parts. The modules and
-> `resilience-config.ts` are kept so this can be done deliberately later.
+> **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
+> the live path and BROKE real Mastra tool calling (hosted-provider tools silently
+> stopped executing) while mocked tests stayed green. Future changes to these
+> layers MUST preserve coverage that runs the actual Mastra agent loop end to end
+> with real tool `execute`, not only mocked stream parts. The current proof lives
+> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts`.
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
-defined in `packages/agent/src/config/resilience-config.ts`, consumed only when the
-layers are wired:
-- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000)
+defined in `packages/agent/src/config/resilience-config.ts`:
+- `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
 - Invariant: tool timeout < stream inactivity.
 
