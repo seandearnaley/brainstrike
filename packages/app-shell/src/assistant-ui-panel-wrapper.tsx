@@ -1,12 +1,9 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
-  getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
   type ProviderModelDefinition,
-  type ProviderRuntime,
   type SupportedProvider,
-  supportsStandardEmbeddingDimension,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
@@ -34,9 +31,6 @@ import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
-  type ModelPickerModel,
-  type ModelPickerProvider,
-  type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -75,6 +69,7 @@ import {
 } from './assistant-ui-panel-wrapper-runtime';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
+import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 
@@ -97,13 +92,6 @@ declare global {
 }
 
 // App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
-const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
-  hosted: 'Hosted',
-  gateway: 'Gateway',
-  local: 'Local',
-  browser: 'Browser',
-};
-
 function resolveProviderFromComposite(
   composite: string | null | undefined
 ): SupportedProvider | null {
@@ -944,96 +932,11 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
-  const providerGroups = useMemo<ProviderGroupConfig[]>(() => {
-    const runtimeOrder: ProviderRuntime[] = ['hosted', 'gateway', 'local', 'browser'];
-    const groups = new Map<ProviderRuntime, ProviderGroupConfig>();
-
-    runtimeOrder.forEach((runtime) => {
-      groups.set(runtime, {
-        runtime,
-        label: RUNTIME_LABELS[runtime] ?? runtime,
-        providers: [],
-      });
-    });
-
-    for (const providerId of configuredProviders) {
-      const definition = getProviderDefinition(providerId);
-      const runtime = definition.runtime;
-      const modelDefinitions = getProviderLlmModels(providerId);
-
-      const models = modelDefinitions.map((model: LlmProviderModelDefinition) => ({
-        id: model.id,
-        label: model.label ?? model.id,
-        type: 'llm' as const,
-        enabled: isModelEnabled(providerId, model.id),
-        default: Boolean(model.default),
-        supportsStreaming: Boolean(model.supportsStreaming),
-      }));
-
-      const group = groups.get(runtime);
-      if (!group) {
-        continue;
-      }
-
-      group.providers.push({
-        id: providerId,
-        name: definition.displayName,
-        runtime,
-        capabilities: {
-          ...definition.capabilities,
-          supportsStandardEmbeddingDimension: supportsStandardEmbeddingDimension(providerId),
-        },
-        models,
-      });
-    }
-
-    return runtimeOrder
-      .map((runtime) => groups.get(runtime))
-      .filter((group): group is ProviderGroupConfig =>
-        Boolean(group && group.providers.length > 0)
-      );
-  }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
-
-  // Transform provider groups to ModelPicker-compatible format
-  const pickerProviders = useMemo<ModelPickerProvider[]>(() => {
-    return configuredProviders.map((providerId) => {
-      const definition = getProviderDefinition(providerId);
-      return {
-        id: providerId,
-        name: definition.displayName,
-        icon: null, // Icons are handled by the ModelPicker's internal icon mapping
-      };
-    });
-  }, [configuredProviders]);
-
-  // Transform models to ModelPicker-compatible format (only enabled LLM models)
-  const pickerModels = useMemo<ModelPickerModel[]>(() => {
-    const models: ModelPickerModel[] = [];
-
-    for (const providerId of configuredProviders) {
-      const modelDefinitions = getProviderLlmModels(providerId);
-
-      for (const model of modelDefinitions) {
-        // Check enabled status using the unified helper
-        if (!isModelEnabled(providerId, model.id)) {
-          continue;
-        }
-
-        models.push({
-          id: model.id,
-          providerId,
-          name: model.label ?? model.id,
-          description: null, // LLM models don't have descriptions in the agent definitions
-          capabilities: {
-            type: 'llm',
-            streaming: model.supportsStreaming ?? false,
-          },
-        });
-      }
-    }
-
-    return models;
-  }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
+  const { pickerModels, pickerProviders, providerGroups } = useAssistantModelPickerConfig({
+    configuredProviders,
+    getProviderLlmModels,
+    isModelEnabled,
+  });
 
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
