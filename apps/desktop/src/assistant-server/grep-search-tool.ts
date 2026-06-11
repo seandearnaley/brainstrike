@@ -84,10 +84,14 @@ function buildFilesResult(serviceResult: GrepSearchResult, offset: number): Grep
     // Truncated when files were dropped (by paging or budget fitting) or the
     // service hit its internal match cap (per-file counts may be incomplete).
     const truncated = files.length + offset < allFiles.length || serviceResult.truncated;
+    // A continuation hint must always ADVANCE: if even one summary cannot fit
+    // the budget, skip past it rather than re-suggesting the same offset.
+    const nextOffset =
+      files.length === 0 && pagedFiles.length > 0 ? offset + 1 : offset + files.length;
     const hint =
       truncated || serviceResult.candidatesTruncated
         ? `Showing ${files.length} of ${allFiles.length} matching files. ` +
-          `Continue with offset: ${offset + files.length}, or call again with outputMode: 'content' and ` +
+          `Continue with offset: ${nextOffset}, or call again with outputMode: 'content' and ` +
           'filePaths set to the most relevant paths to see the matching lines.'
         : undefined;
     return {
@@ -105,20 +109,59 @@ function buildFilesResult(serviceResult: GrepSearchResult, offset: number): Grep
   return result;
 }
 
+function buildContentHint(
+  serviceResult: GrepSearchResult,
+  offset: number,
+  shownCount: number,
+  hadPageItems: boolean,
+  serviceCap: number
+): string | undefined {
+  const truncated = offset + shownCount < serviceResult.totalMatches;
+  if (!truncated) {
+    return;
+  }
+  // A single match (long line × contextLines) can exceed the whole budget; a
+  // hint repeating the same offset would loop the model. Skip past it.
+  if (shownCount === 0 && hadPageItems) {
+    return (
+      `The match at offset ${offset} is too large to display within the output budget ` +
+      `(very long line). Continue with offset: ${offset + 1} and contextLines: 0, or scope with filePaths.`
+    );
+  }
+  const nextOffset = offset + shownCount;
+  // The service only materializes serviceCap matches, so offsets at/beyond the
+  // cap can never return more data — make the cap terminal instead of
+  // suggesting an offset that yields the same empty page.
+  if (nextOffset >= serviceCap) {
+    return (
+      `Pagination cap reached (${serviceCap} of ${serviceResult.totalMatches} matches reachable by offset). ` +
+      'Narrow with filePaths or a more specific pattern to see the remaining matches.'
+    );
+  }
+  return (
+    `Showing matches ${offset + 1}-${nextOffset} of ${serviceResult.totalMatches}. ` +
+    `Continue with offset: ${nextOffset}, scope with filePaths, or set contextLines: 0 ` +
+    'to fit more matches per call.'
+  );
+}
+
 function buildContentResult(
   serviceResult: GrepSearchResult,
   offset: number,
-  requestedMatches: number
+  requestedMatches: number,
+  serviceCap: number
 ): GrepContentToolResult {
   const pagedMatches = serviceResult.matches.slice(offset, offset + requestedMatches);
 
   const { result } = fitItemsToCharBudget(pagedMatches, (matches): GrepContentToolResult => {
     const truncated = offset + matches.length < serviceResult.totalMatches;
-    const hint = truncated
-      ? `Showing matches ${offset + 1}-${offset + matches.length} of ${serviceResult.totalMatches}. ` +
-        `Continue with offset: ${offset + matches.length}, scope with filePaths, or set contextLines: 0 ` +
-        'to fit more matches per call.'
-      : undefined;
+    const hint = buildContentHint(
+      serviceResult,
+      offset,
+      matches.length,
+      pagedMatches.length > 0,
+      serviceCap
+    );
     return {
       outputMode: 'content',
       matches,
@@ -171,7 +214,7 @@ export async function runGrepSearch(
 
     return outputMode === 'files'
       ? buildFilesResult(serviceResult, offset)
-      : buildContentResult(serviceResult, offset, requestedMatches);
+      : buildContentResult(serviceResult, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: input.pattern.slice(0, 100) });
     const message = error instanceof Error ? error.message : String(error);

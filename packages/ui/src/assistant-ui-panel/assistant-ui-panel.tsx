@@ -76,16 +76,17 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   const statusOverride = useAuiState((state) =>
     resolveAssistantRunEventStatus(state.thread.messages, data)
   );
-  // Primitive selectors so re-renders only happen when the values change.
-  const hidden = useAuiState(
-    (state) => resolveAssistantRunEventRenderPlan(state.thread.messages, data).hidden
-  );
-  const repeatCount = useAuiState(
-    (state) => resolveAssistantRunEventRenderPlan(state.thread.messages, data).repeatCount
-  );
-  if (hidden) {
+  // The render plan scans all message parts (O(total parts)) and re-evaluates
+  // on every streamed state change, so compute it ONCE per update and select a
+  // string primitive — stable re-render semantics without a second scan.
+  const renderPlanKey = useAuiState((state) => {
+    const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
+    return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
+  });
+  if (renderPlanKey === 'hidden') {
     return null;
   }
+  const repeatCount = Number(renderPlanKey.slice('visible:'.length));
   return (
     <AssistantRunTimeline data={data} repeatCount={repeatCount} statusOverride={statusOverride} />
   );

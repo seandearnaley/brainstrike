@@ -104,6 +104,47 @@ describe('grep search tool', () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(11_000);
   });
 
+  it('advances the offset past a single match too large to fit the budget', async () => {
+    // One indexed line larger than the whole output budget (e.g. minified bundle).
+    queryMock.mockResolvedValue({
+      rows: [
+        { content: `${'x'.repeat(15_000)} needle`, start_line: 1, path: 'dist/bundle.min.js' },
+        { content: 'small needle line', start_line: 1, path: 'src/ok.ts' },
+      ],
+    });
+    const result = await runGrepSearch(
+      { pattern: 'needle', outputMode: 'content', contextLines: 0, maxResults: 1 },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches).toEqual([]);
+    expect(result.truncated).toBe(true);
+    // The hint must ADVANCE (offset: 1), never repeat the same offset.
+    expect(result.hint).toContain('too large');
+    expect(result.hint).toContain('offset: 1');
+  });
+
+  it('makes the pagination cap terminal instead of repeating an unreachable offset', async () => {
+    const lines = Array.from({ length: 2100 }, (_, i) => `needle ${i}`).join('\n');
+    queryMock.mockResolvedValue({
+      rows: [{ content: lines, start_line: 1, path: 'src/big.ts' }],
+    });
+    const result = await runGrepSearch(
+      { pattern: 'needle', outputMode: 'content', contextLines: 0, offset: 2000 },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches).toEqual([]);
+    expect(result.totalMatches).toBe(2100);
+    expect(result.truncated).toBe(true);
+    expect(result.hint).toContain('Pagination cap reached');
+    expect(result.hint).not.toContain('offset: 2000');
+  });
+
   it('passes the workspace-index embedding set id from runtimeData', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     const runtimeData: Partial<RuntimeData> = {
