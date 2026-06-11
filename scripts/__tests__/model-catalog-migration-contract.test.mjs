@@ -316,4 +316,186 @@ export const migrations = [
 
     assert.deepEqual(result.failures, []);
   });
+
+  it('requires static provider registry models to exist in the final DB catalog', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+];
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            DELETE FROM models WHERE id IN ('gpt-next');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerRegistrySource: `
+const PROVIDER_DEFINITIONS = [
+  {
+    id: 'openai',
+    models: [
+      { id: 'gpt-next', type: 'llm' },
+    ],
+  },
+  {
+    id: 'ollama',
+    models: [],
+  },
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/assistant-contract/src/provider-registry.ts',
+        message:
+          'Static provider-registry model openai::gpt-next is missing from the final DB model catalog.',
+      },
+    ]);
+  });
+
+  it('rejects stale final DB catalog rows for static providers', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+];
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"llm","streaming":true}'),
+              ('gpt-old', 'openai', 'GPT Old', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerRegistrySource: `
+const PROVIDER_DEFINITIONS = [
+  {
+    id: 'openai',
+    models: [
+      { id: 'gpt-next', type: 'llm' },
+    ],
+  },
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/assistant-contract/src/provider-registry.ts',
+        message:
+          'Final DB model catalog row openai::gpt-old is missing from provider-registry.ts; delete it in a catalog migration or add it to STATIC_CATALOG_STALE_ROW_ALLOWLIST.',
+      },
+    ]);
+  });
+
+  it('fails closed when static provider registry model fields are not resolvable', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+];
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-known', 'openai', 'GPT Known', '{"type":"llm","streaming":true}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerRegistrySource: `
+const PROVIDER_DEFINITIONS = [
+  {
+    id: 'openai',
+    models: [
+      { id: UNKNOWN_MODEL_ID, type: 'llm' },
+      { id: 'gpt-known', type: UNKNOWN_MODEL_TYPE },
+    ],
+  },
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/assistant-contract/src/provider-registry.ts',
+        message:
+          'Static provider-registry model for openai has an unresolvable id expression.',
+      },
+      {
+        file: 'packages/assistant-contract/src/provider-registry.ts',
+        message:
+          'Static provider-registry model openai::gpt-known has an unresolvable type expression.',
+      },
+    ]);
+  });
+
+  it('requires static provider registry model types to match final DB catalog rows', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+];
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages/db/src/migrations/025-update-provider-models-2026.ts',
+          'migration025UpdateProviderModels2026',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('gpt-next', 'openai', 'GPT Next', '{"type":"embedding","streaming":false}');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration025UpdateProviderModels2026,
+];
+`,
+      providerRegistrySource: `
+const PROVIDER_DEFINITIONS = [
+  {
+    id: 'openai',
+    models: [
+      { id: 'gpt-next', type: 'llm' },
+    ],
+  },
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, [
+      {
+        file: 'packages/assistant-contract/src/provider-registry.ts',
+        message:
+          'Static provider-registry model openai::gpt-next has type llm, but the final DB model catalog has type embedding.',
+      },
+    ]);
+  });
 });
