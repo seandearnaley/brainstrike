@@ -10,6 +10,14 @@ import {
 export interface FolderStateActions {
   hydrateFolderState: (folderId: string) => void;
   setCurrentFolderId: (folderId: string | null) => void;
+  /**
+   * Replace a NON-FOCUSED root's explicit selection in its folderState
+   * (cross-root selection write-back, Phase 6). Does NOT touch the focused
+   * top-level selection or currentFolderId — the focused root's live value
+   * is the top-level set; callers must route focused keys there instead.
+   * Creates the folderState (reset shape) when the root has none yet.
+   */
+  setFolderSelection: (folderId: string, compositeKeys: readonly string[]) => void;
 }
 
 /** Build the state update for restoring an existing folder */
@@ -137,6 +145,28 @@ export const createFolderStateActions = (
     } else {
       set(buildResetState(folderStates, order));
     }
+  },
+
+  setFolderSelection: (folderId: string, compositeKeys: readonly string[]) => {
+    set((state) => {
+      const base = state.folderStates[folderId] ?? createNewFolderState(state);
+      const selected = new Set(compositeKeys);
+      return {
+        folderStates: {
+          ...state.folderStates,
+          [folderId]: {
+            ...base,
+            lastAccessed: Date.now(),
+            selectedFilePaths: selected,
+            selectionModel: {
+              ...base.selectionModel,
+              mode: 'explicit',
+              explicitPaths: new Set(compositeKeys),
+            },
+          },
+        },
+      };
+    });
   },
 
   hydrateFolderState: (folderId: string) => {

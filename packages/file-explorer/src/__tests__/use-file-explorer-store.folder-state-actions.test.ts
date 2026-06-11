@@ -232,6 +232,40 @@ describe('Folder State Actions', () => {
     }
   });
 
+  it('setFolderSelection writes a non-focused root selection without touching the focused state', () => {
+    const ROOT_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const ROOT_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const KEY_B1 = `${ROOT_B}|@|src/one.ts`;
+    const KEY_B2 = `${ROOT_B}|@|src/two.ts`;
+
+    // Focus root A with a live selection.
+    store.setCurrentFolderId(ROOT_A);
+    store.setState((state: FileExplorerState) => ({
+      ...state,
+      selectedFilePaths: new Set([`${ROOT_A}|@|a.ts`]),
+    }));
+
+    // Write B's selection directly (cross-root deselect/select path) — B has
+    // no folderState yet, so the action must create one from the reset shape.
+    store.setFolderSelection(ROOT_B, [KEY_B1, KEY_B2]);
+
+    const state = store.getState();
+    // Focused state untouched.
+    expect(state.currentFolderId).toBe(ROOT_A);
+    expect(state.selectedFilePaths).toEqual(new Set([`${ROOT_A}|@|a.ts`]));
+    // B's folderState carries the selection in BOTH the set and the model.
+    expect(state.folderStates[ROOT_B]?.selectedFilePaths).toEqual(new Set([KEY_B1, KEY_B2]));
+    expect(state.folderStates[ROOT_B]?.selectionModel.mode).toBe('explicit');
+    expect(state.folderStates[ROOT_B]?.selectionModel.explicitPaths).toEqual(
+      new Set([KEY_B1, KEY_B2])
+    );
+
+    // Overwriting with an empty list clears B without touching A.
+    store.setFolderSelection(ROOT_B, []);
+    expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths).toEqual(new Set());
+    expect(store.getState().selectedFilePaths).toEqual(new Set([`${ROOT_A}|@|a.ts`]));
+  });
+
   it('keeps distinct folder states and composite keys for two same-named roots with different RootIds', () => {
     // Storage v5 regression: two roots can share the same display name
     // (e.g. both folders are called "project"). Their identity is the durable

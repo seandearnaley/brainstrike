@@ -403,6 +403,13 @@ export interface FileExplorerState extends FileExplorerData {
 
   // View filters expansion state
   setFiltersExpanded: (expanded: boolean) => void;
+  /**
+   * Replace a NON-FOCUSED root's explicit selection in its folderState
+   * (cross-root selection write-back, Phase 6). Never touches the focused
+   * top-level selection or currentFolderId; creates the folderState (reset
+   * shape) when the root has none yet.
+   */
+  setFolderSelection: (folderId: string, compositeKeys: readonly string[]) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setIncludeProjectTree: (value: boolean) => void;
 

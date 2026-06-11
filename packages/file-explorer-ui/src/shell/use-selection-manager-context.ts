@@ -10,10 +10,66 @@
  */
 
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
+import type { FolderState } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
 import { useSelectionResolver } from '../use-selection-resolver';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
+
+/**
+ * Union the focused root's LIVE selection (the top-level set) with every
+ * OTHER active root's persisted folderState selection (Phase 6 cross-root).
+ * The focused root's folderState is a stale snapshot while focused and is
+ * deliberately excluded. Returns the top-level set UNCHANGED when no other
+ * root contributes — memo identity matters to downstream consumers.
+ */
+function unionSelectionAcrossRoots(
+  selectedFilePaths: Set<string>,
+  activeRootIds: readonly string[],
+  currentFolderId: string | null,
+  folderStates: Record<string, FolderState>
+): Set<string> {
+  let union: Set<string> | null = null;
+  for (const rootId of activeRootIds) {
+    if (rootId === currentFolderId) {
+      continue;
+    }
+    const rootSelection = folderStates[rootId]?.selectedFilePaths;
+    if (!rootSelection || rootSelection.size === 0) {
+      continue;
+    }
+    union ??= new Set(selectedFilePaths);
+    for (const key of rootSelection) {
+      union.add(key);
+    }
+  }
+  return union ?? selectedFilePaths;
+}
+
+/**
+ * Partition a write-back list by the composite key's rootId. Focused-root
+ * keys and legacy (separator-less) keys belong to the core selection manager;
+ * every other ACTIVE root's keys are bucketed for setFolderSelection.
+ */
+function partitionSelectionByRoot(
+  list: readonly string[],
+  currentFolderId: string | null,
+  activeRootIds: readonly string[]
+): { focusedKeys: Set<string>; byOtherRoot: Map<string, string[]> } {
+  const focusedKeys = new Set<string>();
+  const byOtherRoot = new Map<string, string[]>();
+  for (const key of list) {
+    const rootId = key.includes('|@|') ? key.split('|@|')[0] : undefined;
+    if (rootId && rootId !== currentFolderId && activeRootIds.includes(rootId)) {
+      const bucket = byOtherRoot.get(rootId) ?? [];
+      bucket.push(key);
+      byOtherRoot.set(rootId, bucket);
+    } else {
+      focusedKeys.add(key);
+    }
+  }
+  return { focusedKeys, byOtherRoot };
+}
 
 export const useSelectionManager = () => {
   const [
@@ -40,6 +96,12 @@ export const useSelectionManager = () => {
     selectedCount: resolvedSelectedCount,
     selectedFilesList: resolvedSelectedFilesList,
   } = useSelectionResolver();
+  // Multi-root union inputs (Phase 6). The focused root's live selection is
+  // the TOP-LEVEL set; its folderState is a stale snapshot until focus leaves
+  // it, so the union reads folderStates only for the OTHER active roots.
+  const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  const folderStates = useFileExplorerStoreSelector((s) => s.folderStates);
+  const setFolderSelection = useFileExplorerStoreSelector((s) => s.setFolderSelection);
 
   const setSelectedFilesStable = useCallback(
     (next: ReadonlySet<string>) => {
@@ -73,10 +135,17 @@ export const useSelectionManager = () => {
       }
       return compositeKeys;
     }
-    // Default to explicit selection
-    return selectedFilePaths;
+    // Explicit mode: cross-root union (Phase 6) — see unionSelectionAcrossRoots.
+    return unionSelectionAcrossRoots(
+      selectedFilePaths,
+      activeRootIds,
+      currentFolderId,
+      folderStates
+    );
   }, [
+    activeRootIds,
     currentFolderId,
+    folderStates,
     resolvedSelection,
     selectedFilePaths,
     selectionModel.materializedPaths,
@@ -114,9 +183,39 @@ export const useSelectionManager = () => {
         clearSelectionRules();
         return;
       }
-      core.handleSelectionChange(new Set(list));
+
+      // Phase 6 cross-root partition: keys belonging to OTHER active roots
+      // must not funnel into the focused top-level set — route each root's
+      // subset to its folderState. Roots that had a selection in the union
+      // but have NO keys left in `list` are cleared.
+      const { focusedKeys, byOtherRoot } = partitionSelectionByRoot(
+        list,
+        currentFolderId,
+        activeRootIds
+      );
+      for (const rootId of activeRootIds) {
+        if (rootId === currentFolderId) {
+          continue;
+        }
+        const next = byOtherRoot.get(rootId);
+        const hadSelection = (folderStates[rootId]?.selectedFilePaths.size ?? 0) > 0;
+        if (next) {
+          setFolderSelection(rootId, next);
+        } else if (hadSelection) {
+          setFolderSelection(rootId, []);
+        }
+      }
+      core.handleSelectionChange(focusedKeys);
     },
-    [core.handleSelectionChange, selectionModel.mode, clearSelectionRules]
+    [
+      activeRootIds,
+      core.handleSelectionChange,
+      currentFolderId,
+      folderStates,
+      selectionModel.mode,
+      clearSelectionRules,
+      setFolderSelection,
+    ]
   );
 
   return {
