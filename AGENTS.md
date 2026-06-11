@@ -230,6 +230,20 @@ defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
 - Invariant: tool timeout < stream inactivity.
 
+Stream part continuity: run-event data parts ('aui-data') CLOSE the active
+text/reasoning append in assistant-stream's accumulator, slicing visible text
+into fragments. `DataStreamMapper` therefore defers run events that arrive
+while a text/reasoning part is streaming and flushes them at the next boundary
+(tool start, approval, finish, error, stream end) — never drop them, never
+emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+
+Parallel tool calls: Mastra executes tool calls within a step concurrently
+(default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
+sequential execution when `requireToolApproval` is set or any active tool has
+`requireApproval`/a suspend schema — we only set `requireToolApproval` on the
+approval-resume path, so the normal path stays parallel. The data-stream
+mapper and UI key all per-call state by toolCallId and handle interleaving.
+
 When changing this flow, update this section and the related tests.
 
 ---
