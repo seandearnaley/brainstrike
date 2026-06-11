@@ -104,3 +104,10 @@ TDD → implement → suites green: desktop ipc-domains, file-system, file-explo
 
 ## Deferred (Phase 6)
 Cross-root selection + token budget aggregation; cascade DELETE UX; citations rootId (+ packages/agent/src/types.ts duplicate interface — both must change together); snapshot tier (Safari/Firefox OPFS import) + PWA install prompt; retiring source_root_path + the 029 index.
+
+Recorded during Task 2 review (2026-06-10):
+- Forest-mode `handleSelectFolderRecursively` (file-explorer-panel.tsx ~296) resolves `folderId` from the FOCUSED root for clicks in ANY root's tree — wrong descriptor identity when selecting in a non-focused root. This is the cross-root selection gap already deferred above; fix alongside it.
+- `WebFileSystemAdapter.readDirectory` stamps `rootFolderId: handle.path` on raw nodes (web-adapter.ts ~428/447/465). Harmless today — the lazy tree pipeline overrides with the resolved RootId — but any future direct consumer of `readDirectory` gets path identity. Re-key when an actual consumer appears.
+
+## Discovered during Task 2 (landed in this branch, beyond the plan)
+- Web `addRoot` dedupe (46205e2ab): desktop's rootsList upsert reuses the rootId for a re-picked path, but web minted a fresh UUID per pick — orphaning selections and duplicating IDB cache entries. Web now scans stored handles with `isSameEntry` and reuses the matched rootId.
