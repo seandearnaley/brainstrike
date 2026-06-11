@@ -3,11 +3,7 @@
  * The app shell injects the concrete backend so shared UI does not depend on
  * the assistant runtime implementation package.
  */
-import type {
-  ChatModelAdapter,
-  ChatModelRunOptions,
-  ChatModelRunResult,
-} from '@assistant-ui/react';
+import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
@@ -23,6 +19,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import { convertMessages } from './local-runtime-message-conversion';
 import {
   buildLocalToolDefinitions,
   buildLocalToolUnavailableReason,
@@ -180,35 +177,6 @@ async function getBackend(
   }
 
   return backendInstancePromise;
-}
-
-/**
- * Convert assistant-ui ThreadMessage to LocalLlmMessage format
- */
-function convertMessages(messages: ChatModelRunOptions['messages']): LocalLlmMessage[] {
-  const result: LocalLlmMessage[] = [];
-
-  for (const msg of messages) {
-    // Extract text content from message parts
-    const textContent = msg.content
-      .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-      .map((part) => part.text)
-      .join('\n');
-
-    if (textContent.trim().length === 0) {
-      continue;
-    }
-
-    // Map assistant-ui roles to LocalLlmMessage roles
-    const role = msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'assistant' : 'system';
-
-    result.push({
-      role,
-      content: textContent,
-    });
-  }
-
-  return result;
 }
 
 export interface LocalRuntimeAdapterOptions {
