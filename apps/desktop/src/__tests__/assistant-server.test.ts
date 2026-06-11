@@ -479,8 +479,11 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(500);
       const data = JSON.parse(response.body) as { error: string; message: string };
-      expect(data.error).toBe('assistant_status_failed');
-      expect(data.message).toBe('API key read failed');
+      expect(data).toEqual({
+        error: 'assistant_status_failed',
+        message: 'Assistant status unavailable.',
+      });
+      expect(response.body).not.toContain('API key read failed');
     }, 10_000);
 
     it('should return 404 for unknown routes', async () => {

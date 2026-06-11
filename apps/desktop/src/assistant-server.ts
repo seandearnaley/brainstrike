@@ -623,12 +623,13 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
     res.statusCode = 200;
     res.end(JSON.stringify(payload));
   } catch (error) {
+    logger.error('Assistant status check failed', { error });
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 500;
     res.end(
       JSON.stringify({
         error: 'assistant_status_failed',
-        message: error instanceof Error ? error.message : String(error),
+        message: 'Assistant status unavailable.',
       })
     );
   }
