@@ -35,6 +35,7 @@ import {
   createReadyMessage,
   getDesktopLlmHost,
   handleDesktopProgressEvent,
+  type LocalRuntimeLoadingProgressCallback,
 } from './local-runtime-desktop-host';
 import { convertMessages } from './local-runtime-message-conversion';
 import {
@@ -147,12 +148,7 @@ export interface LocalRuntimeAdapterOptions {
    */
   onActivity?: () => void;
   onError?: (error: Error) => void;
-  onLoadingProgress?: (progress: {
-    stage: 'downloading' | 'generating' | 'loading' | 'ready';
-    progress: number;
-    message: string;
-    file?: string;
-  }) => void;
+  onLoadingProgress?: LocalRuntimeLoadingProgressCallback;
   prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
   runtimeData?: Record<string, unknown>;
   thinkingEnabled?: boolean;
