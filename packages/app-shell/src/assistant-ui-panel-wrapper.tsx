@@ -49,7 +49,6 @@ import {
   addValuesToSet,
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
-  buildAssistantRequestData,
   buildAssistantTapestryRange,
   buildDraftRuntimeForProvider,
   buildEnabledModelIdSet,
@@ -79,6 +78,7 @@ import {
 } from './assistant-ui-panel-wrapper-runtime';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
+import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -680,47 +680,22 @@ export function AssistantUiPanelWrapper({
     });
   }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
 
-  const runtimeMemorySettings = useMemo(
-    () => ({
-      observationalMemory: observationalMemorySettings,
-      semanticRecall: semanticRecallSettings,
-    }),
-    [observationalMemorySettings, semanticRecallSettings]
-  );
-
-  const requestData = useMemo(
-    () =>
-      buildAssistantRequestData({
-        agentLoopSettings,
-        enabledNativeToolIds,
-        hostedMemoryBackendAvailable,
-        memoryOptions: assistantMemoryOptions,
-        memoryResourceId,
-        memorySettings: runtimeMemorySettings,
-        modelSettings,
-        providerOptions,
-        selectedMemoryThreadId,
-        selectionData,
-        workspaceContext: runtimeWorkspaceContext,
-        workspaceIndex,
-        workspaceRootPath,
-      }),
-    [
-      agentLoopSettings,
-      assistantMemoryOptions,
-      enabledNativeToolIds,
-      hostedMemoryBackendAvailable,
-      memoryResourceId,
-      modelSettings,
-      providerOptions,
-      runtimeMemorySettings,
-      selectedMemoryThreadId,
-      selectionData,
-      runtimeWorkspaceContext,
-      workspaceIndex,
-      workspaceRootPath,
-    ]
-  );
+  const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
+    agentLoopSettings,
+    enabledNativeToolIds,
+    hostedMemoryBackendAvailable,
+    memoryOptions: assistantMemoryOptions,
+    memoryResourceId,
+    modelSettings,
+    observationalMemorySettings,
+    providerOptions,
+    runtimeWorkspaceContext,
+    selectedMemoryThreadId,
+    selectionData,
+    semanticRecallSettings,
+    workspaceIndex,
+    workspaceRootPath,
+  });
 
   const { completePreparedRequest, prepareRequestData, renewActiveAssistantForegroundActivity } =
     useAssistantRequestLifecycle({
