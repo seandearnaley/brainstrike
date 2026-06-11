@@ -714,10 +714,18 @@ export function useBackgroundTokenIndexerIntegration({
         });
       }
 
-      const { electronFilesToRead, webFilesToIndex } = resolvePlannedTokenIndexingHandles({
-        dispatchPlan,
-        handleInfoByCompositeKey,
-      });
+      const { electronFilesToRead, missingHandles, webFilesToIndex } =
+        resolvePlannedTokenIndexingHandles({
+          dispatchPlan,
+          handleInfoByCompositeKey,
+        });
+
+      for (const missingHandle of missingHandles) {
+        logger.error('Skipping planned token indexing dispatch with missing handle', {
+          compositeKey: missingHandle.compositeKey,
+          dispatchKind: missingHandle.dispatchKind,
+        });
+      }
 
       for (const key of dispatchPlan.pendingNoHandleKeysToDelete) {
         pendingNoHandleRef.current.delete(key);

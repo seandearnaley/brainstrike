@@ -16,60 +16,92 @@ export interface ElectronFileReadRequest {
 
 export interface PlannedTokenIndexingDispatchQueues {
   readonly electronFilesToRead: ElectronFileReadRequest[];
+  readonly missingHandles: PlannedTokenIndexingMissingHandle[];
   readonly webFilesToIndex: FileToIndex[];
+}
+
+export interface PlannedTokenIndexingMissingHandle {
+  readonly compositeKey: string;
+  readonly dispatchKind: 'electron' | 'web';
+}
+
+interface PlannedWebFileResolution {
+  readonly missingHandles: PlannedTokenIndexingMissingHandle[];
+  readonly webFilesToIndex: FileToIndex[];
+}
+
+interface PlannedElectronFileResolution {
+  readonly electronFilesToRead: ElectronFileReadRequest[];
+  readonly missingHandles: PlannedTokenIndexingMissingHandle[];
 }
 
 export function resolvePlannedTokenIndexingHandles(params: {
   readonly dispatchPlan: Pick<TokenIndexingDispatchPlan, 'electronFiles' | 'webFiles'>;
   readonly handleInfoByCompositeKey: ReadonlyMap<string, HandleInfo>;
 }): PlannedTokenIndexingDispatchQueues {
+  const electronResolution = resolvePlannedElectronFiles({
+    handleInfoByCompositeKey: params.handleInfoByCompositeKey,
+    plannedFiles: params.dispatchPlan.electronFiles,
+  });
+  const webResolution = resolvePlannedWebFiles({
+    handleInfoByCompositeKey: params.handleInfoByCompositeKey,
+    plannedFiles: params.dispatchPlan.webFiles,
+  });
+
   return {
-    electronFilesToRead: resolvePlannedElectronFiles({
-      handleInfoByCompositeKey: params.handleInfoByCompositeKey,
-      plannedFiles: params.dispatchPlan.electronFiles,
-    }),
-    webFilesToIndex: resolvePlannedWebFiles({
-      handleInfoByCompositeKey: params.handleInfoByCompositeKey,
-      plannedFiles: params.dispatchPlan.webFiles,
-    }),
+    electronFilesToRead: electronResolution.electronFilesToRead,
+    missingHandles: [...electronResolution.missingHandles, ...webResolution.missingHandles],
+    webFilesToIndex: webResolution.webFilesToIndex,
   };
 }
 
 function resolvePlannedWebFiles(params: {
   readonly handleInfoByCompositeKey: ReadonlyMap<string, HandleInfo>;
   readonly plannedFiles: readonly PlannedTokenIndexingWebFile[];
-}): FileToIndex[] {
-  return params.plannedFiles.map((file) => {
+}): PlannedWebFileResolution {
+  const missingHandles: PlannedTokenIndexingMissingHandle[] = [];
+  const webFilesToIndex: FileToIndex[] = [];
+
+  for (const file of params.plannedFiles) {
     const handleInfo = params.handleInfoByCompositeKey.get(file.compositeKey);
     if (!handleInfo?.webHandle) {
-      throw new Error(`Missing planned web file handle for ${file.compositeKey}`);
+      missingHandles.push({ compositeKey: file.compositeKey, dispatchKind: 'web' });
+      continue;
     }
 
-    return {
+    webFilesToIndex.push({
       compositeKey: file.compositeKey,
       fileHandle: handleInfo.webHandle,
       filePath: file.filePath,
       folderId: file.folderId,
-    };
-  });
+    });
+  }
+
+  return { missingHandles, webFilesToIndex };
 }
 
 function resolvePlannedElectronFiles(params: {
   readonly handleInfoByCompositeKey: ReadonlyMap<string, HandleInfo>;
   readonly plannedFiles: readonly PlannedTokenIndexingElectronFile[];
-}): ElectronFileReadRequest[] {
-  return params.plannedFiles.map((file) => {
+}): PlannedElectronFileResolution {
+  const electronFilesToRead: ElectronFileReadRequest[] = [];
+  const missingHandles: PlannedTokenIndexingMissingHandle[] = [];
+
+  for (const file of params.plannedFiles) {
     const handleInfo = params.handleInfoByCompositeKey.get(file.compositeKey);
     if (!handleInfo?.electronHandle) {
-      throw new Error(`Missing planned Electron file handle for ${file.compositeKey}`);
+      missingHandles.push({ compositeKey: file.compositeKey, dispatchKind: 'electron' });
+      continue;
     }
 
-    return {
+    electronFilesToRead.push({
       compositeKey: file.compositeKey,
       filePath: file.filePath,
       fileSize: file.fileSize,
       folderId: file.folderId,
       handle: handleInfo.electronHandle,
-    };
-  });
+    });
+  }
+
+  return { electronFilesToRead, missingHandles };
 }

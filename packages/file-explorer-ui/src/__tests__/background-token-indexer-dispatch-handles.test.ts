@@ -83,6 +83,7 @@ describe('resolvePlannedTokenIndexingHandles', () => {
         folderId: 'root',
       },
     ]);
+    expect(queues.missingHandles).toEqual([]);
     expect(queues.electronFilesToRead).toEqual([
       {
         compositeKey: 'root|@|electron.ts',
@@ -94,8 +95,16 @@ describe('resolvePlannedTokenIndexingHandles', () => {
     ]);
   });
 
-  it('throws on planner/handle drift before dispatch queues are returned', () => {
+  it('reports planner/handle drift and keeps resolvable dispatch queues', () => {
     const plan = createPlan({
+      electronFiles: [
+        {
+          compositeKey: 'root|@|missing-electron.ts',
+          filePath: 'missing-electron.ts',
+          fileSize: 256,
+          folderId: 'root',
+        },
+      ],
       webFiles: [
         {
           compositeKey: 'root|@|available.ts',
@@ -120,11 +129,23 @@ describe('resolvePlannedTokenIndexingHandles', () => {
       ],
     ]);
 
-    expect(() =>
-      resolvePlannedTokenIndexingHandles({
-        dispatchPlan: plan,
-        handleInfoByCompositeKey,
-      })
-    ).toThrow('Missing planned web file handle for root|@|missing.ts');
+    const queues = resolvePlannedTokenIndexingHandles({
+      dispatchPlan: plan,
+      handleInfoByCompositeKey,
+    });
+
+    expect(queues.webFilesToIndex).toEqual([
+      {
+        compositeKey: 'root|@|available.ts',
+        fileHandle: webHandle,
+        filePath: 'available.ts',
+        folderId: 'root',
+      },
+    ]);
+    expect(queues.electronFilesToRead).toEqual([]);
+    expect(queues.missingHandles).toEqual([
+      { compositeKey: 'root|@|missing-electron.ts', dispatchKind: 'electron' },
+      { compositeKey: 'root|@|missing.ts', dispatchKind: 'web' },
+    ]);
   });
 });
