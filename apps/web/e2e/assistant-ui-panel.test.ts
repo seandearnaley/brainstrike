@@ -415,12 +415,14 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await page.locator('#assistant-input').fill('echo hidden tool details');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    await page.getByRole('button', { name: /show reasoning/i }).click();
-
+    // Tool calls render directly in the thread (no reasoning fold for
+    // tool-only turns); a tool-only run must not show a "Reasoning" pill.
     const toolCard = viewport.getByTestId('tool-fallback');
     await expect(toolCard).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: /show reasoning/i })).toHaveCount(0);
     await expect(toolCard).toContainText(/web\.echo/i);
-    await expect(toolCard).toContainText(/Completed/i);
+    // Status is conveyed by the icon's accessible label, not visible text.
+    await expect(toolCard.getByLabel('Completed')).toBeVisible();
     await expect(toolCard.getByText('Arguments:')).toBeHidden();
     await expect(toolCard.getByText('Result:')).toBeHidden();
 
