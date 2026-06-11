@@ -46,6 +46,7 @@ export default defineConfig({
       '@brainstrike/db': resolve(__dirname, '../db/src/index.ts'),
       '@brainstrike/embedding-worker': resolve(__dirname, '../embedding-worker/src/index.ts'),
       '@brainstrike/indexing-contract': resolve(__dirname, '../indexing-contract/src/index.ts'),
+      '@brainstrike/platform-utils': resolve(__dirname, '../platform-utils/src/index.ts'),
       '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
       '@brainstrike/types': resolve(__dirname, '../types/src/index.ts'),
