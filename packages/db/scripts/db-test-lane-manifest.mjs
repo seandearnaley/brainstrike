@@ -209,6 +209,20 @@ export function buildDbCoverageLaneMap(testFiles, laneDefinitions = dbCoverageLa
   const laneMap = new Map(laneNames.map((lane) => [lane, []]));
   const unitLaneByTest = new Map();
 
+  for (const [unitLane, coverageLane] of Object.entries(coverageDefaultsByUnitLane ?? {})) {
+    if (!laneMap.has(coverageLane)) {
+      failures.push(
+        `Coverage default for DB unit lane ${unitLane} references unknown coverage lane ${coverageLane}.`
+      );
+    }
+  }
+
+  for (const coverageLane of Object.keys(coverageOverridesByLane)) {
+    if (!laneMap.has(coverageLane)) {
+      failures.push(`Coverage override references unknown coverage lane ${coverageLane}.`);
+    }
+  }
+
   for (const [unitLane, files] of unitLaneResult.laneMap.entries()) {
     for (const fileName of files) {
       unitLaneByTest.set(fileName, unitLane);
@@ -226,7 +240,8 @@ export function buildDbCoverageLaneMap(testFiles, laneDefinitions = dbCoverageLa
       continue;
     }
     if (!laneMap.has(coverageLane)) {
-      laneMap.set(coverageLane, []);
+      failures.push(`Test ${fileName} maps to unknown coverage lane ${coverageLane}.`);
+      continue;
     }
     laneMap.get(coverageLane)?.push(fileName);
   }

@@ -29,6 +29,47 @@ test('coverage lanes report unit-owned tests without a coverage default', () => 
   );
 });
 
+test('coverage lanes reject default coverage targets outside laneOrder', () => {
+  const { failures, laneMap } = buildDbCoverageLaneMap(['migration-a.test.ts'], {
+    coverageDefaultsByUnitLane: {
+      'schema-migration': 'migrationz',
+    },
+    laneOrder: ['migrations'],
+    unitLaneDefinitions: [{ name: 'schema-migration', matches: [/^migration-a\.test\.ts$/] }],
+  });
+
+  assert.deepEqual(failures, [
+    'Coverage default for DB unit lane schema-migration references unknown coverage lane migrationz.',
+    'Test migration-a.test.ts maps to unknown coverage lane migrationz.',
+    'Lane migrations has no tests.',
+  ]);
+  assert.deepEqual([...laneMap.entries()], [['migrations', []]]);
+});
+
+test('coverage lanes reject coverage override keys outside laneOrder', () => {
+  const { failures, laneMap } = buildDbCoverageLaneMap(['worker-a.test.ts'], {
+    coverageDefaultsByUnitLane: {
+      integration: 'architecture',
+    },
+    coverageOverridesByLane: {
+      runtimee: ['worker-a.test.ts'],
+    },
+    laneOrder: ['architecture', 'runtime'],
+    unitLaneDefinitions: [{ name: 'integration', matches: [/^worker-a\.test\.ts$/] }],
+  });
+
+  assert.deepEqual(failures, [
+    'Coverage override references unknown coverage lane runtimee.',
+    'Test worker-a.test.ts maps to unknown coverage lane runtimee.',
+    'Lane architecture has no tests.',
+    'Lane runtime has no tests.',
+  ]);
+  assert.deepEqual([...laneMap.entries()], [
+    ['architecture', []],
+    ['runtime', []],
+  ]);
+});
+
 test('coverage lanes derive from unit lane ownership unless a coverage override is declared', () => {
   const { failures, laneMap } = buildDbCoverageLaneMap(
     ['migration-a.test.ts', 'queue-a.test.ts', 'worker-a.test.ts'],
