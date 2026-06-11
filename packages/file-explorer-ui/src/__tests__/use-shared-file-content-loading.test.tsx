@@ -866,6 +866,72 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.loadingFiles.size).toBe(0);
   });
 
+  it('resolves direct-path reads through the root descriptor when folderId is a RootId UUID', async () => {
+    // Storage v5: composite keys carry a RootId UUID, not the root path.
+    // Restored workspace tabs hit this path on reload before the lazy tree
+    // contains the file — the hook must resolve the UUID to the descriptor's
+    // absolute path or desktop tab restoration deadlocks in deferred retries.
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('restored-tab-content');
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const rootId = '11111111-0000-4000-8000-000000000011';
+    const compositeKey = encodeFileSelection(rootId, '/workspace/root/src/restored.ts');
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const request of requests) {
+            results[request.compositeKey] = await readFileByPathSpy(request.path);
+            progressCallback?.({ key: request.compositeKey });
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          rootId,
+          path: '/workspace/root',
+          displayName: 'root',
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await loadPromise;
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/restored.ts' })],
+      expect.any(Function)
+    );
+    expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/restored.ts');
+    expect(result.current.fileContents[compositeKey]).toBe('restored-tab-content');
+    expect(result.current.loadingFiles.size).toBe(0);
+  });
+
   it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();
