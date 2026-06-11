@@ -442,31 +442,16 @@
 }
 
 .bs-tool-timeline {
-  box-shadow: 0 10px 28px hsl(var(--foreground) / 0.05);
+  box-shadow: 0 4px 16px hsl(var(--foreground) / 0.04);
 }
 
-.bs-tool-timeline-rail,
-.bs-run-timeline-rail {
-  align-items: center;
-  border: 1px solid hsl(var(--border));
-  border-radius: 999px;
-  color: hsl(var(--muted-foreground));
-  display: inline-flex;
-  height: 1.75rem;
-  justify-content: center;
-  position: relative;
-  width: 1.75rem;
-}
-
-.bs-tool-timeline-rail::after {
-  background: hsl(var(--border));
-  bottom: -1.625rem;
-  content: "";
-  left: 50%;
-  position: absolute;
-  top: 1.875rem;
-  transform: translateX(-50%);
-  width: 1px;
+/**
+ * Run-event activity rows: quiet single-line rows (vs the prominent
+ * bs-tool-timeline cards). Consecutive rows read as one group — no margins
+ * between them, shared hover treatment.
+ */
+.assistant-ui-panel .bs-run-timeline:hover {
+  background: hsl(var(--muted) / 0.4);
 }
 
 /**
@@ -666,13 +651,8 @@
   min-height: 1.75rem;
 }
 
-/* The collapsed reasoning panel stays in the DOM so aria-controls keeps a
-   valid target. The HTML hidden attribute can be silently overridden by any
-   future display utility on this class — pin display:none for the hidden
-   state so the toggle never leaks layout. */
-.assistant-ui-panel .bs-chain-of-thought-panel[hidden] {
-  display: none;
-}
+/* The chain-of-thought panel always stays in the DOM (tool calls render even
+   while reasoning is collapsed), so aria-controls keeps a valid target. */
 
 @media (prefers-reduced-motion: reduce) {
   .assistant-ui-panel .bs-thinking-pulse,

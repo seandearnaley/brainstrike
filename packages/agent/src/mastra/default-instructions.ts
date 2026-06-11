@@ -101,10 +101,10 @@ function formatAvailableToolNames(names: ModelFacingToolNames): string {
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}.`
+    ? `First inspect available selected context, token budgets, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}; pass detail: true only when you need per-file Tapestry ranges.`
     : 'Workspace-selection inspection is unavailable in this run.';
   const grepSearchInstruction = names.grepSearch
-    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content and returns path:line matches with context. Prefer it over semantic search whenever you know the exact wording.`
+    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
     : 'Exact-text grep search is unavailable in this run.';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
@@ -165,6 +165,8 @@ When project or codebase context is needed, use registered Brainstrike native to
 ${curationInstruction}
 ${selectionLine}
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
+Tool results are bounded: when a result has truncated: true, it is a valid partial result — use its hint (offset, filePaths, smaller limits, deeper paths) to fetch exactly what is missing instead of repeating or broadening the same call.
+Independent read-only lookups (searches, directory listings, file reads with no dependency between them) execute in parallel — issue them together in one step instead of one per turn.
 If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
 If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
 Only run state-changing tools after the user confirms.

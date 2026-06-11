@@ -20,6 +20,7 @@ function createEmptySerializedState(): SerializedState {
     folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
     includeFilters: [...DEFAULT_STATE.includeFilters],
     includeProjectTree: DEFAULT_STATE.includeProjectTree,
+    isFilterChipsVisible: DEFAULT_STATE.isFilterChipsVisible,
     isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
     lastActiveTab: DEFAULT_STATE.lastActiveTab,
     maxSelectionCount: DEFAULT_STATE.maxSelectionCount,

@@ -169,7 +169,7 @@ describe('AssistantRunTimeline', () => {
     // Invalid timestamp stays inline in the header.
     expect(screen.getByText('not-a-date')).toBeInTheDocument();
 
-    // Duration moved into the expandable fold.
+    // Duration renders inline in the single-line header; expanding must not duplicate it.
     await user.click(screen.getByRole('button', { name: /expand run activity/i }));
     expect(screen.getByText('250ms')).toBeInTheDocument();
   });
