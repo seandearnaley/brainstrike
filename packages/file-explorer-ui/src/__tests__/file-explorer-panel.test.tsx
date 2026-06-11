@@ -1566,4 +1566,43 @@ describe('FileExplorerPanel', () => {
       expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
     });
   });
+
+  describe('cross-root recursive selection (Phase 6)', () => {
+    it('attributes recursive select to the CLICKED node root, not the focused root', async () => {
+      const UUID_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
+      const UUID_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
+      // Focused root is /root (UUID_A); the clicked node belongs to UUID_B.
+      fileExplorerReturnValue.rootIdByPath = new Map([
+        ['/root', UUID_A],
+        ['/other', UUID_B],
+      ]);
+      const selectFolderRecursivelyMock = vi.mocked(
+        fileExplorerReturnValue.selectFolderRecursively
+      );
+
+      renderWithProviders(<FileExplorerPanel />);
+
+      expect(FileExplorerSidebarMock).toHaveBeenCalled();
+      const sidebarProps = FileExplorerSidebarMock?.mock.calls.at(-1)?.[0] as {
+        onSelectFolderRecursively: (node: unknown) => Promise<unknown>;
+      };
+      const clickedNode = {
+        name: 'sub',
+        path: 'sub',
+        type: 'directory' as const,
+        rootFolderId: UUID_B,
+        children: [],
+        depth: 0,
+        selectionState: 'unchecked' as const,
+        isVisible: true,
+        handle: {},
+      };
+
+      await sidebarProps.onSelectFolderRecursively(clickedNode);
+
+      expect(selectFolderRecursivelyMock).toHaveBeenCalledTimes(1);
+      // Second argument is the folderId the selection is attributed to.
+      expect(selectFolderRecursivelyMock.mock.calls[0]?.[1]).toBe(UUID_B);
+    });
+  });
 });

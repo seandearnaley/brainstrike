@@ -292,8 +292,13 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   // This allows FileExplorerSidebar to call with just the node
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
-      // Storage v5: use durable RootId UUID when available; fall back to path.
-      const folderId = getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '';
+      // The node carries its OWN root identity (stamped by every tree loader
+      // since storage v5) — the focused root's id is WRONG for clicks inside
+      // another root's tree in forest mode. Focused-root resolution remains
+      // only as the fallback for legacy nodes without a rootFolderId.
+      const folderId =
+        node.rootFolderId ||
+        (getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '');
       const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
         selectionKey.startsWith(`${folderId}|@|${node.path}/`)
       ).length;
