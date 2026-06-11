@@ -264,6 +264,9 @@ vi.mock('electron', async () => {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),
     },
+    clipboard: {
+      writeText: vi.fn(),
+    },
   };
 });
 

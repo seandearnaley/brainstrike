@@ -86,6 +86,9 @@ vi.mock('electron', () => ({
     openPath: vi.fn().mockResolvedValue(''),
     showItemInFolder: vi.fn(),
   },
+  clipboard: {
+    writeText: vi.fn(),
+  },
 }));
 
 const statSyncMock = vi.fn(() => ({

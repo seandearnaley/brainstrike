@@ -1,10 +1,17 @@
 import type { ActionOutcome, ClipboardService } from './types';
 
-interface ElectronClipboardBridge {
-  writeText?: (text: string) => boolean;
+interface ClipboardBridgeResult {
+  error?: string;
+  ok?: boolean;
 }
 
-function resolveElectronClipboardWrite(): ((text: string) => boolean) | null {
+interface ElectronClipboardBridge {
+  writeText?: (text: string) => Promise<ClipboardBridgeResult>;
+}
+
+type ElectronClipboardWrite = (text: string) => Promise<ClipboardBridgeResult>;
+
+function resolveElectronClipboardWrite(): ElectronClipboardWrite | null {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -13,15 +20,21 @@ function resolveElectronClipboardWrite(): ((text: string) => boolean) | null {
   return typeof writeText === 'function' ? writeText : null;
 }
 
-function writeViaElectronBridge(
-  electronWriteText: (text: string) => boolean,
+async function writeViaElectronBridge(
+  electronWriteText: ElectronClipboardWrite,
   text: string
-): ActionOutcome {
+): Promise<ActionOutcome> {
   try {
-    if (electronWriteText(text)) {
+    const result = await electronWriteText(text);
+    if (result?.ok === true) {
       return { ok: true };
     }
-    return { ok: false, error: 'Desktop clipboard bridge rejected the write' };
+    const bridgeError =
+      typeof result?.error === 'string' && result.error.length > 0 ? result.error : null;
+    return {
+      ok: false,
+      error: bridgeError ?? 'Desktop clipboard bridge rejected the write',
+    };
   } catch (error) {
     return {
       ok: false,
@@ -49,7 +62,7 @@ export function createClipboardService(): ClipboardService {
       if (electronWriteText) {
         // A present-but-failing bridge is a bug to surface, not to mask with
         // the web API (no silent fallbacks).
-        return writeViaElectronBridge(electronWriteText, text);
+        return await writeViaElectronBridge(electronWriteText, text);
       }
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         return await writeViaNavigatorClipboard(text);

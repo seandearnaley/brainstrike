@@ -142,6 +142,7 @@ describe('preload runtime contract', () => {
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextSelectionUpdate,
       ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT:
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextTapestryUpdate,
+      CLIPBOARD_WRITE_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.clipboard.writeText,
       APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
       DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.applyManagedCacheBatch,

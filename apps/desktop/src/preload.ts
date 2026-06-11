@@ -1,5 +1,5 @@
 // Electron preload script - must use CommonJS syntax
-const { contextBridge, ipcRenderer, clipboard } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -61,6 +61,7 @@ const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const
 const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
+const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -897,23 +898,11 @@ contextBridge.exposeInMainWorld('llmHost', {
   },
 });
 
-// System Clipboard helper (renderer-friendly)
+// System Clipboard helper (renderer-friendly). Writes go through main over
+// IPC: sandboxed preloads cannot require Electron's clipboard module, so a
+// direct module call here silently fails on real (non-test-mode) builds.
 contextBridge.exposeInMainWorld('clipboard', {
-  writeText: (text: string) => {
-    try {
-      clipboard.writeText(String(text ?? ''));
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  readText: () => {
-    try {
-      return clipboard.readText();
-    } catch {
-      return '';
-    }
-  },
+  writeText: (text: string) => ipcRenderer.invoke(CLIPBOARD_WRITE_TEXT_CHANNEL, text),
 });
 
 // Platform shell bridge: reveal/open absolute paths in the OS file manager.

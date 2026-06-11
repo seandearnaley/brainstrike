@@ -394,6 +394,11 @@ Layers:
   do NOT import the feature-package root barrels from always-mounted code.
 - Desktop bridge: window.platform (preload) → 'shell' IPC domain →
   apps/desktop/src/ipc-shell.ts (validates absolute paths, catches shell throws).
+- Desktop clipboard: window.clipboard.writeText (preload) → 'clipboard' IPC
+  domain → apps/desktop/src/ipc-clipboard.ts; the write runs in MAIN and the
+  bridge resolves { ok, error? }. It must NOT call Electron's clipboard module
+  from the preload — sandboxed preloads (sandbox is on outside test mode)
+  cannot require it, which silently breaks every write on real builds.
 
 Rules:
 - Capability gating hides actions (no disabled "available on desktop" items).
