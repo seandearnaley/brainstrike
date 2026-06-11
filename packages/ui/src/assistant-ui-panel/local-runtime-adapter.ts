@@ -3,235 +3,50 @@
  * The app shell injects the concrete backend so shared UI does not depend on
  * the assistant runtime implementation package.
  */
+import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react';
 import type {
-  ChatModelAdapter,
-  ChatModelRunOptions,
-  ChatModelRunResult,
-} from '@assistant-ui/react';
-import {
-  ASSISTANT_RUN_EVENT_DATA_NAME,
-  type AssistantRunEvent,
-  type AssistantRunEventKind,
-  type AssistantRunEventMetadata,
-  type AssistantRunEventStatus,
-  type LocalLlmBackend,
-  type LocalLlmBackendFactory,
-  type LocalLlmGenerationOptions,
-  type LocalLlmGenerationResult,
-  type LocalLlmJsonSchema,
-  type LocalLlmMessage,
-  type LocalLlmToolCall,
-  type LocalLlmToolDefinition,
+  AssistantRunEventKind,
+  AssistantRunEventMetadata,
+  AssistantRunEventStatus,
+  LocalLlmBackend,
+  LocalLlmBackendFactory,
+  LocalLlmGenerationOptions,
+  LocalLlmGenerationResult,
+  LocalLlmMessage,
+  LocalLlmToolCall,
 } from '@brainstrike/assistant-contract';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  type AssistantContentPart,
+  type AssistantDataContentPart,
+  type AssistantToolCallContentPart,
+  buildAssistantContentParts,
+  createLocalRunEvent,
+  createRunEventPart,
+  createToolCallPart,
+  createToolCallParts,
+  drainPendingUpdate,
+  mergeToolCallParts,
+} from './local-runtime-content-parts';
+import {
+  createDesktopGenerationOptions,
+  createGeneratingMessage,
+  createReadyMessage,
+  getDesktopLlmHost,
+  handleDesktopProgressEvent,
+  type LocalRuntimeLoadingProgressCallback,
+} from './local-runtime-desktop-host';
+import { convertMessages } from './local-runtime-message-conversion';
+import {
+  buildLocalToolDefinitions,
+  buildLocalToolUnavailableReason,
+  type LocalRuntimeToolConfig,
+} from './local-runtime-tool-definitions';
+
+export type { LocalRuntimeToolConfig } from './local-runtime-tool-definitions';
 
 const logger = createLogger('LocalRuntimeAdapter');
-
-/**
- * JSON types compatible with assistant-ui's ReadonlyJSONObject.
- * Defined locally since assistant-stream is a transitive dependency.
- */
-type JsonValue = null | string | number | boolean | JsonObject | JsonArray;
-interface JsonObject {
-  readonly [key: string]: JsonValue;
-}
-type JsonArray = readonly JsonValue[];
-
-interface AssistantTextContentPart {
-  text: string;
-  type: 'text';
-}
-
-interface AssistantReasoningContentPart {
-  text: string;
-  type: 'reasoning';
-}
-
-interface AssistantToolCallContentPart {
-  args: JsonObject;
-  argsText: string;
-  isError?: boolean;
-  result?: unknown;
-  toolCallId: string;
-  toolName: string;
-  type: 'tool-call';
-}
-interface AssistantDataContentPart {
-  data: AssistantRunEvent;
-  name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
-  type: 'data';
-}
-type AssistantContentPart =
-  | AssistantDataContentPart
-  | AssistantReasoningContentPart
-  | AssistantTextContentPart
-  | AssistantToolCallContentPart;
-
-/**
- * Type guard to validate that a parsed JSON value is a valid JsonObject.
- * Prevents prototype pollution and ensures the value is a plain object.
- */
-function isJsonObject(value: unknown): value is JsonObject {
-  // Must be a non-null object
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  // Must not be an array or null (typeof null === 'object')
-  if (Array.isArray(value) || value === null) {
-    return false;
-  }
-
-  // Prototype pollution prevention: only accept plain objects
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) {
-    return false;
-  }
-
-  return true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function normalizeRequiredSchemaEntries(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
-    ? value
-    : undefined;
-}
-
-function normalizeSchemaItems(value: unknown): LocalLlmJsonSchema | undefined {
-  if (!isRecord(value) || typeof value['type'] !== 'string') {
-    return;
-  }
-
-  return {
-    type: value['type'],
-    ...(typeof value['description'] === 'string' ? { description: value['description'] } : {}),
-  };
-}
-
-function normalizeSchemaProperty(value: unknown): LocalLlmJsonSchema | undefined {
-  if (!isRecord(value) || typeof value['type'] !== 'string') {
-    return;
-  }
-
-  const normalized: LocalLlmJsonSchema = {
-    type: value['type'],
-  };
-  if (typeof value['description'] === 'string') {
-    normalized.description = value['description'];
-  }
-  if (Array.isArray(value['enum']) && value['enum'].every((entry) => typeof entry === 'string')) {
-    normalized.enum = value['enum'];
-  }
-  const items = normalizeSchemaItems(value['items']);
-  if (items) {
-    normalized.items = items;
-  }
-  return normalized;
-}
-
-function normalizeSchemaProperties(value: unknown): Record<string, LocalLlmJsonSchema> | undefined {
-  if (!isRecord(value)) {
-    return;
-  }
-
-  const properties = Object.entries(value).reduce<Record<string, LocalLlmJsonSchema>>(
-    (result, [key, propertyValue]) => {
-      const normalized = normalizeSchemaProperty(propertyValue);
-      if (normalized) {
-        result[key] = normalized;
-      }
-      return result;
-    },
-    {}
-  );
-
-  return Object.keys(properties).length > 0 ? properties : undefined;
-}
-
-function normalizeJsonSchema(value: unknown): (LocalLlmJsonSchema & { type: 'object' }) | null {
-  if (!isRecord(value) || value['type'] !== 'object') {
-    return null;
-  }
-
-  const parameters: LocalLlmJsonSchema & { type: 'object' } = {
-    type: 'object',
-  };
-  const properties = normalizeSchemaProperties(value['properties']);
-  if (properties) {
-    parameters.properties = properties;
-  }
-  const required = normalizeRequiredSchemaEntries(value['required']);
-  if (required) {
-    parameters.required = required;
-  }
-
-  return parameters;
-}
-
-function buildLocalToolDefinitions(
-  tools: readonly LocalRuntimeToolConfig[] | undefined,
-  canExecuteTools: boolean
-): LocalLlmToolDefinition[] | undefined {
-  if (!(tools && tools.length > 0 && canExecuteTools)) {
-    return;
-  }
-
-  const definitions = tools
-    .filter((tool) => tool.enabled !== false && tool.isLocalRuntimeRunnable)
-    .map((tool) => {
-      const parameters = normalizeJsonSchema(tool.inputSchema);
-      if (!parameters) {
-        return null;
-      }
-      return {
-        type: 'function' as const,
-        function: {
-          name: tool.id,
-          description: tool.description ?? tool.id,
-          parameters,
-        },
-      };
-    })
-    .filter((definition): definition is LocalLlmToolDefinition => Boolean(definition));
-
-  return definitions.length > 0 ? definitions : undefined;
-}
-
-function buildLocalToolUnavailableReason(
-  tools: readonly LocalRuntimeToolConfig[] | undefined,
-  canExecuteTools: boolean
-): string {
-  if (!canExecuteTools) {
-    return 'window.tools.execute is not available in the renderer preload bridge';
-  }
-  if (!tools) {
-    return 'no tool menu was provided to the local runtime adapter';
-  }
-
-  const enabledTools = tools.filter((tool) => tool.enabled !== false);
-  const runnableTools = enabledTools.filter((tool) => tool.isLocalRuntimeRunnable);
-  const schemaBackedTools = runnableTools.filter((tool) => normalizeJsonSchema(tool.inputSchema));
-
-  if (tools.length === 0) {
-    return 'the tool menu is empty';
-  }
-  if (enabledTools.length === 0) {
-    return `all ${tools.length} configured tools are disabled`;
-  }
-  if (runnableTools.length === 0) {
-    return `${enabledTools.length} enabled tools are present, but none are marked runnable by the local runtime`;
-  }
-  if (schemaBackedTools.length === 0) {
-    return `${runnableTools.length} runnable tools are present, but none have an object JSON schema`;
-  }
-
-  return `${schemaBackedTools.length} runnable tools were configured but local tool definitions were not built`;
-}
 
 type LocalLlmStreamHandlers = NonNullable<LocalLlmGenerationOptions['stream']>;
 
@@ -318,35 +133,6 @@ async function getBackend(
   return backendInstancePromise;
 }
 
-/**
- * Convert assistant-ui ThreadMessage to LocalLlmMessage format
- */
-function convertMessages(messages: ChatModelRunOptions['messages']): LocalLlmMessage[] {
-  const result: LocalLlmMessage[] = [];
-
-  for (const msg of messages) {
-    // Extract text content from message parts
-    const textContent = msg.content
-      .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-      .map((part) => part.text)
-      .join('\n');
-
-    if (textContent.trim().length === 0) {
-      continue;
-    }
-
-    // Map assistant-ui roles to LocalLlmMessage roles
-    const role = msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'assistant' : 'system';
-
-    result.push({
-      role,
-      content: textContent,
-    });
-  }
-
-  return result;
-}
-
 export interface LocalRuntimeAdapterOptions {
   completeRuntimeData?: (
     runtimeData: Record<string, unknown> | undefined,
@@ -362,12 +148,7 @@ export interface LocalRuntimeAdapterOptions {
    */
   onActivity?: () => void;
   onError?: (error: Error) => void;
-  onLoadingProgress?: (progress: {
-    stage: 'downloading' | 'generating' | 'loading' | 'ready';
-    progress: number;
-    message: string;
-    file?: string;
-  }) => void;
+  onLoadingProgress?: LocalRuntimeLoadingProgressCallback;
   /**
    * Called once per completed turn with the final generation's token counts.
    * Maps Gemma's tokenizer-true usage to the shared inputTokens/outputTokens
@@ -383,139 +164,8 @@ export interface LocalRuntimeAdapterOptions {
   tools?: readonly LocalRuntimeToolConfig[];
 }
 
-export interface LocalRuntimeToolConfig {
-  description?: string;
-  enabled?: boolean;
-  id: string;
-  inputSchema?: Record<string, unknown>;
-  isLocalRuntimeRunnable?: boolean;
-}
-
-function createToolCallParts(result: LocalLlmGenerationResult): AssistantToolCallContentPart[] {
-  if (!(result.toolCalls && result.toolCalls.length > 0)) {
-    return [];
-  }
-
-  return result.toolCalls.map((toolCall: LocalLlmToolCall) => createToolCallPart(toolCall));
-}
-
-function createToolCallPart(
-  toolCall: LocalLlmToolCall,
-  overrides?: Pick<AssistantToolCallContentPart, 'isError' | 'result'>
-): AssistantToolCallContentPart {
-  let parsedArgs: JsonObject = {};
-  try {
-    const parsed: unknown = JSON.parse(toolCall.function.arguments);
-    if (isJsonObject(parsed)) {
-      parsedArgs = parsed;
-    }
-  } catch {
-    // Malformed JSON - fall back to empty object while preserving argsText.
-  }
-
-  return {
-    type: 'tool-call',
-    toolCallId: toolCall.id,
-    toolName: toolCall.function.name,
-    args: parsedArgs,
-    argsText: toolCall.function.arguments,
-    ...(overrides?.result === undefined ? {} : { result: overrides.result }),
-    ...(overrides?.isError === undefined ? {} : { isError: overrides.isError }),
-  };
-}
-
 async function yieldToUi(): Promise<void> {
   await Promise.resolve();
-}
-
-interface LlmHostProgressEvent {
-  payload: {
-    clientRequestId?: string;
-    file?: string;
-    kind?: 'loading' | 'reasoning' | 'stage' | 'text';
-    message?: string;
-    progress?: number;
-    reasoningText?: string;
-    text?: string;
-  };
-  requestId: string;
-  type: 'progress';
-}
-
-function isLlmHostProgressEvent(value: unknown): value is LlmHostProgressEvent {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as { type?: unknown; payload?: unknown; requestId?: unknown };
-  return (
-    candidate.type === 'progress' &&
-    typeof candidate.requestId === 'string' &&
-    Boolean(candidate.payload && typeof candidate.payload === 'object')
-  );
-}
-
-function createGeneratingMessage(stage: string | undefined): string {
-  return stage === 'reasoning' ? 'Thinking...' : 'Generating answer...';
-}
-
-function createReadyMessage(): string {
-  return 'Response complete.';
-}
-
-function createLocalRunEvent(
-  kind: AssistantRunEventKind,
-  status: AssistantRunEventStatus,
-  label: string,
-  metadata?: AssistantRunEventMetadata
-): AssistantRunEvent {
-  return {
-    id: `local-run-event-${crypto.randomUUID()}`,
-    kind,
-    label,
-    status,
-    timestamp: new Date().toISOString(),
-    ...(metadata ? { metadata } : {}),
-  };
-}
-
-function createRunEventPart(event: AssistantRunEvent): AssistantDataContentPart {
-  return {
-    type: 'data',
-    name: ASSISTANT_RUN_EVENT_DATA_NAME,
-    data: event,
-  };
-}
-
-function buildAssistantContentParts(
-  reasoningText: string | undefined,
-  text: string,
-  toolCallParts: AssistantToolCallContentPart[],
-  runEventParts: readonly AssistantDataContentPart[] = []
-): AssistantContentPart[] {
-  return [
-    ...(reasoningText?.trim() ? [{ type: 'reasoning', text: reasoningText.trim() } as const] : []),
-    ...toolCallParts,
-    ...(text.trim() ? [{ type: 'text', text } as const] : []),
-    ...runEventParts,
-  ];
-}
-
-function mergeToolCallParts(
-  existingParts: readonly AssistantToolCallContentPart[],
-  nextParts: readonly AssistantToolCallContentPart[]
-): AssistantToolCallContentPart[] {
-  if (nextParts.length === 0) {
-    return [...existingParts];
-  }
-
-  const merged = new Map<string, AssistantToolCallContentPart>();
-  for (const part of existingParts) {
-    merged.set(part.toolCallId, part);
-  }
-  for (const part of nextParts) {
-    merged.set(part.toolCallId, part);
-  }
-  return [...merged.values()];
 }
 
 async function executeToolCalls(
@@ -571,37 +221,6 @@ async function executeToolCalls(
     messages: toolMessages,
     parts: toolParts,
   };
-}
-
-function getDesktopLlmHost(): {
-  cancel?: (requestId: string) => Promise<void>;
-  generate?: (payload: {
-    requestId?: string;
-    modelId: string;
-    messages: LocalLlmMessage[];
-    options?: LocalLlmGenerationOptions;
-  }) => Promise<LocalLlmGenerationResult>;
-  onProgress?: (callback: (progress: unknown) => void) => () => void;
-  onStatus?: (callback: (status: { runtimeKind: 'llm-host'; state: string }) => void) => () => void;
-  warmup?: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
-} | null {
-  const hostWindow = window as Window & {
-    llmHost?: {
-      cancel?: (requestId: string) => Promise<void>;
-      generate?: (payload: {
-        requestId?: string;
-        modelId: string;
-        messages: LocalLlmMessage[];
-        options?: LocalLlmGenerationOptions;
-      }) => Promise<LocalLlmGenerationResult>;
-      onProgress?: (callback: (progress: unknown) => void) => () => void;
-      onStatus?: (
-        callback: (status: { runtimeKind: 'llm-host'; state: string }) => void
-      ) => () => void;
-      warmup?: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
-    };
-  };
-  return hostWindow.llmHost ?? null;
 }
 
 let desktopHostStatusSyncInstalled = false;
@@ -759,13 +378,6 @@ async function ensureDesktopModelWarmed(
   await waitForAbortableDesktopWarmup(nextWarmupPromise, abortSignal);
 }
 
-function createDesktopGenerationOptions(
-  options: LocalLlmGenerationOptions
-): Omit<LocalLlmGenerationOptions, 'signal'> {
-  const { signal: _signal, ...cloneableOptions } = options;
-  return cloneableOptions;
-}
-
 function getToolExecutor(): {
   execute?: (
     toolId: string,
@@ -795,67 +407,10 @@ function getToolExecutor(): {
   return toolWindow.tools ?? null;
 }
 
-function drainPendingUpdate(pendingUpdate: ChatModelRunResult | null): {
-  nextPendingUpdate: ChatModelRunResult | null;
-  update: ChatModelRunResult | null;
-} {
-  if (!pendingUpdate) {
-    return {
-      nextPendingUpdate: null,
-      update: null,
-    };
-  }
-
-  return {
-    nextPendingUpdate: null,
-    update: pendingUpdate,
-  };
-}
-
-function handleDesktopProgressEvent(
-  progress: unknown,
-  requestId: string,
-  onLoadingProgress: LocalRuntimeAdapterOptions['onLoadingProgress'] | undefined,
-  onReasoningSnapshot: (reasoningText: string) => void,
-  onTextSnapshot: (text: string) => void
-): void {
-  if (!isLlmHostProgressEvent(progress) || progress.payload.clientRequestId !== requestId) {
-    return;
-  }
-
-  if (progress.payload.kind === 'loading') {
-    onLoadingProgress?.({
-      stage: 'loading',
-      progress: progress.payload.progress ?? 0,
-      message: progress.payload.message ?? 'Loading Gemma local model',
-      ...(progress.payload.file ? { file: progress.payload.file } : {}),
-    });
-    return;
-  }
-
-  if (progress.payload.kind === 'stage') {
-    onLoadingProgress?.({
-      stage: 'generating',
-      progress: 0,
-      message: createGeneratingMessage(progress.payload.message),
-    });
-    return;
-  }
-
-  if (progress.payload.kind === 'reasoning' && progress.payload.reasoningText) {
-    onReasoningSnapshot(progress.payload.reasoningText);
-    return;
-  }
-
-  if (progress.payload.kind === 'text' && progress.payload.text) {
-    onTextSnapshot(progress.payload.text);
-  }
-}
-
 /**
  * Create a ChatModelAdapter for local browser-based LLM inference.
  * This adapter uses LocalLlmBackend which runs entirely in the browser
- * using transformers.js with WebGPU or WASM acceleration.
+ * through the browser WebGPU runtime.
  */
 export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): ChatModelAdapter {
   const {
