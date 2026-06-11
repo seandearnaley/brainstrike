@@ -1,7 +1,7 @@
 # Token Usage Awareness — Design
 
 **Date:** 2026-06-09
-**Status:** Approved (brainstorm spec)
+**Status:** Implemented (PR 2, 2026-06-10)
 **Scope:** One PR (after the grep-search PR). Context-window model metadata + thread context meter
 + Mastra-native windowing so the agent and the user both know tokens used/available.
 

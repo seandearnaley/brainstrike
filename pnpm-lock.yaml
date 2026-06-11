@@ -139,6 +139,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../../packages/platform-utils
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
@@ -758,6 +761,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/db-explorer':
         specifier: workspace:*
         version: link:../db-explorer
@@ -929,6 +935,31 @@ importers:
 
   packages/config/tsconfig: {}
 
+  packages/context-actions:
+    dependencies:
+      react:
+        specifier: ^19.2.4
+        version: 19.2.5
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
+      happy-dom:
+        specifier: ^20.9.0
+        version: 20.9.0
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@swc/core@1.15.30(@swc/helpers@0.5.21))(jiti@2.6.1)(postcss@8.5.10)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/db:
     dependencies:
       '@babel/parser':
@@ -1019,6 +1050,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -1330,6 +1364,9 @@ importers:
 
   packages/file-explorer-ui:
     dependencies:
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -1833,6 +1870,10 @@ importers:
         version: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/server-config:
+    dependencies:
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../platform-utils
     devDependencies:
       '@types/node':
         specifier: ^25.6.0
@@ -2032,6 +2073,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
@@ -2059,6 +2103,9 @@ importers:
       '@radix-ui/react-checkbox':
         specifier: ^1.3.3
         version: 1.3.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-context-menu':
+        specifier: ^2.2.16
+        version: 2.2.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@radix-ui/react-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)

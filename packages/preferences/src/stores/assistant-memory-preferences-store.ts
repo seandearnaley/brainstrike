@@ -27,6 +27,8 @@ const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
   'anthropic/claude-opus-4-5': 'anthropic/claude-opus-4-8',
   'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
   'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
+  'openrouter/anthropic/claude-sonnet-4.5': 'openrouter/anthropic/claude-sonnet-4.6',
+  'openrouter/google/gemini-3-flash-preview': 'openrouter/google/gemini-3.5-flash',
 };
 
 function migrateMemoryModelTarget(target: string): string {

@@ -63,6 +63,17 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
       },
       {
+        find: '@brainstrike/context-actions',
+        replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/db-explorer/context-actions',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../db-explorer/src/context-actions/index.ts'
+        ),
+      },
+      {
         find: '@brainstrike/db-explorer/database-demo-panel',
         replacement: path.resolve(
           import.meta.dirname,

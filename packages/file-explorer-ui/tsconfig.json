@@ -32,6 +32,9 @@
   ],
   "references": [
     {
+      "path": "../context-actions"
+    },
+    {
       "path": "../file-explorer"
     },
     {

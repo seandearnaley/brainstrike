@@ -62,6 +62,7 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
+import { ThreadContextMeter } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
@@ -188,8 +189,12 @@ export interface AssistantUiPanelProps {
     status: 'cancelled' | 'completed' | 'failed',
     error?: string
   ) => Promise<void> | void;
+  /** Full model context window size. Passed to the context meter. */
+  contextWindow?: number | undefined;
   disabled?: boolean;
   disabledReason?: string;
+  /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
+  effectiveInputBudget?: number | undefined;
   historyAdapter?: ThreadHistoryAdapter;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   onModelChange?: (compositeKey: string) => void;
@@ -200,6 +205,8 @@ export interface AssistantUiPanelProps {
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
+  /** Called with the provider's exact token counts from a finish-message chunk. */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
@@ -539,8 +546,10 @@ interface ChatThreadProps {
         error?: string
       ) => Promise<void> | void)
     | undefined;
+  contextWindow?: number | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
+  effectiveInputBudget?: number | undefined;
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
@@ -549,6 +558,7 @@ interface ChatThreadProps {
     | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
+  onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
@@ -568,8 +578,11 @@ const LocalRuntimeChat: FC<
   ChatThreadProps & {
     modelId: string;
     onLoadingStateChange: (state: LocalModelLoadingState) => void;
+    threadKey?: string | undefined;
   }
 > = ({
+  contextWindow,
+  effectiveInputBudget,
   providerGroups,
   pickerModels,
   pickerProviders,
@@ -580,6 +593,7 @@ const LocalRuntimeChat: FC<
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onUsage,
   disabled,
   disabledReason,
   localLoadingState,
@@ -590,6 +604,7 @@ const LocalRuntimeChat: FC<
   requestData,
   prepareRequestData,
   completePreparedRequest,
+  threadKey,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -610,6 +625,7 @@ const LocalRuntimeChat: FC<
         }),
         ...(completePreparedRequest ? { completeRuntimeData: completePreparedRequest } : {}),
         ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
+        ...(onUsage ? { onUsage } : {}),
         ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
         onLoadingProgress: (progress: LocalModelLoadingState) => {
           onLoadingStateChange(progress);
@@ -628,6 +644,7 @@ const LocalRuntimeChat: FC<
       modelId,
       onLoadingStateChange,
       onStreamActivity,
+      onUsage,
       prepareRequestData,
       requestData,
       thinkingEnabled,
@@ -649,7 +666,9 @@ const LocalRuntimeChat: FC<
     <AssistantRuntimeProvider runtime={runtime}>
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
+          contextWindow={contextWindow}
           disabledReason={disabledReason}
+          effectiveInputBudget={effectiveInputBudget}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
@@ -662,6 +681,7 @@ const LocalRuntimeChat: FC<
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          threadKey={threadKey}
           toolMenu={toolMenu}
         />
       </AssistantPanelErrorBoundary>
@@ -687,8 +707,11 @@ const DataStreamRuntimeChat: FC<
     requestData: Record<string, unknown> | undefined;
     prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
     modelName: string | undefined;
+    threadKey?: string | undefined;
   }
 > = ({
+  contextWindow,
+  effectiveInputBudget,
   providerGroups,
   pickerModels,
   pickerProviders,
@@ -699,6 +722,7 @@ const DataStreamRuntimeChat: FC<
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onUsage,
   disabled,
   disabledReason,
   api,
@@ -708,6 +732,7 @@ const DataStreamRuntimeChat: FC<
   prepareRequestData,
   modelName,
   toolMenu,
+  threadKey,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -757,13 +782,16 @@ const DataStreamRuntimeChat: FC<
     onFinish: () => {
       void completeLatestPreparedRequest('completed');
     },
+    ...(onUsage ? { onUsage } : {}),
   });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
+          contextWindow={contextWindow}
           disabledReason={disabledReason}
+          effectiveInputBudget={effectiveInputBudget}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           onModelChange={onModelChange}
@@ -775,6 +803,7 @@ const DataStreamRuntimeChat: FC<
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          threadKey={threadKey}
           toolMenu={toolMenu}
         />
       </AssistantPanelErrorBoundary>
@@ -787,6 +816,8 @@ const DataStreamRuntimeChat: FC<
  * Extracted to avoid duplication between local and data stream runtimes.
  */
 const ChatThreadUI: FC<{
+  contextWindow?: number | undefined;
+  effectiveInputBudget?: number | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
   pickerModels: ModelPickerModel[];
@@ -802,8 +833,11 @@ const ChatThreadUI: FC<{
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
+  threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }> = ({
+  contextWindow,
+  effectiveInputBudget,
   providerGroups,
   hasGroupedProviders,
   pickerModels,
@@ -817,6 +851,7 @@ const ChatThreadUI: FC<{
   isComposerDisabled,
   disabledReason,
   localLoadingState,
+  threadKey,
   toolMenu,
 }) => {
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -901,6 +936,11 @@ const ChatThreadUI: FC<{
        * This required aggressive CSS overrides (see overrides.css).
        */}
       <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+        <ThreadContextMeter
+          contextWindow={contextWindow}
+          effectiveInputBudget={effectiveInputBudget}
+          threadKey={threadKey}
+        />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
         <ComposerPrimitive.Root
           aria-disabled={isComposerDisabled}
@@ -962,7 +1002,9 @@ const ChatThreadUI: FC<{
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
+  contextWindow,
   completePreparedRequest,
+  effectiveInputBudget,
   providerGroups,
   pickerModels,
   pickerProviders,
@@ -975,6 +1017,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onUsage,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1057,8 +1100,10 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       {isLocalProvider && modelName ? (
         <LocalRuntimeChat
           completePreparedRequest={completePreparedRequest}
+          contextWindow={contextWindow}
           disabled={disabled}
           disabledReason={disabledReason}
+          effectiveInputBudget={effectiveInputBudget}
           key={threadKey ? `local:${threadKey}` : 'local'}
           loadLocalLlmBackend={loadLocalLlmBackend}
           localLoadingState={localLoadingState}
@@ -1068,6 +1113,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onProviderSettingsChange={onProviderSettingsChange}
           onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
+          {...(onUsage ? { onUsage } : {})}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           prepareRequestData={prepareRequestData}
@@ -1076,14 +1122,17 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           requestData={requestData}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          threadKey={threadKey}
           toolMenu={toolMenu}
         />
       ) : (
         <DataStreamRuntimeChat
           api={api}
           completePreparedRequest={completePreparedRequest}
+          contextWindow={contextWindow}
           disabled={disabled}
           disabledReason={disabledReason}
+          effectiveInputBudget={effectiveInputBudget}
           historyAdapter={historyAdapter}
           key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
           modelName={modelName}
@@ -1091,6 +1140,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onProviderSettingsChange={onProviderSettingsChange}
           onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
+          {...(onUsage ? { onUsage } : {})}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           prepareRequestData={prepareRequestData}
@@ -1099,6 +1149,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           requestData={requestData}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          threadKey={threadKey}
           toolMenu={toolMenu}
         />
       )}

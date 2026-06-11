@@ -4,6 +4,8 @@
 export { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Components
 export * from './components';
+// Context Actions
+export * from './context-actions';
 // Contexts
 export * from './contexts';
 // Utils

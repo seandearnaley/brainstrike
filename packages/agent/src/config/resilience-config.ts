@@ -9,6 +9,11 @@
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 export const DEFAULT_STREAM_INACTIVITY_MS = 120_000;
 
+export interface AssistantResilienceConfig {
+  streamInactivityMs: number;
+  toolTimeoutMs: number;
+}
+
 function readEnv(name: string): string | undefined {
   if (typeof process === 'undefined' || !process.env) {
     return;
@@ -44,4 +49,18 @@ export function resolveStreamInactivityMs(override?: number): number {
     DEFAULT_STREAM_INACTIVITY_MS,
     override
   );
+}
+
+export function resolveAssistantResilienceConfig(options?: {
+  streamInactivityMs?: number;
+  toolTimeoutMs?: number;
+}): AssistantResilienceConfig {
+  const toolTimeoutMs = resolveToolTimeoutMs(options?.toolTimeoutMs);
+  const streamInactivityMs = resolveStreamInactivityMs(options?.streamInactivityMs);
+  if (toolTimeoutMs >= streamInactivityMs) {
+    throw new Error(
+      `BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${toolTimeoutMs}ms and ${streamInactivityMs}ms.`
+    );
+  }
+  return { streamInactivityMs, toolTimeoutMs };
 }
