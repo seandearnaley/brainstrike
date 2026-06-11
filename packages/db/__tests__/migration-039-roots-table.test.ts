@@ -76,39 +76,60 @@ describe('migration 039: roots table', () => {
     await seedFileRecord('f3', 'notes.md', '/Users/alice/work-docs', 'set-a');
     await seedFileRecord('f4', 'orphan.md', null, null);
     await seedFileRecord('f5', 'rootfile.md', '/', 'set-a');
+    // Windows path: the [/\\] class in the leaf-extraction must handle
+    // backslash separators (the '\\\\'→'[/\\]' SQL escaping is subtle).
+    await seedFileRecord('f6', 'a.md', 'C:\\Users\\bob\\docs', 'set-a');
+    // Trailing separator: the greedy '^.*[/\\]' would otherwise strip
+    // '/Users/alice/trailing/' to '' and COALESCE to the FULL path.
+    await seedFileRecord('f7', 'b.md', '/Users/alice/trailing/', 'set-a');
 
     await runner.runMigration(getMigration039());
 
-    const roots = await db.query<RootRow>(
-      'SELECT id, kind, display_name, path, status FROM roots ORDER BY path'
-    );
-    expect(
-      roots.rows.map((row) => ({
+    const roots = await db.query<RootRow>('SELECT id, kind, display_name, path, status FROM roots');
+    // Sort in JS: SQL ORDER BY on paths mixing '/'-prefixed and 'C:\'-prefixed
+    // values is collation-sensitive (C vs ICU order punctuation differently).
+    const sortedRoots = roots.rows
+      .map((row) => ({
         display_name: row.display_name,
         kind: row.kind,
         path: row.path,
         status: row.status,
       }))
-    ).toEqual([
-      {
-        display_name: '/',
-        kind: 'legacy',
-        path: '/',
-        status: 'live',
-      },
-      {
-        display_name: 'personal-docs',
-        kind: 'legacy',
-        path: '/Users/alice/personal-docs',
-        status: 'live',
-      },
-      {
-        display_name: 'work-docs',
-        kind: 'legacy',
-        path: '/Users/alice/work-docs',
-        status: 'live',
-      },
-    ]);
+      .sort((a, b) => (a.path ?? '').localeCompare(b.path ?? ''));
+    expect(sortedRoots).toEqual(
+      [
+        {
+          display_name: '/',
+          kind: 'legacy',
+          path: '/',
+          status: 'live',
+        },
+        {
+          display_name: 'personal-docs',
+          kind: 'legacy',
+          path: '/Users/alice/personal-docs',
+          status: 'live',
+        },
+        {
+          display_name: 'trailing',
+          kind: 'legacy',
+          path: '/Users/alice/trailing/',
+          status: 'live',
+        },
+        {
+          display_name: 'work-docs',
+          kind: 'legacy',
+          path: '/Users/alice/work-docs',
+          status: 'live',
+        },
+        {
+          display_name: 'docs',
+          kind: 'legacy',
+          path: 'C:\\Users\\bob\\docs',
+          status: 'live',
+        },
+      ].sort((a, b) => a.path.localeCompare(b.path))
+    );
 
     const workRoot = roots.rows.find((row) => row.display_name === 'work-docs');
     const personalRoot = roots.rows.find((row) => row.display_name === 'personal-docs');

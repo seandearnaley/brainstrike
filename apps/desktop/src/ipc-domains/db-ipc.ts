@@ -64,7 +64,7 @@ interface PGliteLiveQuerySurface {
   };
 }
 
-type OptionalRelationTable = 'collection_indexing_stats' | 'embedding_sets' | 'job_queue';
+type OptionalRelationTable = 'collection_indexing_stats' | 'embedding_sets' | 'job_queue' | 'roots';
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
@@ -636,6 +636,10 @@ export function registerDatabaseIpcHandlers(
               }
             }
             await tx.query('DELETE FROM file_records');
+            // After file_records (the FK child): stale roots would otherwise
+            // survive clearAll and resurface as ghost workspaces once
+            // consumers read the roots table.
+            await clearOptionalRelation(tx, 'roots');
             await clearOptionalRelation(tx, 'collection_indexing_stats');
             await clearOptionalRelation(tx, 'embedding_sets');
             await clearOptionalRelation(tx, 'job_queue');
