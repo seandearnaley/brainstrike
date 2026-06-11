@@ -12,9 +12,11 @@
  * - Semantic search mode and configuration
  */
 
+import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import type { FileChunk } from '@brainstrike/db';
 import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import {
+  ActionContextMenu,
   type BrowserNodeData,
   type BulkAction,
   Button,
@@ -24,11 +26,6 @@ import {
   type CollectionNodeType,
   type CollectionSortState,
   type CollectionTreeInput,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   type EmbeddingStatus,
   type GroupByKey,
   NodeInspector,
@@ -37,6 +34,7 @@ import {
   type SearchMode,
   SearchModeBar,
   TablePagination,
+  useContextMenuTarget,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -51,6 +49,7 @@ import {
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
+import { type BrowserNodeDescriptor, browserNodeToTarget } from '../context-actions';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 import type {
@@ -112,6 +111,32 @@ function parseNodeId(nodeId: string): {
   }
 
   return { nodeType, originalId };
+}
+
+/**
+ * BrowserNodeData is a union without a discriminant, so probe the optional
+ * fields structurally (strict mode, no `any`) to build the context-target
+ * descriptor for the shared action menu.
+ */
+function toBrowserNodeDescriptor(
+  nodeType: string,
+  originalId: string,
+  data: BrowserNodeData
+): BrowserNodeDescriptor {
+  const probe = data as {
+    content?: unknown;
+    name?: unknown;
+    path?: unknown;
+    vectorId?: unknown;
+  };
+  return {
+    nodeType,
+    originalId,
+    ...(typeof probe.content === 'string' ? { content: probe.content } : {}),
+    ...(typeof probe.name === 'string' ? { name: probe.name } : {}),
+    ...(typeof probe.path === 'string' ? { path: probe.path } : {}),
+    ...(typeof probe.vectorId === 'string' ? { vectorId: probe.vectorId } : {}),
+  };
 }
 
 function canUseCollectionForNormalSearch(
@@ -977,19 +1002,24 @@ export function CollectionBrowserView({
     [toggleExpanded, setSelectedId, isInspectorCollapsed, handleInspectorCollapse]
   );
 
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
+  // Context menu target controller for the shared ActionContextMenu. Memoized
+  // handlers depend on `setTarget` (stable), not the controller object.
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  // Surface-local metadata the local actions close over (prefixed nodeId for
+  // the expand store, child availability for menu visibility).
+  const [contextMenuMeta, setContextMenuMeta] = useState<{
+    hasChildren: boolean;
     nodeId: string;
     nodeType: string;
-    hasChildren: boolean;
   } | null>(null);
 
-  // Handle right-click context menu
+  // Handle right-click: claim the shared context-menu target for this row.
+  // Note (intentional v1 simplification): `browserNodeToTarget` returns null
+  // for 'group' headers, so group rows no longer get a context menu — they
+  // already toggle expansion on click.
   const handleContextMenu = useCallback(
-    (nodeId: string, nodeType: string, _data: BrowserNodeData, event: React.MouseEvent) => {
-      event.preventDefault();
+    (nodeId: string, nodeType: string, data: BrowserNodeData, _event: React.MouseEvent) => {
       const { originalId } = parseNodeId(nodeId);
       const hasChildren =
         nodeType === 'group'
@@ -1009,79 +1039,107 @@ export function CollectionBrowserView({
               : nodeType === 'chunk'
                 ? chunks.some((chunk) => chunk.id === originalId && chunk.hasEmbedding)
                 : false;
-      setContextMenu({
-        x: event.clientX,
-        y: event.clientY,
-        nodeId,
-        nodeType,
-        hasChildren,
-      });
+      setContextMenuMeta({ hasChildren, nodeId, nodeType });
+      setContextMenuTarget(
+        browserNodeToTarget(toBrowserNodeDescriptor(nodeType, originalId, data))
+      );
     },
-    [records, chunks, activeCollectionId]
+    [records, chunks, activeCollectionId, setContextMenuTarget]
   );
 
-  // Close context menu
-  const closeContextMenu = useCallback(() => {
-    setContextMenu(null);
-  }, []);
-
-  // Context menu: expand/collapse node
-  const handleContextExpand = useCallback(() => {
-    if (contextMenu) {
-      toggleExpanded(contextMenu.nodeId);
+  // Surface-local context actions: closures over component state (expand
+  // store, inspector). Copy ID / Copy Content come from the global registry.
+  const localContextActions = useMemo<readonly AnyContextAction[]>(() => {
+    if (!contextMenuMeta) {
+      return [];
     }
-    closeContextMenu();
-  }, [contextMenu, toggleExpanded, closeContextMenu]);
+    const { nodeId, nodeType, hasChildren } = contextMenuMeta;
+    const actions: AnyContextAction[] = [];
 
-  // Context menu: expand all children for a parent node
-  const handleContextExpandAllChildren = useCallback(() => {
-    if (!contextMenu) {
-      return;
+    if (hasChildren) {
+      actions.push(
+        defineContextAction({
+          id: 'collection-browser.toggle-expand',
+          label: () => (expandedIdsSet.has(nodeId) ? 'Collapse' : 'Expand'),
+          icon: ChevronRight,
+          group: 'tree',
+          appliesTo: ['collection', 'collection-file', 'chunk'] as const,
+          run: () => {
+            toggleExpanded(nodeId);
+            return Promise.resolve({ ok: true });
+          },
+        })
+      );
+      if (nodeType === 'file') {
+        actions.push(
+          defineContextAction({
+            id: 'collection-browser.expand-all-children',
+            label: 'Expand All Children',
+            icon: ChevronsUpDown,
+            group: 'tree',
+            appliesTo: ['collection-file'] as const,
+            run: async () => {
+              const { originalId } = parseNodeId(nodeId);
+              const fileChunks = await ensureFileChunksLoaded(originalId);
+              const childIds = [
+                nodeId,
+                ...fileChunks
+                  .filter((chunk) => chunk.hasEmbedding)
+                  .map((chunk) => `chunk-${chunk.id}`),
+              ];
+              expandIds(childIds);
+              return { ok: true };
+            },
+          })
+        );
+      }
     }
-    const run = async () => {
-      const childIds: string[] = [];
-      const { originalId } = parseNodeId(contextMenu.nodeId);
 
-      if (contextMenu.nodeType === 'file') {
-        const fileChunks = await ensureFileChunksLoaded(originalId);
-        childIds.push(contextMenu.nodeId);
-        for (const chunk of fileChunks) {
-          if (chunk.hasEmbedding) {
-            childIds.push(`chunk-${chunk.id}`);
+    actions.push(
+      defineContextAction({
+        id: 'collection-browser.inspect',
+        label: 'Inspect',
+        icon: Eye,
+        group: 'inspect',
+        appliesTo: ['collection', 'collection-file', 'chunk', 'embedding'] as const,
+        run: () => {
+          setSelectedId(nodeId);
+          if (isInspectorCollapsed) {
+            handleInspectorCollapse(false);
           }
-        }
-      }
+          return Promise.resolve({ ok: true });
+        },
+      })
+    );
 
-      if (childIds.length > 0) {
-        expandIds(childIds);
-      }
-      closeContextMenu();
-    };
-
-    void run();
-  }, [closeContextMenu, contextMenu, ensureFileChunksLoaded, expandIds]);
-
-  // Context menu: inspect node (open inspector)
-  const handleContextInspect = useCallback(() => {
-    if (contextMenu) {
-      setSelectedId(contextMenu.nodeId);
-      if (isInspectorCollapsed) {
-        handleInspectorCollapse(false);
-      }
+    if (multiSelectEnabled) {
+      actions.push(
+        defineContextAction({
+          id: 'collection-browser.select',
+          label: 'Select',
+          icon: SquareCheck,
+          group: 'inspect',
+          appliesTo: ['collection', 'collection-file', 'chunk', 'embedding'] as const,
+          run: () => {
+            setSelectedId(nodeId);
+            return Promise.resolve({ ok: true });
+          },
+        })
+      );
     }
-    closeContextMenu();
-  }, [contextMenu, setSelectedId, isInspectorCollapsed, handleInspectorCollapse, closeContextMenu]);
 
-  // Context menu: copy node ID to clipboard
-  const handleContextCopyId = useCallback(() => {
-    if (contextMenu) {
-      const { originalId } = parseNodeId(contextMenu.nodeId);
-      navigator.clipboard.writeText(originalId).catch((error: unknown) => {
-        logger.warn('Failed to copy node ID to clipboard', { error });
-      });
-    }
-    closeContextMenu();
-  }, [contextMenu, closeContextMenu]);
+    return actions;
+  }, [
+    contextMenuMeta,
+    expandedIdsSet,
+    toggleExpanded,
+    ensureFileChunksLoaded,
+    expandIds,
+    setSelectedId,
+    isInspectorCollapsed,
+    handleInspectorCollapse,
+    multiSelectEnabled,
+  ]);
 
   // Bulk actions for the multi-select action bar
   const bulkActions: BulkAction[] = useMemo(
@@ -1200,37 +1258,50 @@ export function CollectionBrowserView({
             }%`}
             minSize="30%"
           >
-            <CollectionBrowser
-              bulkActions={bulkActions}
-              className="h-full"
-              columnSizes={columnSizes}
-              data={treeData}
-              emptyMessage={emptyMessage}
-              expandedIds={expandedIdsSet}
-              filters={filters}
-              hasSearched={hasScopedSemanticSearch}
-              height="100%"
-              isLoading={isLoading}
-              isSearching={isSearching}
-              multiSelectEnabled={multiSelectEnabled}
-              onColumnSizesChange={setColumnSizes}
-              onContextMenu={handleContextMenu}
-              onDoubleClick={handleDoubleClick}
-              onExpandedIdsChange={handleExpandedIdsChange}
-              onFiltersChange={handleFiltersChange}
-              onSelect={handleSelect}
-              onSelectedIdChange={handleSelectedIdChange}
-              onSortChange={handleSortChange}
-              searchMode={searchMode}
-              selectedId={selectedId}
-              showCheckbox={showCheckbox && multiSelectEnabled}
-              treeWindowingStrategy="virtual"
-              {...(sortState ? { sortState } : {})}
-              {...(searchMode === 'semantic' && hasActiveCollection
-                ? { semanticResults: scopedSearchResults }
-                : {})}
-              {...(groupBy === 'none' ? {} : { groupBy })}
-            />
+            <ActionContextMenu
+              controller={contextMenuController}
+              localActions={localContextActions}
+            >
+              {/* Capture-phase reset: every right-click starts with a clean
+                  target before the row handler claims it; unclaimed clicks
+                  leave it null and ActionContextMenu suppresses the menu. */}
+              <div
+                className="h-full min-h-0"
+                onContextMenuCapture={() => setContextMenuTarget(null)}
+              >
+                <CollectionBrowser
+                  bulkActions={bulkActions}
+                  className="h-full"
+                  columnSizes={columnSizes}
+                  data={treeData}
+                  emptyMessage={emptyMessage}
+                  expandedIds={expandedIdsSet}
+                  filters={filters}
+                  hasSearched={hasScopedSemanticSearch}
+                  height="100%"
+                  isLoading={isLoading}
+                  isSearching={isSearching}
+                  multiSelectEnabled={multiSelectEnabled}
+                  onColumnSizesChange={setColumnSizes}
+                  onContextMenu={handleContextMenu}
+                  onDoubleClick={handleDoubleClick}
+                  onExpandedIdsChange={handleExpandedIdsChange}
+                  onFiltersChange={handleFiltersChange}
+                  onSelect={handleSelect}
+                  onSelectedIdChange={handleSelectedIdChange}
+                  onSortChange={handleSortChange}
+                  searchMode={searchMode}
+                  selectedId={selectedId}
+                  showCheckbox={showCheckbox && multiSelectEnabled}
+                  treeWindowingStrategy="virtual"
+                  {...(sortState ? { sortState } : {})}
+                  {...(searchMode === 'semantic' && hasActiveCollection
+                    ? { semanticResults: scopedSearchResults }
+                    : {})}
+                  {...(groupBy === 'none' ? {} : { groupBy })}
+                />
+              </div>
+            </ActionContextMenu>
           </Panel>
 
           {hasInspectableSelection && !isInspectorCollapsed && (
@@ -1267,72 +1338,6 @@ export function CollectionBrowserView({
 
       {pagination && !isShowingSemanticResults && (
         <CollectionBrowserPaginationFooter pagination={pagination} />
-      )}
-
-      {/* Context menu (positioned at right-click location) */}
-      {contextMenu && (
-        <DropdownMenu
-          onOpenChange={(open) => {
-            if (!open) {
-              closeContextMenu();
-            }
-          }}
-          open
-        >
-          <DropdownMenuTrigger asChild>
-            <div
-              className="pointer-events-none fixed h-px w-px"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="right">
-            {contextMenu.hasChildren && (
-              <>
-                <DropdownMenuItem onClick={handleContextExpand}>
-                  {expandedIdsSet.has(contextMenu.nodeId) ? (
-                    <>
-                      <ChevronRight className="mr-2 h-4 w-4 rotate-90" />
-                      Collapse
-                    </>
-                  ) : (
-                    <>
-                      <ChevronRight className="mr-2 h-4 w-4" />
-                      Expand
-                    </>
-                  )}
-                </DropdownMenuItem>
-                {contextMenu.nodeType === 'file' && (
-                  <DropdownMenuItem onClick={handleContextExpandAllChildren}>
-                    <ChevronsUpDown className="mr-2 h-4 w-4" />
-                    Expand All Children
-                  </DropdownMenuItem>
-                )}
-              </>
-            )}
-            <DropdownMenuItem onClick={handleContextInspect}>
-              <Eye className="mr-2 h-4 w-4" />
-              Inspect
-            </DropdownMenuItem>
-            {multiSelectEnabled && (
-              <DropdownMenuItem
-                onClick={() => {
-                  if (contextMenu) {
-                    setSelectedId(contextMenu.nodeId);
-                  }
-                  closeContextMenu();
-                }}
-              >
-                <SquareCheck className="mr-2 h-4 w-4" />
-                Select
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleContextCopyId}>
-              <Copy className="mr-2 h-4 w-4" />
-              Copy ID
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       )}
     </div>
   );

@@ -45,6 +45,9 @@
       "path": "../assistant-contract"
     },
     {
+      "path": "../context-actions"
+    },
+    {
       "path": "../db"
     },
     {

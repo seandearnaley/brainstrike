@@ -245,6 +245,10 @@ declare global {
         }) => void
       ) => () => void;
     };
+    platform?: {
+      openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
+      showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
+    };
     power: {
       getSnapshot: () => Promise<{
         idleState: WorkspaceIndexingIdleState;
