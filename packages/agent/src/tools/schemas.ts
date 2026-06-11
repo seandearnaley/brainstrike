@@ -155,6 +155,17 @@ export const ReadWorkspaceDirectoryInputSchema = z
     includeFiles: z.boolean().optional().describe('Include files in the listing'),
     includeDirectories: z.boolean().optional().describe('Include directories in the listing'),
     includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
+    detail: z
+      .boolean()
+      .optional()
+      .describe('Include per-entry size and depth metadata (default false: path + type only)'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(5000)
+      .optional()
+      .describe('Skip this many entries to continue a truncated listing'),
   })
   .strict();
 
@@ -396,14 +407,29 @@ export const GrepSearchInputSchema = z
       .min(0)
       .max(5)
       .optional()
-      .describe('Lines of context before/after each match (default 1)'),
+      .describe("Lines of context before/after each match in 'content' mode (default 1)"),
     maxResults: z
       .number()
       .int()
       .positive()
       .max(200)
       .optional()
-      .describe('Maximum matches to return (default 50)'),
+      .describe("Maximum 'content' matches to return (default 50)"),
+    outputMode: z
+      .enum(['files', 'content'])
+      .optional()
+      .describe(
+        "'files' (default) lists matching file paths with per-file match counts — a cheap survey for narrowing. 'content' returns line-level matches with context; scope it with filePaths."
+      ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(2000)
+      .optional()
+      .describe(
+        'Skip this many files/matches to continue a truncated result instead of re-querying'
+      ),
   })
   .strict();
 

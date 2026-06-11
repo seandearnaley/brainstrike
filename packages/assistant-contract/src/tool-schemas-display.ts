@@ -174,8 +174,25 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         required: false,
         default: false,
       },
+      {
+        name: 'detail',
+        type: 'boolean',
+        description: 'Include per-entry size and depth metadata (default: path + type only)',
+        required: false,
+        default: false,
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        description: 'Skip this many entries to continue a truncated listing',
+        required: false,
+        default: 0,
+        min: 0,
+        max: 5000,
+      },
     ],
-    returns: 'Directory summary with compact entries and truncation metadata',
+    returns:
+      'Compact entries (self-bounded to the tool output budget) with totals, truncation flag, and a continuation hint',
   },
 
   'brainstrike.listWorkspaceContext': {
@@ -404,7 +421,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.grepSearch': {
     toolId: 'brainstrike.grepSearch',
     description:
-      'Grep indexed file content for an exact string or regex, returning path:line matches with context.',
+      "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching file paths; 'content' mode returns path:line matches with context.",
     parameters: [
       {
         name: 'pattern',
@@ -438,7 +455,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       {
         name: 'contextLines',
         type: 'number',
-        description: 'Lines of context before/after each match',
+        description: "Lines of context before/after each match in 'content' mode",
         required: false,
         default: 1,
         min: 0,
@@ -447,15 +464,32 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       {
         name: 'maxResults',
         type: 'number',
-        description: 'Maximum matches to return',
+        description: "Maximum 'content' matches to return",
         required: false,
         default: 50,
         min: 1,
         max: 200,
       },
+      {
+        name: 'outputMode',
+        type: 'string',
+        description:
+          "'files' (default) lists matching file paths with match counts; 'content' returns line-level matches with context",
+        required: false,
+        default: 'files',
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        description: 'Skip this many files/matches to continue a truncated result',
+        required: false,
+        default: 0,
+        min: 0,
+        max: 2000,
+      },
     ],
     returns:
-      'Matches with file path, 1-based line number, line text, and surrounding context lines, plus truncation flags',
+      "'files' mode: matching file paths with per-file match counts. 'content' mode: path, 1-based line, line text, and context lines. Both self-bound to the tool output budget with totals, truncation flags, and a continuation hint",
   },
 };
 

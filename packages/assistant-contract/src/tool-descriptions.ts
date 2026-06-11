@@ -18,5 +18,5 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.queryEmbeddingSpace':
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
   'brainstrike.grepSearch':
-    'Grep indexed file content for an exact string or regex, returning path:line matches with context',
+    "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
 };

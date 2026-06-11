@@ -26,11 +26,35 @@ describe('grep search tool', () => {
     queryMock.mockReset();
   });
 
-  it('returns path:line matches for a literal pattern', async () => {
+  it('defaults to files mode: aggregated per-path summaries, no line content', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        { content: 'needle one\nplain\nneedle two', start_line: 1, path: 'src/x.ts' },
+        { content: 'needle here', start_line: 40, path: 'src/y.ts' },
+      ],
+    });
+    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.files).toEqual([
+      { path: 'src/x.ts', matchCount: 2, firstLine: 1 },
+      { path: 'src/y.ts', matchCount: 1, firstLine: 40 },
+    ]);
+    expect(result.totalFiles).toBe(2);
+    expect(result.totalMatches).toBe(3);
+    expect(result.truncated).toBe(false);
+    expect(result.hint).toBeUndefined();
+  });
+
+  it('returns path:line matches with context in content mode', async () => {
     queryMock.mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
     });
-    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    const result = await runGrepSearch({ pattern: 'needle', outputMode: 'content' }, undefined);
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
     expect(result.matches).toEqual([
       {
         path: 'src/x.ts',
@@ -40,6 +64,44 @@ describe('grep search tool', () => {
         after: ['omega'],
       },
     ]);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('pages content matches with offset and emits a continuation hint', async () => {
+    const lines = Array.from({ length: 6 }, (_, i) => `needle ${i}`).join('\n');
+    queryMock.mockResolvedValue({
+      rows: [{ content: lines, start_line: 1, path: 'src/x.ts' }],
+    });
+    const result = await runGrepSearch(
+      { pattern: 'needle', outputMode: 'content', contextLines: 0, maxResults: 2, offset: 2 },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches.map((m) => m.lineText)).toEqual(['needle 2', 'needle 3']);
+    expect(result.offset).toBe(2);
+    expect(result.totalMatches).toBe(6);
+    expect(result.truncated).toBe(true);
+    expect(result.hint).toContain('offset: 4');
+  });
+
+  it('self-bounds oversized files-mode output and steers toward content mode', async () => {
+    const rows = Array.from({ length: 400 }, (_, i) => ({
+      content: 'needle in a haystack of content',
+      start_line: 1,
+      path: `packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`,
+    }));
+    queryMock.mockResolvedValue({ rows });
+    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.totalFiles).toBe(400);
+    expect(result.files.length).toBeLessThan(400);
+    expect(result.truncated).toBe(true);
+    expect(result.hint).toContain('outputMode');
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(11_000);
   });
 
   it('passes the workspace-index embedding set id from runtimeData', async () => {

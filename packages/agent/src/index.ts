@@ -242,6 +242,10 @@ export {
   toJsonSafe,
 } from './stream/json';
 export {
+  fitItemsToCharBudget,
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
+} from './stream/tool-output-limits';
+export {
   clearToolRegistry,
   completeToolCall,
   createToolRegistry,

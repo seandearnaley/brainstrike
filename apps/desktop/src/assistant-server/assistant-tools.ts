@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
+  fitItemsToCharBudget,
   type GrepSearchInput,
   GrepSearchInputSchema,
   type ListEmbeddingSetsInput,
@@ -300,7 +301,8 @@ async function runReadWorkspaceFile(
 }
 
 interface DirectoryEntry {
-  depth: number;
+  /** Present only in detail mode (concise entries are path + type). */
+  depth?: number;
   path: string;
   size?: number;
   tokenCount?: number;
@@ -312,6 +314,8 @@ type FsDirent = import('node:fs').Dirent;
 interface DirectoryTraversalOptions {
   baseSegments: readonly string[];
   depth: number;
+  /** When true, entries include depth and file size (extra stat call per file). */
+  detail: boolean;
   includeDirectories: boolean;
   includeFiles: boolean;
   includeHidden: boolean;
@@ -376,7 +380,7 @@ function processDirectoryEntry(
     pushDirectoryEntry(state, {
       path: context.childPath,
       type: 'directory',
-      depth: context.childDepth,
+      ...(options.detail ? { depth: context.childDepth } : {}),
     });
   }
   return context.childDepth <= options.depth;
@@ -389,6 +393,11 @@ async function processFileEntry(
 ): Promise<void> {
   state.totalMatchedFiles += 1;
   if (!(options.includeFiles && context.childDepth <= options.depth + 1)) {
+    return;
+  }
+
+  if (!options.detail) {
+    pushDirectoryEntry(state, { path: context.childPath, type: 'file' });
     return;
   }
 
@@ -408,21 +417,23 @@ async function processFileEntry(
   });
 }
 
+interface ReadWorkspaceDirectoryToolResult {
+  count: number;
+  entries: DirectoryEntry[];
+  /** Actionable next step when the listing was truncated. */
+  hint?: string;
+  offset: number;
+  path: string;
+  /** Entries collected by the traversal (lower bound when truncated). */
+  totalEntries: number;
+  totalMatchedFiles: number;
+  truncated: boolean;
+}
+
 async function runReadWorkspaceDirectory(
   input: ReadWorkspaceDirectoryInput,
   runtimeData: RuntimeData | undefined
-): Promise<{
-  path: string;
-  depth: number;
-  maxEntries: number;
-  includeFiles: boolean;
-  includeDirectories: boolean;
-  includeHidden: boolean;
-  entries: DirectoryEntry[];
-  count: number;
-  totalMatchedFiles: number;
-  truncated: boolean;
-}> {
+): Promise<ReadWorkspaceDirectoryToolResult> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
   const requestedPath = input.path ?? '/';
   const normalizedPath = normalizeWorkspacePath(requestedPath);
@@ -438,6 +449,8 @@ async function runReadWorkspaceDirectory(
   const includeFiles = input.includeFiles ?? true;
   const includeDirectories = input.includeDirectories ?? true;
   const includeHidden = input.includeHidden ?? false;
+  const detail = input.detail ?? false;
+  const offset = input.offset ?? 0;
 
   const options: DirectoryTraversalOptions = {
     baseSegments: normalizedPath === '/' ? [] : toPathSegments(normalizedPath),
@@ -445,10 +458,12 @@ async function runReadWorkspaceDirectory(
     includeDirectories,
     includeFiles,
     depth,
+    detail,
   };
   const state: DirectoryTraversalState = {
     entries: [],
-    maxEntries,
+    // Collect through the requested page so offset paging can skip into it.
+    maxEntries: offset + maxEntries,
     truncated: false,
     totalMatchedFiles: 0,
   };
@@ -493,18 +508,34 @@ async function runReadWorkspaceDirectory(
 
   await visit(resolvedBase.absolutePath, []);
 
-  return {
-    path: normalizedPath,
-    depth,
-    maxEntries,
-    includeFiles,
-    includeDirectories,
-    includeHidden,
-    entries: state.entries,
-    count: state.entries.length,
-    totalMatchedFiles: state.totalMatchedFiles,
-    truncated: state.truncated,
-  };
+  const pagedEntries = state.entries.slice(offset);
+  // The hint is part of the fitted candidate so it can never push the final
+  // result back over the budget.
+  const { result } = fitItemsToCharBudget(
+    pagedEntries,
+    (entries): ReadWorkspaceDirectoryToolResult => {
+      // Truncated when entries were dropped (traversal cap, paging, or budget fitting).
+      const truncated = state.truncated || offset + entries.length < state.entries.length;
+      const traversalNote = state.truncated
+        ? ' The traversal stopped early, so totals are lower bounds.'
+        : '';
+      const hint = truncated
+        ? `Showing entries ${offset + 1}-${offset + entries.length} of ${state.entries.length}+ under "${normalizedPath}".` +
+          `${traversalNote} Continue with offset: ${offset + entries.length}, or list a more specific subdirectory.`
+        : undefined;
+      return {
+        path: normalizedPath,
+        entries,
+        count: entries.length,
+        totalEntries: state.entries.length,
+        totalMatchedFiles: state.totalMatchedFiles,
+        offset,
+        truncated,
+        ...(hint ? { hint } : {}),
+      };
+    }
+  );
+  return result;
 }
 
 function normalizeRuntimeSelectionFilePaths(runtimeData: RuntimeData | undefined): string[] {
@@ -1348,7 +1379,7 @@ export function buildDesktopAssistantTools(
     [GREP_SEARCH_TOOL_ID]: {
       id: GREP_SEARCH_TOOL_ID,
       description:
-        'Grep indexed file content for an exact string (default) or JavaScript regex. Returns path:line matches with surrounding context lines. Use this FIRST for identifiers, exact strings, and error messages; use semantic search only when you do not know the exact wording.',
+        "Grep indexed file content for an exact string (default) or JavaScript regex. Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
       inputSchema: GrepSearchInputSchema,
       execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
         const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);
@@ -1378,7 +1409,7 @@ export function buildDesktopAssistantTools(
     [READ_WORKSPACE_DIRECTORY_TOOL_ID]: {
       id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
       description:
-        'List workspace directory entries in a compact token-efficient format. Use depth and maxEntries to bound output.',
+        'List workspace directory entries (path + type by default; detail: true adds sizes). Prefer specific subdirectories over the root. Truncated listings include a hint with the offset to continue from.',
       inputSchema: ReadWorkspaceDirectoryInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceDirectoryInputSchema, input);
