@@ -4,6 +4,7 @@
   "dependencies": {
     "@brainstrike/agent-hub": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",

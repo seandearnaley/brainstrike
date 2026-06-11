@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDefaultInstructions } from '../default-instructions';
+import { buildContextBudgetNote, buildDefaultInstructions } from '../default-instructions';
 
 describe('default assistant instructions', () => {
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
@@ -54,6 +54,7 @@ const FULL_TOOL_MAP = new Map<string, string>([
   ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
   ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
   ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
+  ['grepSearch', 'brainstrike.grepSearch'],
 ]);
 
 describe('buildDefaultInstructions', () => {
@@ -132,5 +133,63 @@ describe('buildDefaultInstructions', () => {
       ])
     );
     expect(prompt).not.toContain('findWorkspaceSymbol');
+  });
+});
+
+describe('grep-first search orientation', () => {
+  const WITH_GREP_MAP = new Map<string, string>([
+    ['listWorkspaceContext', 'brainstrike.listWorkspaceContext'],
+    ['readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
+    ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
+    ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
+    ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+    ['updateWorkspaceContextSelection', 'brainstrike.updateWorkspaceContextSelection'],
+    ['updateWorkspaceTapestrySelections', 'brainstrike.updateWorkspaceTapestrySelections'],
+    ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
+    ['grepSearch', 'brainstrike.grepSearch'],
+  ]);
+
+  it('mentions grep tool before semantic-search guidance and contains exact-string usage phrase', () => {
+    const instructions = buildDefaultInstructions(WITH_GREP_MAP);
+
+    expect(instructions).toContain('exact strings, identifiers, and error messages');
+    // Compare substrings unique to the GUIDANCE sentences (not the tool-name
+    // listing line, where both names also appear and would order-match
+    // regardless of where the instruction sentences sit).
+    expect(instructions.indexOf('FIRST —')).toBeLessThan(
+      instructions.indexOf('When you do NOT know the exact wording')
+    );
+  });
+
+  it('positions semantic search as fallback when grep is registered', () => {
+    const instructions = buildDefaultInstructions(WITH_GREP_MAP);
+    expect(instructions).toContain('When you do NOT know the exact wording');
+  });
+
+  it('states exact-text grep search is unavailable when grepSearch is not registered', () => {
+    const noGrep = new Map<string, string>([
+      ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
+      ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+    ]);
+    const instructions = buildDefaultInstructions(noGrep);
+    expect(instructions).toContain('Exact-text grep search is unavailable in this run.');
+  });
+});
+
+describe('buildContextBudgetNote', () => {
+  it('renders a one-line budget note', () => {
+    expect(buildContextBudgetNote(126_000)).toBe(
+      'Context budget: about 126.0K tokens of input context are available this run. Suggest starting a new thread if context runs low.'
+    );
+  });
+
+  it('renders small budgets without K notation', () => {
+    expect(buildContextBudgetNote(900)).toBe(
+      'Context budget: about 900 tokens of input context are available this run. Suggest starting a new thread if context runs low.'
+    );
+  });
+
+  it('returns null without a budget', () => {
+    expect(buildContextBudgetNote(undefined)).toBeNull();
   });
 });

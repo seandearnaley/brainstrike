@@ -192,6 +192,9 @@
     },
     {
       "path": "../queue"
+    },
+    {
+      "path": "../context-actions"
     }
   ]
 }

@@ -64,6 +64,10 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../pipeline/src'),
       },
       {
+        find: '@brainstrike/context-actions',
+        replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
+      },
+      {
         find: '@brainstrike/indexing-contract',
         replacement: resolve(import.meta.dirname, '../indexing-contract/src'),
       },

@@ -65,6 +65,10 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/agent-hub/src/index.ts'
       ),
+      '@brainstrike/platform-utils': path.resolve(
+        import.meta.dirname,
+        '../../packages/platform-utils/src'
+      ),
       '@brainstrike/embeddings/runtime-config': path.resolve(
         import.meta.dirname,
         '../../packages/embeddings/src/runtime-config.ts'

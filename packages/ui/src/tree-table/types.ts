@@ -116,6 +116,8 @@ export interface TreeTableColumn<T> {
    * flag). Set to `false` to explicitly opt out for resizable-width columns.
    */
   resizable?: boolean;
+  /** Whether TreeTable should render its built-in sort indicator. Defaults to true. */
+  showSortIndicator?: boolean;
   /** Whether this column is sortable */
   sortable?: boolean;
   /** Fixed width in pixels or CSS string */

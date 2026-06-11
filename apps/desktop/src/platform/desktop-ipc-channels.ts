@@ -17,6 +17,9 @@ export const DESKTOP_IPC_CHANNELS = {
     statusEvent: 'agent-hub:status',
     stop: 'agent-hub:stop',
   },
+  clipboard: {
+    writeText: 'clipboard:write-text',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',
@@ -82,6 +85,10 @@ export const DESKTOP_IPC_CHANNELS = {
     list: 'secrets:list',
     listStored: 'secrets:listStored',
     save: 'secrets:save',
+  },
+  shell: {
+    openPath: 'shell:open-path',
+    showItemInFolder: 'shell:show-item-in-folder',
   },
   storage: {
     clear: 'storage:clear',

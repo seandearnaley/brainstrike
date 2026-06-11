@@ -4,6 +4,7 @@ export type DesktopIpcDomain =
   | 'agent'
   | 'agent-hub'
   | 'chunking-host'
+  | 'clipboard'
   | 'db'
   | 'diagnostics'
   | 'embeddings'
@@ -13,6 +14,7 @@ export type DesktopIpcDomain =
   | 'mcp'
   | 'preferences'
   | 'runtime'
+  | 'shell'
   | 'storage'
   | 'tools';
 

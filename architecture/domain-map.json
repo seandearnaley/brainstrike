@@ -136,6 +136,7 @@
       "packages": [
         "@brainstrike/agent-hub",
         "@brainstrike/assistant-contract",
+        "@brainstrike/context-actions",
         "@brainstrike/file-system",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",

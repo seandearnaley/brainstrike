@@ -92,6 +92,9 @@
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
       ],
+      "@brainstrike/platform-utils": [
+        "../../packages/platform-utils/src"
+      ],
       "@brainstrike/preferences": [
         "../../packages/preferences/src"
       ],
@@ -138,6 +141,9 @@
     },
     {
       "path": "../../packages/worker-runtime"
+    },
+    {
+      "path": "../../packages/platform-utils"
     }
   ]
 }
