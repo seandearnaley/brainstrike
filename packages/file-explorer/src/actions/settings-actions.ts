@@ -108,31 +108,26 @@ export const createSettingsActions = (
         newSelectedFilePaths = new Set(Array.from(state.selectedFilePaths).slice(0, clampedCount));
       }
 
-      const baseUpdates: Partial<FileExplorerState> = {
-        maxSelectionCount: clampedCount,
-        selectedFilePaths: newSelectedFilePaths,
-      };
-
-      const { currentFolderId } = state;
-      if (!currentFolderId) {
-        return baseUpdates;
-      }
-
-      const folderState = state.folderStates[currentFolderId];
-      if (!folderState) {
-        return baseUpdates;
-      }
-
-      return {
-        ...baseUpdates,
-        folderStates: {
-          ...state.folderStates,
-          [currentFolderId]: {
+      // maxSelectionCount is WORKSPACE-GLOBAL: write the value through to
+      // EVERY folder snapshot so persisted copies can never diverge again
+      // (stale per-folder caps used to silently clamp forest selections).
+      // Selection trimming stays scoped to the focused folder — stored
+      // foreign selections are only clamped at mutation time.
+      const folderStates = Object.fromEntries(
+        Object.entries(state.folderStates).map(([id, folderState]) => [
+          id,
+          {
             ...folderState,
             maxSelectionCount: clampedCount,
-            selectedFilePaths: newSelectedFilePaths,
+            ...(id === state.currentFolderId ? { selectedFilePaths: newSelectedFilePaths } : {}),
           },
-        },
+        ])
+      );
+
+      return {
+        maxSelectionCount: clampedCount,
+        selectedFilePaths: newSelectedFilePaths,
+        folderStates,
       };
     });
   },

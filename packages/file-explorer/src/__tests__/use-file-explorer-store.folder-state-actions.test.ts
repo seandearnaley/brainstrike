@@ -157,7 +157,9 @@ describe('Folder State Actions', () => {
     expect(state.useRegex).toBe(true);
     expect(state.includeProjectTree).toBe(false);
     expect(state.folderSummaryThreshold).toBe(10);
-    expect(state.maxSelectionCount).toBe(50);
+    // maxSelectionCount is WORKSPACE-GLOBAL — hydration must NOT pick up the
+    // folder snapshot's stale copy (50); the top-level value is preserved.
+    expect(state.maxSelectionCount).toBe(DEFAULT_STATE.maxSelectionCount);
     expect(state.lastActiveTab).toBe('settings');
   });
 

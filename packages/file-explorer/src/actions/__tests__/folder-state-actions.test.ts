@@ -82,7 +82,9 @@ describe('folder-state-actions hydrateFolderState', () => {
     expect(updated.useRegex).toBe(true);
     expect(updated.includeProjectTree).toBe(false);
     expect(updated.folderSummaryThreshold).toBe(5);
-    expect(updated.maxSelectionCount).toBe(10);
+    // maxSelectionCount is WORKSPACE-GLOBAL — the hydration partial must not
+    // touch it (stale per-folder snapshots would flip the effective cap).
+    expect(updated.maxSelectionCount).toBeUndefined();
     expect(updated.lastActiveTab).toBe('settings');
   });
 

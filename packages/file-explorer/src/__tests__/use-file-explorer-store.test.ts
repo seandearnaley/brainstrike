@@ -13,6 +13,7 @@ import { createFileContentActions } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
+import { createNewFolderState } from '../utils/file-explorer-utils';
 
 // Combine all action interfaces
 type TestActions = ReturnType<typeof createFolderStateActions> &
@@ -360,6 +361,58 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(s.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
       // A's snapshot holds ONLY A's keys — no cross-root contamination.
       expect(s.folderStates[ROOT_A]?.selectedFilePaths).toEqual(new Set([keyA('a.ts')]));
+    });
+
+    // maxSelectionCount is a WORKSPACE-GLOBAL setting (P6fix round 2). Stale
+    // per-folder snapshots (default 10) used to hydrate the top-level cap on
+    // every focus switch and clamp foreign writes — in forest mode the
+    // effective limit silently flipped per clicked section, making checkbox
+    // clicks no-ops ("checking folders mostly doesn't work").
+    it('focus switch does NOT hydrate maxSelectionCount from a stale folderState snapshot', () => {
+      store.setMaxSelectionCount(100);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: { ...createNewFolderState(), maxSelectionCount: 10 },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      expect(store.getState().maxSelectionCount).toBe(100);
+    });
+
+    it('hydrateFolderState does NOT hydrate maxSelectionCount from the folderState snapshot', () => {
+      store.setMaxSelectionCount(100);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_A]: { ...createNewFolderState(), maxSelectionCount: 10 },
+        },
+      });
+
+      store.hydrateFolderState(ROOT_A);
+
+      expect(store.getState().maxSelectionCount).toBe(100);
+    });
+
+    it('foreign writes clamp against the GLOBAL maxSelectionCount, not the stale folder snapshot', () => {
+      store.setMaxSelectionCount(100);
+      // Seed B's folderState with a stale per-folder cap of 2.
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            selectedFilePaths: new Set([keyB('seed.ts')]),
+            maxSelectionCount: 2,
+          },
+        },
+      });
+
+      store.addMultipleSelectedFiles(ROOT_B, ['p1.ts', 'p2.ts', 'p3.ts', 'p4.ts']);
+
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.size).toBe(5);
     });
 
     it('focus-switch snapshot partitions any foreign key that leaked into the top-level set', () => {

@@ -392,6 +392,47 @@ describe('file-explorer-persistence', () => {
       expect(result).toEqual(initialCurrentState);
     });
 
+    it('heals a degraded global maxSelectionCount from folder snapshots and writes it through', () => {
+      // Per-folder-cap-era profiles: the top-level value could be a stale 10
+      // (hydrated from whichever root was focused at save time) while another
+      // folder snapshot holds the user's real setting.
+      const serializedFolder = {
+        selectedFilePaths: [] as string[],
+        expandedDirectoryPaths: [] as string[],
+        lastAccessed: Date.now(),
+        lastActiveTab: 'files',
+        includeFilters: [] as string[],
+        excludeFilters: [] as string[],
+        useRegex: false,
+        includeProjectTree: true,
+        folderSummaryThreshold: 10,
+        tokenBudget: 1000,
+      };
+      const persisted: SerializedState = {
+        currentFolderId: 'stale-root',
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        folderAccessOrder: ['stale-root', 'configured-root'],
+        maxSelectionCount: 10,
+        folderStates: {
+          'stale-root': { ...serializedFolder, maxSelectionCount: 10 },
+          'configured-root': { ...serializedFolder, maxSelectionCount: 100 },
+        },
+        lastActiveTab: 'files',
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: true,
+        folderSummaryThreshold: 20,
+      };
+
+      const result = mergeFn(persisted, initialCurrentState);
+
+      expect(result.maxSelectionCount).toBe(100);
+      expect(result.folderStates['stale-root']?.maxSelectionCount).toBe(100);
+      expect(result.folderStates['configured-root']?.maxSelectionCount).toBe(100);
+    });
+
     it('should merge persisted SerializedState into current FileExplorerState, converting arrays to Sets', () => {
       const persisted: SerializedState = {
         currentFolderId: 'persisted-folder',

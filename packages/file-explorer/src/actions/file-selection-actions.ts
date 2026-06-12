@@ -405,8 +405,9 @@ async function computeKeysInChunks(
  * makes the write order-independent: whichever of the write and the focus
  * switch lands first, the key ends up in the same place.
  *
- * Additions respect the target folder's own maxSelectionCount (per-root
- * limit, consistent with the recorded union-limit deferral).
+ * Additions clamp against the WORKSPACE-GLOBAL maxSelectionCount — never the
+ * folder snapshot's copy. Persisted folderStates carry stale per-folder caps
+ * (the old default of 10) that silently truncated foreign selections.
  */
 function applyForeignExplicitMutation(
   state: FileExplorerState,
@@ -420,7 +421,7 @@ function applyForeignExplicitMutation(
 } {
   const base = state.folderStates[folderId] ?? createNewFolderState(state);
   const selected = new Set(base.selectedFilePaths);
-  const limit = base.maxSelectionCount ?? state.maxSelectionCount;
+  const limit = state.maxSelectionCount;
   let addedCount = 0;
   let limitReached = false;
   for (const path of additions) {

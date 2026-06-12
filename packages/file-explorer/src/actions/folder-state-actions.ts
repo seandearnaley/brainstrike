@@ -41,7 +41,10 @@ function buildRestoreState(
     includeProjectTree: folderState.includeProjectTree,
     tokenBudget: folderState.tokenBudget,
     folderSummaryThreshold: folderState.folderSummaryThreshold,
-    maxSelectionCount: folderState.maxSelectionCount,
+    // maxSelectionCount is WORKSPACE-GLOBAL — never hydrated from the folder
+    // snapshot. Forest mode switches focus on every section click; a stale
+    // per-folder cap (default 10) would silently flip the effective limit
+    // per clicked root and turn checkbox clicks into no-ops.
     lastActiveTab: folderState.lastActiveTab ?? 'files',
     viewFilterPresetId: folderState.viewFilterPresetId,
   };
@@ -192,7 +195,7 @@ export const createFolderStateActions = (
         includeProjectTree: folderState.includeProjectTree,
         tokenBudget: folderState.tokenBudget,
         folderSummaryThreshold: folderState.folderSummaryThreshold,
-        maxSelectionCount: folderState.maxSelectionCount,
+        // maxSelectionCount is WORKSPACE-GLOBAL — see buildRestoreState.
         lastActiveTab: folderState.lastActiveTab ?? 'files',
         viewFilterPresetId: folderState.viewFilterPresetId,
       };
