@@ -622,6 +622,7 @@ function runListWorkspaceContext(
     selectionFolderId?: string;
     selectedFileCount: number;
     selectedFiles: string[];
+    selectedFilesOutsideWorkspace?: number;
     tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
     workspaceIndex: WorkspaceIndexSummary;
   } = {
@@ -630,6 +631,13 @@ function runListWorkspaceContext(
     selectedFiles,
     workspaceIndex: normalizeRuntimeWorkspaceIndex(runtimeData),
   };
+  const outsideWorkspaceCount = runtimeData?.selectionFilePathsFromOtherRoots ?? 0;
+  if (outsideWorkspaceCount > 0) {
+    // Multi-root forest: these selected files live in OTHER workspace roots
+    // this single-root toolset cannot address — report so the model can tell
+    // the user instead of acting as if the selection were complete.
+    result.selectedFilesOutsideWorkspace = outsideWorkspaceCount;
+  }
   if (curatedContext) {
     result.curatedContext = curatedContext;
   }

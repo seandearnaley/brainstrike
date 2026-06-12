@@ -101,6 +101,13 @@ export interface RuntimeData {
   providerOptions?: RuntimeProviderOptions;
   /** Optional selection file paths (relative to project root). */
   selectionFilePaths?: readonly string[];
+  /**
+   * Multi-root: count of selected files in ACTIVE roots OTHER than the
+   * assistant's single workspace root — not addressable by the file tools,
+   * surfaced (never silently dropped). Mirrors the assistant-contract
+   * RuntimeData field; keep the two declarations in sync.
+   */
+  selectionFilePathsFromOtherRoots?: number;
   /** Optional folder id for selection/token cache resolution. */
   selectionFolderId?: string;
   /** Optional selection snapshot id to scope retrieval. */

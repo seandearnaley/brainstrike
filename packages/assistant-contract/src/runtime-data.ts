@@ -137,6 +137,14 @@ export interface RuntimeData {
   provider?: 'anthropic' | 'google' | 'local' | 'openai' | 'openrouter' | string;
   providerOptions?: RuntimeProviderOptions;
   selectionFilePaths?: readonly string[];
+  /**
+   * Multi-root: selected files belonging to ACTIVE roots OTHER than the
+   * assistant's workspace root. The assistant's file tools are single-root
+   * (anchored at workspaceRootPath), so these files are not addressable —
+   * the count is surfaced (never silently dropped) so the model can tell
+   * the user part of their selection is outside the current workspace.
+   */
+  selectionFilePathsFromOtherRoots?: number;
   selectionFolderId?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
