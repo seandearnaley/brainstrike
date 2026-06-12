@@ -352,9 +352,15 @@ const ToolbarPresetSelectorInner: React.FC<
       [setViewFilterPresetId, setFilters, setUseRegex, onFilterChange, persistPatch]
     );
 
+    // Filters are active but match no preset — the trigger must say so
+    // rather than implying nothing is filtered.
+    const hasCustomFilters =
+      !displayedPreset && (includeFilters.length > 0 || excludeFilters.length > 0);
+
     return (
       <ViewFilterPresetDropdown
         className={className}
+        hasCustomFilters={hasCustomFilters}
         loading={loading}
         onCreate={createPreset}
         onDelete={deletePreset}

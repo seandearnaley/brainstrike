@@ -952,9 +952,10 @@ describe('FileExplorerSidebar', () => {
         storeRef.current?.getState().setFilters(['*.md'], []);
       });
 
-      // Section B: has files, all hidden by the view filters — say so.
+      // Section B: has files, all hidden by the view filters — say so AND
+      // name the offending patterns (self-diagnosing empty state).
       await waitFor(() => {
-        expect(screen.getByText('No files match the current view filters')).toBeInTheDocument();
+        expect(screen.getByText('No files match the view filters (*.md)')).toBeInTheDocument();
       });
       // Section A: streamed zero nodes — genuinely empty, different message.
       expect(screen.getByText('No files in this folder')).toBeInTheDocument();

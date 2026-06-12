@@ -473,8 +473,15 @@ export const DEFAULT_STATE = {
   rootDescriptors: {} as Record<string, StoredRootDescriptor>,
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
-  includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'] as string[],
+  // Show EVERYTHING by default — filtering is opt-in via presets/chips. A
+  // code-glob default silently masquerades as "all files" on fresh profiles
+  // and during the pre-rehydration boot window ("a typescript filter was
+  // applied but the dropdown said All Files").
+  includeFilters: [] as string[],
+  // .git is excluded by default because view filter globs match dot-paths
+  // (dot:true) — without it the repository object store floods the tree.
   excludeFilters: [
+    '.git',
     '.aider*',
     'node_modules',
     '.next',

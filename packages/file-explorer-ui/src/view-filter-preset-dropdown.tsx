@@ -364,6 +364,12 @@ function PresetEditForm({
 interface ViewFilterPresetDropdownProps {
   /** Optional class name */
   className?: string | undefined;
+  /**
+   * True when filters are active but match NO preset. The trigger then says
+   * "Custom filters" — it must never read as if nothing is filtered while
+   * something is ("a filter was applied but the dropdown said All Files").
+   */
+  hasCustomFilters?: boolean;
   /** Whether presets are loading */
   loading?: boolean;
   /** Called to create a new preset */
@@ -396,6 +402,7 @@ export function ViewFilterPresetDropdown({
   onCreate,
   onUpdate,
   onDelete,
+  hasCustomFilters = false,
   loading = false,
   className,
 }: ViewFilterPresetDropdownProps): React.ReactElement {
@@ -593,7 +600,7 @@ export function ViewFilterPresetDropdown({
           <div className="flex items-center gap-2 overflow-hidden">
             {React.createElement(selectedIconType, { className: 'size-4 shrink-0 text-primary' })}
             <span className="truncate font-medium">
-              {selectedPreset?.name ?? 'Select filter...'}
+              {selectedPreset?.name ?? (hasCustomFilters ? 'Custom filters' : 'Select filter...')}
             </span>
           </div>
           <ChevronDown

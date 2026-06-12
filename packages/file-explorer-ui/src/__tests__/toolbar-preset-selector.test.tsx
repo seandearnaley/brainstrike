@@ -385,7 +385,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     // Component should render without selected preset - shows placeholder text
-    expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
   });
 
   it('shows the matching preset when active filters match exactly and preset id is missing', () => {
@@ -429,7 +429,7 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
     await waitFor(() => {
       expect(mockSetViewFilterPresetId).toHaveBeenCalledWith(null);
     });
@@ -441,7 +441,7 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
   });
 
@@ -458,7 +458,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
     });
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
     expect(mockStorage.setItem).not.toHaveBeenCalled();

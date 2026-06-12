@@ -118,12 +118,26 @@ const EmptyStateComponent = ({
   </div>
 );
 
-function forestEmptyStateMessage(isLoading: boolean, isFilteredOut: boolean): string {
+/** First few patterns + a count, e.g. "*.tsx, *.ts, *.js, +2 more". */
+function formatFilterHint(patterns: readonly string[]): string {
+  const shown = patterns.slice(0, 3).join(', ');
+  return patterns.length > 3 ? `${shown}, +${patterns.length - 3} more` : shown;
+}
+
+function forestEmptyStateMessage(
+  isLoading: boolean,
+  isFilteredOut: boolean,
+  includeFilters: readonly string[]
+): string {
   if (isLoading) {
     return 'Loading files…';
   }
   if (isFilteredOut) {
-    return 'No files match the current view filters';
+    // Name the offending patterns — "a filter was applied but the dropdown
+    // said All Files" must be self-diagnosing from the empty state alone.
+    return includeFilters.length > 0
+      ? `No files match the view filters (${formatFilterHint(includeFilters)})`
+      : 'All files here are hidden by the exclude filters';
   }
   return 'No files in this folder';
 }
@@ -139,11 +153,14 @@ const ForestSectionEmptyState = ({
 }: {
   isLoading: boolean;
   isFilteredOut: boolean;
-}) => (
-  <div className="px-9 py-1.5 text-muted-foreground text-xs">
-    {forestEmptyStateMessage(isLoading, isFilteredOut)}
-  </div>
-);
+}) => {
+  const { includeFilters } = useActiveWorkspaceFilters();
+  return (
+    <div className="px-9 py-1.5 text-muted-foreground text-xs">
+      {forestEmptyStateMessage(isLoading, isFilteredOut, includeFilters)}
+    </div>
+  );
+};
 
 /**
  * Inner component for a root section's tree content.
