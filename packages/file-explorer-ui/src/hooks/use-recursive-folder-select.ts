@@ -18,11 +18,7 @@ import {
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
 import { querySelectableFiles } from '../utils/recursive-selection-query';
-import {
-  selectExcludeFilters,
-  selectIncludeFilters,
-  selectUseRegex,
-} from '../utils/workspace-filter-selectors';
+import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
   type AddMultipleSelectedFilesChunked,
   applyExplicitSelection,
@@ -197,9 +193,10 @@ export function useRecursiveFolderSelect(
   const db = useOptionalPGliteDatabase();
   const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
-  const includeFilters = useOptionalFileExplorerStoreSelector(selectIncludeFilters, []);
-  const excludeFilters = useOptionalFileExplorerStoreSelector(selectExcludeFilters, []);
-  const useRegex = useOptionalFileExplorerStoreSelector(selectUseRegex, false);
+  // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
+  // the same derivation the tree display uses, so scans select exactly what
+  // the trees show.
+  const { includeFilters, excludeFilters, useRegex } = useActiveWorkspaceFilters();
   const setQuerySelection = useOptionalFileExplorerStoreSelector(
     (state) => state.setQuerySelection,
     undefined

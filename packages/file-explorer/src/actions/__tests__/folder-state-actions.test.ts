@@ -77,14 +77,16 @@ describe('folder-state-actions hydrateFolderState', () => {
     const updated = updateFn(state);
     expect(updated.selectedFilePaths).toEqual(new Set(['a']));
     expect(updated.expandedDirectoryPaths).toEqual(new Set(['dir']));
-    expect(updated.includeFilters).toEqual(['*.ts']);
-    expect(updated.excludeFilters).toEqual(['node_modules']);
-    expect(updated.useRegex).toBe(true);
+    // WORKSPACE-GLOBAL settings (view filters, useRegex, viewFilterPresetId,
+    // maxSelectionCount) must be ABSENT from the hydration partial — stale
+    // per-folder snapshots would silently revert the user's workspace values.
+    expect(updated.includeFilters).toBeUndefined();
+    expect(updated.excludeFilters).toBeUndefined();
+    expect(updated.useRegex).toBeUndefined();
+    expect(updated.viewFilterPresetId).toBeUndefined();
+    expect(updated.maxSelectionCount).toBeUndefined();
     expect(updated.includeProjectTree).toBe(false);
     expect(updated.folderSummaryThreshold).toBe(5);
-    // maxSelectionCount is WORKSPACE-GLOBAL — the hydration partial must not
-    // touch it (stale per-folder snapshots would flip the effective cap).
-    expect(updated.maxSelectionCount).toBeUndefined();
     expect(updated.lastActiveTab).toBe('settings');
   });
 

@@ -661,6 +661,41 @@ describe('useRecursiveFolderSelect', () => {
     );
   });
 
+  it('respects DISABLED filter toggles: a toggled-off include filter no longer restricts the scan', async () => {
+    // "Switch to all files" via filter toggles must reach the scans — they
+    // previously read the RAW filter lists and kept filtering.
+    const root = createDirectory({
+      path: '/root/html-only',
+      loadState: 'unloaded',
+      children: [],
+    });
+    const fileSystemAdapter = createMockAdapter({
+      '/root/html-only': [createFile({ name: 'index.html', path: '/root/html-only/index.html' })],
+    });
+    mockStoreState = {
+      includeFilters: ['**/*.ts'],
+      excludeFilters: [],
+      disabledIncludeFilters: new Set(['**/*.ts']),
+      currentFolderId: 'folder-id',
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'folder-id', addMultipleSelectedFiles, 10, 0)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual(['/root/html-only/index.html']);
+    expect(showToastMock).not.toHaveBeenCalled();
+  });
+
   it('shows a toast when the selection limit blocks the folder selection', async () => {
     const root = createDirectory({ path: '/root/src', loadState: 'unloaded', children: [] });
     const fileSystemAdapter = createMockAdapter({});

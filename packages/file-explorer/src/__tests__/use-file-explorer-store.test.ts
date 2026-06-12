@@ -396,6 +396,54 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(store.getState().maxSelectionCount).toBe(100);
     });
 
+    // View filters are WORKSPACE-GLOBAL (same contract as maxSelectionCount):
+    // forest mode switches focus on every section click, so per-folder filter
+    // snapshots would silently revert the user's filter change per clicked
+    // root ("I switched to all files and folders still say nothing matches").
+    it('focus switch does NOT hydrate view filters from a stale folderState snapshot', () => {
+      store.setFilters(['*.md'], ['dist']);
+      store.setUseRegex(false);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            includeFilters: ['*.ts'],
+            excludeFilters: ['node_modules'],
+            useRegex: true,
+            viewFilterPresetId: 'stale-preset',
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.includeFilters).toEqual(['*.md']);
+      expect(s.excludeFilters).toEqual(['dist']);
+      expect(s.useRegex).toBe(false);
+      expect(s.viewFilterPresetId).not.toBe('stale-preset');
+    });
+
+    it('hydrateFolderState does NOT hydrate view filters from the folderState snapshot', () => {
+      store.setFilters(['*.md'], []);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_A]: {
+            ...createNewFolderState(),
+            includeFilters: ['*.ts'],
+            useRegex: true,
+          },
+        },
+      });
+
+      store.hydrateFolderState(ROOT_A);
+
+      expect(store.getState().includeFilters).toEqual(['*.md']);
+      expect(store.getState().useRegex).toBe(false);
+    });
+
     it('foreign writes clamp against the GLOBAL maxSelectionCount, not the stale folder snapshot', () => {
       store.setMaxSelectionCount(100);
       // Seed B's folderState with a stale per-folder cap of 2.

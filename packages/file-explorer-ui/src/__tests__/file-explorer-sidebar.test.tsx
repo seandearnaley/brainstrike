@@ -783,6 +783,100 @@ describe('FileExplorerSidebar', () => {
     });
   });
 
+  // The workspace view filters are GLOBAL and apply to EVERY section tree —
+  // what the tree displays is exactly what scans/select-all can select.
+  describe('global view filters across forest sections', () => {
+    it('applies the workspace filters to every section tree and refilters reactively', async () => {
+      const handleA = {
+        name: 'project-a',
+        kind: 'directory' as const,
+        path: '/project-a',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      };
+      const handleB = {
+        name: 'project-b',
+        kind: 'directory' as const,
+        path: '/project-b',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      };
+      const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+      const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+      const adapter = new MockFileSystemAdapter();
+      vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+        async (handle, onBatch, _opts) => {
+          const nodes =
+            handle.path === '/project-b'
+              ? [
+                  createFileNode({
+                    name: 'b.ts',
+                    path: '/project-b/b.ts',
+                    rootFolderId: ROOT_ID_B,
+                  }),
+                  createFileNode({
+                    name: 'index.html',
+                    path: '/project-b/index.html',
+                    rootFolderId: ROOT_ID_B,
+                  }),
+                ]
+              : [];
+          onBatch(nodes, { done: true, total: nodes.length });
+        }
+      );
+
+      const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+        current: null,
+      };
+      function StoreProbe() {
+        storeRef.current = useFileExplorerStoreContext();
+        return null;
+      }
+
+      const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+      act(() => {
+        renderWithPopulatedAdapter(
+          <>
+            <StoreProbe />
+            <FileExplorerSidebar
+              {...defaultProps}
+              rootDirectoryHandle={handleA}
+              rootDirectoryHandles={[handleA, handleB]}
+              rootIdByPath={
+                new Map([
+                  ['/project-a', ROOT_ID_A],
+                  ['/project-b', ROOT_ID_B],
+                ])
+              }
+              setFocusedRoot={vi.fn()}
+            />
+          </>
+        );
+      });
+      act(() => {
+        storeRef.current?.getState().setCurrentFolderId(ROOT_ID_A);
+        // Global include filter: only *.ts files are in view.
+        storeRef.current?.getState().setFilters(['*.ts'], []);
+      });
+
+      // Section B (NON-focused) shows b.ts but HIDES index.html.
+      await waitFor(() => {
+        expect(screen.getByText('b.ts')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('index.html')).toBeNull();
+
+      // Switching to "all files" (clearing the include filters) refilters
+      // EVERY section reactively — index.html appears.
+      act(() => {
+        storeRef.current?.getState().setFilters([], []);
+      });
+      await waitFor(() => {
+        expect(screen.getByText('index.html')).toBeInTheDocument();
+      });
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Disconnect flow (Phase 5)
   // -------------------------------------------------------------------------

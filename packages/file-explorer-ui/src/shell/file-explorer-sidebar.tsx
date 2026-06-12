@@ -1,4 +1,5 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
@@ -9,6 +10,7 @@ import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { getSelectionCount } from '../utils/selection-projection';
+import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -198,6 +200,21 @@ function useSectionRecursiveSelect(folderId: string): {
   };
 }
 
+/**
+ * Apply the WORKSPACE-GLOBAL view filters to a section's tree for display.
+ * Every forest section filters through this one derivation so what the tree
+ * shows is exactly what scans and select-all can select — the filters are
+ * global, so all trees agree by construction.
+ */
+function useGlobalFilteredTree(tree: IFileNode[]): IFileNode[] {
+  const { includeFilters, excludeFilters, useRegex } = useActiveWorkspaceFilters();
+  const { applyFileFilters } = useFileFilters();
+  return useMemo(
+    () => applyFileFilters(tree, includeFilters, excludeFilters, useRegex),
+    [applyFileFilters, tree, includeFilters, excludeFilters, useRegex]
+  );
+}
+
 /** Count visible files in a (filtered) section tree + whether any directory is still unloaded. */
 function countTreeFiles(nodes: readonly IFileNode[]): { files: number; hasUnloaded: boolean } {
   let files = 0;
@@ -254,9 +271,12 @@ function RootSelectAllCheckbox({
     return getSelectionCount(s.selectionModel, s.selectedFilePaths, s.querySelectionManifest);
   });
 
+  // Tristate totals count the FILTERED tree — same derivation the section
+  // display uses, so the checkbox never disagrees with what's visible.
+  const filteredTree = useGlobalFilteredTree(treeContext.fileTree);
   const { files: totalVisibleFiles, hasUnloaded } = useMemo(
-    () => countTreeFiles(treeContext.fileTree),
-    [treeContext.fileTree]
+    () => countTreeFiles(filteredTree),
+    [filteredTree]
   );
 
   // Tristate: "all selected" is only claimable when every subtree is loaded
@@ -325,9 +345,12 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   isLoading: isLoadingProp,
   rootId,
 }) => {
-  // Reads the real file tree for THIS root from its enclosing FileTreeProvider.
+  // Reads the real file tree for THIS root from its enclosing FileTreeProvider,
+  // then applies the GLOBAL workspace view filters for display — every section
+  // shows exactly what the (same-filtered) scans can select.
   const treeContext = useFileTreeContext();
-  const deferredTree = useDeferredValue(treeContext.fileTree);
+  const filteredTree = useGlobalFilteredTree(treeContext.fileTree);
+  const deferredTree = useDeferredValue(filteredTree);
   const isLoading = treeContext.isLoading || isLoadingProp;
   const hasContent = deferredTree.length > 0;
   // Lazy loading MUST use THIS section's tree loader: the shared panel props

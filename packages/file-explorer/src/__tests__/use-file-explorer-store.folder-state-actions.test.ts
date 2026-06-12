@@ -152,14 +152,14 @@ describe('Folder State Actions', () => {
     const state = store.getState();
     expect(state.selectedFilePaths).toEqual(selectedPaths);
     expect(state.expandedDirectoryPaths).toEqual(expandedPaths);
-    expect(state.includeFilters).toEqual(customFilters);
-    expect(state.excludeFilters).toEqual(customExcludeFilters);
-    expect(state.useRegex).toBe(true);
+    // WORKSPACE-GLOBAL settings (view filters, useRegex, maxSelectionCount)
+    // are never hydrated from folder snapshots — the top-level values stay.
+    expect(state.includeFilters).toEqual(DEFAULT_STATE.includeFilters);
+    expect(state.excludeFilters).toEqual(DEFAULT_STATE.excludeFilters);
+    expect(state.useRegex).toBe(DEFAULT_STATE.useRegex);
+    expect(state.maxSelectionCount).toBe(DEFAULT_STATE.maxSelectionCount);
     expect(state.includeProjectTree).toBe(false);
     expect(state.folderSummaryThreshold).toBe(10);
-    // maxSelectionCount is WORKSPACE-GLOBAL — hydration must NOT pick up the
-    // folder snapshot's stale copy (50); the top-level value is preserved.
-    expect(state.maxSelectionCount).toBe(DEFAULT_STATE.maxSelectionCount);
     expect(state.lastActiveTab).toBe('settings');
   });
 
