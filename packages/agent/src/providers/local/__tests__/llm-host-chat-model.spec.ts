@@ -236,6 +236,39 @@ describe('LlmHostChatModel', () => {
     expect(request?.options?.tools?.[0]?.function.name).toBe('get_time');
   });
 
+  it('threads the abort signal through doStream so cancel reaches the host', async () => {
+    let observedSignal: AbortSignal | undefined;
+    const client = makeClient((_request, options) => {
+      observedSignal = options.signal;
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener(
+          'abort',
+          () => reject(new Error('Llm host request main:r was aborted.')),
+          { once: true }
+        );
+      });
+    });
+    const abortController = new AbortController();
+    const model = new LlmHostChatModel('test-model', client);
+
+    const { stream } = await model.doStream({
+      prompt: USER_PROMPT,
+      abortSignal: abortController.signal,
+    });
+    const reader = stream.getReader();
+    abortController.abort();
+
+    await expect(async () => {
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) {
+          break;
+        }
+      }
+    }).rejects.toThrow('was aborted');
+    expect(observedSignal).toBe(abortController.signal);
+  });
+
   it('doGenerate maps reasoning, text and tool calls into V2 content', async () => {
     const client = makeClient(async () =>
       makeResult({

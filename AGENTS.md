@@ -207,7 +207,12 @@ net and the two server-side resilience layers below are LIVE.
 1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
-   and rethrow (never swallows).
+   and rethrow (never swallows). A run rejected BEFORE any stream part (e.g.
+   memory-construction failure → HTTP 502) has zero message parts;
+   `AssistantMessage` mounts `AssistantMessageError` (ErrorPrimitive) so that
+   rejection renders as a visible error block — styling lives on the
+   error-conditional `Message`, never on the always-rendered `Root` (a styled
+   Root paints an empty red bar under every assistant message).
 
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
@@ -413,8 +418,15 @@ Flow:
      memory persistence, run events, tool guards, and the stream watchdog.
    - The renderer pre-warms the model (existing download-progress badge UX,
      `warmDesktopLocalModel` in local-runtime-adapter.ts) before the request;
-     the server also warms as a safety net — cold multi-GB loads exceed the
-     llm-host generate request's HARD 5-minute ceiling (warmup gets 20).
+     the server also warms as a safety net. Llm-host request timeouts are
+     INACTIVITY windows (generate 5 min, warmup 20 min): every progress
+     report extends the deadline by the full window, so long generations
+     that stream progress survive while a silent/wedged host still times out.
+   - `LocalLlmBackend.generate` SERIALIZES generations (single engine, single
+     WebGPU session — overlapping model.generate calls corrupt it). The Mastra
+     loop's chat steps and a local observational-memory observation can
+     legitimately overlap; the backend queue is the chokepoint for every
+     consumer. Do not rely on caller-side locks.
    - Server side: `LlmHostManager.generateForMain/warmupForMain` (main-process
      client API with progress callbacks + AbortSignal cancel) →
      `createMainLlmHostClient` (apps/desktop/src/assistant-server/local-llm-host-client.ts)
