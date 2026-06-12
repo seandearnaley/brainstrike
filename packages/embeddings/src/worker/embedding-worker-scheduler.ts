@@ -1,3 +1,5 @@
+import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
+
 export const DEFAULT_CLAIM_BATCH_SIZE = 50;
 export const CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS = 1000;
 export const DEFAULT_IDLE_POLL_INITIAL_MS = 400;
@@ -13,11 +15,11 @@ export function resolvePositiveIntegerOption(
   defaultValue: number,
   name: string
 ): number {
-  const resolved = value ?? defaultValue;
-  if (!Number.isInteger(resolved) || resolved <= 0) {
-    throw new Error(`${name} must be a positive integer when configured.`);
-  }
-  return resolved;
+  return parsePositiveIntegerConfig({
+    defaultValue,
+    name,
+    rawValue: value,
+  });
 }
 
 export function resolveIdlePollBackoffOptions(options: IdlePollBackoffInput): {

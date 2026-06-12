@@ -16,22 +16,26 @@ import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
-import { isBinaryFile } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
+import { resolvePlannedTokenIndexingHandles } from './background-token-indexer-dispatch-handles';
 import {
   normalizeSelectionPathForTokenCache,
   shouldEmitLargeSelectionDiagnostics,
   yieldIfMoreTokenIndexingBatches,
 } from './background-token-indexer-dispatch-helpers';
 import {
+  planTokenIndexingDispatch,
+  type TokenIndexingDispatchCandidate,
+  type TokenIndexingDispatchHandle,
+} from './background-token-indexer-dispatch-planner';
+import {
   buildFileHandleMap,
   buildSyntheticElectronHandle,
   type ElectronFileHandle,
-  getSlashPathFileName,
   type HandleInfo,
   isMissingFileError,
 } from './background-token-indexer-handles';
@@ -220,6 +224,26 @@ function getSelectionSkipState(params: {
   }
   if (!params.hasHandleSource) {
     return 'no-handles';
+  }
+  return null;
+}
+
+function createDispatchHandle(handleInfo: HandleInfo): TokenIndexingDispatchHandle | null {
+  if (handleInfo.webHandle) {
+    return {
+      fileName: handleInfo.fileName,
+      fileSize: handleInfo.fileSize,
+      kind: 'web',
+      synthetic: handleInfo.isSynthetic === true,
+    };
+  }
+  if (handleInfo.electronHandle) {
+    return {
+      fileName: handleInfo.fileName,
+      fileSize: handleInfo.fileSize,
+      kind: 'electron',
+      synthetic: handleInfo.isSynthetic === true,
+    };
   }
   return null;
 }
@@ -584,31 +608,8 @@ export function useBackgroundTokenIndexerIntegration({
 
       logger.debug('triggerIndexing started', { fileCount: compositeKeys.length });
 
-      const webFilesToIndex: FileToIndex[] = [];
-      const electronFilesToRead: Array<{
-        compositeKey: string;
-        folderId: string;
-        filePath: string;
-        fileSize: number | undefined;
-        handle: ElectronFileHandle;
-      }> = [];
-      // Web parity with the desktop synthetic-handle path: paths that have no cached
-      // handle (e.g. files inside an unexpanded subfolder hit by Select All) get
-      // batch-resolved via the web FileSystemFileHandle resolver after the main
-      // classification loop. Resolved handles join the existing webFilesToIndex
-      // dispatch path; resolver failures land in pendingNoHandleRef for retry on
-      // the next indexVersion bump.
-      const webResolverQueue: Array<{
-        absolutePath: string;
-        compositeKey: string;
-        filePath: string;
-        folderId: string;
-      }> = [];
-      let skippedNoHandle = 0;
-      let skippedBinary = 0;
-      let skippedTooLarge = 0;
-      let skippedInvalidPath = 0;
-      let estimatedElectronBytes = 0;
+      const dispatchCandidates: TokenIndexingDispatchCandidate[] = [];
+      const handleInfoByCompositeKey = new Map<string, HandleInfo>();
 
       /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
       const markInFlight = (key: string): void => {
@@ -639,137 +640,113 @@ export function useBackgroundTokenIndexerIntegration({
           continue;
         }
 
-        // Decode key early so we can use index lookup
         const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
         let normalizedFilePath: string;
         try {
           normalizedFilePath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
         } catch (error) {
-          skippedInvalidPath++;
-          logger.warn('Skipping file with unsafe path for background indexing', {
+          dispatchCandidates.push({
             compositeKey,
+            errorMessage: error instanceof Error ? error.message : String(error),
             folderId,
+            kind: 'invalid-path',
             selectionPath,
-            error: error instanceof Error ? error.message : String(error),
           });
           continue;
         }
 
-        // Try FileTreeIndex first (O(1) lookup), then fall back to local map
+        // Try FileTreeIndex first (O(1) lookup), then fall back to local map.
         // NOTE: Use selectionPath (not normalizedFilePath) because FileTreeIndex
         // stores handles keyed by original file-tree node paths.
         const indexGetHandleFn = indexGetHandleRef.current;
         let handleInfo = indexGetHandleFn?.(folderId, selectionPath);
         if (!handleInfo) {
-          // Fall back to local map
           handleInfo = fileHandleMapRef.current.get(compositeKey);
         }
+
+        let cachedFileSize: number | undefined;
         if (!handleInfo) {
+          if (electronFileReaderRef.current || webFileHandleResolverRef.current) {
+            cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
+          }
           const syntheticElectronHandle =
             electronFileReaderRef.current &&
             buildSyntheticElectronHandle({
               filePath: normalizedFilePath,
-              fileSize: cache.getFileSize(folderId, normalizedFilePath),
+              fileSize: cachedFileSize,
               folderId,
             });
           if (syntheticElectronHandle) {
             handleInfo = syntheticElectronHandle;
           }
         }
-        if (!handleInfo && webFileHandleResolverRef.current) {
-          // Web parity with the desktop synthetic-handle path. Pre-filter binary and
-          // oversize files using the same name/size signals the live-handle path uses,
-          // so we never spend a resolver round-trip on files the worker would skip
-          // anyway. Anything that survives gets queued for batched concurrent
-          // resolution after the main classification loop.
-          const resolverFileName = getSlashPathFileName(normalizedFilePath);
-          if (isBinaryFile(resolverFileName)) {
-            skippedBinary++;
-            indexedFilesRef.current.add(compositeKey);
-            pendingNoHandleRef.current.delete(compositeKey);
-            continue;
-          }
-          const cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
-          if (cachedFileSize !== undefined && cachedFileSize > MAX_INDEXABLE_FILE_SIZE) {
-            skippedTooLarge++;
-            // Cached size could be stale post-restart; keep retryable so a fresh
-            // FileTreeIndex entry can re-attempt with authoritative metadata.
-            pendingNoHandleRef.current.add(compositeKey);
-            continue;
-          }
-          // Web file paths are already root-prefixed (the WebFileSystemAdapter
-          // builds IFileNode.path as `${rootFolderId}/${...}`), and
-          // `normalizeFilePathForFolder` leaves non-absolute paths untouched —
-          // so `normalizedFilePath` is the canonical resolver key. Naively
-          // joining `folderId` would double the prefix and the resolver would
-          // walk into a nonexistent `${folderId}/${folderId}/...` directory.
-          const resolverPath = normalizedFilePath.startsWith(`${folderId}/`)
-            ? normalizedFilePath
-            : `${folderId}/${normalizedFilePath}`;
-          webResolverQueue.push({
-            absolutePath: resolverPath,
-            compositeKey,
-            filePath: normalizedFilePath,
-            folderId,
-          });
-          // Optimistically clear the pending mark; the resolver dispatcher will
-          // re-park the key only if its resolution rejects.
-          pendingNoHandleRef.current.delete(compositeKey);
-          continue;
-        }
-        if (!handleInfo) {
-          skippedNoHandle++;
-          // Track for retry when FileTreeIndex fills with handles
-          pendingNoHandleRef.current.add(compositeKey);
-          continue;
-        }
-        // Handle found - remove from pending if it was there
-        pendingNoHandleRef.current.delete(compositeKey);
 
-        // Filter out binary files BEFORE attempting to read/index
-        // This avoids IPC overhead for files that would fail anyway
-        if (isBinaryFile(handleInfo.fileName)) {
-          skippedBinary++;
-          // Mark as "indexed" to prevent re-queuing (it will never succeed)
-          indexedFilesRef.current.add(compositeKey);
-          continue;
+        const dispatchHandle = handleInfo ? createDispatchHandle(handleInfo) : null;
+        if (handleInfo && dispatchHandle) {
+          handleInfoByCompositeKey.set(compositeKey, handleInfo);
         }
 
-        // Filter out large files BEFORE attempting to read/index
-        // This avoids AccessError exceptions and IPC overhead
-        if (handleInfo.fileSize !== undefined && handleInfo.fileSize > MAX_INDEXABLE_FILE_SIZE) {
-          skippedTooLarge++;
-          if (handleInfo.isSynthetic) {
-            // Cached synthetic metadata can be stale across restarts. Keep the file retryable
-            // so authoritative tree/index metadata can re-attempt indexing later.
-            pendingNoHandleRef.current.add(compositeKey);
-            continue;
-          }
-          // Mark as "indexed" to prevent re-queuing (it will never succeed)
-          indexedFilesRef.current.add(compositeKey);
-          continue;
-        }
-
-        if (handleInfo.webHandle) {
-          markInFlight(compositeKey);
-          webFilesToIndex.push({
-            compositeKey,
-            folderId,
-            filePath: normalizedFilePath,
-            fileHandle: handleInfo.webHandle,
-          });
-        } else if (handleInfo.electronHandle) {
-          // Electron files: need to read content first
-          estimatedElectronBytes += handleInfo.fileSize ?? 0;
-          electronFilesToRead.push({
-            compositeKey,
-            folderId,
-            filePath: normalizedFilePath,
-            fileSize: handleInfo.fileSize,
-            handle: handleInfo.electronHandle,
-          });
-        }
+        dispatchCandidates.push({
+          compositeKey,
+          folderId,
+          handle: dispatchHandle,
+          kind: 'file',
+          normalizedFilePath,
+          selectionPath,
+          ...(cachedFileSize === undefined ? {} : { cachedFileSize }),
+        });
       }
+
+      const dispatchPlan = planTokenIndexingDispatch({
+        candidates: dispatchCandidates,
+        hasWebFileHandleResolver: Boolean(webFileHandleResolverRef.current),
+        indexedKeys: indexedFilesRef.current,
+        inFlightKeys: inFlightRef.current,
+        maxIndexableFileSize: MAX_INDEXABLE_FILE_SIZE,
+      });
+
+      for (const warning of dispatchPlan.invalidPathWarnings) {
+        logger.warn('Skipping file with unsafe path for background indexing', {
+          compositeKey: warning.compositeKey,
+          error: warning.errorMessage,
+          folderId: warning.folderId,
+          selectionPath: warning.selectionPath,
+        });
+      }
+
+      const { electronFilesToRead, missingHandles, webFilesToIndex } =
+        resolvePlannedTokenIndexingHandles({
+          dispatchPlan,
+          handleInfoByCompositeKey,
+        });
+
+      for (const missingHandle of missingHandles) {
+        logger.error('Skipping planned token indexing dispatch with missing handle', {
+          compositeKey: missingHandle.compositeKey,
+          dispatchKind: missingHandle.dispatchKind,
+        });
+      }
+
+      for (const key of dispatchPlan.pendingNoHandleKeysToDelete) {
+        pendingNoHandleRef.current.delete(key);
+      }
+      for (const key of dispatchPlan.indexedKeysToAdd) {
+        indexedFilesRef.current.add(key);
+      }
+      for (const key of dispatchPlan.pendingNoHandleKeysToAdd) {
+        pendingNoHandleRef.current.add(key);
+      }
+
+      for (const file of webFilesToIndex) {
+        markInFlight(file.compositeKey);
+      }
+
+      const webResolverQueue = [...dispatchPlan.webResolverFiles];
+      const skippedNoHandle = dispatchPlan.skipped.noHandle;
+      const skippedBinary = dispatchPlan.skipped.binary;
+      const skippedTooLarge = dispatchPlan.skipped.tooLarge;
+      const skippedInvalidPath = dispatchPlan.skipped.invalidPath;
+      const estimatedElectronBytes = dispatchPlan.estimatedElectronBytes;
 
       const emitLargeSelectionDiagnostics = shouldEmitLargeSelectionDiagnostics({
         totalFileCount: compositeKeys.length,
