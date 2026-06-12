@@ -480,6 +480,162 @@ describe('LocalLlmBackend', () => {
     );
   });
 
+  it('serializes concurrent generations on the single Gemma engine', async () => {
+    // One engine, one WebGPU session: overlapping model.generate calls corrupt
+    // the session (and interleave streamer state). The Mastra path can issue
+    // chat + observational-memory generations close together, so the backend
+    // must be the serialization chokepoint for every consumer.
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    let active = 0;
+    let maxActive = 0;
+    const releases: Array<() => void> = [];
+    mockModelGenerate.mockImplementation(function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      return new Promise((resolve) => {
+        releases.push(() => {
+          active -= 1;
+          inputs.streamer?.callback_function?.('Final answer');
+          resolve({ slice: vi.fn().mockReturnValue('TOKENS') });
+        });
+      });
+    });
+
+    const first = backend.generate([{ role: 'user', content: 'one' }]);
+    const second = backend.generate([{ role: 'user', content: 'two' }]);
+
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+    });
+    releases[0]?.();
+    await first;
+
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(2);
+    });
+    releases[1]?.();
+    await second;
+
+    expect(maxActive).toBe(1);
+  });
+
+  it('rejects a queued generation when its signal aborts while waiting for the slot', async () => {
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    const releases: Array<() => void> = [];
+    mockModelGenerate.mockImplementation(function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      return new Promise((resolve) => {
+        releases.push(() => {
+          inputs.streamer?.callback_function?.('Final answer');
+          resolve({ slice: vi.fn().mockReturnValue('TOKENS') });
+        });
+      });
+    });
+
+    const abortController = new AbortController();
+    const first = backend.generate([{ role: 'user', content: 'one' }]);
+    const second = backend.generate([{ role: 'user', content: 'two' }], {
+      signal: abortController.signal,
+    });
+    const observedSecond = second.then(
+      () => 'resolved' as const,
+      (error: unknown) => error
+    );
+
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+    });
+    abortController.abort();
+    releases[0]?.();
+    await first;
+
+    const outcome = await observedSecond;
+    expect(outcome).toBeInstanceOf(Error);
+    // The aborted request must never have reached the engine.
+    expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the in-flight generation before disposing the engine', async () => {
+    // GPU-fault recovery (and re-initialize) call dispose() while another
+    // consumer's generation can still be in flight — disposing the engine
+    // mid-generate is exactly the overlap the generation queue exists to
+    // prevent, so dispose must take a queue turn like generate does.
+    const disposeModel = vi.fn().mockResolvedValue(undefined);
+    mockFromPretrainedModel.mockResolvedValueOnce({
+      dispose: disposeModel,
+      generate: mockModelGenerate,
+    });
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    const releases: Array<() => void> = [];
+    mockModelGenerate.mockImplementation(function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      return new Promise((resolve) => {
+        releases.push(() => {
+          inputs.streamer?.callback_function?.('Final answer');
+          resolve({ slice: vi.fn().mockReturnValue('TOKENS') });
+        });
+      });
+    });
+
+    const inFlight = backend.generate([{ role: 'user', content: 'one' }]);
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+    });
+
+    const disposal = backend.dispose();
+    // Give the (buggy) dispose a chance to run ahead of the generation.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(disposeModel).not.toHaveBeenCalled();
+
+    releases[0]?.();
+    await expect(inFlight).resolves.toMatchObject({ text: 'Final answer' });
+    await disposal;
+    expect(disposeModel).toHaveBeenCalledOnce();
+    expect(backend.isReady()).toBe(false);
+  });
+
+  it('reports the prompt token count in generation failures', async () => {
+    // WebGPU faults are prompt-size dependent and the practical per-device
+    // ceiling is unknown — the visible failure must carry the measurement so
+    // the limit can be calibrated from the chat error itself.
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    mockModelGenerate.mockRejectedValueOnce(
+      new Error('operation does not support unaligned accesses')
+    );
+
+    await expect(backend.generate([{ role: 'user', content: 'hello' }])).rejects.toThrow(
+      /operation does not support unaligned accesses \(prompt: \d+ tokens\)/
+    );
+  });
+
+  it('does not decorate abort errors with prompt diagnostics', async () => {
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    mockModelGenerate.mockRejectedValueOnce(
+      new DOMException('The operation was aborted.', 'AbortError')
+    );
+
+    await expect(backend.generate([{ role: 'user', content: 'hello' }])).rejects.toThrow(
+      /^The operation was aborted\.$/
+    );
+  });
+
   it('strips Gemma thought traces from generated text', async () => {
     const backend = new LocalLlmBackend();
 

@@ -51,7 +51,24 @@ vi.mock('../renderer-host-lifecycle', () => ({
   }),
 }));
 
+const { mockVisibleWindow } = vi.hoisted(() => ({
+  mockVisibleWindow: {
+    isDestroyed: vi.fn(() => false),
+    webContents: {
+      id: 5,
+      send: vi.fn(),
+    },
+  },
+}));
+
+vi.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [mockVisibleWindow]),
+  },
+}));
+
 import { LlmHostManager } from '../llm-host-manager';
+import { assertLlmHostRequest } from '../llm-host-shared';
 
 type TestableLlmHostManager = LlmHostManager & {
   acceptResponseReport(
@@ -228,12 +245,57 @@ describe('LlmHostManager', () => {
     });
   });
 
-  it('enforces a hard timeout ceiling even when progress keeps arriving', async () => {
+  it('keeps a generation alive past the base timeout while progress keeps arriving (inactivity window)', async () => {
+    // The timeout protects against a WEDGED host, not a slow one: a long
+    // local generation streams progress snapshots continuously, so each
+    // progress report extends the deadline. A hard wall-clock ceiling killed
+    // legitimate long prefills at exactly 5 minutes.
     const manager = new LlmHostManager() as TestableLlmHostManager;
     const requester = createRequester(111);
 
     const requestPromise = manager.generate(requester, {
-      clientRequestId: 'req-hard-timeout',
+      clientRequestId: 'req-long-generation',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    // 3 rounds of 4 minutes with progress between them: 12 minutes total,
+    // far past the 5-minute base window — must still be pending.
+    for (let round = 0; round < 3; round += 1) {
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: '111:req-long-generation',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          kind: 'text',
+          text: `cumulative output after round ${round}`,
+        },
+      });
+    }
+    expect(manager.pendingRequests.has('111:req-long-generation')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: '111:req-long-generation',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'done after 12 minutes' },
+      },
+    });
+    await expect(requestPromise).resolves.toEqual({ text: 'done after 12 minutes' });
+  });
+
+  it('times out a generation after the inactivity window passes with NO progress', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(112);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-wedged',
       kind: 'generate',
       messages: [],
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
@@ -244,25 +306,22 @@ describe('LlmHostManager', () => {
       (error: unknown) => error
     );
 
-    for (let elapsed = 59_000; elapsed < 5 * 60_000; elapsed += 59_000) {
-      await vi.advanceTimersByTimeAsync(59_000);
-      manager.acceptResponseReport(71, {
-        type: 'progress',
-        channel: 'llm-progress',
-        requestId: '111:req-hard-timeout',
-        runtimeId: 'llm-host-runtime',
-        payload: {
-          kind: 'stage',
-          message: `still working @ ${elapsed}`,
-        },
-      });
-    }
+    await vi.advanceTimersByTimeAsync(59_000);
+    manager.acceptResponseReport(71, {
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: '112:req-wedged',
+      runtimeId: 'llm-host-runtime',
+      payload: { kind: 'stage', message: 'one last sign of life' },
+    });
 
-    await vi.advanceTimersByTimeAsync(6000);
+    // Silence for the full window after the last progress: the host is wedged.
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
 
     await expect(observedRejection).resolves.toMatchObject({
-      message: 'Llm host request 111:req-hard-timeout timed out.',
+      message: 'Llm host request 112:req-wedged timed out.',
     });
+    expect(manager.pendingRequests.has('112:req-wedged')).toBe(false);
   });
 
   it('uses a longer timeout window for warmup requests', async () => {
@@ -567,5 +626,293 @@ describe('LlmHostManager', () => {
 
     expect(manager.preCancelledRequestIds.has('701:destroyed-before-dispatch')).toBe(false);
     expect(requester.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
+  });
+
+  describe('main-process client API', () => {
+    it('sends envelopes that pass the REAL host-side request validation', async () => {
+      // The hidden host runtime rejects payloads without clientRequestId; a
+      // manager-generated request that fails assertLlmHostRequest is silently
+      // dropped host-side and waits out its full timeout (the "stuck on
+      // Thinking" bug). Validate exactly what gets sent over IPC.
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
+      await vi.waitFor(() => {
+        expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(1);
+      });
+      const generatePromise = manager.generateForMain({
+        messages: [{ role: 'user', content: 'hi' }],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      });
+      await vi.waitFor(() => {
+        expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(2);
+      });
+
+      for (const [, sentRequest] of mockHostWindow.webContents.send.mock.calls) {
+        const validated = assertLlmHostRequest(sentRequest);
+        expect(validated.payload).toMatchObject({
+          clientRequestId: expect.stringMatching(/.+/),
+        });
+        // The stamped clientRequestId is the unscoped portion of the envelope id.
+        expect(`main:${(validated.payload as { clientRequestId?: string }).clientRequestId}`).toBe(
+          validated.requestId
+        );
+      }
+
+      for (const requestId of [...manager.pendingRequests.keys()]) {
+        manager.acceptResponseReport(71, {
+          type: 'result',
+          channel: 'llm-result',
+          requestId,
+          runtimeId: 'llm-host-runtime',
+          payload: {
+            result: {
+              text: 'ok',
+              finishReason: 'stop',
+              usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            },
+          },
+        });
+      }
+      await expect(warmupPromise).resolves.toBeUndefined();
+      await expect(generatePromise).resolves.toMatchObject({ text: 'ok' });
+    });
+
+    it('generateForMain scopes request ids to main, forwards progress, and resolves the result', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const progressEvents: unknown[] = [];
+
+      const requestPromise = manager.generateForMain(
+        {
+          messages: [{ role: 'user', content: 'hi' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
+        { onProgress: (progress) => progressEvents.push(progress) }
+      );
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+      expect(requestId?.startsWith('main:')).toBe(true);
+
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { kind: 'text', text: 'partial answer' },
+      });
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          result: {
+            text: 'final answer',
+            finishReason: 'stop',
+            usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+          },
+        },
+      });
+
+      await expect(requestPromise).resolves.toMatchObject({ text: 'final answer' });
+      expect(progressEvents).toEqual([{ kind: 'text', text: 'partial answer' }]);
+    });
+
+    it('generateForMain rejects and cancels host work when the abort signal fires', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const abortController = new AbortController();
+
+      const requestPromise = manager.generateForMain(
+        {
+          messages: [{ role: 'user', content: 'hi' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
+        { signal: abortController.signal }
+      );
+      const observedRejection = requestPromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+
+      abortController.abort();
+
+      await expect(observedRejection).resolves.toMatchObject({
+        message: `Llm host request ${requestId} was aborted.`,
+      });
+      expect(manager.pendingRequests.size).toBe(0);
+      expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          payload: expect.objectContaining({ kind: 'cancel', requestId }),
+        })
+      );
+    });
+
+    it('generateForMain throws immediately when the signal is already aborted', async () => {
+      const manager = new LlmHostManager();
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        manager.generateForMain(
+          {
+            messages: [{ role: 'user', content: 'hi' }],
+            modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          },
+          { signal: abortController.signal }
+        )
+      ).rejects.toThrow('Llm host request was aborted before dispatch.');
+      expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('generateForMain rejects a null result payload instead of returning it', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const requestPromise = manager.generateForMain({
+        messages: [{ role: 'user', content: 'hi' }],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      });
+      const observedRejection = requestPromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: null },
+      });
+
+      await expect(observedRejection).resolves.toMatchObject({
+        message: expect.stringContaining('returned no result payload'),
+      });
+    });
+
+    it('broadcasts main-initiated loading progress to visible windows so the UI shows downloads', async () => {
+      // Cold MEMORY-model warmups are triggered by the assistant server (main
+      // process) with no renderer request in flight; without this broadcast
+      // the user stares at a silent spinner while gigabytes download.
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          kind: 'loading',
+          progress: 42,
+          message: 'Downloading model',
+          file: 'model.onnx',
+        },
+      });
+
+      expect(mockVisibleWindow.webContents.send).toHaveBeenCalledWith(
+        expect.stringContaining('progress'),
+        expect.objectContaining({
+          type: 'progress',
+          payload: expect.objectContaining({ kind: 'loading', progress: 42 }),
+        })
+      );
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: null },
+      });
+      await expect(warmupPromise).resolves.toBeUndefined();
+
+      // Completion broadcasts a terminal 100% so the badge can resolve to
+      // ready instead of sticking at the last partial percentage.
+      expect(mockVisibleWindow.webContents.send).toHaveBeenCalledWith(
+        expect.stringContaining('progress'),
+        expect.objectContaining({
+          payload: expect.objectContaining({ kind: 'loading', progress: 100 }),
+        })
+      );
+    });
+
+    it('does not broadcast renderer-initiated progress a second time', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const requester = createRequester(101);
+
+      const requestPromise = manager.generate(requester, {
+        clientRequestId: 'req-renderer-progress',
+        kind: 'generate',
+        messages: [],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        options: {},
+      });
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: '101:req-renderer-progress',
+        runtimeId: 'llm-host-runtime',
+        payload: { kind: 'loading', progress: 10 },
+      });
+
+      // Renderer callers already receive progress over their own IPC channel.
+      expect(mockVisibleWindow.webContents.send).not.toHaveBeenCalled();
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: '101:req-renderer-progress',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: { text: 'done' } },
+      });
+      await expect(requestPromise).resolves.toEqual({ text: 'done' });
+    });
+
+    it('warmupForMain resolves when the host acknowledges with a null result', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+      expect(requestId?.startsWith('main:')).toBe(true);
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: null },
+      });
+
+      await expect(warmupPromise).resolves.toBeUndefined();
+    });
   });
 });

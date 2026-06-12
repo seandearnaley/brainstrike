@@ -125,6 +125,11 @@ const DEFAULT_MESSAGES_PER_PAGE = 40;
 const THREAD_ORDER_FIELDS = new Set<ThreadOrderBy>(['createdAt', 'updatedAt']);
 const THREAD_ORDER_DIRECTIONS = new Set<ThreadSortDirection>(['ASC', 'DESC']);
 
+/** Inline run-event detail like "12 messages" / "1 record". */
+function formatCountDetail(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
 function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -704,10 +709,16 @@ export class PgliteMemoryStore extends MemoryStorage {
       throw new Error('threadId must be a non-empty string or array of non-empty strings');
     }
     const result = await this.listMessagesWhere({ ...args, threadIds });
-    this.emitRunEvent('memory.history.loaded', 'completed', 'Conversation history loaded', {
-      count: result.messages.length,
-      threadCount: threadIds.length,
-    });
+    this.emitRunEvent(
+      'memory.history.loaded',
+      'completed',
+      'Conversation history loaded',
+      {
+        count: result.messages.length,
+        threadCount: threadIds.length,
+      },
+      formatCountDetail(result.messages.length, 'message')
+    );
     return result;
   }
 
@@ -715,10 +726,16 @@ export class PgliteMemoryStore extends MemoryStorage {
     args: StorageListMessagesByResourceIdInput
   ): Promise<StorageListMessagesOutput> {
     const result = await this.listMessagesWhere(args);
-    this.emitRunEvent('memory.history.loaded', 'completed', 'Resource history loaded', {
-      count: result.messages.length,
-      resourceId: args.resourceId,
-    });
+    this.emitRunEvent(
+      'memory.history.loaded',
+      'completed',
+      'Resource history loaded',
+      {
+        count: result.messages.length,
+        resourceId: args.resourceId,
+      },
+      formatCountDetail(result.messages.length, 'message')
+    );
     return result;
   }
 
@@ -865,10 +882,18 @@ export class PgliteMemoryStore extends MemoryStorage {
     );
     const row = result.rows[0];
     const resource = row ? resourceFromRow(row) : null;
-    this.emitRunEvent('memory.working.loaded', 'completed', 'Working memory loaded', {
-      exists: resource !== null,
-      resourceId,
-    });
+    const workingMemoryChars = resource?.workingMemory?.length ?? 0;
+    this.emitRunEvent(
+      'memory.working.loaded',
+      'completed',
+      'Working memory loaded',
+      {
+        exists: resource !== null,
+        resourceId,
+        workingMemoryChars,
+      },
+      workingMemoryChars > 0 ? `${workingMemoryChars} chars` : 'empty'
+    );
     return resource;
   }
 
@@ -932,10 +957,18 @@ export class PgliteMemoryStore extends MemoryStorage {
       next.metadata = metadata;
     }
     const saved = await this.saveResource({ resource: next });
-    this.emitRunEvent('memory.working.updated', 'completed', 'Working memory updated', {
-      hasWorkingMemory: saved.workingMemory !== undefined,
-      resourceId,
-    });
+    const savedWorkingMemoryChars = saved.workingMemory?.length ?? 0;
+    this.emitRunEvent(
+      'memory.working.updated',
+      'completed',
+      'Working memory updated',
+      {
+        hasWorkingMemory: saved.workingMemory !== undefined,
+        resourceId,
+        workingMemoryChars: savedWorkingMemoryChars,
+      },
+      savedWorkingMemoryChars > 0 ? `${savedWorkingMemoryChars} chars` : 'cleared'
+    );
     return saved;
   }
 
@@ -953,11 +986,26 @@ export class PgliteMemoryStore extends MemoryStorage {
     );
     const row = result.rows[0];
     const record = row ? observationalMemoryFromRow(row) : null;
-    this.emitRunEvent('memory.observation.completed', 'completed', 'Observational memory read', {
-      exists: record !== null,
-      resourceId,
-      scope: threadId ? 'thread' : 'resource',
-    });
+    this.emitRunEvent(
+      'memory.observation.completed',
+      'completed',
+      'Observational memory read',
+      {
+        exists: record !== null,
+        resourceId,
+        scope: threadId ? 'thread' : 'resource',
+        ...(record
+          ? {
+              generationCount: record.generationCount,
+              observationChars: record.activeObservations.length,
+              observationTokens: record.observationTokenCount,
+            }
+          : {}),
+      },
+      record
+        ? `generation ${record.generationCount} · ${record.observationTokenCount} observation tokens`
+        : 'no observations yet'
+    );
     return record;
   }
 
@@ -991,11 +1039,17 @@ export class PgliteMemoryStore extends MemoryStorage {
     }
     const result = await this.database.query<ObservationalMemoryRow>(sql, values);
     const records = result.rows.map(observationalMemoryFromRow);
-    this.emitRunEvent('memory.observation.completed', 'completed', 'Observation history loaded', {
-      count: records.length,
-      resourceId,
-      scope: threadId ? 'thread' : 'resource',
-    });
+    this.emitRunEvent(
+      'memory.observation.completed',
+      'completed',
+      'Observation history loaded',
+      {
+        count: records.length,
+        resourceId,
+        scope: threadId ? 'thread' : 'resource',
+      },
+      formatCountDetail(records.length, 'record')
+    );
     return records;
   }
 
@@ -1029,10 +1083,16 @@ export class PgliteMemoryStore extends MemoryStorage {
       record.observedTimezone = input.observedTimezone;
     }
     await this.insertObservationalMemoryRecord(record);
-    this.emitRunEvent('memory.configured', 'completed', 'Observational memory configured', {
-      resourceId: input.resourceId,
-      scope: input.scope,
-    });
+    this.emitRunEvent(
+      'memory.configured',
+      'completed',
+      'Observational memory configured',
+      {
+        resourceId: input.resourceId,
+        scope: input.scope,
+      },
+      `${input.scope} scope`
+    );
     return record;
   }
 
@@ -1611,7 +1671,8 @@ export class PgliteMemoryStore extends MemoryStorage {
     kind: AssistantRunEventKind,
     status: AssistantRunEventStatus,
     label: string,
-    metadata?: AssistantRunEventMetadata
+    metadata?: AssistantRunEventMetadata,
+    detail?: string
   ): void {
     emitAssistantRunEventSafely({
       event: {
@@ -1619,6 +1680,7 @@ export class PgliteMemoryStore extends MemoryStorage {
         label,
         status,
         ...(metadata ? { metadata } : {}),
+        ...(detail ? { detail } : {}),
       },
       eventSink: this.eventSink,
       onError: (error, event) => {

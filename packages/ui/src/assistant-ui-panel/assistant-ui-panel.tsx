@@ -46,13 +46,12 @@ import {
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
-import { Badge } from '../badge';
 import { Button } from '../button';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
-import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
+import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import {
@@ -65,12 +64,13 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
-import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
 import { ThreadContextMeter } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
+import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   const statusOverride = useAuiState((state) =>
@@ -214,6 +214,14 @@ export interface AssistantUiPanelProps {
   effectiveInputBudget?: number | undefined;
   historyAdapter?: ThreadHistoryAdapter;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
+  /**
+   * Transport for the built-in local provider. 'data-stream' routes local
+   * chat through the assistant server (real Mastra loop: memory, run events,
+   * tool guards) with inference proxied to the hidden llm-host — desktop
+   * only. 'local-runtime' (default) keeps the in-renderer assistant-ui local
+   * runtime (web, or desktop without the llm-host bridge).
+   */
+  localChatTransport?: 'data-stream' | 'local-runtime';
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -246,64 +254,6 @@ declare global {
     assistant?: { getUrl?: () => Promise<string>; url?: string };
   }
 }
-
-// Local model loading state for progress display
-interface LocalModelLoadingState {
-  file?: string;
-  message: string;
-  progress: number;
-  stage: 'downloading' | 'generating' | 'loading' | 'ready' | 'error';
-}
-
-const LocalModelStatus: FC<{ state: LocalModelLoadingState }> = ({ state }) => {
-  const progress = clampProgress(state.progress);
-  const showPercent = state.stage === 'downloading' && progress > 0;
-
-  return (
-    <div
-      className={cn(
-        'mx-3 mt-2 rounded-full border px-3 py-2',
-        state.stage === 'error'
-          ? 'border-destructive/40 bg-destructive/5'
-          : 'border-border/70 bg-muted/30'
-      )}
-      data-testid="local-model-status"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Badge className="rounded-full px-2 py-0.5 text-[10px]" variant="secondary">
-            Gemma
-          </Badge>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-xs">{getLocalModelStatusLabel(state.stage)}</span>
-              <span className="truncate text-muted-foreground text-xs">{state.message}</span>
-            </div>
-            {state.file && (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">{state.file}</p>
-            )}
-          </div>
-        </div>
-        {showPercent && (
-          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-            {Math.round(progress)}%
-          </span>
-        )}
-      </div>
-      {state.stage === 'generating' || state.stage === 'loading' ? (
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-border/60">
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-foreground/45" />
-        </div>
-      ) : state.stage === 'downloading' ? (
-        <Progress
-          aria-label="Model downloading progress"
-          className="mt-2 h-1 bg-border/60"
-          value={progress}
-        />
-      ) : null}
-    </div>
-  );
-};
 
 const LocalReasoningPart: FC = () => {
   useMessagePartReasoning();
@@ -746,6 +696,8 @@ const DataStreamRuntimeChat: FC<
     historyAdapter: ThreadHistoryAdapter | undefined;
     requestData: Record<string, unknown> | undefined;
     prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+    /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
+    prepareLocalModel?: (() => Promise<void>) | undefined;
     modelName: string | undefined;
     threadKey?: string | undefined;
   }
@@ -765,11 +717,13 @@ const DataStreamRuntimeChat: FC<
   onUsage,
   disabled,
   disabledReason,
+  localLoadingState,
   api,
   completePreparedRequest,
   historyAdapter,
   requestData,
   prepareRequestData,
+  prepareLocalModel,
   modelName,
   toolMenu,
   threadKey,
@@ -800,6 +754,11 @@ const DataStreamRuntimeChat: FC<
     body: async () => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
+      }
+      // Warm the local model first so cold downloads surface progress in the
+      // renderer instead of stalling silently inside the server-side stream.
+      if (prepareLocalModel) {
+        await prepareLocalModel();
       }
       const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
       preparedRequestRef.current = { data: preparedRequestData };
@@ -834,6 +793,7 @@ const DataStreamRuntimeChat: FC<
           effectiveInputBudget={effectiveInputBudget}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
+          localLoadingState={localLoadingState}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -1063,6 +1023,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   disabledReason,
   historyAdapter,
   loadLocalLlmBackend,
+  localChatTransport = 'local-runtime',
   threadKey,
 }) => {
   // API URL for data stream runtime (hosted providers)
@@ -1073,9 +1034,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         ? `${window.assistant.url}/assistant`
         : '/api/assistant';
   const [api, setApi] = useState<string>(initialApi);
-
-  // Local model loading state
-  const [localLoadingState, setLocalLoadingState] = useState<LocalModelLoadingState | undefined>();
 
   useEffect(() => {
     void preloadMarkdownText();
@@ -1111,25 +1069,10 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
   // Check if using local provider
   const isLocalProvider = selectedProvider === 'local';
+  const localViaDataStream = isLocalProvider && localChatTransport === 'data-stream';
 
-  // Handler for local model loading state updates
-  const handleLocalLoadingStateChange = useCallback((state: LocalModelLoadingState) => {
-    setLocalLoadingState(state);
-  }, []);
-
-  useEffect(() => {
-    if (localLoadingState?.stage !== 'ready') {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setLocalLoadingState((current) => (current?.stage === 'ready' ? undefined : current));
-    }, 1200);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [localLoadingState]);
+  const { handleLocalLoadingStateChange, localLoadingState, prepareLocalModel } =
+    useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
     <section
@@ -1137,7 +1080,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
       data-testid="chat-panel"
     >
-      {isLocalProvider && modelName ? (
+      {isLocalProvider && modelName && !localViaDataStream ? (
         <LocalRuntimeChat
           completePreparedRequest={completePreparedRequest}
           contextWindow={contextWindow}
@@ -1175,11 +1118,13 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           effectiveInputBudget={effectiveInputBudget}
           historyAdapter={historyAdapter}
           key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
+          localLoadingState={localLoadingState}
           modelName={modelName}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
+          prepareLocalModel={prepareLocalModel}
           {...(onUsage ? { onUsage } : {})}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
@@ -1267,6 +1212,7 @@ const AssistantMessage: FC = () => {
             Text: AssistantMessageText,
           }}
         />
+        <AssistantMessageError />
       </div>
 
       <AssistantActionBar />

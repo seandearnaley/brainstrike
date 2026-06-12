@@ -5,7 +5,9 @@ import {
   createLocalModelAdapter,
   disposeLocalBackend,
   getBestInferenceDevice,
+  hasDesktopLlmHost,
   isLocalInferenceAvailable,
+  warmDesktopLocalModel,
 } from '../../src/assistant-ui-panel/local-runtime-adapter';
 
 const { acquireBackgroundWorkPauseReasonMock, releaseBackgroundWorkPauseReasonMock } = vi.hoisted(
@@ -1885,5 +1887,78 @@ describe('createLocalModelAdapter', () => {
         },
       ]),
     });
+  });
+});
+
+describe('desktop llm-host helpers for the data-stream local transport', () => {
+  afterEach(() => {
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+  });
+
+  it('hasDesktopLlmHost reflects the preload bridge presence', () => {
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+    expect(hasDesktopLlmHost()).toBe(false);
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: { warmup: vi.fn() },
+    });
+    expect(hasDesktopLlmHost()).toBe(true);
+  });
+
+  it('warmDesktopLocalModel warms via the bridge and surfaces loading progress', async () => {
+    let progressListener: ((progress: unknown) => void) | null = null;
+    const warmup = vi
+      .fn()
+      .mockImplementation(({ requestId }: { modelId: string; requestId: string }) => {
+        progressListener?.({
+          type: 'progress',
+          requestId,
+          payload: {
+            clientRequestId: requestId,
+            kind: 'loading',
+            progress: 40,
+            message: 'Downloading model',
+            file: 'model.onnx',
+          },
+        });
+        return Promise.resolve();
+      });
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        onProgress: (callback: (progress: unknown) => void) => {
+          progressListener = callback;
+          return () => {
+            progressListener = null;
+          };
+        },
+        onStatus: () => () => {},
+      },
+    });
+
+    const onLoadingProgress = vi.fn();
+    await warmDesktopLocalModel({
+      modelId: 'warm-helper-model-a',
+      onLoadingProgress,
+    });
+
+    expect(warmup).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: 'warm-helper-model-a' })
+    );
+    expect(onLoadingProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'loading',
+        progress: 40,
+        message: 'Downloading model',
+        file: 'model.onnx',
+      })
+    );
+  });
+
+  it('warmDesktopLocalModel throws when the bridge is unavailable', async () => {
+    (window as Window & { llmHost?: unknown }).llmHost = undefined;
+    await expect(warmDesktopLocalModel({ modelId: 'warm-helper-model-b' })).rejects.toThrow(
+      'Desktop llm host bridge is unavailable'
+    );
   });
 });

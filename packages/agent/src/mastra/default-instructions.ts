@@ -98,6 +98,37 @@ function formatAvailableToolNames(names: ModelFacingToolNames): string {
   return available.length > 0 ? available.join(', ') : 'none';
 }
 
+/**
+ * Compact instructions for the built-in LOCAL model (Gemma E2B on-device).
+ *
+ * The hosted default instructions below are a dense multi-thousand-token
+ * playbook tuned for frontier models; on a 2B local model they bury the user
+ * request, degrade tool selection, and inflate the WebGPU prefill (long local
+ * prompts are also where ONNX-WebGPU kernel failures live). Keep this short
+ * and directive.
+ */
+export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
+  const names = getModelFacingToolNames(toolNameMap);
+  const searchLine =
+    names.grepSearch && names.queryEmbeddingSpace
+      ? `To look up project code: use ${names.grepSearch} for exact strings or identifiers, and ${names.queryEmbeddingSpace} for conceptual questions.`
+      : '';
+  const readLine = names.readWorkspaceFile
+    ? `Use ${names.readWorkspaceFile} to read a specific file when needed.`
+    : '';
+
+  return [
+    'You are the Brainstrike IDE assistant, running fully on this device.',
+    'Answer the user directly and concisely.',
+    'Project files are NOT preloaded; only use a tool when the answer needs project context you do not already have.',
+    searchLine,
+    readLine,
+    'If a tool fails, say so plainly. Only run state-changing tools after the user confirms.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext

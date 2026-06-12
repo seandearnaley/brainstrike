@@ -5,7 +5,7 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
-import { createLocalLanguageModel } from './local';
+import { createLlmHostChatModel, createLocalLanguageModel } from './local';
 import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
 import {
   assertSafeBearerToken,
@@ -67,7 +67,7 @@ export function createProvider(
   provider: SupportedProvider | string,
   apiKey?: string,
   model?: string,
-  runtime?: Pick<RuntimeData, 'providerOptions'>
+  runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
 ): MastraModelConfig {
   const supportedProviders = listProviders().map(
     (entry) => entry.id
@@ -154,6 +154,17 @@ export function createProvider(
     }
 
     case 'local': {
+      // Host-injected client (desktop main): proxy generation to the hidden
+      // llm-host renderer. Without a client (web/browser renderer), run the
+      // in-process backend — that path requires a browser environment.
+      const hostClient = runtime?.localLlmHostClient;
+      if (hostClient) {
+        return createLlmHostChatModel(
+          modelName,
+          hostClient,
+          runtime?.providerOptions?.local
+        ) as MastraModelConfig;
+      }
       return createLocalLanguageModel(
         modelName,
         runtime?.providerOptions?.local
