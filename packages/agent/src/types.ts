@@ -7,6 +7,7 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
+import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 
 export interface AgentMessagePartText {
@@ -85,6 +86,13 @@ export interface RuntimeData {
   includeFileReport?: boolean;
   /** Include a workspace tree block in assistant context. */
   includeProjectTree?: boolean;
+  /**
+   * Host-injected client that proxies built-in local LLM inference to its
+   * renderer host (desktop main → hidden llm-host window). Server-side only,
+   * never serialized over IPC/HTTP. When present, provider 'local' resolves to
+   * the proxy chat model instead of in-process inference.
+   */
+  localLlmHostClient?: LocalLlmHostClient;
   mastraTools?: ToolsInput;
   mcpConfig?: McpConfig;
   mcpEnabled?: boolean;

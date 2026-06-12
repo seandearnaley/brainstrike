@@ -83,7 +83,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
       },
     })),
     isSupportedProvider: (provider: string) =>
-      ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
+      ['openai', 'anthropic', 'google', 'openrouter', 'local'].includes(provider),
   };
 });
 
@@ -187,7 +187,10 @@ describe('assistant-server', () => {
     }
   }
 
-  async function runRequest(input: RequestInput): Promise<{
+  async function runRequest(
+    input: RequestInput,
+    serverOptions?: Parameters<typeof handleAssistantRequest>[2]
+  ): Promise<{
     status: number;
     body: string;
     headers: Record<string, string>;
@@ -198,7 +201,8 @@ describe('assistant-server', () => {
 
     await handleAssistantRequest(
       req as unknown as http.IncomingMessage,
-      res as unknown as http.ServerResponse
+      res as unknown as http.ServerResponse,
+      serverOptions
     );
     await finished;
 
@@ -686,6 +690,80 @@ describe('assistant-server', () => {
           },
         ],
       });
+    });
+
+    it('routes provider "local" through the injected llm-host manager (warmup + proxy client)', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const llmHostManager = {
+        generateForMain: vi.fn(),
+        warmupForMain: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const response = await runRequest(
+        {
+          method: 'POST',
+          url: '/',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+            data: { provider: 'local', model: 'onnx-community/gemma-4-E2B-it-ONNX' },
+          }),
+        },
+        { llmHostManager }
+      );
+
+      expect(response.status).toBe(200);
+      // The host was warmed before streaming (cold loads exceed the generate ceiling).
+      expect(llmHostManager.warmupForMain).toHaveBeenCalledTimes(1);
+      expect(llmHostManager.warmupForMain.mock.calls[0]?.[0]).toBe(
+        'onnx-community/gemma-4-E2B-it-ONNX'
+      );
+      // The Mastra runtime received the injected proxy client.
+      expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
+      const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(runtime.localLlmHostClient).toBeDefined();
+      expect(typeof (runtime.localLlmHostClient as { generate: unknown }).generate).toBe(
+        'function'
+      );
+    });
+
+    it('fails provider "local" with a structured error when no llm-host manager is injected', async () => {
+      const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'local', model: 'onnx-community/gemma-4-E2B-it-ONNX' },
+        }),
+      });
+
+      expect(response.status).toBe(502);
+      const payload = JSON.parse(response.body) as { error: string };
+      expect(payload.error).toBe('agent_stream_init_failed');
     });
 
     it('does not prepend selected-file context as a hidden system message', async () => {

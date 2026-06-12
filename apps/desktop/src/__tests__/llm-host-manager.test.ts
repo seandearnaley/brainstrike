@@ -568,4 +568,155 @@ describe('LlmHostManager', () => {
     expect(manager.preCancelledRequestIds.has('701:destroyed-before-dispatch')).toBe(false);
     expect(requester.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
   });
+
+  describe('main-process client API', () => {
+    it('generateForMain scopes request ids to main, forwards progress, and resolves the result', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const progressEvents: unknown[] = [];
+
+      const requestPromise = manager.generateForMain(
+        {
+          messages: [{ role: 'user', content: 'hi' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
+        { onProgress: (progress) => progressEvents.push(progress) }
+      );
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+      expect(requestId?.startsWith('main:')).toBe(true);
+
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { kind: 'text', text: 'partial answer' },
+      });
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          result: {
+            text: 'final answer',
+            finishReason: 'stop',
+            usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+          },
+        },
+      });
+
+      await expect(requestPromise).resolves.toMatchObject({ text: 'final answer' });
+      expect(progressEvents).toEqual([{ kind: 'text', text: 'partial answer' }]);
+    });
+
+    it('generateForMain rejects and cancels host work when the abort signal fires', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const abortController = new AbortController();
+
+      const requestPromise = manager.generateForMain(
+        {
+          messages: [{ role: 'user', content: 'hi' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
+        { signal: abortController.signal }
+      );
+      const observedRejection = requestPromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+
+      abortController.abort();
+
+      await expect(observedRejection).resolves.toMatchObject({
+        message: `Llm host request ${requestId} was aborted.`,
+      });
+      expect(manager.pendingRequests.size).toBe(0);
+      expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          payload: expect.objectContaining({ kind: 'cancel', requestId }),
+        })
+      );
+    });
+
+    it('generateForMain throws immediately when the signal is already aborted', async () => {
+      const manager = new LlmHostManager();
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        manager.generateForMain(
+          {
+            messages: [{ role: 'user', content: 'hi' }],
+            modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          },
+          { signal: abortController.signal }
+        )
+      ).rejects.toThrow('Llm host request was aborted before dispatch.');
+      expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('generateForMain rejects a null result payload instead of returning it', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const requestPromise = manager.generateForMain({
+        messages: [{ role: 'user', content: 'hi' }],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      });
+      const observedRejection = requestPromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: null },
+      });
+
+      await expect(observedRejection).resolves.toMatchObject({
+        message: expect.stringContaining('returned no result payload'),
+      });
+    });
+
+    it('warmupForMain resolves when the host acknowledges with a null result', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+      expect(requestId?.startsWith('main:')).toBe(true);
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: null },
+      });
+
+      await expect(warmupPromise).resolves.toBeUndefined();
+    });
+  });
 });

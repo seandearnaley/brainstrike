@@ -1,3 +1,4 @@
+import type { LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { BrowserWindow, WebContents } from 'electron';
 import {
@@ -7,6 +8,8 @@ import {
   LLM_HOST_STATUS_ADAPTER,
   LLM_HOST_STATUS_EVENT,
   type LlmHostGenerateRequestPayload,
+  type LlmHostProgressPayload,
+  type LlmHostProgressReport,
   type LlmHostRequest,
   type LlmHostResponseReport,
   type LlmHostStatus,
@@ -33,11 +36,75 @@ function getMonotonicNow(): number {
     : Date.now();
 }
 
+/**
+ * Abstraction over "who asked for this request" so the manager can serve both
+ * renderer callers (WebContents, progress forwarded over IPC, torn down when
+ * the WebContents is destroyed) and main-process callers (progress delivered
+ * to a callback, torn down by an AbortSignal).
+ */
+interface LlmHostRequestClient {
+  forwardProgress(report: LlmHostProgressReport): void;
+  /** Scope prefix for request ids (WebContents id, or 'main'). */
+  readonly scopeId: string;
+  /** Subscribe to client teardown; returns cleanup, or null when not removable. */
+  subscribeTeardown(handler: () => void): (() => void) | null;
+  teardownMessage(requestId: string): string;
+}
+
+/** Reserved scope for main-process callers; WebContents ids are numeric, so 'main' cannot collide. */
+const MAIN_CLIENT_SCOPE_ID = 'main';
+
+function clientFromWebContents(requester: WebContents): LlmHostRequestClient {
+  return {
+    scopeId: String(requester.id),
+    forwardProgress: (report) => {
+      requester.send(LLM_HOST_PROGRESS_EVENT, report);
+    },
+    subscribeTeardown: (handler) => {
+      if (typeof requester.once !== 'function') {
+        return null;
+      }
+      requester.once('destroyed', handler);
+      return typeof requester.removeListener === 'function'
+        ? () => {
+            requester.removeListener('destroyed', handler);
+          }
+        : null;
+    },
+    teardownMessage: (requestId) => `Llm host requester ${requestId} was destroyed.`,
+  };
+}
+
+export interface LlmHostMainRequestOptions {
+  onProgress?: (progress: LlmHostProgressPayload) => void;
+  signal?: AbortSignal;
+}
+
+function clientForMain(options: LlmHostMainRequestOptions): LlmHostRequestClient {
+  return {
+    scopeId: MAIN_CLIENT_SCOPE_ID,
+    forwardProgress: (report) => {
+      options.onProgress?.(report.payload);
+    },
+    subscribeTeardown: (handler) => {
+      const signal = options.signal;
+      if (!signal) {
+        return null;
+      }
+      signal.addEventListener('abort', handler, { once: true });
+      return () => {
+        signal.removeEventListener('abort', handler);
+      };
+    },
+    teardownMessage: (requestId) => `Llm host request ${requestId} was aborted.`,
+  };
+}
+
 interface PendingLlmRequest {
   cleanupRequesterListener?: () => void;
+  client: LlmHostRequestClient;
   deadlineAt: number;
   reject: (error: Error) => void;
-  requester: WebContents;
   requestId: string;
   resolve: (result: unknown) => void;
   timeoutId: ReturnType<typeof setTimeout>;
@@ -209,7 +276,7 @@ export class LlmHostManager {
     if (report.type === 'progress') {
       this.refreshPendingRequestTimeout(pending);
       try {
-        pending.requester.send(LLM_HOST_PROGRESS_EVENT, report);
+        pending.client.forwardProgress(report);
       } catch (error) {
         logger.warn('Failed to forward llm host progress event', {
           requestId: report.requestId,
@@ -242,7 +309,7 @@ export class LlmHostManager {
 
   async warmup(requester: WebContents, modelId: string): Promise<void> {
     logger.info('Dispatching llm-host warmup request', { modelId });
-    await this.sendRequest(requester, { kind: 'warmup', modelId });
+    await this.sendRequest(clientFromWebContents(requester), { kind: 'warmup', modelId });
   }
 
   async warmupRequest(
@@ -250,11 +317,55 @@ export class LlmHostManager {
     payload: { clientRequestId?: string; modelId: string }
   ): Promise<void> {
     logger.info('Dispatching llm-host warmup request', { modelId: payload.modelId });
-    await this.sendRequest(requester, {
+    await this.sendRequest(clientFromWebContents(requester), {
       kind: 'warmup',
       modelId: payload.modelId,
       ...(payload.clientRequestId ? { clientRequestId: payload.clientRequestId } : {}),
     });
+  }
+
+  /**
+   * Warm the model from the main process (e.g. before streaming a Mastra turn),
+   * with download/load progress delivered to the callback instead of IPC.
+   */
+  async warmupForMain(modelId: string, options: LlmHostMainRequestOptions = {}): Promise<void> {
+    this.assertMainRequestNotAborted(options);
+    logger.info('Dispatching llm-host warmup request from main', { modelId });
+    await this.sendRequest(clientForMain(options), { kind: 'warmup', modelId });
+  }
+
+  /**
+   * Run a generation from the main process. Progress snapshots (text/reasoning)
+   * stream to `options.onProgress`; aborting `options.signal` cancels the host
+   * request and rejects. Used by the Mastra local-provider proxy model.
+   */
+  async generateForMain(
+    payload: Omit<LlmHostGenerateRequestPayload, 'kind'>,
+    options: LlmHostMainRequestOptions = {}
+  ): Promise<LocalLlmGenerationResult> {
+    this.assertMainRequestNotAborted(options);
+    logger.info('Dispatching llm-host generate request from main', {
+      modelId: payload.modelId,
+      messageCount: payload.messages.length,
+      toolCount: payload.options?.tools?.length ?? 0,
+      thinkingEnabled: payload.options?.thinking?.enabled ?? true,
+    });
+    const result = await this.sendRequest(clientForMain(options), {
+      ...payload,
+      kind: 'generate',
+    });
+    if (result === null || result === undefined) {
+      throw createRequestFailure(
+        `Llm host generate request for model ${payload.modelId} returned no result payload.`
+      );
+    }
+    return result as LocalLlmGenerationResult;
+  }
+
+  private assertMainRequestNotAborted(options: LlmHostMainRequestOptions): void {
+    if (options.signal?.aborted) {
+      throw createRequestFailure('Llm host request was aborted before dispatch.');
+    }
   }
 
   async cancel(requester: WebContents, requestId: string): Promise<void> {
@@ -263,11 +374,11 @@ export class LlmHostManager {
       throw createRequestFailure('Llm host cancel requestId must be a non-empty string.');
     }
 
-    const scopedRequestId = this.scopeClientRequestId(requester, trimmedRequestId);
+    const scopedRequestId = this.scopeClientRequestId(String(requester.id), trimmedRequestId);
     const status = this.getStatus();
     const hostWindow = this.lifecycle.getHostWindow();
     if (status.state !== 'running' || !hostWindow || hostWindow.isDestroyed()) {
-      this.recordPreCancelledRequest(requester, scopedRequestId);
+      this.recordPreCancelledRequest(clientFromWebContents(requester), scopedRequestId);
       logger.debug('Skipping llm-host cancel because the host is not running', {
         requestId: trimmedRequestId,
         state: status.state,
@@ -286,15 +397,15 @@ export class LlmHostManager {
       toolCount: payload.options?.tools?.length ?? 0,
       thinkingEnabled: payload.options?.thinking?.enabled ?? true,
     });
-    return await this.sendRequest(requester, payload);
+    return await this.sendRequest(clientFromWebContents(requester), payload);
   }
 
   private async sendRequest(
-    requester: WebContents,
+    client: LlmHostRequestClient,
     payload: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload
   ): Promise<unknown> {
     const hostWindow = await this.assertReadyForRequests();
-    const requestId = this.createHostRequestId(requester, payload);
+    const requestId = this.createHostRequestId(client, payload);
     if (this.clearPreCancelledRequest(requestId)) {
       logger.warn('Rejecting llm host request because it was pre-cancelled', {
         requestId,
@@ -319,23 +430,17 @@ export class LlmHostManager {
         this.tryCancelHostRequest(requestId, hostWindow, 'requester destruction');
       };
 
-      const requesterDestroyedHandler = (): void => {
-        cancelPendingRequest(`Llm host requester ${requestId} was destroyed.`);
+      const teardownHandler = (): void => {
+        cancelPendingRequest(client.teardownMessage(requestId));
       };
 
-      const cleanupRequesterListener =
-        typeof requester.once === 'function' && typeof requester.removeListener === 'function'
-          ? () => {
-              requester.removeListener('destroyed', requesterDestroyedHandler);
-            }
-          : null;
       const timeoutMs =
         payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS;
       const deadlineAt = getMonotonicNow() + timeoutMs;
 
       const pending: PendingLlmRequest = {
         requestId,
-        requester,
+        client,
         resolve,
         reject,
         deadlineAt,
@@ -349,10 +454,10 @@ export class LlmHostManager {
           },
           Math.max(0, deadlineAt - getMonotonicNow())
         ),
-        ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
       };
-      if (typeof requester.once === 'function') {
-        requester.once('destroyed', requesterDestroyedHandler);
+      const cleanupRequesterListener = client.subscribeTeardown(teardownHandler);
+      if (cleanupRequesterListener) {
+        pending.cleanupRequesterListener = cleanupRequesterListener;
       }
       this.pendingRequests.set(requestId, pending);
 
@@ -381,7 +486,7 @@ export class LlmHostManager {
   }
 
   private createHostRequestId(
-    requester: WebContents,
+    client: LlmHostRequestClient,
     payload: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload
   ): string {
     if (
@@ -389,17 +494,17 @@ export class LlmHostManager {
       typeof payload.clientRequestId === 'string' &&
       payload.clientRequestId.trim().length > 0
     ) {
-      return this.scopeClientRequestId(requester, payload.clientRequestId);
+      return this.scopeClientRequestId(client.scopeId, payload.clientRequestId);
     }
 
     // IPC callers must supply clientRequestId so they can later cancel the request.
     // This fallback is reserved for internal manager call sites that do not expose cancellation.
-    return this.scopeClientRequestId(requester, crypto.randomUUID());
+    return this.scopeClientRequestId(client.scopeId, crypto.randomUUID());
   }
 
-  private scopeClientRequestId(requester: WebContents, requestId: string): string {
+  private scopeClientRequestId(scopeId: string, requestId: string): string {
     const trimmedRequestId = requestId.trim();
-    const requesterPrefix = `${requester.id}:`;
+    const requesterPrefix = `${scopeId}:`;
     if (trimmedRequestId.startsWith(requesterPrefix)) {
       const unscopedRemainder = trimmedRequestId.slice(requesterPrefix.length);
       if (!(unscopedRemainder.length > 0) || unscopedRemainder.includes(':')) {
@@ -438,7 +543,7 @@ export class LlmHostManager {
     return this.preCancelledRequestIds.delete(requestId);
   }
 
-  private recordPreCancelledRequest(requester: WebContents, requestId: string): void {
+  private recordPreCancelledRequest(client: LlmHostRequestClient, requestId: string): void {
     const existingCleanup = this.preCancelledRequestCleanups.get(requestId);
     if (existingCleanup) {
       clearTimeout(existingCleanup.timeoutId);
@@ -446,18 +551,9 @@ export class LlmHostManager {
     }
 
     this.preCancelledRequestIds.add(requestId);
-    const requesterDestroyedHandler = (): void => {
+    const cleanupRequesterListener = client.subscribeTeardown(() => {
       this.clearPreCancelledRequest(requestId);
-    };
-    const cleanupRequesterListener =
-      typeof requester.once === 'function' && typeof requester.removeListener === 'function'
-        ? () => {
-            requester.removeListener('destroyed', requesterDestroyedHandler);
-          }
-        : undefined;
-    if (typeof requester.once === 'function') {
-      requester.once('destroyed', requesterDestroyedHandler);
-    }
+    });
     const timeoutId = setTimeout(() => {
       this.clearPreCancelledRequest(requestId);
     }, PRE_CANCELLED_REQUEST_TTL_MS);

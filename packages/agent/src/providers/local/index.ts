@@ -2,6 +2,18 @@
  * Local LLM provider for browser-based inference using transformers.js
  */
 
+export {
+  createLlmHostChatModel,
+  LlmHostChatModel,
+  type LlmHostChatModelSettings,
+} from './llm-host-chat-model';
+export type {
+  LocalLlmHostClient,
+  LocalLlmHostGenerateRequest,
+  LocalLlmHostGenerationOptions,
+  LocalLlmHostProgress,
+  LocalLlmHostRequestOptions,
+} from './llm-host-client';
 export { createLocalLanguageModel, LocalLanguageModel } from './local-language-model';
 export {
   addAllowedModels,
@@ -11,6 +23,16 @@ export {
   setModelChecksums,
   verifyModelIntegrity,
 } from './local-llm-backend';
+export {
+  convertPromptToLocalMessages,
+  convertToolsFromArray,
+  extractTextFromParts,
+  extractToolCallsFromParts,
+  generateStreamPartId,
+  mapFinishReason,
+  parseToolResultMessage,
+  segmentTextForStream,
+} from './local-message-conversion';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,

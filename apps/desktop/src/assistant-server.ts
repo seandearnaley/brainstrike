@@ -21,6 +21,7 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasNonEmptyAssistantPrompt,
   isSupportedProvider,
+  PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
@@ -54,6 +55,10 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
+import {
+  type AssistantLlmHostManager,
+  createMainLlmHostClient,
+} from './assistant-server/local-llm-host-client';
 import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -123,6 +128,7 @@ export interface AssistantServerOptions {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   host?: string;
   listen?: boolean;
+  llmHostManager?: AssistantLlmHostManager | null | undefined;
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
@@ -223,6 +229,7 @@ async function handleAssistantPost(
       toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
+        llmHostManager: options.llmHostManager,
       },
     });
   } catch (error) {
@@ -283,6 +290,7 @@ async function streamAssistantPostResponse({
   readonly toolApprovalAction?: AssistantToolApprovalAction;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   };
 }): Promise<void> {
   const mcpConfig = (await loadMcpConfig()).config;
@@ -954,6 +962,37 @@ async function resumeStreamIfAvailable(
   return true;
 }
 
+function resolveLocalLlmHostClient(
+  runtimeData: RuntimeData | undefined,
+  toolDependencies: {
+    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+  }
+): ReturnType<typeof createMainLlmHostClient> | undefined {
+  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  if (provider.toLowerCase() !== 'local') {
+    return;
+  }
+  const manager = toolDependencies.llmHostManager;
+  if (!manager) {
+    throw new Error(
+      'Assistant provider "local" requires the llm-host manager; the assistant server was started without one.'
+    );
+  }
+  return createMainLlmHostClient(manager);
+}
+
+function resolveLocalModelId(runtimeData: RuntimeData | undefined): string {
+  const requested = typeof runtimeData?.model === 'string' ? runtimeData.model.trim() : '';
+  if (requested.length > 0) {
+    return requested;
+  }
+  const fallback = PROVIDER_DEFAULT_MODELS['local'];
+  if (!fallback) {
+    throw new Error('No default model is registered for the local provider.');
+  }
+  return fallback;
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   runtimeData: RuntimeData | undefined,
@@ -964,6 +1003,7 @@ async function initializeAgentStream(
   toolApprovalAction: AssistantToolApprovalAction | undefined,
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   }
 ): Promise<AgentStreamResult> {
   // Build runtime context with abort signal for cancellation support
@@ -971,16 +1011,24 @@ async function initializeAgentStream(
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
-  const runtime: RuntimeData = {
-    ...runtimeWithoutMcpConfig,
-    mcpEnabled: true,
-    mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
-    signal, // ← AbortSignal passed here, used by stream iterator
-    ...(mcpConfig ? { mcpConfig } : {}),
-    ...(apiKey ? { apiKey } : {}),
-  };
 
   try {
+    const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    const runtime: RuntimeData = {
+      ...runtimeWithoutMcpConfig,
+      mcpEnabled: true,
+      mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
+      signal, // ← AbortSignal passed here, used by stream iterator
+      ...(mcpConfig ? { mcpConfig } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      ...(localLlmHostClient ? { localLlmHostClient } : {}),
+    };
+    // Cold model loads (multi-GB download) exceed the generate request's hard
+    // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
+    // before the Mastra loop issues its first generation.
+    if (localLlmHostClient) {
+      await localLlmHostClient.warmup(resolveLocalModelId(runtimeData), { signal });
+    }
     const queuedRunEvents: AssistantRunEvent[] = [];
     const memoryResult = runtime.memory
       ? await getDesktopMastraMemory(

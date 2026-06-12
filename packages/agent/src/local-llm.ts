@@ -27,6 +27,13 @@ export {
 
 export class LocalLlmBackend extends BaseLocalLlmBackend {}
 export type {
+  LocalLlmHostClient,
+  LocalLlmHostGenerateRequest,
+  LocalLlmHostGenerationOptions,
+  LocalLlmHostProgress,
+  LocalLlmHostRequestOptions,
+} from './providers/local/llm-host-client';
+export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
   LocalLlmGenerationResult,
