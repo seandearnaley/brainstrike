@@ -508,8 +508,11 @@ export function registerFileSystemIpcHandlers({
       try {
         await writeRootsList(storage, updated);
       } catch (error) {
-        logger.warn('addRoot: failed to update rootsList', { error });
-        persisted = false;
+        // The root is ALREADY durably stored — a failed addedAt bump does not
+        // change that. Per the RootDescriptor.persisted contract, persisted
+        // stays true: reporting false here would make callers skip DB
+        // registration for a perfectly durable root.
+        logger.warn('addRoot: failed to bump addedAt on existing rootsList entry', { error });
       }
     } else {
       rootId = crypto.randomUUID();

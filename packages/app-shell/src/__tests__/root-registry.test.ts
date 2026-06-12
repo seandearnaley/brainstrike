@@ -89,6 +89,53 @@ describe('reconcileRoots', () => {
     expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-a');
   });
 
+  it('converges on the existing row when a concurrent writer wins the path-unique race', async () => {
+    // ON CONFLICT (id) does not cover idx_roots_path: a same-path row landing
+    // between the SELECT and the INSERT throws. The loop must converge on the
+    // winner's row and keep registering the remaining roots.
+    let insertAttempted = false;
+    const query = vi.fn(async (sql: string, _params?: unknown[]) => {
+      if (sql.includes('INSERT')) {
+        insertAttempted = true;
+        throw new Error('duplicate key value violates unique constraint "idx_roots_path"');
+      }
+      if (sql.includes('WHERE path =')) {
+        // The concurrent winner's row, visible on re-select.
+        return { rows: [{ id: 'winner-id', path: 'my-project' }] };
+      }
+      return { rows: [] };
+    });
+
+    const result = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project'), fsaRoot('adapter-2', 'other-project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(insertAttempted).toBe(true);
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('winner-id');
+    // The loop continued: the second root still registered (its own insert
+    // also "converges" in this mock, proving no abort).
+    expect(result.dbRootIdByAdapterRootId.has('adapter-2')).toBe(true);
+  });
+
+  it('rethrows non-path-race insert failures instead of swallowing them', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) => {
+      if (sql.includes('INSERT')) {
+        throw new Error('connection lost');
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      reconcileRoots({
+        adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+        platformKind: 'fsa',
+        query,
+      })
+    ).rejects.toThrow('connection lost');
+  });
+
   it('leaves unmatched legacy DB rows untouched', async () => {
     const dbRows = [{ id: 'db-orphan', path: 'gone-folder' }];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>

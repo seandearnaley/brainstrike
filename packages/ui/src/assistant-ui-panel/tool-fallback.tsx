@@ -1,14 +1,7 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import {
-  AlertCircle,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  CircleDashed,
-  Wrench,
-} from 'lucide-react';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, CircleDashed } from 'lucide-react';
 import * as m from 'motion/react-m';
-import { type ComponentProps, type ReactElement, useId, useState } from 'react';
+import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
@@ -120,26 +113,100 @@ const formatResult = (result: ToolResult): string => {
   }
 };
 
-const getToolHeading = (toolName: string, displayStatus: DisplayStatus): string => {
-  if (displayStatus === 'running') {
-    return `Using ${toolName}`;
+/**
+ * Argument keys most likely to identify WHAT a tool accessed, in priority
+ * order. The first string-valued match is surfaced inline in the card header
+ * so users can read "which file / which query" without expanding details.
+ */
+const PRIMARY_ARG_KEYS = [
+  'query',
+  'q',
+  'pattern',
+  'path',
+  'filePath',
+  'file',
+  'url',
+  'name',
+  'id',
+  'command',
+] as const;
+
+const MAX_PRIMARY_ARG_LENGTH = 120;
+
+export function extractPrimaryArg(args: unknown, argsText: string | undefined): string | undefined {
+  let record: Record<string, unknown> | undefined;
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    record = args as Record<string, unknown>;
+  } else if (argsText) {
+    try {
+      const parsed: unknown = JSON.parse(argsText);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        record = parsed as Record<string, unknown>;
+      }
+    } catch {
+      return;
+    }
   }
-  if (displayStatus === 'error') {
-    return `Tool failed: ${toolName}`;
+  if (!record) {
+    return;
   }
-  return `Used ${toolName}`;
-};
+
+  for (const key of PRIMARY_ARG_KEYS) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return truncatePrimaryArg(value);
+    }
+  }
+  const firstString = Object.values(record).find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+  return firstString ? truncatePrimaryArg(firstString) : undefined;
+}
+
+function truncatePrimaryArg(value: string): string {
+  const singleLine = value.replaceAll(/\s+/g, ' ').trim();
+  return singleLine.length > MAX_PRIMARY_ARG_LENGTH
+    ? `${singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH)}…`
+    : singleLine;
+}
 
 /**
- * ToolFallback component displays tool execution status and results.
+ * Compact "what came back" summary for the header: item counts for arrays and
+ * common collection-shaped results. Returns undefined when there is nothing
+ * meaningful to count (the expanded Result pane remains the full view).
+ */
+const COLLECTION_RESULT_KEYS = ['matches', 'results', 'items', 'files', 'chunks', 'rows'] as const;
+
+export function summarizeResult(result: ToolResult): string | undefined {
+  if (Array.isArray(result)) {
+    return `${result.length} ${result.length === 1 ? 'item' : 'items'}`;
+  }
+  if (!(result && typeof result === 'object')) {
+    return;
+  }
+  const record = result as Record<string, unknown>;
+  for (const key of COLLECTION_RESULT_KEYS) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return `${value.length} ${key}`;
+    }
+  }
+  return;
+}
+
+/**
+ * ToolFallback renders a tool call as the most prominent element in the run:
+ * a tinted card with a single-line header (status, tool name, primary
+ * argument, result summary) and collapsible Arguments/Result panes.
  *
  * Handles three states:
- * - Running: Tool is being executed (shows loader)
- * - Success: Tool executed successfully (shows result)
- * - Error: Tool execution failed (shows error message in red)
+ * - Running: shows the thinking indicator inline (no expander yet)
+ * - Success: shows result summary; details available behind the expander
+ * - Error: shows the error message inline in red
  */
 export const ToolFallback: ToolCallMessagePartComponent = ({
   toolName,
+  args,
   argsText,
   result,
   status,
@@ -156,7 +223,12 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const errorMessage = resolveErrorMessage(status, result);
   const showDetails = !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
-  const heading = getToolHeading(toolName, displayStatus);
+
+  const primaryArg = useMemo(() => extractPrimaryArg(args, argsText), [args, argsText]);
+  const resultSummary = useMemo(
+    () => (isError ? undefined : summarizeResult(result)),
+    [isError, result]
+  );
 
   const category = classifyToolName(toolName);
   const tint = categoryTintClasses(category);
@@ -171,62 +243,92 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
       layout
       transition={{ duration: 0.16, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-3 py-2">
-        <div
-          aria-hidden="false"
-          className={`bs-tool-timeline-rail ${isError ? 'text-destructive' : tint.rail}`}
-        >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span aria-label={statusText} className="inline-flex" role="img">
-                {statusIcon}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{statusText}</TooltipContent>
-          </Tooltip>
-        </div>
-        <div className="min-w-0">
-          <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
-            <span className="inline-flex items-center gap-1.5">
-              <Wrench className="size-3.5 text-muted-foreground" />
-              <span>{heading}</span>
+      <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              aria-label={statusText}
+              className={`inline-flex shrink-0 ${isError ? 'text-destructive' : tint.rail}`}
+              role="img"
+            >
+              {statusIcon}
             </span>
-          </p>
-          {isRunning ? (
-            <AssistantThinkingIndicator className="mt-1 text-xs" markClassName="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>{statusText}</TooltipContent>
+        </Tooltip>
+        <span className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span
+            className={`shrink-0 font-medium font-mono text-xs ${
+              isError ? 'text-destructive' : 'text-foreground'
+            }`}
+          >
+            {toolName}
+          </span>
+          {primaryArg ? (
+            <span
+              className="truncate font-mono text-[11px] text-muted-foreground"
+              title={primaryArg}
+            >
+              {primaryArg}
+            </span>
           ) : null}
-          {isError && errorMessage ? (
-            <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
-          ) : null}
-        </div>
+        </span>
+        {isRunning ? (
+          <AssistantThinkingIndicator
+            className="shrink-0 text-xs"
+            markClassName="size-3.5"
+            textClassName="truncate"
+          />
+        ) : null}
+        {resultSummary ? (
+          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+            {resultSummary}
+          </span>
+        ) : null}
         {showDetails && (
           <Button
             aria-controls={isCollapsed ? undefined : detailsId}
             aria-expanded={!isCollapsed}
             aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
-            className="size-8"
+            className="size-6 shrink-0 text-muted-foreground"
             onClick={() => setIsCollapsed((prev) => !prev)}
             size="icon"
             title={isCollapsed ? 'Expand details' : 'Collapse details'}
             variant="ghost"
           >
-            {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+            {isCollapsed ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronUp className="size-3.5" />
+            )}
           </Button>
         )}
       </div>
 
+      {isError && errorMessage ? (
+        <p className="px-2.5 pb-1.5 text-destructive text-xs">{errorMessage}</p>
+      ) : null}
+
       {showDetails && !isCollapsed && (
         <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
           {argsText && (
-            <div className="px-4 py-2">
-              <p className="mb-1 font-medium text-muted-foreground text-xs">Arguments:</p>
-              <pre className="whitespace-pre-wrap text-xs">{argsText}</pre>
+            <div className="px-3 py-1">
+              <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+                Arguments:
+              </p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+                {argsText}
+              </pre>
             </div>
           )}
           {hasResult && !isError && (
-            <div className="border-t border-dashed px-4 py-2">
-              <p className="mb-1 font-medium text-muted-foreground text-xs">Result:</p>
-              <pre className="whitespace-pre-wrap text-xs">{formattedResult}</pre>
+            <div className="px-3 pb-2">
+              <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+                Result:
+              </p>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+                {formattedResult}
+              </pre>
             </div>
           )}
         </div>

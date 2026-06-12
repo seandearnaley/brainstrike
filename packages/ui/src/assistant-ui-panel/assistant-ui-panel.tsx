@@ -55,7 +55,11 @@ import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import { AssistantRunTimeline, resolveAssistantRunEventStatus } from './assistant-run-timeline';
+import {
+  AssistantRunTimeline,
+  resolveAssistantRunEventRenderPlan,
+  resolveAssistantRunEventStatus,
+} from './assistant-run-timeline';
 import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
@@ -72,7 +76,20 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   const statusOverride = useAuiState((state) =>
     resolveAssistantRunEventStatus(state.thread.messages, data)
   );
-  return <AssistantRunTimeline data={data} statusOverride={statusOverride} />;
+  // The render plan scans all message parts (O(total parts)) and re-evaluates
+  // on every streamed state change, so compute it ONCE per update and select a
+  // string primitive — stable re-render semantics without a second scan.
+  const renderPlanKey = useAuiState((state) => {
+    const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
+    return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
+  });
+  if (renderPlanKey === 'hidden') {
+    return null;
+  }
+  const repeatCount = Number(renderPlanKey.slice('visible:'.length));
+  return (
+    <AssistantRunTimeline data={data} repeatCount={repeatCount} statusOverride={statusOverride} />
+  );
 };
 
 const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
@@ -320,9 +337,21 @@ function isRunningReasoningPart(part: unknown): boolean {
   return (status as { readonly type?: unknown }).type === 'running';
 }
 
+/** Renders nothing — used to keep reasoning parts out of the flow while collapsed. */
+const HiddenReasoningPart: FC = () => null;
+
+function isReasoningPart(part: unknown): boolean {
+  return Boolean(
+    part && typeof part === 'object' && (part as { readonly type?: unknown }).type === 'reasoning'
+  );
+}
+
 const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
+  const hasReasoningParts = useAuiState((state) =>
+    state.chainOfThought.parts.some(isReasoningPart)
+  );
   const isReasoningRunning = useAuiState((state) =>
     state.chainOfThought.parts.some(isRunningReasoningPart)
   );
@@ -352,13 +381,35 @@ const LocalChainOfThought: FC = () => {
     aui.chainOfThought().setCollapsed(true);
   }, [aui]);
 
+  // Tool calls are the primary evidence of what the agent did, so they are
+  // ALWAYS rendered. Only reasoning parts live behind the collapsible pill;
+  // a chain with no reasoning (tool calls only) renders the cards directly
+  // with no fold and no indent.
+  const chainParts = (
+    <ChainOfThoughtPrimitive.Parts
+      components={{
+        /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Layout" key */
+        Layout: ({ children }) => <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>,
+        /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
+        Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
+        tools: {
+          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
+          Fallback: ToolFallback,
+        },
+      }}
+    />
+  );
+
+  if (!hasReasoningParts) {
+    return (
+      <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
+        {chainParts}
+      </ChainOfThoughtPrimitive.Root>
+    );
+  }
+
   return (
-    <ChainOfThoughtPrimitive.Root
-      className={cn(
-        'bs-chain-of-thought max-w-xl',
-        collapsed ? 'mr-1 mb-1 inline-block align-top' : 'mb-2 block'
-      )}
-    >
+    <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
       <button
         aria-controls={reasoningPanelId}
         aria-expanded={!collapsed}
@@ -405,24 +456,13 @@ const LocalChainOfThought: FC = () => {
         )}
       </button>
       <div
-        className="bs-chain-of-thought-panel mt-2 border-border/70 border-l pl-3"
-        hidden={collapsed}
+        className={cn(
+          'bs-chain-of-thought-panel mt-2 empty:mt-0',
+          collapsed ? '' : 'border-border/70 border-l pl-3'
+        )}
         id={reasoningPanelId}
       >
-        {collapsed ? null : (
-          <ChainOfThoughtPrimitive.Parts
-            components={{
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Layout" key */
-              Layout: ({ children }) => <div className="mb-2 last:mb-0">{children}</div>,
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
-              Reasoning: LocalReasoningPart,
-              tools: {
-                /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-                Fallback: ToolFallback,
-              },
-            }}
-          />
-        )}
+        {chainParts}
       </div>
     </ChainOfThoughtPrimitive.Root>
   );
@@ -1216,6 +1256,9 @@ const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-4">
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-7">
+        {/* ChainOfThought takes control of ALL reasoning and tool-call parts
+            (the library forbids a separate `tools` mapping alongside it), so
+            tool rendering lives inside LocalChainOfThought. */}
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "ChainOfThought" key */
