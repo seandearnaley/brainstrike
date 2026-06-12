@@ -62,7 +62,6 @@ const { mockVisibleWindow } = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
-  // biome-ignore lint/style/useNamingConvention: electron export name
   BrowserWindow: {
     getAllWindows: vi.fn(() => [mockVisibleWindow]),
   },

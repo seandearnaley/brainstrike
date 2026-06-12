@@ -1064,6 +1064,17 @@ function createGemmaStreamingState(
   };
 }
 
+/**
+ * The practical WebGPU prompt ceiling varies per device — carry the
+ * measurement on the visible generation failure so the limit can be
+ * calibrated from the chat error itself. Cancellations are not faults.
+ */
+function appendPromptSizeToFault(error: unknown, promptTokenCount: number): void {
+  if (error instanceof Error && error.name !== 'AbortError' && promptTokenCount > 0) {
+    error.message = `${error.message} (prompt: ${promptTokenCount} tokens)`;
+  }
+}
+
 export class Gemma4Engine {
   private model: GemmaModel | null = null;
   private processor: LoadedGemmaProcessor | null = null;
@@ -1159,6 +1170,7 @@ export class Gemma4Engine {
     // WebGPU kernel errors (e.g. unaligned access aborts) are sequence-length
     // dependent, and the size is the first diagnostic question.
     let promptLength = 0;
+    let promptTokenCount = 0;
     try {
       logger.info('Gemma generation started', {
         modelId: this.spec.modelId,
@@ -1187,6 +1199,7 @@ export class Gemma4Engine {
       stage = 'processor-run';
       throwIfAborted(options.signal);
       const inputs = await this.processor.run(promptText, null, null, { addSpecialTokens: false });
+      promptTokenCount = inputs.inputIds.dims.at(-1) ?? 0;
       stage = 'model-generate';
       options.stream?.onStageChange?.('generating');
       throwIfAborted(options.signal);
@@ -1241,11 +1254,13 @@ export class Gemma4Engine {
         toolCount: options.tools?.length ?? 0,
         thinkingEnabled: options.thinking?.enabled ?? true,
         promptLength,
+        promptTokenCount,
         error: error instanceof Error ? error.message : String(error),
         ...(error instanceof Error && typeof error.stack === 'string'
           ? { stack: error.stack }
           : {}),
       });
+      appendPromptSizeToFault(error, promptTokenCount);
       throw error;
     }
   }

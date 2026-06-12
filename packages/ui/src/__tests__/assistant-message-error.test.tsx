@@ -10,7 +10,6 @@ const { errorHolder } = vi.hoisted(() => ({
 }));
 
 vi.mock('@assistant-ui/react', () => ({
-  // biome-ignore lint/style/useNamingConvention: assistant-ui export name
   ErrorPrimitive: {
     Root: ({ children, ...props }: { children?: React.ReactNode; className?: string }) => (
       <div role="alert" {...props}>

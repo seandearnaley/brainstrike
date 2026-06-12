@@ -292,6 +292,11 @@ describe('LlmHostRuntime', () => {
         })
       );
     });
+    // The notice is honest about the automatic retry having been exhausted.
+    const [finalErrorReport] = reportResponseMock.mock.calls.at(-1) ?? [];
+    expect(
+      (finalErrorReport as { payload: { errorMessage: string } }).payload.errorMessage
+    ).toContain('retry failed too');
     // One automatic retry, no more: two generate attempts total.
     expect(generateMock).toHaveBeenCalledTimes(2);
     // Disposed before the retry AND after the persistent fault, so the NEXT

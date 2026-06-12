@@ -290,12 +290,14 @@ async function recoverFromEngineFault(
   backend: LocalLlmBackend,
   request: LlmHostRequest,
   runtimeId: string,
-  error: unknown
+  error: unknown,
+  retried: boolean
 ): Promise<Error> {
   const message = error instanceof Error ? error.message : String(error);
   logger.error('Llm host engine fault — resetting the local model engine', {
     error: message,
     requestId: request.requestId,
+    retried,
     runtimeId,
   });
   try {
@@ -308,7 +310,9 @@ async function recoverFromEngineFault(
     });
   }
   const notice = new Error(
-    `${message} — the local model engine was reset; the next message will reload the model.`
+    retried
+      ? `${message} — the local model engine was reset and the generation automatically retried once; the retry failed too, so this prompt likely exceeds what this device's GPU can handle. The next message will reload the model.`
+      : `${message} — the local model engine was reset; the next message will reload the model.`
   );
   if (error instanceof Error && typeof error.stack === 'string') {
     notice.stack = error.stack;
@@ -355,6 +359,7 @@ async function processLlmHostRequest(
   clearAbortController: (requestId: string) => void
 ): Promise<void> {
   let stage = 'received-request';
+  let retriedAfterEngineFault = false;
   try {
     logRequestReceived(request, runtimeId);
     stage = 'initialize-backend';
@@ -370,6 +375,7 @@ async function processLlmHostRequest(
       if (!isEngineFault(error) || abortController.signal.aborted) {
         throw error;
       }
+      retriedAfterEngineFault = true;
       await retryGenerateOnceAfterEngineFault(backend, request, runtimeId, abortController, error);
     } finally {
       clearAbortController(request.requestId);
@@ -377,7 +383,7 @@ async function processLlmHostRequest(
   } catch (error) {
     const reportedError =
       stage === 'generate-response' && isEngineFault(error)
-        ? await recoverFromEngineFault(backend, request, runtimeId, error)
+        ? await recoverFromEngineFault(backend, request, runtimeId, error, retriedAfterEngineFault)
         : error;
     reportRequestError(request, runtimeId, stage, reportedError);
   }

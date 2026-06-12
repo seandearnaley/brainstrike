@@ -607,6 +607,35 @@ describe('LocalLlmBackend', () => {
     expect(backend.isReady()).toBe(false);
   });
 
+  it('reports the prompt token count in generation failures', async () => {
+    // WebGPU faults are prompt-size dependent and the practical per-device
+    // ceiling is unknown — the visible failure must carry the measurement so
+    // the limit can be calibrated from the chat error itself.
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    mockModelGenerate.mockRejectedValueOnce(
+      new Error('operation does not support unaligned accesses')
+    );
+
+    await expect(backend.generate([{ role: 'user', content: 'hello' }])).rejects.toThrow(
+      /operation does not support unaligned accesses \(prompt: \d+ tokens\)/
+    );
+  });
+
+  it('does not decorate abort errors with prompt diagnostics', async () => {
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    mockModelGenerate.mockRejectedValueOnce(
+      new DOMException('The operation was aborted.', 'AbortError')
+    );
+
+    await expect(backend.generate([{ role: 'user', content: 'hello' }])).rejects.toThrow(
+      /^The operation was aborted\.$/
+    );
+  });
+
   it('strips Gemma thought traces from generated text', async () => {
     const backend = new LocalLlmBackend();
 
