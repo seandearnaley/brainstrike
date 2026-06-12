@@ -1155,6 +1155,10 @@ export class Gemma4Engine {
     }
 
     let stage = 'prepare-messages';
+    // Captured after templating so the FAILURE log carries the prompt size —
+    // WebGPU kernel errors (e.g. unaligned access aborts) are sequence-length
+    // dependent, and the size is the first diagnostic question.
+    let promptLength = 0;
     try {
       logger.info('Gemma generation started', {
         modelId: this.spec.modelId,
@@ -1171,6 +1175,7 @@ export class Gemma4Engine {
         enableThinking: options.thinking?.enabled ?? true,
         ...(options.tools ? { tools: options.tools } : {}),
       });
+      promptLength = promptText.length;
 
       const streamingState = createGemmaStreamingState(
         this.transformers,
@@ -1235,6 +1240,7 @@ export class Gemma4Engine {
         messageCount: messages.length,
         toolCount: options.tools?.length ?? 0,
         thinkingEnabled: options.thinking?.enabled ?? true,
+        promptLength,
         error: error instanceof Error ? error.message : String(error),
         ...(error instanceof Error && typeof error.stack === 'string'
           ? { stack: error.stack }

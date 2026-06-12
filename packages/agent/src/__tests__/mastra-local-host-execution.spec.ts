@@ -137,6 +137,14 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
 
     // The host client saw both generations...
     expect(hostClient.requests).toHaveLength(2);
+    // ...with the COMPACT local instruction set (not the hosted multi-thousand
+    // token playbook, which overwhelms the 2B model and bloats the WebGPU
+    // prefill)...
+    const systemMessage = hostClient.requests[0]?.messages.find(
+      (message) => message.role === 'system'
+    );
+    expect(systemMessage?.content).toContain('running fully on this device');
+    expect(systemMessage?.content).not.toContain('Context Explorer alongside this chat');
     // ...with thinking options threaded through from providerOptions.local...
     expect(hostClient.requests[0]?.options?.thinking).toEqual({ enabled: false });
     expect(hostClient.requests[0]?.options?.tools?.[0]?.function.name).toBe('get_weather');
