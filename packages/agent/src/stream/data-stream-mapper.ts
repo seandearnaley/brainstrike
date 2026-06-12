@@ -191,6 +191,15 @@ export class DataStreamMapper {
   private pendingRunErrorText: string | null = null;
   private pendingToolErrorTexts: string[] = [];
   private startNewStepForNextText = false;
+  /**
+   * True while a text/reasoning part is streaming. Data parts emitted while a
+   * part is open CLOSE it downstream (assistant-stream's appendData ends the
+   * active append), slicing visible text into fragments. Run events that
+   * arrive mid-part are deferred to pendingRunEventChunks and flushed at the
+   * next natural boundary (tool start, approval, finish, stream end).
+   */
+  private streamingPartOpen = false;
+  private pendingRunEventChunks: EncodedChunk[] = [];
 
   constructor(messageId: string) {
     this.messageId = messageId;
@@ -234,6 +243,7 @@ export class DataStreamMapper {
     const errorText = error instanceof Error ? error.message : String(error);
     this.markCurrentStepAsError();
     yield { code: DataStreamCode.error, value: errorText } satisfies EncodedChunk;
+    yield* this.flushPendingRunEvents();
     yield* this.finalizeCurrentStep();
     if (!this.finishEmitted) {
       const usage = this.currentStep?.usage ?? toDataStreamUsage();
@@ -260,6 +270,7 @@ export class DataStreamMapper {
       code: DataStreamCode.error,
       value: MISSING_FINISH_ERROR_TEXT,
     });
+    chunks.push(...this.flushPendingRunEvents());
     chunks.push(...this.emitVisibleFallbackIfNeeded());
     chunks.push(...this.emitPendingToolErrorFallbackIfNeeded());
     const stepBeforeFinalize = this.currentStep;
@@ -298,6 +309,7 @@ export class DataStreamMapper {
     // structured isError result for UI retry/error affordances.
     this.pendingToolErrorTexts = [];
     this.hasVisibleText = true;
+    this.streamingPartOpen = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
   }
 
@@ -307,17 +319,33 @@ export class DataStreamMapper {
       return;
     }
     yield* this.startStepIfNeeded();
+    this.streamingPartOpen = true;
     yield { code: DataStreamCode.reasoningDelta, value: delta } satisfies EncodedChunk;
   }
 
   private *handleRunEvent(chunk: StreamChunkRunEvent): Generator<EncodedChunk> {
-    yield {
+    const encoded = {
       code: DataStreamCode.auiDataPart,
       value: {
         name: ASSISTANT_RUN_EVENT_DATA_NAME,
         data: toJsonSafe(chunk.event),
       },
     } satisfies EncodedChunk;
+    if (this.streamingPartOpen) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
+  }
+
+  private *flushPendingRunEvents(): Generator<EncodedChunk> {
+    this.streamingPartOpen = false;
+    if (this.pendingRunEventChunks.length === 0) {
+      return;
+    }
+    const pending = this.pendingRunEventChunks;
+    this.pendingRunEventChunks = [];
+    yield* pending;
   }
 
   private *handleToolEvent(chunk: StreamChunkTool): Generator<EncodedChunk> {
@@ -365,6 +393,7 @@ export class DataStreamMapper {
     if (!callId) {
       return;
     }
+    yield* this.flushPendingRunEvents();
 
     if (!this.toolState.has(callId)) {
       yield* this.handleToolStart(chunk.toolName, callId, {
@@ -408,6 +437,7 @@ export class DataStreamMapper {
     callId: string,
     payload: unknown
   ): Generator<EncodedChunk> {
+    yield* this.flushPendingRunEvents();
     yield* this.finalizeCurrentTextIfNeeded();
     yield* this.startStepIfNeeded();
     this.toolState.set(callId, {
@@ -544,6 +574,7 @@ export class DataStreamMapper {
       this.currentStep.usage = usage;
       this.currentStep.finishReason = this.currentStep.status === 'error' ? 'error' : finishReason;
     }
+    yield* this.flushPendingRunEvents();
     yield* this.emitVisibleFallbackIfNeeded();
     yield* this.emitPendingToolErrorFallbackIfNeeded();
     yield* this.finalizeCurrentStep();

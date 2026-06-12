@@ -237,6 +237,44 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('returns concise entries by default and metadata only with detail: true', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceDirectory'];
+
+    const concise = await tool.execute({ path: '/src' });
+    const conciseFile = concise.entries.find((entry) => entry.type === 'file');
+    expect(conciseFile).toBeDefined();
+    expect(conciseFile).not.toHaveProperty('size');
+    expect(conciseFile).not.toHaveProperty('depth');
+
+    const detailed = await tool.execute({ path: '/src', detail: true });
+    const detailedFile = detailed.entries.find((entry) => entry.type === 'file');
+    expect(detailedFile).toHaveProperty('size');
+    expect(detailedFile).toHaveProperty('depth');
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('pages directory entries with offset and emits a continuation hint when truncated', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceDirectory'];
+
+    const firstPage = await tool.execute({ path: '/src', maxEntries: 2 });
+    expect(firstPage.entries.length).toBe(2);
+    expect(firstPage.truncated).toBe(true);
+    expect(firstPage.offset).toBe(0);
+    expect(firstPage.hint).toContain('offset: 2');
+
+    const secondPage = await tool.execute({ path: '/src', maxEntries: 2, offset: 2 });
+    expect(secondPage.offset).toBe(2);
+    expect(secondPage.entries.length).toBeGreaterThan(0);
+    expect(secondPage.entries[0]?.path).not.toBe(firstPage.entries[0]?.path);
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('exposes tool-only context tools and omits legacy context mutation tools from chat runtime', () => {
     const tools = buildDesktopAssistantTools({
       workspaceRootPath: '/tmp/workspace',
@@ -263,7 +301,7 @@ describe('assistant-tools', () => {
     } as RuntimeData);
 
     const result = await tools['brainstrike.grepSearch'].execute({
-      context: { pattern: 'needle' },
+      context: { pattern: 'needle', outputMode: 'content' },
     });
 
     expect(result.matches).toEqual([
@@ -275,6 +313,24 @@ describe('assistant-tools', () => {
         after: ['omega'],
       },
     ]);
+  });
+
+  it('executes the grepSearch tool in default files mode with context-wrapped input', async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+    });
+    getDatabaseMock.mockResolvedValue({ query: queryMock });
+
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.grepSearch'].execute({
+      context: { pattern: 'needle' },
+    });
+
+    expect(result.outputMode).toBe('files');
+    expect(result.files).toEqual([{ path: 'src/x.ts', matchCount: 1, firstLine: 11 }]);
   });
 
   it('rethrows sanitized grepSearch errors from the execute wrapper', async () => {
@@ -382,8 +438,26 @@ describe('assistant-tools', () => {
       },
     } as RuntimeData);
 
-    const result = await tools['brainstrike.listWorkspaceContext'].execute({
+    const conciseResult = await tools['brainstrike.listWorkspaceContext'].execute({
       context: { includeTokenEstimates: true },
+    });
+
+    // Concise default: counts and token budgets only, no per-file range metadata.
+    expect(conciseResult.curatedContext).toBeUndefined();
+    expect(conciseResult.curatedContextSummary).toEqual({
+      fileCount: 2,
+      rangeCount: 1,
+      tokenBudget: 8192,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1800,
+      selectedSourceApproxTokens: 240,
+      selectedOutputApproxTokens: 140,
+    });
+    expect(conciseResult.truncated).toBe(false);
+
+    const result = await tools['brainstrike.listWorkspaceContext'].execute({
+      context: { includeTokenEstimates: true, detail: true },
     });
 
     expect(result.curatedContext).toEqual({
@@ -409,6 +483,34 @@ describe('assistant-tools', () => {
       { path: '/README.md', approxTokens: 40 },
     ]);
     expect(JSON.stringify(result)).not.toContain('line 1');
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('bounds huge selected-file listings with offset paging and a hint', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const selectionFilePaths = Array.from(
+      { length: 2000 },
+      (_, i) => `/packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`
+    );
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths,
+    } as RuntimeData);
+    const tool = tools['brainstrike.listWorkspaceContext'];
+
+    const firstPage = await tool.execute({ context: {} });
+    expect(firstPage.selectedFileCount).toBe(2000);
+    expect(firstPage.selectedFiles.length).toBeLessThan(2000);
+    expect(firstPage.truncated).toBe(true);
+    expect(firstPage.hint).toContain('offset:');
+    expect(JSON.stringify(firstPage).length).toBeLessThanOrEqual(11_000);
+
+    const secondPage = await tool.execute({
+      context: { offset: firstPage.selectedFiles.length },
+    });
+    expect(secondPage.offset).toBe(firstPage.selectedFiles.length);
+    expect(secondPage.selectedFiles[0]).not.toBe(firstPage.selectedFiles[0]);
+
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 

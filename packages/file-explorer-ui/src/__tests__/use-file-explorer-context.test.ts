@@ -207,6 +207,8 @@ describe('useFileExplorer (context)', () => {
       removeActiveRoot: vi.fn(),
       setActiveRoots: vi.fn(),
       setFolderSelection: vi.fn(),
+      isFilterChipsVisible: true,
+      setFilterChipsVisible: vi.fn(),
     };
     // Mock store function to handle individual selector calls (split selector pattern)
     const mockStore = vi.fn((selector?: (state: FileExplorerState) => unknown) => {

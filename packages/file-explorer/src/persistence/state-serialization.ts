@@ -291,6 +291,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     selectionModel: serializeSelectionModel(state.selectionModel),
     viewFilterPresetId: state.viewFilterPresetId,
     isFiltersExpanded: state.isFiltersExpanded,
+    isFilterChipsVisible: state.isFilterChipsVisible,
   };
 
   return serialized;
@@ -390,6 +391,10 @@ export function mergeState(
     isFiltersExpanded: coerceBoolean(
       persistedSerialized.isFiltersExpanded,
       current.isFiltersExpanded
+    ),
+    isFilterChipsVisible: coerceBoolean(
+      persistedSerialized.isFilterChipsVisible,
+      current.isFilterChipsVisible
     ),
     // Multi-root (Phase 4) fields — coerced safely from persisted data
     ...mergeActiveRoots(persistedSerialized, current),

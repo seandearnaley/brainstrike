@@ -230,6 +230,20 @@ defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
 - Invariant: tool timeout < stream inactivity.
 
+Stream part continuity: run-event data parts ('aui-data') CLOSE the active
+text/reasoning append in assistant-stream's accumulator, slicing visible text
+into fragments. `DataStreamMapper` therefore defers run events that arrive
+while a text/reasoning part is streaming and flushes them at the next boundary
+(tool start, approval, finish, error, stream end) — never drop them, never
+emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+
+Parallel tool calls: Mastra executes tool calls within a step concurrently
+(default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
+sequential execution when `requireToolApproval` is set or any active tool has
+`requireApproval`/a suspend schema — we only set `requireToolApproval` on the
+approval-resume path, so the normal path stays parallel. The data-stream
+mapper and UI key all per-call state by toolCallId and handle interleaving.
+
 When changing this flow, update this section and the related tests.
 
 ---
@@ -281,9 +295,11 @@ extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.tes
 ## ASSISTANT SEARCH TOOLS
 
 The assistant's search verbs, in the order the default instructions present them:
-1. `brainstrike.grepSearch` — FIRST for exact strings, identifiers, error messages. Two-phase: trigram-indexed ILIKE/regex-literal prefilter (`FileChunkRepository.findGrepCandidates`) + authoritative JS line matcher (`GrepSearchService` in packages/db/src/search/). Regex patterns with no extractable ≥3-char literal fall back to a bounded scan surfaced via `scanLimited` (never silent). Desktop-only wiring in apps/desktop/src/assistant-server/grep-search-tool.ts.
+1. `brainstrike.grepSearch` — FIRST for exact strings, identifiers, error messages. Two-phase: trigram-indexed ILIKE/regex-literal prefilter (`FileChunkRepository.findGrepCandidates`) + authoritative JS line matcher (`GrepSearchService` in packages/db/src/search/). Regex patterns with no extractable ≥3-char literal fall back to a bounded scan surfaced via `scanLimited` (never silent). Desktop-only wiring in apps/desktop/src/assistant-server/grep-search-tool.ts. Progressive disclosure: default `outputMode: 'files'` returns per-path match counts (cheap survey); `outputMode: 'content'` returns line matches with context; both support `offset` paging.
 2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
 3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths.
+
+Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
 
