@@ -13,7 +13,7 @@ import { createFileContentActions } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
-import { createNewFolderState } from '../utils/file-explorer-utils';
+import { createNewFolderState, getForeignSelectionCount } from '../utils/file-explorer-utils';
 
 // Combine all action interfaces
 type TestActions = ReturnType<typeof createFolderStateActions> &
@@ -434,6 +434,59 @@ describe('useFileExplorerStore Actions Integration', () => {
       );
     });
 
+    it('focus switch materializes RULES selections into the snapshot keys but KEEPS the rules model', () => {
+      // Rules carry the user's rule set inside the model — destroying it on
+      // focus switch would silently delete their rules. The snapshot keys are
+      // still materialized so foreign counts/budgets/root checkboxes see the
+      // selection (folderState.selectedFilePaths is the counts contract).
+      store.setState({
+        selectionModel: {
+          mode: 'rules',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: '{"include":["*.ts"]}',
+          materializedPaths: new Set(['src/a.ts', 'src/b.ts']),
+          materializedAt: '2026-06-12T00:00:00Z',
+          queryDescriptor: null,
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const snapshot = store.getState().folderStates[ROOT_A];
+      expect(snapshot?.selectionModel.mode).toBe('rules');
+      expect(snapshot?.selectionModel.ruleSetJson).toBe('{"include":["*.ts"]}');
+      expect(snapshot?.selectedFilePaths).toEqual(new Set([keyA('src/a.ts'), keyA('src/b.ts')]));
+      // The foreign budget now SEES the rules selection.
+      expect(
+        getForeignSelectionCount({
+          activeRootIds: [ROOT_A, ROOT_B],
+          currentFolderId: ROOT_B,
+          folderStates: store.getState().folderStates,
+        })
+      ).toBe(2);
+    });
+
+    it('refocusing a root with a rules snapshot restores the RULES model intact', () => {
+      store.setState({
+        selectionModel: {
+          mode: 'rules',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: '{"include":["*.ts"]}',
+          materializedPaths: new Set(['src/a.ts']),
+          materializedAt: '2026-06-12T00:00:00Z',
+          queryDescriptor: null,
+        },
+      });
+      store.setCurrentFolderId(ROOT_B);
+
+      store.setCurrentFolderId(ROOT_A);
+
+      const s = store.getState();
+      expect(s.selectionModel.mode).toBe('rules');
+      expect(s.selectionModel.ruleSetJson).toBe('{"include":["*.ts"]}');
+      expect(s.selectionModel.materializedPaths).toEqual(new Set(['src/a.ts']));
+    });
+
     it('hydrating a stale query-mode snapshot in forest mode degrades it to explicit', () => {
       // Pre-invariant profiles persisted query models into folderStates; the
       // manifest they reference is gone, so restoring them verbatim creates a
@@ -462,6 +515,65 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(s.selectionModel.mode).toBe('explicit');
       expect(s.selectionModel.explicitPaths).toEqual(new Set([keyB('x.ts')]));
       expect(s.selectedFilePaths).toEqual(new Set([keyB('x.ts')]));
+    });
+
+    // Hardening B: the LAST per-folder hydrated settings join the
+    // WORKSPACE-GLOBAL doctrine. Forest mode focus-switches on every section
+    // click — hydrating these from folder snapshots flips the user's token
+    // budget / project-tree toggle / summary threshold / ACTIVE TAB per
+    // clicked root.
+    it('focus switch does NOT hydrate tokenBudget/includeProjectTree/folderSummaryThreshold/lastActiveTab', () => {
+      store.setState({
+        tokenBudget: 150_000,
+        includeProjectTree: false,
+        folderSummaryThreshold: 42,
+        lastActiveTab: 'curated',
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            tokenBudget: 1000,
+            includeProjectTree: true,
+            folderSummaryThreshold: 7,
+            lastActiveTab: 'files',
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.tokenBudget).toBe(150_000);
+      expect(s.includeProjectTree).toBe(false);
+      expect(s.folderSummaryThreshold).toBe(42);
+      expect(s.lastActiveTab).toBe('curated');
+    });
+
+    it('hydrateFolderState does NOT hydrate the workspace-global report/tab settings', () => {
+      store.setState({
+        tokenBudget: 150_000,
+        includeProjectTree: false,
+        folderSummaryThreshold: 42,
+        lastActiveTab: 'curated',
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_A]: {
+            ...createNewFolderState(),
+            tokenBudget: 1000,
+            includeProjectTree: true,
+            folderSummaryThreshold: 7,
+            lastActiveTab: 'files',
+          },
+        },
+      });
+
+      store.hydrateFolderState(ROOT_A);
+
+      const s = store.getState();
+      expect(s.tokenBudget).toBe(150_000);
+      expect(s.includeProjectTree).toBe(false);
+      expect(s.folderSummaryThreshold).toBe(42);
+      expect(s.lastActiveTab).toBe('curated');
     });
 
     // View filters are WORKSPACE-GLOBAL (same contract as maxSelectionCount):

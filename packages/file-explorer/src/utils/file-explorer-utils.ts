@@ -47,6 +47,9 @@ export const getFocusedSelectionCount = (
       0
     );
   }
+  if (state.selectionModel.mode === 'rules' && state.selectionModel.materializedPaths) {
+    return state.selectionModel.materializedPaths.size;
+  }
   return state.selectedFilePaths.size;
 };
 
@@ -59,33 +62,48 @@ export const getUnionSelectionCount = (
 ): number => getFocusedSelectionCount(state) + getForeignSelectionCount(state);
 
 /**
- * FOREST INVARIANT: folderState selections are ALWAYS explicit. A query
- * selection lives in TOP-LEVEL state (manifest + descriptor) that belongs to
- * the focused root only — snapshotting the query model verbatim loses the
- * selection on focus switch (empty key set, dead manifest). Materialize it
- * into composite keys instead (mutates `ownKeys` in place). Single-root keeps
- * query snapshots: its resolver rebuilds the manifest from the persisted
- * snapshotId on restore.
+ * FOREST INVARIANT: folderState.selectedFilePaths ALWAYS carries the
+ * effective composite keys — counts, budgets, and root checkboxes read ONLY
+ * that set for non-focused roots (mutates `ownKeys` in place).
+ *
+ * Query mode: the manifest lives in TOP-LEVEL state owned by the focused
+ * root, so the snapshot would otherwise be an empty key set with a dead
+ * manifest reference — materialize AND degrade the model to explicit.
+ * Rules mode: the model itself carries the rule set + materializedPaths
+ * (relative), so KEEP the model (the user's rules must survive refocus) and
+ * only materialize the keys. Single-root keeps both models untouched: the
+ * query resolver rebuilds its manifest from the persisted snapshotId.
  */
-function materializeQuerySnapshotModel(
+function materializeSnapshotSelection(
   state: FileExplorerData,
   folderId: string,
   ownKeys: Set<string>,
   snapshotModel: FileExplorerData['selectionModel']
 ): FileExplorerData['selectionModel'] {
   const isForest = (state.activeRootIds?.length ?? 0) > 1;
-  if (!isForest || state.selectionModel?.mode !== 'query') {
+  if (!isForest) {
     return snapshotModel;
   }
-  const sourcePaths =
-    state.querySelectionManifest?.filePaths ??
-    (state.selectionModel.materializedPaths
-      ? Array.from(state.selectionModel.materializedPaths)
-      : []);
-  for (const path of sourcePaths) {
-    ownKeys.add(path.includes('|@|') ? path : `${folderId}|@|${path}`);
+  const mode = state.selectionModel?.mode;
+  if (mode === 'query') {
+    const sourcePaths =
+      state.querySelectionManifest?.filePaths ??
+      (state.selectionModel.materializedPaths
+        ? Array.from(state.selectionModel.materializedPaths)
+        : []);
+    for (const path of sourcePaths) {
+      ownKeys.add(path.includes('|@|') ? path : `${folderId}|@|${path}`);
+    }
+    return { ...createEmptySelectionModel(), explicitPaths: new Set(ownKeys) };
   }
-  return { ...createEmptySelectionModel(), explicitPaths: new Set(ownKeys) };
+  if (mode === 'rules' && state.selectionModel.materializedPaths) {
+    // materializedPaths are RELATIVE — encode them exactly like the selection
+    // manager does (encodeFileSelection shape) so keys are comparable.
+    for (const relativePath of state.selectionModel.materializedPaths) {
+      ownKeys.add(relativePath.includes('|@|') ? relativePath : `${folderId}|@|${relativePath}`);
+    }
+  }
+  return snapshotModel;
 }
 
 // Helper function to save current folder state.
@@ -121,7 +139,7 @@ export const saveFolderState = (
       ? { ...baseModel, explicitPaths: new Set(ownKeys) }
       : baseModel;
 
-  snapshotModel = materializeQuerySnapshotModel(state, folderId, ownKeys, snapshotModel);
+  snapshotModel = materializeSnapshotSelection(state, folderId, ownKeys, snapshotModel);
 
   const folderState: FolderState = {
     selectedFilePaths: ownKeys,

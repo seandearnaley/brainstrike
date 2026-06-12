@@ -65,16 +65,13 @@ function buildRestoreState(
     querySelectionManifest: null,
     // WORKSPACE-GLOBAL state is never hydrated from folder snapshots:
     // maxSelectionCount, includeFilters, excludeFilters, useRegex,
-    // viewFilterPresetId, and expandedDirectoryPaths. Forest mode switches
-    // focus on every section click; stale per-folder copies would silently
-    // revert the user's setting per clicked root (caps flipping, "all files"
-    // reverting, every other section's expansions collapsing). Expansion
-    // paths are globally unique absolute paths, so the one top-level set
-    // serves every section.
-    includeProjectTree: folderState.includeProjectTree,
-    tokenBudget: folderState.tokenBudget,
-    folderSummaryThreshold: folderState.folderSummaryThreshold,
-    lastActiveTab: folderState.lastActiveTab ?? 'files',
+    // viewFilterPresetId, expandedDirectoryPaths, tokenBudget,
+    // includeProjectTree, folderSummaryThreshold, and lastActiveTab. Forest
+    // mode switches focus on every section click; stale per-folder copies
+    // would silently revert the user's setting per clicked root (caps
+    // flipping, "all files" reverting, expansions collapsing, the token
+    // budget / ACTIVE TAB flipping mid-click). Only the SELECTION
+    // (selectedFilePaths + selectionModel) is genuinely per-root.
   };
 }
 
@@ -218,13 +215,8 @@ export const createFolderStateActions = (
         selectedFilePaths: new Set(folderState.selectedFilePaths),
         selectionModel: normalizeHydratedSelectionModel(state, folderState),
         querySelectionManifest: null,
-        // WORKSPACE-GLOBAL state (filters, useRegex, viewFilterPresetId,
-        // maxSelectionCount, expandedDirectoryPaths) is never hydrated — see
-        // buildRestoreState.
-        includeProjectTree: folderState.includeProjectTree,
-        tokenBudget: folderState.tokenBudget,
-        folderSummaryThreshold: folderState.folderSummaryThreshold,
-        lastActiveTab: folderState.lastActiveTab ?? 'files',
+        // WORKSPACE-GLOBAL state is never hydrated — see buildRestoreState.
+        // Only the selection is per-root.
       };
     });
   },

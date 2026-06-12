@@ -86,9 +86,12 @@ describe('folder-state-actions hydrateFolderState', () => {
     expect(updated.useRegex).toBeUndefined();
     expect(updated.viewFilterPresetId).toBeUndefined();
     expect(updated.maxSelectionCount).toBeUndefined();
-    expect(updated.includeProjectTree).toBe(false);
-    expect(updated.folderSummaryThreshold).toBe(5);
-    expect(updated.lastActiveTab).toBe('settings');
+    // Hardening B: the report/tab settings joined the doctrine too — only
+    // the SELECTION is per-root.
+    expect(updated.includeProjectTree).toBeUndefined();
+    expect(updated.tokenBudget).toBeUndefined();
+    expect(updated.folderSummaryThreshold).toBeUndefined();
+    expect(updated.lastActiveTab).toBeUndefined();
   });
 
   it('should do nothing when folder id does not exist', () => {

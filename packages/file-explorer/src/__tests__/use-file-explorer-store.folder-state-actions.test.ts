@@ -161,9 +161,11 @@ describe('Folder State Actions', () => {
     expect(state.excludeFilters).toEqual(DEFAULT_STATE.excludeFilters);
     expect(state.useRegex).toBe(DEFAULT_STATE.useRegex);
     expect(state.maxSelectionCount).toBe(DEFAULT_STATE.maxSelectionCount);
-    expect(state.includeProjectTree).toBe(false);
-    expect(state.folderSummaryThreshold).toBe(10);
-    expect(state.lastActiveTab).toBe('settings');
+    // Hardening B: tokenBudget/includeProjectTree/folderSummaryThreshold/
+    // lastActiveTab joined the WORKSPACE-GLOBAL doctrine — never hydrated.
+    expect(state.includeProjectTree).toBe(DEFAULT_STATE.includeProjectTree);
+    expect(state.folderSummaryThreshold).toBe(DEFAULT_STATE.folderSummaryThreshold);
+    expect(state.lastActiveTab).toBe(DEFAULT_STATE.lastActiveTab);
   });
 
   it('should not change state if hydrating with a non-existent folder id', () => {
