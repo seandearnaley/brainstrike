@@ -142,6 +142,36 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
+function FilterChipsToggleButton({
+  isFilterChipsVisible,
+  setFilterChipsVisible,
+}: {
+  isFilterChipsVisible: boolean;
+  setFilterChipsVisible: (visible: boolean) => void;
+}) {
+  const label = isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label={label}
+          aria-pressed={isFilterChipsVisible}
+          className="@[300px]:h-9 h-8 @[300px]:w-9 w-8 shrink-0"
+          data-testid="toggle-filter-chips-button"
+          onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
+          size="icon"
+          variant="ghost"
+        >
+          {isFilterChipsVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
@@ -803,30 +833,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                         className="@[300px]:h-9 h-8 min-w-0 flex-1"
                         onFilterChange={handleFilterChange}
                       />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            aria-label={
-                              isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips'
-                            }
-                            aria-pressed={isFilterChipsVisible}
-                            className="@[300px]:h-9 h-8 @[300px]:w-9 w-8 shrink-0"
-                            data-testid="toggle-filter-chips-button"
-                            onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
-                            size="icon"
-                            variant="ghost"
-                          >
-                            {isFilterChipsVisible ? (
-                              <Eye className="h-4 w-4" />
-                            ) : (
-                              <EyeOff className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips'}</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <FilterChipsToggleButton
+                        isFilterChipsVisible={isFilterChipsVisible}
+                        setFilterChipsVisible={setFilterChipsVisible}
+                      />
                     </div>
                     {/* Filter chips - independently collapsible to reclaim vertical
                         space. Same grid-rows technique as the section collapse so
