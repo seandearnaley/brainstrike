@@ -57,19 +57,46 @@ export function useRootsReconciliation({
 
   // The settling promise resolves with the path→dbRootId map on success, or an
   // empty map on the already-logged error path — it NEVER rejects or hangs.
-  // Initialized once; the `resolve` function is called exactly once to settle it.
-  const settlingRef = useRef<SettlingMapPromise>(createSettlingMapPromise());
+  // Lazily initialized so renders after the first don't allocate a throwaway
+  // promise; the `resolve` function is called exactly once to settle it.
+  const settlingRef = useRef<SettlingMapPromise | null>(null);
+  if (settlingRef.current === null) {
+    settlingRef.current = createSettlingMapPromise();
+  }
+
+  // True when the boot promise was settled empty because the adapter had no
+  // restoreRoots. If a later adapter identity DOES have it, the effect re-runs
+  // and must re-key the settling promise — promises settle once, so reusing the
+  // already-empty one would silently drop the real mapping.
+  const settledWithoutRestoreRef = useRef(false);
 
   useEffect(() => {
     if (hasRunRef.current) {
       return;
     }
+    let settling = settlingRef.current;
+    if (settling === null) {
+      // Unreachable (the render phase always initializes the ref); recreate
+      // rather than return so the "always settles" contract can't be broken.
+      settling = createSettlingMapPromise();
+      settlingRef.current = settling;
+    }
     if (!adapter.restoreRoots) {
       // Reconciliation can never run on this adapter — settle with an empty
       // map so resolveDbRootId waiters don't hang (adapters without
       // restoreRoots also have no sync consumers needing real ids).
-      settlingRef.current.resolve(new Map());
+      settledWithoutRestoreRef.current = true;
+      settling.resolve(new Map());
       return;
+    }
+    if (settledWithoutRestoreRef.current) {
+      // A previous restoreRoots-less adapter settled the boot promise empty.
+      // Start a fresh settling promise for this capable adapter so its real
+      // mapping is not discarded; resolveDbRootId reads the ref at call time,
+      // so new waiters pick up the fresh promise.
+      settling = createSettlingMapPromise();
+      settlingRef.current = settling;
+      settledWithoutRestoreRef.current = false;
     }
     if (!db) {
       // Deliberately NOT settled: db is not ready YET and the effect re-runs
@@ -82,7 +109,7 @@ export function useRootsReconciliation({
     hasRunRef.current = true;
 
     const platformKind = adapter.platform === 'electron' ? 'path' : 'fsa';
-    const { resolve } = settlingRef.current;
+    const { resolve } = settling;
 
     void adapter
       .restoreRoots()
@@ -112,7 +139,16 @@ export function useRootsReconciliation({
 
   const resolveDbRootId = useCallback(
     async (rootPath: string): Promise<string | null> => {
-      const map = await settlingRef.current.promise;
+      // Read the ref at call time: the effect may have re-keyed the settling
+      // promise when a restoreRoots-capable adapter replaced an incapable one.
+      const settling = settlingRef.current;
+      if (settling === null) {
+        // Unreachable: the render phase initializes the ref before any
+        // consumer can obtain this callback. Throwing keeps the "always
+        // settles" contract honest instead of hanging on a fresh promise.
+        throw new Error('resolveDbRootId called before settling promise initialization');
+      }
+      const map = await settling.promise;
       const dbRootId = map.get(rootPath) ?? null;
       if (dbRootId === null && !warnedUnmappedPaths.has(rootPath)) {
         warnedUnmappedPaths.add(rootPath);

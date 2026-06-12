@@ -38,14 +38,6 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   });
 }
 
-async function expandReasoning(window: Page): Promise<void> {
-  const showReasoningButton = window.getByRole('button', { name: /show reasoning/i }).first();
-  await expect(showReasoningButton).toBeVisible({
-    timeout: E2E_TIMEOUTS.toolVisibility,
-  });
-  await showReasoningButton.click();
-}
-
 test.describe('Assistant retrieval (desktop)', () => {
   test.beforeEach(async ({ window }) => {
     const { mockFileSystemOperations } = await loadElectronHelpers();
@@ -61,7 +53,7 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expandReasoning(window);
+    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
@@ -79,7 +71,7 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByText(errorMessage).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expandReasoning(window);
+    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });

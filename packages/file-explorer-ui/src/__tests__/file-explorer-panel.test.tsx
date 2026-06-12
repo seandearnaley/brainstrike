@@ -1462,5 +1462,117 @@ describe('FileExplorerPanel', () => {
       const toggleButton = screen.getByRole('button', { name: /view filters/i });
       expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
     });
+
+    it('toggles filter chips visibility via the chips toggle button', async () => {
+      const setFilterChipsVisibleMock = vi.fn();
+      const storeState = {
+        includeFilters: ['*.ts'],
+        excludeFilters: ['node_modules'],
+        useRegex: false,
+        viewFilterPresetId: null,
+        setFilters: vi.fn(),
+        setUseRegex: vi.fn(),
+        setViewFilterPresetId: vi.fn(),
+        currentFolderId: 'root',
+        setCurrentFolderId: vi.fn(),
+        maxSelectionCount: 5,
+        includeProjectTree: true,
+        setIncludeProjectTree: vi.fn(),
+        folderSummaryThreshold: 5,
+        expandAllDirectories: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        selectionModel: {
+          mode: 'explicit' as const,
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+        },
+        setMaterializedPaths: vi.fn(),
+        quickFilter: '',
+        setQuickFilter: vi.fn(),
+        clearQuickFilter: vi.fn(),
+        isFiltersExpanded: true,
+        setFiltersExpanded: vi.fn(),
+        isFilterChipsVisible: true,
+        setFilterChipsVisible: setFilterChipsVisibleMock,
+        disabledIncludeFilters: new Set<string>(),
+        disabledExcludeFilters: new Set<string>(),
+        toggleFilterEnabled: vi.fn(),
+      };
+
+      const mockStore = Object.assign(
+        (selector?: (s: typeof storeState) => unknown) =>
+          typeof selector === 'function' ? selector(storeState) : storeState,
+        { getState: () => storeState }
+      );
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+        mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<FileExplorerPanel />);
+
+      const chipsToggle = screen.getByTestId('toggle-filter-chips-button');
+      expect(chipsToggle).toHaveAttribute('aria-pressed', 'true');
+      expect(chipsToggle).toHaveAccessibleName('Hide filter chips');
+
+      await user.click(chipsToggle);
+
+      expect(setFilterChipsVisibleMock).toHaveBeenCalledWith(false);
+    });
+
+    it('marks the chips region inert when isFilterChipsVisible is false', async () => {
+      const storeState = {
+        includeFilters: ['*.ts'],
+        excludeFilters: [],
+        useRegex: false,
+        viewFilterPresetId: null,
+        setFilters: vi.fn(),
+        setUseRegex: vi.fn(),
+        setViewFilterPresetId: vi.fn(),
+        currentFolderId: 'root',
+        setCurrentFolderId: vi.fn(),
+        maxSelectionCount: 5,
+        includeProjectTree: true,
+        setIncludeProjectTree: vi.fn(),
+        folderSummaryThreshold: 5,
+        expandAllDirectories: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        selectionModel: {
+          mode: 'explicit' as const,
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+        },
+        setMaterializedPaths: vi.fn(),
+        quickFilter: '',
+        setQuickFilter: vi.fn(),
+        clearQuickFilter: vi.fn(),
+        isFiltersExpanded: true,
+        setFiltersExpanded: vi.fn(),
+        isFilterChipsVisible: false,
+        setFilterChipsVisible: vi.fn(),
+        disabledIncludeFilters: new Set<string>(),
+        disabledExcludeFilters: new Set<string>(),
+        toggleFilterEnabled: vi.fn(),
+      };
+
+      const mockStore = Object.assign(
+        (selector?: (s: typeof storeState) => unknown) =>
+          typeof selector === 'function' ? selector(storeState) : storeState,
+        { getState: () => storeState }
+      );
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+        mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+      );
+
+      renderWithProviders(<FileExplorerPanel />);
+
+      const chipsToggle = screen.getByTestId('toggle-filter-chips-button');
+      expect(chipsToggle).toHaveAttribute('aria-pressed', 'false');
+      expect(chipsToggle).toHaveAccessibleName('Show filter chips');
+    });
   });
 });

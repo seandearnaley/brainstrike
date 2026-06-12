@@ -1,8 +1,14 @@
 /**
- * RestorationStatus - Inline progress indicator for restoring expanded directories
+ * RestorationStatus - Floating progress indicator for restoring expanded directories
  *
  * Shows progress when the app is restoring previously expanded directories
  * from persisted state on startup.
+ *
+ * Rendered as an absolutely-positioned overlay card above the file tree (see
+ * FileExplorerPanel) rather than an in-flow banner: mounting/unmounting must
+ * never shift the tree. The card's internal structure is fixed-height for the
+ * same reason — the path line is always reserved and counts use tabular-nums,
+ * so per-tick progress updates cannot change the card's size.
  */
 
 import { cn, Progress } from '@brainstrike/ui';
@@ -52,41 +58,42 @@ export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
 
     return (
       <div
+        aria-live="polite"
         className={cn(
-          'flex items-center gap-3 border-b bg-amber-50/50 px-4 py-2 dark:bg-amber-950/20',
+          'flex items-center gap-3 rounded-lg border bg-background/90 px-3 py-2 shadow-md backdrop-blur-sm',
+          // Enter animation via @starting-style: fades/slides in on mount
+          // without affecting layout (the card is an overlay).
+          'starting:-translate-y-2 starting:opacity-0 transition-all duration-300 ease-out',
+          'motion-reduce:transition-none',
           className
         )}
         data-testid="restoration-status"
+        role="status"
       >
         {/* Icon with animation */}
         <div className="relative shrink-0">
-          <FolderOpen className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <Loader2 className="absolute -right-1 -bottom-1 h-3 w-3 animate-spin text-amber-600 dark:text-amber-400" />
+          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+          <Loader2 className="absolute -right-1 -bottom-1 h-3 w-3 animate-spin text-primary" />
         </div>
 
-        {/* Progress bar and text */}
+        {/* Progress bar and text. Every line is always rendered (the path line
+            reserves its height when empty) so progress ticks never resize the card. */}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-amber-800 text-sm dark:text-amber-200">
+            <span className="truncate font-medium text-foreground text-sm tabular-nums">
               {statusText}
             </span>
-            <span className="shrink-0 text-amber-600 text-xs dark:text-amber-400">
+            <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
               {percentage}%
             </span>
           </div>
-          <Progress
-            aria-label="Folder restoration progress"
-            className="h-1 bg-amber-200 dark:bg-amber-800 [&>div]:bg-amber-500"
-            value={percentage}
-          />
-          {displayPath && (
-            <span
-              className="truncate text-amber-600 text-xs dark:text-amber-400"
-              title={progress?.currentPath ?? undefined}
-            >
-              {displayPath}
-            </span>
-          )}
+          <Progress aria-label="Folder restoration progress" className="h-1" value={percentage} />
+          <span
+            className="min-h-4 truncate text-muted-foreground text-xs"
+            {...(progress?.currentPath ? { title: progress.currentPath } : {})}
+          >
+            {displayPath}
+          </span>
         </div>
       </div>
     );
