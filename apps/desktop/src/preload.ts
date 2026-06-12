@@ -24,12 +24,14 @@ const DB_QUERY_CHANNEL = 'db:query' as const;
 const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
 const DB_TEST_CHANNEL = 'db:test' as const;
 const DB_TRANSACTION_CHANNEL = 'db:transaction' as const;
+const FILE_SYSTEM_ADD_ROOT_CHANNEL = 'fs:addRoot' as const;
 const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
 const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
 const FILE_SYSTEM_READ_FILE_CHANNEL = 'fs:readFile' as const;
 const FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL = 'fs:requestDirectoryAccess' as const;
 const FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL = 'fs:restoreLastFolder' as const;
+const FILE_SYSTEM_RESTORE_ROOTS_CHANNEL = 'fs:restoreRoots' as const;
 const FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL = 'fs:saveLastFolder' as const;
 const LAYOUT_LOAD_CHANNEL = 'layout:load' as const;
 const LAYOUT_SAVE_CHANNEL = 'layout:save' as const;
@@ -431,6 +433,7 @@ if (shouldExposeBridge('electronAPI')) {
       getAllKeys: () => ipcRenderer.invoke(STORAGE_GET_ALL_KEYS_CHANNEL),
     },
     fileSystem: {
+      addRoot: () => ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_CHANNEL),
       requestDirectoryAccess: () =>
         ipcRenderer.invoke(FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL),
       readDirectory: (handle: DirectoryHandle) =>
@@ -448,6 +451,7 @@ if (shouldExposeBridge('electronAPI')) {
       },
       exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
       restoreLastFolder: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL),
+      restoreRoots: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_ROOTS_CHANNEL),
       saveLastFolder: (folderPath: string) =>
         ipcRenderer.invoke(FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL, folderPath),
     },

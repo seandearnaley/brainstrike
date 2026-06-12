@@ -31,6 +31,7 @@ export const DESKTOP_IPC_CHANNELS = {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
   },
   files: {
+    addRoot: 'fs:addRoot',
     exists: 'fs:exists',
     parserHostParse: 'parser-host:parse',
     readDirectory: 'fs:readDirectory',
@@ -38,6 +39,7 @@ export const DESKTOP_IPC_CHANNELS = {
     readFileByPath: 'fs:readFileByPath',
     requestDirectoryAccess: 'fs:requestDirectoryAccess',
     restoreLastFolder: 'fs:restoreLastFolder',
+    restoreRoots: 'fs:restoreRoots',
     saveLastFolder: 'fs:saveLastFolder',
   },
   mcp: {

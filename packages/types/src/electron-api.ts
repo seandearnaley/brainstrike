@@ -1,4 +1,4 @@
-import type { DirectoryHandle, FileHandle, IFileNode } from './file-system';
+import type { DirectoryHandle, FileHandle, IFileNode, RootDescriptor } from './file-system';
 import type { TapestryColorName } from './tapestry-colors';
 
 /**
@@ -114,6 +114,11 @@ export interface ElectronStorageAPI {
  * File system API exposed via Electron IPC
  */
 export interface ElectronFileSystemAPI {
+  /**
+   * Multi-root: pick a directory and persist it as a new root with a generated
+   * RootId. requestDirectoryAccess() is the legacy single-root shim over this.
+   */
+  addRoot: () => Promise<RootDescriptor>;
   exists: (path: string) => Promise<boolean>;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
@@ -124,6 +129,12 @@ export interface ElectronFileSystemAPI {
   readFileByPath: (absolutePath: string) => Promise<string>;
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
+  /**
+   * Multi-root: return every persisted root with its current permission state.
+   * Never prompts; never throws on individual stale roots — stale entries are
+   * pruned and omitted from the result.
+   */
+  restoreRoots: () => Promise<RootDescriptor[]>;
   saveLastFolder: (folderPath: string) => Promise<void>;
 }
 

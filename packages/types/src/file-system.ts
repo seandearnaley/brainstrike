@@ -123,6 +123,37 @@ export interface DirectoryHandle {
   platform: 'web' | 'electron';
 }
 
+/**
+ * Durable identity for a user-selected root directory. Generated once when a
+ * root is added (crypto.randomUUID) and stable across sessions. Never derived
+ * from the directory name or path — names collide and web handles expose no
+ * absolute path.
+ */
+export type RootId = string;
+
+export type RootPermissionState = 'granted' | 'prompt' | 'denied' | 'unknown';
+
+/**
+ * A root directory known to the adapter's persistence layer.
+ * - kind 'fsa': web — handle persisted in IndexedDB; permissionState reflects
+ *   queryPermission at restore time (never prompts).
+ * - kind 'path': desktop — absolute path persisted in main-process storage;
+ *   permissionState is always 'granted' (OS-level access).
+ */
+export interface RootDescriptor {
+  readonly displayName: string;
+  readonly handle: DirectoryHandle;
+  readonly kind: 'fsa' | 'path';
+  readonly permissionState: RootPermissionState;
+  /**
+   * False when the backing store write failed (quota, privacy mode): the root
+   * works for this session but won't survive reload and its rootId must NOT
+   * be registered in the DB (a re-pick generates a new id, orphaning rows).
+   */
+  readonly persisted: boolean;
+  readonly rootId: RootId;
+}
+
 export interface FileHandle {
   _internal?: unknown;
   kind: 'file';
@@ -207,6 +238,11 @@ export type FileForIndexingResolution =
  * Platform-agnostic adapter contract implemented by web/electron shims.
  */
 export interface FileSystemAdapter {
+  /**
+   * Multi-root: pick a directory and persist it as a new root with a generated
+   * RootId. requestDirectoryAccess() is the legacy single-root shim over this.
+   */
+  addRoot?(): Promise<RootDescriptor>;
   exists(path: string): Promise<boolean>;
   /** Platform identifier for this adapter */
   readonly platform?: 'web' | 'electron';
@@ -292,6 +328,13 @@ export interface FileSystemAdapter {
    */
   resolveFileHandleByPath?(absolutePath: string): Promise<FileSystemFileHandle>;
   restoreLastFolder?(): Promise<DirectoryHandle | null>;
+  /**
+   * Multi-root: return every persisted root with its current permission state.
+   * Never prompts (web queryPermission only). Dead handles are returned with
+   * permissionState 'unknown' — callers decide whether to surface or ignore
+   * them; nothing is pruned.
+   */
+  restoreRoots?(): Promise<RootDescriptor[]>;
   watchDirectory?(
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void

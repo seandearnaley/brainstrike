@@ -13,6 +13,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
     vi.clearAllMocks();
   });
 
+  it('declares platform "electron" (roots registry derives kind "path" from this)', () => {
+    expect(adapter.platform).toBe('electron');
+  });
+
   describe('requestDirectoryAccess', () => {
     it('should call electronAPI.fileSystem.requestDirectoryAccess', async () => {
       const result = await adapter.requestDirectoryAccess();
@@ -166,6 +170,64 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
       await expect(adapter.readFileByPath(invalidPath)).rejects.toThrow('Invalid path');
       expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledWith(invalidPath);
+    });
+  });
+
+  describe('addRoot', () => {
+    it('should call electronAPI.fileSystem.addRoot and return the descriptor', async () => {
+      const mockDescriptor = {
+        displayName: 'my-project',
+        handle: {
+          kind: 'directory' as const,
+          name: 'my-project',
+          path: '/test/my-project',
+          platform: 'electron' as const,
+        },
+        kind: 'path' as const,
+        permissionState: 'granted' as const,
+        persisted: true,
+        rootId: 'abc-123',
+      };
+      mockElectronAPI.fileSystem.addRoot.mockResolvedValueOnce(mockDescriptor);
+
+      const result = await adapter.addRoot();
+
+      expect(mockElectronAPI.fileSystem.addRoot).toHaveBeenCalledOnce();
+      expect(result).toEqual(mockDescriptor);
+    });
+  });
+
+  describe('restoreRoots', () => {
+    it('should call electronAPI.fileSystem.restoreRoots and return descriptors', async () => {
+      const mockDescriptors = [
+        {
+          displayName: 'project-a',
+          handle: {
+            kind: 'directory' as const,
+            name: 'project-a',
+            path: '/test/project-a',
+            platform: 'electron' as const,
+          },
+          kind: 'path' as const,
+          permissionState: 'granted' as const,
+          persisted: true,
+          rootId: 'root-a',
+        },
+      ];
+      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce(mockDescriptors);
+
+      const result = await adapter.restoreRoots();
+
+      expect(mockElectronAPI.fileSystem.restoreRoots).toHaveBeenCalledOnce();
+      expect(result).toEqual(mockDescriptors);
+    });
+
+    it('should return empty array when no roots are stored', async () => {
+      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce([]);
+
+      const result = await adapter.restoreRoots();
+
+      expect(result).toEqual([]);
     });
   });
 

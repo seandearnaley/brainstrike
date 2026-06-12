@@ -1,6 +1,6 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { ElectronAPI, IFileNode } from '@brainstrike/types';
+import type { ElectronAPI, IFileNode, RootDescriptor } from '@brainstrike/types';
 
 function requireElectronAPI(): ElectronAPI {
   const api = window.electronAPI;
@@ -11,6 +11,8 @@ function requireElectronAPI(): ElectronAPI {
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
+  public readonly platform = 'electron' as const;
+
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     const api = requireElectronAPI().fileSystem;
     const handle = await api.requestDirectoryAccess();
@@ -20,6 +22,14 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
       await api.saveLastFolder(handle.path);
     }
     return handle;
+  }
+
+  async addRoot(): Promise<RootDescriptor> {
+    return requireElectronAPI().fileSystem.addRoot();
+  }
+
+  async restoreRoots(): Promise<RootDescriptor[]> {
+    return requireElectronAPI().fileSystem.restoreRoots();
   }
 
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {

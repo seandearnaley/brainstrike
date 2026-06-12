@@ -9,11 +9,13 @@ interface DesktopBridgeLike {
       test?: unknown;
     };
     fileSystem?: {
+      addRoot?: unknown;
       exists?: unknown;
       readDirectory?: unknown;
       readFile?: unknown;
       requestDirectoryAccess?: unknown;
       restoreLastFolder?: unknown;
+      restoreRoots?: unknown;
       saveLastFolder?: unknown;
     };
     storage?: {

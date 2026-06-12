@@ -4,6 +4,7 @@ import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import {
@@ -34,9 +35,62 @@ interface ElectronE2eFileSystemFixture {
 }
 
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
+const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const MOCK_PATH_PREFIX = '/mock/' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
+
+interface StoredRootEntry {
+  addedAt: number;
+  path: string;
+  rootId: string;
+}
+
+function isStoredRootEntry(value: unknown): value is StoredRootEntry {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['addedAt'] === 'number' &&
+    typeof candidate['path'] === 'string' &&
+    typeof candidate['rootId'] === 'string'
+  );
+}
+
+async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+  try {
+    const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      logger.warn('rootsList storage value is not an array — treating as empty', {
+        key: ROOTS_LIST_STORAGE_KEY,
+      });
+      return [];
+    }
+    const valid = parsed.filter(isStoredRootEntry);
+    if (valid.length !== parsed.length) {
+      logger.warn('rootsList contained malformed entries — discarding invalid items', {
+        total: parsed.length,
+        valid: valid.length,
+      });
+    }
+    return valid;
+  } catch (error) {
+    logger.warn('Failed to parse rootsList — treating as empty', { error });
+    return [];
+  }
+}
+
+async function writeRootsList(
+  storage: ElectronStorageAdapter,
+  entries: StoredRootEntry[]
+): Promise<void> {
+  await storage.setItem(ROOTS_LIST_STORAGE_KEY, JSON.stringify(entries));
+}
 
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
@@ -77,6 +131,80 @@ function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null 
     }
   )[E2E_FILE_SYSTEM_FIXTURE_KEY];
   return fixture ?? null;
+}
+
+function isE2eTestMode(): boolean {
+  return (
+    process.argv.includes('--test-mode') ||
+    process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+    process.env['NODE_ENV'] === 'test'
+  );
+}
+
+/**
+ * Resolve the picked directory handle for access-request flows. In test mode
+ * the OS dialog cannot open, so the registered E2E fixture's root handle (or
+ * the default mock handle) is returned WITHOUT touching the real adapter —
+ * the real `requestDirectoryAccess` stats the picked path, which fails with
+ * ENOENT for mock paths. Shared by fs:requestDirectoryAccess and fs:addRoot
+ * so both pick flows follow the exact same test-mode contract.
+ */
+async function resolveRequestedDirectoryHandle(
+  fileSystem: ElectronFileSystemAdapter
+): Promise<DirectoryHandle> {
+  if (isE2eTestMode()) {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.requestDirectoryAccessCount += 1;
+      return fixture.rootHandle;
+    }
+    return {
+      id: 'mock-directory-handle',
+      kind: 'directory',
+      name: 'mock-test-directory',
+      path: '/mock/test/directory',
+      platform: 'electron',
+      type: 'directory',
+    } as DirectoryHandle;
+  }
+
+  return fileSystem.requestDirectoryAccess();
+}
+
+/**
+ * Existence check shared by the fs:exists channel and stored-root pruning
+ * (fs:restoreRoots). Consults the registered E2E fixture first, then treats
+ * mock-prefixed paths as existing (mirrors every other mock-aware handler in
+ * this file) — a raw `fileSystem.exists` here would stat the real disk and
+ * silently prune e2e-seeded roots from rootsList.
+ */
+async function ipcPathExists(
+  fileSystem: ElectronFileSystemAdapter,
+  requestedPath: string
+): Promise<boolean> {
+  const fixture = getElectronE2eFileSystemFixture();
+  if (fixture) {
+    return (
+      requestedPath === fixture.rootHandle.path ||
+      requestedPath in fixture.directoriesByPath ||
+      requestedPath in fixture.fileContentsByPath
+    );
+  }
+
+  if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
+    return true;
+  }
+
+  const resolved = await resolveValidatedPath({ requestedPath });
+  if (!resolved.ok) {
+    logger.debug('Invalid path provided during exists check', {
+      error: resolved.error,
+      path: requestedPath,
+    });
+    return false;
+  }
+
+  return fileSystem.exists(resolved.path);
 }
 
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
@@ -127,30 +255,9 @@ export function registerFileSystemIpcHandlers({
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () => {
-    const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-    const nodeEnv = process.env['NODE_ENV'];
-    const isTestMode =
-      process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
-
-    if (isTestMode) {
-      const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
-        fixture.requestDirectoryAccessCount += 1;
-        return fixture.rootHandle;
-      }
-      return {
-        id: 'mock-directory-handle',
-        kind: 'directory',
-        name: 'mock-test-directory',
-        path: '/mock/test/directory',
-        platform: 'electron',
-        type: 'directory',
-      };
-    }
-
-    return fileSystem.requestDirectoryAccess();
-  });
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () =>
+    resolveRequestedDirectoryHandle(fileSystem)
+  );
 
   registry.registerInvoke(
     'files',
@@ -264,31 +371,7 @@ export function registerFileSystemIpcHandlers({
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.exists,
-    async (_event, requestedPath: string) => {
-      const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
-        return (
-          requestedPath === fixture.rootHandle.path ||
-          requestedPath in fixture.directoriesByPath ||
-          requestedPath in fixture.fileContentsByPath
-        );
-      }
-
-      if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
-        return true;
-      }
-
-      const resolved = await resolveValidatedPath({ requestedPath });
-      if (!resolved.ok) {
-        logger.debug('Invalid path provided during exists check', {
-          error: resolved.error,
-          path: requestedPath,
-        });
-        return false;
-      }
-
-      return fileSystem.exists(resolved.path);
-    }
+    async (_event, requestedPath: string) => ipcPathExists(fileSystem, requestedPath)
   );
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () => {
@@ -299,7 +382,8 @@ export function registerFileSystemIpcHandlers({
       }
 
       const resolvedPath = await resolveFileSystemIpcPath(lastFolderPath, 'stored folder');
-      const exists = await fileSystem.exists(resolvedPath);
+      // Mock-aware existence (same class as restoreRoots — see ipcPathExists).
+      const exists = await ipcPathExists(fileSystem, resolvedPath);
       if (!exists) {
         await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
         return null;
@@ -327,6 +411,24 @@ export function registerFileSystemIpcHandlers({
       try {
         const resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
         await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
+        // Upsert into rootsList so the two stores stay in sync. Logged
+        // unconditionally at warn (unlike the legacy outer catch): a silent
+        // failure here leaves the two stores divergent (lastFolderPath set,
+        // rootsList missing the entry).
+        try {
+          const entries = await readRootsList(storage);
+          const existing = entries.find((e) => e.path === resolvedPath);
+          if (!existing) {
+            const newEntry: StoredRootEntry = {
+              addedAt: Date.now(),
+              path: resolvedPath,
+              rootId: crypto.randomUUID(),
+            };
+            await writeRootsList(storage, [...entries, newEntry]);
+          }
+        } catch (upsertError) {
+          logger.warn('saveLastFolder: failed to upsert rootsList', { error: upsertError });
+        }
       } catch (error) {
         if (process.env['NODE_ENV'] === 'development') {
           logger.debug('Failed to save last folder', { error });
@@ -334,6 +436,117 @@ export function registerFileSystemIpcHandlers({
       }
     }
   );
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
+    const entries = await readRootsList(storage);
+    if (entries.length === 0) {
+      return [];
+    }
+
+    const survivors: StoredRootEntry[] = [];
+    const descriptors: RootDescriptor[] = [];
+
+    for (const entry of entries) {
+      try {
+        const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
+        // Mock-aware existence: a raw fileSystem.exists would stat the real
+        // disk and prune e2e-seeded mock roots (see ipcPathExists).
+        const exists = await ipcPathExists(fileSystem, resolvedPath);
+        if (!exists) {
+          logger.debug('Pruning stale root from rootsList', { path: entry.path });
+          continue;
+        }
+        const basename = path.basename(resolvedPath);
+        survivors.push(entry);
+        descriptors.push({
+          displayName: basename,
+          handle: {
+            kind: 'directory',
+            name: basename,
+            path: resolvedPath,
+            platform: 'electron',
+          },
+          kind: 'path',
+          permissionState: 'granted',
+          persisted: true,
+          rootId: entry.rootId,
+        });
+      } catch (error) {
+        logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
+      }
+    }
+
+    if (survivors.length !== entries.length) {
+      await writeRootsList(storage, survivors);
+    }
+
+    return descriptors;
+  });
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
+    // Test-mode aware (same contract as fs:requestDirectoryAccess): the real
+    // adapter stats the picked path, which ENOENTs on e2e mock paths.
+    const handle = await resolveRequestedDirectoryHandle(fileSystem);
+    const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
+    const basename = path.basename(resolvedPath);
+
+    // Upsert into rootsList keyed by resolved path.
+    // No mutex: these handlers are user-gesture-driven (single dialog at a time).
+    // Concurrent RMW is only possible across multiple renderer windows, which is
+    // not yet a use case. Revisit if programmatic addRoot calls are introduced.
+    const entries = await readRootsList(storage);
+    const existing = entries.find((e) => e.path === resolvedPath);
+
+    let rootId: string;
+    let persisted = true;
+
+    if (existing) {
+      rootId = existing.rootId;
+      const updated: StoredRootEntry[] = entries.map((e) =>
+        e.path === resolvedPath ? { ...e, addedAt: Date.now() } : e
+      );
+      try {
+        await writeRootsList(storage, updated);
+      } catch (error) {
+        // The root is ALREADY durably stored — a failed addedAt bump does not
+        // change that. Per the RootDescriptor.persisted contract, persisted
+        // stays true: reporting false here would make callers skip DB
+        // registration for a perfectly durable root.
+        logger.warn('addRoot: failed to bump addedAt on existing rootsList entry', { error });
+      }
+    } else {
+      rootId = crypto.randomUUID();
+      const newEntry: StoredRootEntry = { addedAt: Date.now(), path: resolvedPath, rootId };
+      try {
+        await writeRootsList(storage, [...entries, newEntry]);
+      } catch (error) {
+        logger.warn('addRoot: failed to write rootsList', { error });
+        persisted = false;
+      }
+    }
+
+    // Shim parity: keep writing lastFolderPath
+    try {
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
+    } catch (error) {
+      logger.warn('addRoot: failed to write lastFolderPath', { error });
+    }
+
+    const descriptor: RootDescriptor = {
+      displayName: basename,
+      handle: {
+        kind: 'directory',
+        name: basename,
+        path: resolvedPath,
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted,
+      rootId,
+    };
+    return descriptor;
+  });
 
   return () => registry.unregisterAll();
 }
