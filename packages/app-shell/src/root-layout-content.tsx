@@ -2,7 +2,6 @@ import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { usePGliteDatabase } from '@brainstrike/db';
 import {
   FileExplorerPanel,
-  FileSystemProvider,
   RootDataDeletionProvider,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui/shell';
@@ -325,67 +324,58 @@ export function RootLayoutContent({
     setState,
   });
 
+  // The shared FileSystemProvider mounts inside AppLayout (below the
+  // FileExplorerProvider store it reads) — see app-layout.tsx.
   return (
-    // ONE shared file-system instance for the ENTIRE app surface. The explorer
-    // UI, the background-indexing sync provider, the tree wrapper, AND
-    // cross-route consumers (database panel import flow, assistant panels)
-    // all read it — separate instances diverge on mid-session Add Folder (the
-    // indexer never saw new roots until the next launch), and any consumer
-    // mounted outside the provider hard-throws (white screen) by design.
-    <FileSystemProvider>
-      <AppLayout
-        config={appConfig}
-        currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
-        onNavigationClick={handleNavigationClick}
-      >
-        {/* These providers now intentionally stay app-wide so background chunking and embedding
+    <AppLayout
+      config={appConfig}
+      currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
+      onNavigationClick={handleNavigationClick}
+    >
+      {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
           unless a feature explicitly opts into them. */}
-        <ActionRegistryProvider registry={actionRegistry}>
-          <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-            <EmbeddingRuntimeProvider>
-              <IndexingActivityCoordinator />
+      <ActionRegistryProvider registry={actionRegistry}>
+        <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
+          <EmbeddingRuntimeProvider>
+            <IndexingActivityCoordinator />
+            <div
+              aria-hidden={activeTab !== 'explorer'}
+              className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+              data-testid="explorer-route"
+            >
+              <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+                <ExplorerAppSurface
+                  contextExplorerPageContent={contextExplorerPageContent}
+                  contextExplorerPanelContent={contextExplorerPanelContent}
+                  databaseTabChunkingMode={databaseTabChunkingMode}
+                  loadEmbeddingQueue={loadEmbeddingQueue}
+                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                />
+              </PanelLayoutProvider>
+            </div>
+            {mountedTabs.has('prompts') ? (
               <div
-                aria-hidden={activeTab !== 'explorer'}
-                className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-                data-testid="explorer-route"
+                aria-hidden={activeTab !== 'prompts'}
+                className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
+                data-testid="prompts-route"
               >
-                <PanelLayoutProvider
-                  controlledState={panelState}
-                  onChange={handlePanelLayoutChange}
-                >
-                  <ExplorerAppSurface
-                    contextExplorerPageContent={contextExplorerPageContent}
-                    contextExplorerPanelContent={contextExplorerPanelContent}
-                    databaseTabChunkingMode={databaseTabChunkingMode}
-                    loadEmbeddingQueue={loadEmbeddingQueue}
-                    {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                  />
-                </PanelLayoutProvider>
+                {promptsPageContent ?? null}
               </div>
-              {mountedTabs.has('prompts') ? (
-                <div
-                  aria-hidden={activeTab !== 'prompts'}
-                  className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-                  data-testid="prompts-route"
-                >
-                  {promptsPageContent ?? null}
-                </div>
-              ) : null}
-              {mountedTabs.has('settings') ? (
-                <div
-                  aria-hidden={activeTab !== 'settings'}
-                  className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
-                  data-testid="settings-route"
-                >
-                  {settingsPageContent}
-                </div>
-              ) : null}
-            </EmbeddingRuntimeProvider>
-          </ChunkingWorkerProvider>
-        </ActionRegistryProvider>
-      </AppLayout>
-    </FileSystemProvider>
+            ) : null}
+            {mountedTabs.has('settings') ? (
+              <div
+                aria-hidden={activeTab !== 'settings'}
+                className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
+                data-testid="settings-route"
+              >
+                {settingsPageContent}
+              </div>
+            ) : null}
+          </EmbeddingRuntimeProvider>
+        </ChunkingWorkerProvider>
+      </ActionRegistryProvider>
+    </AppLayout>
   );
 }
