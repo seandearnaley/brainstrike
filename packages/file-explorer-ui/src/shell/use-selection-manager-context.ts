@@ -9,6 +9,7 @@
  * - 'rules': Rule-based selection using materialized paths
  */
 
+import { getForeignSelectionCount } from '@brainstrike/file-explorer';
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
 import type { FolderState } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -160,15 +161,25 @@ export const useSelectionManager = () => {
   );
 
   const selectedCount = useMemo(() => {
+    // The count is ALWAYS the whole-forest union — other active roots'
+    // folderState selections count regardless of the focused root's mode.
+    const foreignCount = getForeignSelectionCount({
+      activeRootIds,
+      currentFolderId,
+      folderStates,
+    });
     if (selectionModel.mode === 'query') {
-      return resolvedSelectedCount;
+      return resolvedSelectedCount + foreignCount;
     }
     if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
-      return selectionModel.materializedPaths.size;
+      return selectionModel.materializedPaths.size + foreignCount;
     }
     return effectiveSelection.size;
   }, [
+    activeRootIds,
+    currentFolderId,
     effectiveSelection.size,
+    folderStates,
     resolvedSelectedCount,
     selectionModel.materializedPaths,
     selectionModel.mode,

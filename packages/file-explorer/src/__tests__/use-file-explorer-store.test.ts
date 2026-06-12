@@ -313,6 +313,8 @@ describe('useFileExplorerStore Actions Integration', () => {
 
     beforeEach(() => {
       store.setCurrentFolderId(ROOT_A);
+      // The forest-union cap counts ACTIVE roots only.
+      store.setState({ activeRootIds: [ROOT_A, ROOT_B] });
     });
 
     it('addSelectedFile for a NON-focused root writes its folderState, not the top-level set', () => {
@@ -492,6 +494,48 @@ describe('useFileExplorerStore Actions Integration', () => {
       store.addMultipleSelectedFiles(ROOT_B, ['p1.ts', 'p2.ts', 'p3.ts', 'p4.ts']);
 
       expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.size).toBe(5);
+    });
+
+    // maxSelectionCount caps the WHOLE-FOREST UNION, not each tree
+    // independently — otherwise every root could take the full cap.
+    it('top-level adds respect the forest-union cap (foreign selections consume budget)', () => {
+      store.setMaxSelectionCount(5);
+      // Root B (non-focused) already holds 4 selections.
+      store.addMultipleSelectedFiles(ROOT_B, ['b1.ts', 'b2.ts', 'b3.ts', 'b4.ts']);
+
+      // Focused root A tries to add 3 — only 1 slot remains in the union.
+      store.addMultipleSelectedFiles(ROOT_A, ['a1.ts', 'a2.ts', 'a3.ts']);
+
+      const s = store.getState();
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.size).toBe(4);
+      expect(s.selectedFilePaths.size).toBe(1);
+    });
+
+    it('foreign adds respect the forest-union cap (focused selection consumes budget)', () => {
+      store.setMaxSelectionCount(5);
+      // Focused root A holds 4 selections.
+      store.addMultipleSelectedFiles(ROOT_A, ['a1.ts', 'a2.ts', 'a3.ts', 'a4.ts']);
+
+      // Foreign root B tries to add 3 — only 1 slot remains in the union.
+      store.addMultipleSelectedFiles(ROOT_B, ['b1.ts', 'b2.ts', 'b3.ts']);
+
+      const s = store.getState();
+      expect(s.selectedFilePaths.size).toBe(4);
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.size).toBe(1);
+    });
+
+    it('single adds are blocked once the forest union reaches the cap', () => {
+      store.setMaxSelectionCount(2);
+      store.addSelectedFile(ROOT_A, 'a1.ts');
+      store.addSelectedFile(ROOT_B, 'b1.ts');
+
+      // Union is at the cap (1 + 1) — both targets are now blocked.
+      store.addSelectedFile(ROOT_A, 'a2.ts');
+      store.addSelectedFile(ROOT_B, 'b2.ts');
+
+      const s = store.getState();
+      expect(s.selectedFilePaths.size).toBe(1);
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.size).toBe(1);
     });
 
     it('focus-switch snapshot partitions any foreign key that leaked into the top-level set', () => {

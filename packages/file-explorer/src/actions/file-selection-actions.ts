@@ -8,7 +8,11 @@ import {
   IDLE_CALLBACK_TIMEOUT_MS,
 } from '../constants/selection-constants';
 import type { GetState, SetState } from '../types/store-types';
-import { createNewFolderState } from '../utils/file-explorer-utils';
+import {
+  createNewFolderState,
+  getFocusedSelectionCount,
+  getForeignSelectionCount,
+} from '../utils/file-explorer-utils';
 import { resolveQuerySelection } from '../utils/query-selection-manifest';
 
 const logger = createLogger('FileSelectionActions');
@@ -421,7 +425,10 @@ function applyForeignExplicitMutation(
 } {
   const base = state.folderStates[folderId] ?? createNewFolderState(state);
   const selected = new Set(base.selectedFilePaths);
-  const limit = state.maxSelectionCount;
+  // Whole-forest cap: this root's set may grow only into the budget left by
+  // the focused selection and every OTHER active root's selection.
+  const othersCount = getFocusedSelectionCount(state) + getForeignSelectionCount(state, folderId);
+  const limit = Math.max(0, state.maxSelectionCount - othersCount);
   let addedCount = 0;
   let limitReached = false;
   for (const path of additions) {
@@ -461,6 +468,15 @@ function applyForeignExplicitMutation(
 }
 
 /** True when the mutation targets a root other than the focused one. */
+/**
+ * Slots available to the FOCUSED root's top-level set under the
+ * whole-forest cap: maxSelectionCount minus every other active root's
+ * folderState selection.
+ */
+function focusedSelectionBudget(state: FileExplorerState): number {
+  return Math.max(0, state.maxSelectionCount - getForeignSelectionCount(state));
+}
+
 function isForeignFolderMutation(state: FileExplorerState, folderId: string): boolean {
   return state.currentFolderId !== null && folderId !== state.currentFolderId;
 }
@@ -526,8 +542,8 @@ export const createFileSelectionActions = (
         return applyForeignExplicitMutation(state, folderId, [path], []).changes;
       }
       const newSelectedFiles = new Set(state.selectedFilePaths);
-      // Check against maxSelectionCount before adding
-      if (newSelectedFiles.size < state.maxSelectionCount) {
+      // Check against the whole-forest budget before adding
+      if (newSelectedFiles.size < focusedSelectionBudget(state)) {
         newSelectedFiles.add(encodeFileSelection(folderId, path));
       }
       return {
@@ -597,8 +613,8 @@ export const createFileSelectionActions = (
       const compositeKey = encodeFileSelection(folderId, path);
       if (newSelectedFiles.has(compositeKey)) {
         newSelectedFiles.delete(compositeKey);
-      } else if (newSelectedFiles.size < state.maxSelectionCount) {
-        // Check against maxSelectionCount before adding
+      } else if (newSelectedFiles.size < focusedSelectionBudget(state)) {
+        // Check against the whole-forest budget before adding
         newSelectedFiles.add(compositeKey);
       }
       return {
@@ -647,10 +663,11 @@ export const createFileSelectionActions = (
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const previousSize = newSelectedFiles.size;
       let currentSize = previousSize;
+      const budget = focusedSelectionBudget(state);
 
       for (const path of paths) {
-        if (currentSize >= state.maxSelectionCount) {
-          break; // Stop if max selection count is reached
+        if (currentSize >= budget) {
+          break; // Stop once the whole-forest budget is reached
         }
         const compositeKey = encodeFileSelection(folderId, path);
         if (!newSelectedFiles.has(compositeKey)) {
@@ -760,9 +777,10 @@ export const createFileSelectionActions = (
       set((state) => {
         const newSelectedFiles = new Set(state.selectedFilePaths);
         let currentSize = newSelectedFiles.size;
+        const budget = focusedSelectionBudget(state);
 
         for (const path of paths) {
-          if (currentSize >= state.maxSelectionCount) {
+          if (currentSize >= budget) {
             limitReached = true;
             break;
           }
@@ -836,9 +854,10 @@ export const createFileSelectionActions = (
       set((state) => {
         const newSelectedFiles = new Set(state.selectedFilePaths);
         let currentSize = newSelectedFiles.size;
+        const budget = focusedSelectionBudget(state);
 
         for (const compositeKey of computedKeys) {
-          if (currentSize >= state.maxSelectionCount) {
+          if (currentSize >= budget) {
             limitReached = true;
             break;
           }

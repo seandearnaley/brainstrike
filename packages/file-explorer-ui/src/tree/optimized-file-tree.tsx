@@ -1,3 +1,4 @@
+import { getForeignSelectionCount } from '@brainstrike/file-explorer';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useEventCallback } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
@@ -381,10 +382,29 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       ? (foreignFolderModel ?? EMPTY_EXPLICIT_SELECTION_MODEL)
       : topLevelSelectionModel;
     const querySelectionManifest = useFileExplorerStoreSelector((s) => s.querySelectionManifest);
-    const selectedCount = useMemo(
-      () => getSelectionCount(selectionModel, selectedFilePaths, querySelectionManifest),
-      [querySelectionManifest, selectedFilePaths, selectionModel]
+    // The limit math (wouldExceedLimit) uses the WHOLE-FOREST union — the
+    // cap is a workspace budget, not a per-tree budget. Per-tree display
+    // counts come from selectedDirectoryCounts, not this number.
+    const unionSelectionBase = useFileExplorerStoreSelector((s) =>
+      getForeignSelectionCount({
+        activeRootIds: s.activeRootIds,
+        currentFolderId: s.currentFolderId,
+        folderStates: s.folderStates,
+      })
     );
+    const selectedCount = useMemo(() => {
+      const focusedEffectiveCount = getSelectionCount(
+        topLevelSelectionModel,
+        topLevelSelectedFilePaths,
+        querySelectionManifest
+      );
+      return focusedEffectiveCount + unionSelectionBase;
+    }, [
+      querySelectionManifest,
+      topLevelSelectedFilePaths,
+      topLevelSelectionModel,
+      unionSelectionBase,
+    ]);
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());

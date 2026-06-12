@@ -2,6 +2,8 @@ import { useOptionalPGliteDatabase } from '@brainstrike/db';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
+  getFocusedSelectionCount,
+  getForeignSelectionCount,
 } from '@brainstrike/file-explorer';
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
@@ -33,6 +35,36 @@ import {
 } from './recursive-selection-utils';
 
 const logger = createLogger('RecursiveSelectAll');
+
+/**
+ * Scan budget under the WHOLE-FOREST cap: maxSelectionCount minus the
+ * selection budget already consumed elsewhere. A focused-root select-all
+ * REPLACES the focused selection (only other roots consume budget); a
+ * foreign-root select-all leaves the focused selection in place.
+ * Falls back to the raw cap when no store is available.
+ */
+function computeSelectAllScanCap(
+  store: ReturnType<typeof useOptionalFileExplorerStoreContext>,
+  folderId: string,
+  maxSelectionCount: number
+): number {
+  const getState = (store as { getState?: unknown } | null)?.getState;
+  if (typeof getState !== 'function') {
+    return maxSelectionCount;
+  }
+  const state = (
+    getState as () => Parameters<typeof getForeignSelectionCount>[0] &
+      Parameters<typeof getFocusedSelectionCount>[0]
+  )();
+  // An absent focus (null/undefined) is single-root legacy — the target IS
+  // the focused workspace, matching the selector-default-null convention.
+  const focusedRootId = state.currentFolderId ?? null;
+  const targetsFocusedRoot = focusedRootId === null || focusedRootId === folderId;
+  const othersCount =
+    (targetsFocusedRoot ? 0 : getFocusedSelectionCount(state)) +
+    getForeignSelectionCount(state, folderId);
+  return Math.max(0, maxSelectionCount - othersCount);
+}
 
 /** Commit a full select-all result as a top-level query-mode selection. */
 async function commitSelectAllQuerySelection(args: {
@@ -353,6 +385,18 @@ export function useRecursiveSelectAll(
         return { success: false, filePaths: [], error: 'Operation already in progress' };
       }
 
+      // Whole-forest cap: the scan budget is what's left after every OTHER
+      // root's selection (and the focused selection, for a foreign target).
+      const scanCap = computeSelectAllScanCap(store, folderId, maxSelectionCount);
+      if (scanCap === 0) {
+        showToast({
+          title: `Selection limit reached (${maxSelectionCount})`,
+          description: 'Deselect files in other folders or raise the limit to select more.',
+          variant: 'destructive',
+        });
+        return { success: true, filePaths: [], limitReached: true, totalAvailable: 0 };
+      }
+
       isOperationInProgressRef.current = true;
       isLoadingForSelectAllRef.current = true;
       const abortController = new AbortController();
@@ -369,7 +413,7 @@ export function useRecursiveSelectAll(
           ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
           includeFilters,
           excludeFilters,
-          maxResults: maxSelectionCount,
+          maxResults: scanCap,
           useRegex,
           abortSignal: abortController.signal,
           onProgress: (progress) => {
@@ -393,7 +437,7 @@ export function useRecursiveSelectAll(
           folderId,
           getCurrentTree,
           includeFilters,
-          maxSelectionCount,
+          maxSelectionCount: scanCap,
           onTreeUpdate,
           result,
           setQuerySelection,

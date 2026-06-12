@@ -8,6 +8,56 @@ import {
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
 
+/**
+ * Selection budget consumed by every ACTIVE root OTHER than the focused one
+ * (their selections live in folderStates; the focused root's live selection
+ * is the top-level set). maxSelectionCount caps the WHOLE-FOREST UNION —
+ * the focused effective count + this number — never a single tree.
+ */
+export const getForeignSelectionCount = (
+  state: Pick<FileExplorerData, 'activeRootIds' | 'currentFolderId' | 'folderStates'>,
+  excludeRootId?: string
+): number => {
+  let total = 0;
+  // Tolerate partial states (single-root legacy and test fixtures have no
+  // active-root registry) — no active roots means no foreign budget.
+  for (const rootId of state.activeRootIds ?? []) {
+    if (rootId === state.currentFolderId || rootId === excludeRootId) {
+      continue;
+    }
+    total += state.folderStates[rootId]?.selectedFilePaths.size ?? 0;
+  }
+  return total;
+};
+
+/**
+ * The focused root's effective selection count: the query manifest in query
+ * mode (the explicit top-level set is empty then), the top-level set size
+ * otherwise.
+ */
+export const getFocusedSelectionCount = (
+  state: Pick<FileExplorerData, 'selectedFilePaths' | 'selectionModel'> & {
+    querySelectionManifest?: { filePaths: string[] } | null;
+  }
+): number => {
+  if (state.selectionModel.mode === 'query') {
+    return (
+      state.querySelectionManifest?.filePaths.length ??
+      state.selectionModel.queryDescriptor?.totalSelectedCount ??
+      0
+    );
+  }
+  return state.selectedFilePaths.size;
+};
+
+/** Whole-forest selection count — what maxSelectionCount actually caps. */
+export const getUnionSelectionCount = (
+  state: Pick<
+    FileExplorerData,
+    'activeRootIds' | 'currentFolderId' | 'folderStates' | 'selectedFilePaths' | 'selectionModel'
+  > & { querySelectionManifest?: { filePaths: string[] } | null }
+): number => getFocusedSelectionCount(state) + getForeignSelectionCount(state);
+
 // Helper function to save current folder state.
 // Phase 6 forest hardening: the snapshot PARTITIONS the live selection by key
 // identity — only the outgoing folder's OWN composite keys belong in its
