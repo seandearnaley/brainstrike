@@ -1071,6 +1071,109 @@ describe('FileExplorerSidebar', () => {
     );
   });
 
+  // Toolbar Select All must sweep EVERY root section through its own tree
+  // context (the focused panel provider's tree is the invisible legacy one —
+  // empty/stale for non-focused roots, producing the bogus "No selectable
+  // files in view").
+  it('forest select-all sweeps EVERY section via the registry into the right stores', async () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes =
+          handle.path === '/project-a'
+            ? [createFileNode({ name: 'a1.ts', path: '/project-a/a1.ts', rootFolderId: ROOT_ID_A })]
+            : [
+                createFileNode({
+                  name: 'b1.ts',
+                  path: '/project-b/b1.ts',
+                  rootFolderId: ROOT_ID_B,
+                }),
+                createFileNode({
+                  name: 'b2.ts',
+                  path: '/project-b/b2.ts',
+                  rootFolderId: ROOT_ID_B,
+                }),
+              ];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+
+    const forestActionsRef: { current: ForestTreeActionsValue | null } = { current: null };
+    function ForestActionsProbe() {
+      forestActionsRef.current = useOptionalForestTreeActions();
+      return null;
+    }
+    const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+      current: null,
+    };
+    function StoreProbe() {
+      storeRef.current = useFileExplorerStoreContext();
+      return null;
+    }
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <ForestTreeActionsProvider>
+          <ForestActionsProbe />
+          <StoreProbe />
+          <FileExplorerSidebar
+            {...defaultProps}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={
+              new Map([
+                ['/project-a', ROOT_ID_A],
+                ['/project-b', ROOT_ID_B],
+              ])
+            }
+            setFocusedRoot={vi.fn()}
+          />
+        </ForestTreeActionsProvider>
+      );
+    });
+    act(() => {
+      storeRef.current?.getState().setCurrentFolderId(ROOT_ID_A);
+      storeRef.current?.setState({ activeRootIds: [ROOT_ID_A, ROOT_ID_B] });
+    });
+    await waitFor(() => {
+      expect(screen.getByText('a1.ts')).toBeInTheDocument();
+      expect(screen.getByText('b2.ts')).toBeInTheDocument();
+    });
+
+    // Toolbar-equivalent: run select-all across all registered sections.
+    let summary: Awaited<ReturnType<ForestTreeActionsValue['runSelectAll']>> | undefined;
+    await act(async () => {
+      summary = await forestActionsRef.current?.runSelectAll();
+    });
+
+    expect(summary).toMatchObject({ limitReached: false, sections: 2, selected: 3 });
+    const state = storeRef.current?.getState();
+    // Focused root A's file lands in the top-level live selection; root B's
+    // files land in ITS folderState (cross-root write routing).
+    expect(state?.selectedFilePaths.has(`${ROOT_ID_A}|@|/project-a/a1.ts`)).toBe(true);
+    expect(state?.folderStates[ROOT_ID_B]?.selectedFilePaths).toEqual(
+      new Set([`${ROOT_ID_B}|@|/project-b/b1.ts`, `${ROOT_ID_B}|@|/project-b/b2.ts`])
+    );
+  });
+
   // -------------------------------------------------------------------------
   // Disconnect flow (Phase 5)
   // -------------------------------------------------------------------------

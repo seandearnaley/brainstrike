@@ -144,6 +144,84 @@ function isForestModeActive(rootDirectoryHandles: readonly unknown[] | undefined
   return (rootDirectoryHandles?.length ?? 0) > 1;
 }
 
+/**
+ * Aggregate user feedback for a forest-wide select-all sweep (sections run
+ * quiet — per-root toasts would fire once per section). Null = success with
+ * room to spare, no toast needed.
+ */
+function buildForestSelectAllFeedback(
+  summary: { limitReached: boolean; selected: number },
+  maxCount: number
+): { title: string; description: string } | null {
+  if (summary.selected === 0) {
+    return {
+      title: 'No selectable files in any folder',
+      description: summary.limitReached
+        ? `The selection limit (${maxCount}) is already used by existing selections.`
+        : 'Everything is hidden by the current view filters. Adjust the workspace filters to select files.',
+    };
+  }
+  if (summary.limitReached) {
+    return {
+      title: `Selection limit reached (${maxCount})`,
+      description: `Selected ${summary.selected} files before hitting the limit. Raise the limit to select more.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * FOREST MODE toolbar Select All: sweep EVERY root section through its own
+ * tree context — the panel provider's tree is the invisible legacy one and
+ * is empty/stale for non-focused roots ("No selectable files in view" on
+ * roots whose sections clearly show files). The forest-union budget composes
+ * per pass inside selectAllRecursively; this owns the ONE aggregate toast.
+ */
+async function runForestSelectAllSweep(args: {
+  forestActions: ReturnType<typeof useOptionalForestTreeActions>;
+  maxCount: number;
+  showToast: (toast: { title: string; description: string }) => void;
+}): Promise<{
+  success: boolean;
+  filePaths: string[];
+  totalAvailable?: number;
+  limitReached?: boolean;
+  error?: string;
+}> {
+  if (!args.forestActions) {
+    return { success: false, filePaths: [], error: 'Forest registry unavailable' };
+  }
+  const summary = await args.forestActions.runSelectAll();
+  const feedback = buildForestSelectAllFeedback(summary, args.maxCount);
+  if (feedback) {
+    args.showToast(feedback);
+  }
+  return {
+    success: true,
+    filePaths: [],
+    totalAvailable: summary.selected,
+    limitReached: summary.limitReached,
+  };
+}
+
+/**
+ * Toolbar Select All wiring: forest mode swaps in the registry sweep and
+ * treats the tree as non-empty (sections own their trees — the focused panel
+ * tree is the invisible legacy one).
+ */
+function resolveSelectAllWiring<T>(args: {
+  fileTreeLength: number;
+  forestActions: ReturnType<typeof useOptionalForestTreeActions>;
+  forestSelectAll: T;
+  isForestMode: boolean;
+  selectAllRecursively: T;
+}): { hasFilesInTree: boolean; selectAll: T } {
+  if (args.isForestMode && args.forestActions) {
+    return { hasFilesInTree: true, selectAll: args.forestSelectAll };
+  }
+  return { hasFilesInTree: args.fileTreeLength > 0, selectAll: args.selectAllRecursively };
+}
+
 /** Single-root path: progressive expand-all over the focused provider's tree. */
 function runFocusedTreeExpandAll(
   store: ReturnType<typeof useFileExplorerStoreContext>,
@@ -765,6 +843,19 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
     store.getState().collapseAllDirectories();
   }, [forestActions, store, cancelExpandAll]);
 
+  const forestSelectAll = useCallback<typeof selectAllRecursively>(
+    (_filteredTree, _folderId, _addFiles, maxCount) =>
+      runForestSelectAllSweep({ forestActions, maxCount, showToast }),
+    [forestActions, showToast]
+  );
+  const selectAllWiring = resolveSelectAllWiring({
+    fileTreeLength: fileTree.length,
+    forestActions,
+    forestSelectAll,
+    isForestMode,
+    selectAllRecursively,
+  });
+
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
     showToast({
@@ -934,10 +1025,10 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
               encodeFileSelection={encodeFileSelection}
               filteredTree={quickFilteredTree ?? []}
               hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
-              hasFilesInTree={fileTree.length > 0}
+              hasFilesInTree={selectAllWiring.hasFilesInTree}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
-              selectAllRecursively={selectAllRecursively}
+              selectAllRecursively={selectAllWiring.selectAll}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
               visibleFilePaths={visibleFilePaths}

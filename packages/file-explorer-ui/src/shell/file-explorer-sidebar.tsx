@@ -3,7 +3,7 @@ import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
@@ -413,14 +413,24 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
   const sectionRecursiveSelect = useSectionRecursiveSelect(folderId);
 
-  // Register this section's expand-all with the forest registry so the
-  // toolbar's Expand All runs INSIDE this root's tree context (routing it
-  // through the focused panel provider only expands the invisible top-level
-  // tree). Expansion paths land in the workspace-global expanded set.
+  // Register this section's expand-all AND select-all with the forest
+  // registry so the toolbar actions run INSIDE this root's tree context
+  // (routing them through the focused panel provider only touches the
+  // invisible top-level tree — the recurring forest disease, toolbar
+  // edition). Expansion paths land in the workspace-global expanded set.
   const store = useFileExplorerStoreContext();
   const forestActions = useOptionalForestTreeActions();
   const sectionExpandAllProgressively = treeContext.expandAllProgressively;
   const sectionCancelExpandAll = treeContext.cancelExpandAll;
+  const sectionSelectAll = treeContext.selectAllRecursively;
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
+  // The registry callback fires later than this render — read the LATEST
+  // section tree at call time, not the tree captured at registration.
+  const sectionTreeRef = useRef(treeContext.fileTree);
+  sectionTreeRef.current = treeContext.fileTree;
   useEffect(() => {
     if (!forestActions) {
       return;
@@ -440,8 +450,33 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
         );
       },
       cancelExpandAll: sectionCancelExpandAll,
+      selectAll: async () => {
+        // Quiet pass: the forest sweep owns aggregate feedback (per-root
+        // zero-match/limit toasts would fire once per section).
+        const result = await sectionSelectAll(
+          sectionTreeRef.current,
+          folderId,
+          addMultipleSelectedFiles,
+          store.getState().maxSelectionCount,
+          addMultipleSelectedFilesChunked,
+          { quiet: true }
+        );
+        return {
+          limitReached: result.limitReached === true,
+          selected: result.filePaths.length,
+        };
+      },
     });
-  }, [forestActions, folderId, sectionExpandAllProgressively, sectionCancelExpandAll, store]);
+  }, [
+    addMultipleSelectedFiles,
+    addMultipleSelectedFilesChunked,
+    forestActions,
+    folderId,
+    sectionExpandAllProgressively,
+    sectionCancelExpandAll,
+    sectionSelectAll,
+    store,
+  ]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">

@@ -134,6 +134,7 @@ async function commitSelectAllResult(args: {
   includeFilters: string[];
   maxSelectionCount: number;
   onTreeUpdate: (tree: IFileNode[]) => void;
+  quiet?: boolean | undefined;
   result: Awaited<ReturnType<typeof querySelectableFiles>>;
   setQuerySelection:
     | ((
@@ -152,12 +153,14 @@ async function commitSelectAllResult(args: {
   if (result.filePaths.length === 0) {
     // Filters that exclude every file make Select All look broken — toast
     // the cause and commit NOTHING (an empty query selection would clobber
-    // the current selection state).
+    // the current selection state). Forest sweeps run quiet (one aggregate
+    // toast at the end) but the warn log always fires.
     return notifyEmptySelectAllResult({
       excludeFilters,
       filesVisited: result.metrics.filesVisited,
       folderId,
       includeFilters,
+      quiet: args.quiet === true,
       showToast,
     });
   }
@@ -222,15 +225,19 @@ function notifyEmptySelectAllResult(args: {
   filesVisited: number;
   folderId: string;
   includeFilters: string[];
+  quiet?: boolean;
   showToast: ReturnType<typeof useToastManager>['showToast'];
 }): SelectAllResult {
-  const { excludeFilters, filesVisited, folderId, includeFilters, showToast } = args;
+  const { excludeFilters, filesVisited, folderId, includeFilters, quiet, showToast } = args;
   logger.warn('Select all matched no files', {
     folderId,
     includeFilters,
     excludeFilters,
     filesVisited,
   });
+  if (quiet) {
+    return { success: true, filePaths: [], totalAvailable: 0 };
+  }
   showToast({
     title: 'No selectable files in view',
     description:
@@ -301,8 +308,18 @@ export interface UseRecursiveSelectAllReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked,
+    options?: SelectAllOptions
   ) => Promise<SelectAllResult>;
+}
+
+export interface SelectAllOptions {
+  /**
+   * Suppress per-call toasts (zero-match, budget-exhausted). Used by the
+   * forest sweep, which runs one pass per root and owns AGGREGATE feedback —
+   * per-root toasts would fire N times. Warn logs still fire (never silent).
+   */
+  quiet?: boolean;
 }
 
 const RESET_STATE: RecursiveSelectAllState = {
@@ -378,7 +395,8 @@ export function useRecursiveSelectAll(
       folderId: string,
       addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
       maxSelectionCount: number,
-      addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
+      addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked,
+      options?: SelectAllOptions
     ): Promise<SelectAllResult> => {
       const validationError = validateSelectAllInput(fileSystemAdapter, filteredTree);
       if (validationError) {
@@ -393,11 +411,13 @@ export function useRecursiveSelectAll(
       // root's selection (and the focused selection, for a foreign target).
       const scanCap = computeSelectAllScanCap(store, folderId, maxSelectionCount);
       if (scanCap === 0) {
-        showToast({
-          title: `Selection limit reached (${maxSelectionCount})`,
-          description: 'Deselect files in other folders or raise the limit to select more.',
-          variant: 'destructive',
-        });
+        if (!options?.quiet) {
+          showToast({
+            title: `Selection limit reached (${maxSelectionCount})`,
+            description: 'Deselect files in other folders or raise the limit to select more.',
+            variant: 'destructive',
+          });
+        }
         return { success: true, filePaths: [], limitReached: true, totalAvailable: 0 };
       }
 
@@ -436,6 +456,7 @@ export function useRecursiveSelectAll(
           addMultipleSelectedFiles,
           addMultipleSelectedFilesChunked,
           currentFolderId,
+          quiet: options?.quiet,
           db,
           excludeFilters,
           folderId,

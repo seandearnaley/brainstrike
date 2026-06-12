@@ -20,9 +20,27 @@ import {
   useState,
 } from 'react';
 
+export interface SectionSelectAllSummary {
+  /** True when the section's scan stopped at the forest-union budget. */
+  limitReached: boolean;
+  /** Files selected in this section's pass. */
+  selected: number;
+}
+
 export interface SectionTreeActions {
   cancelExpandAll: () => void;
   expandAll: () => Promise<void>;
+  /** Section-scoped recursive select-all (quiet: no per-root toasts). */
+  selectAll: () => Promise<SectionSelectAllSummary>;
+}
+
+export interface ForestSelectAllSummary {
+  /** True when any section's scan stopped at the forest-union budget. */
+  limitReached: boolean;
+  /** Sections swept. */
+  sections: number;
+  /** Total files selected across all sections. */
+  selected: number;
 }
 
 export interface ForestTreeActionsValue {
@@ -34,6 +52,13 @@ export interface ForestTreeActionsValue {
   register: (rootId: string, actions: SectionTreeActions) => () => void;
   /** Run expand-all across every registered section (sequentially). */
   runExpandAll: () => Promise<void>;
+  /**
+   * Run select-all across every registered section (sequentially). The
+   * forest-union budget composes per section: each pass's scan cap shrinks
+   * by what previous sections selected. The caller owns aggregate feedback
+   * (sections run quiet).
+   */
+  runSelectAll: () => Promise<ForestSelectAllSummary>;
 }
 
 const ForestTreeActionsContext = createContext<ForestTreeActionsValue | null>(null);
@@ -77,14 +102,33 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     }
   }, []);
 
+  const runSelectAll = useCallback(async (): Promise<ForestSelectAllSummary> => {
+    const summary: ForestSelectAllSummary = { limitReached: false, sections: 0, selected: 0 };
+    // Sequential on purpose: the forest-union budget composes pass by pass —
+    // each section's scan cap already subtracts what previous sections
+    // selected (computeSelectAllScanCap), so parallel passes would race the
+    // budget.
+    for (const [, actions] of Array.from(sectionsRef.current)) {
+      summary.sections += 1;
+      const result = await actions.selectAll();
+      summary.selected += result.selected;
+      summary.limitReached = summary.limitReached || result.limitReached;
+      if (result.limitReached) {
+        break;
+      }
+    }
+    return summary;
+  }, []);
+
   const value = useMemo(
     () => ({
       cancelExpandAll,
       isExpandingAll: runningCount > 0,
       register,
       runExpandAll,
+      runSelectAll,
     }),
-    [cancelExpandAll, register, runExpandAll, runningCount]
+    [cancelExpandAll, register, runExpandAll, runningCount, runSelectAll]
   );
 
   return (
