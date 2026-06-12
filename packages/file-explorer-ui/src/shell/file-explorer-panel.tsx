@@ -2,7 +2,6 @@ import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/fil
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { Button, cn, LoadingFallback } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
@@ -49,6 +48,7 @@ import { SelectionRulesEditor } from '../selection-rules-editor';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
+import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
 import { computeScanningStatusProps } from '../utils/scanning-status-props';
 import {
   useFileExplorerStoreContext,
@@ -63,78 +63,6 @@ import {
 } from './forest-tree-actions-context';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-
-// Quick filter helpers (factored to keep component complexity low)
-
-/**
- * Check if a node should be included based on filter patterns.
- * IMPORTANT: Both include and exclude patterns match ONLY against the filename
- * to avoid false positives from path components (e.g., "test" matching
- * "test-project/" in the path when only files named "test" should match).
- */
-function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string[]): boolean {
-  const nameText = node.name.toLowerCase();
-  // Excludes only match filename to avoid false positives from path
-  if (excludes.some((e) => nameText.includes(e))) {
-    return false;
-  }
-  // Includes also only match filename for consistent behavior
-  return includes.length === 0 || includes.some((i) => nameText.includes(i));
-}
-
-function filterNodeByPatterns(
-  node: IFileNode,
-  includesLower: string[],
-  excludesLower: string[]
-): IFileNode | null {
-  // CRITICAL: Check if this node is excluded FIRST (before processing children)
-  // This ensures excluded directories like .turbo are completely removed
-  // even if they contain files that would otherwise match include filters
-  const nameText = node.name.toLowerCase();
-  const isExcluded = excludesLower.some((e) => nameText.includes(e));
-  if (isExcluded) {
-    return null;
-  }
-
-  if (node.type === 'directory') {
-    const children = node.children ?? [];
-    const filteredChildren = children
-      .map((c) => filterNodeByPatterns(c, includesLower, excludesLower))
-      .filter(Boolean) as IFileNode[];
-    if (filteredChildren.length > 0) {
-      return { ...node, children: filteredChildren };
-    }
-    // Empty directory - check if it passes include filter
-    if (shouldIncludeNode(node, includesLower, excludesLower)) {
-      return { ...node, children: [] };
-    }
-    return null;
-  }
-  // For files, check include filter (exclude already checked above)
-  return includesLower.length === 0 || includesLower.some((i) => nameText.includes(i))
-    ? node
-    : null;
-}
-
-function filterTreeByPatterns(
-  nodes: IFileNode[],
-  includesLower: string[],
-  excludesLower: string[]
-): IFileNode[] {
-  return nodes
-    .map((n) => filterNodeByPatterns(n, includesLower, excludesLower))
-    .filter(Boolean) as IFileNode[];
-}
-
-function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
-  for (const node of nodes) {
-    if (node.type === 'file' && node.isVisible !== false) {
-      fileSet.add(node.path);
-    } else if (node.type === 'directory' && node.children) {
-      collectVisibleFiles(node.children, fileSet);
-    }
-  }
-}
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
@@ -205,21 +133,35 @@ async function runForestSelectAllSweep(args: {
 }
 
 /**
- * Toolbar Select All wiring: forest mode swaps in the registry sweep and
- * treats the tree as non-empty (sections own their trees — the focused panel
- * tree is the invisible legacy one).
+ * Toolbar Select All wiring: forest mode swaps in the registry sweep, the
+ * forest-wide quick-filter override, and treats the tree as non-empty
+ * (sections own their trees — the focused panel tree is the invisible
+ * legacy one).
  */
 function resolveSelectAllWiring<T>(args: {
   fileTreeLength: number;
   forestActions: ReturnType<typeof useOptionalForestTreeActions>;
+  forestQuickFilterSelectAll: () => void;
   forestSelectAll: T;
   isForestMode: boolean;
   selectAllRecursively: T;
-}): { hasFilesInTree: boolean; selectAll: T } {
+}): {
+  hasFilesInTree: boolean;
+  quickFilterSelectAllOverride: (() => void) | undefined;
+  selectAll: T;
+} {
   if (args.isForestMode && args.forestActions) {
-    return { hasFilesInTree: true, selectAll: args.forestSelectAll };
+    return {
+      hasFilesInTree: true,
+      quickFilterSelectAllOverride: args.forestQuickFilterSelectAll,
+      selectAll: args.forestSelectAll,
+    };
   }
-  return { hasFilesInTree: args.fileTreeLength > 0, selectAll: args.selectAllRecursively };
+  return {
+    hasFilesInTree: args.fileTreeLength > 0,
+    quickFilterSelectAllOverride: undefined,
+    selectAll: args.selectAllRecursively,
+  };
 }
 
 /** Single-root path: progressive expand-all over the focused provider's tree. */
@@ -547,21 +489,10 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
   // Workspace filters are already applied in useFileExplorer() which returns
   // fileTree with excluded directories (like .turbo) completely removed.
   // Uses deferredQuickFilter so tree filtering is deferred behind UI updates.
-  const quickFilteredTree = useMemo(() => {
-    if (!stableFileTree) {
-      return null;
-    }
-
-    // Only apply quick filter (search box) if present
-    if (!deferredQuickFilter.trim()) {
-      return stableFileTree;
-    }
-
-    const { includes, excludes } = parseFilterString(deferredQuickFilter);
-    const includesLower = includes.map((value: string) => value.toLowerCase());
-    const excludesLower = excludes.map((value: string) => value.toLowerCase());
-    return filterTreeByPatterns(stableFileTree, includesLower, excludesLower);
-  }, [deferredQuickFilter, stableFileTree]);
+  const quickFilteredTree = useMemo(
+    () => (stableFileTree ? applyQuickFilterToTree(stableFileTree, deferredQuickFilter) : null),
+    [deferredQuickFilter, stableFileTree]
+  );
 
   const visibleFilePaths = useMemo(() => {
     const visible = new Set<string>();
@@ -848,9 +779,24 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
       runForestSelectAllSweep({ forestActions, maxCount, showToast }),
     [forestActions, showToast]
   );
+  // FOREST quick-filter Select All: select the visible search matches across
+  // EVERY section (composite keys through the union-partitioning setter) —
+  // no scanning beyond what the user sees, capped at the selection limit.
+  const forestQuickFilterSelectAll = useCallback(() => {
+    const keys = (forestActions?.collectVisibleQuickFilterKeys() ?? []).slice(0, maxSelectionCount);
+    if (keys.length === 0) {
+      showToast({
+        title: 'No files match the search',
+        description: 'No visible files match the quick filter in any folder.',
+      });
+      return;
+    }
+    setSelectedFilesFromList(keys);
+  }, [forestActions, maxSelectionCount, setSelectedFilesFromList, showToast]);
   const selectAllWiring = resolveSelectAllWiring({
     fileTreeLength: fileTree.length,
     forestActions,
+    forestQuickFilterSelectAll,
     forestSelectAll,
     isForestMode,
     selectAllRecursively,
@@ -1028,6 +974,7 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
               hasFilesInTree={selectAllWiring.hasFilesInTree}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
+              quickFilterSelectAllOverride={selectAllWiring.quickFilterSelectAllOverride}
               selectAllRecursively={selectAllWiring.selectAll}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}

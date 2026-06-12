@@ -9,6 +9,7 @@ import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
+import { collectVisibleFiles, useQuickFilteredTree } from '../utils/quick-filter-tree';
 import { getSelectionCount } from '../utils/selection-projection';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
@@ -124,19 +125,23 @@ function formatFilterHint(patterns: readonly string[]): string {
   return patterns.length > 3 ? `${shown}, +${patterns.length - 3} more` : shown;
 }
 
-function forestEmptyStateMessage(
-  isLoading: boolean,
-  isFilteredOut: boolean,
-  includeFilters: readonly string[]
-): string {
-  if (isLoading) {
+function forestEmptyStateMessage(args: {
+  includeFilters: readonly string[];
+  isFilteredOut: boolean;
+  isLoading: boolean;
+  quickFilter: string;
+}): string {
+  if (args.isLoading) {
     return 'Loading files…';
   }
-  if (isFilteredOut) {
+  if (args.quickFilter.trim().length > 0) {
+    return `No files match the search "${args.quickFilter.trim()}"`;
+  }
+  if (args.isFilteredOut) {
     // Name the offending patterns — "a filter was applied but the dropdown
     // said All Files" must be self-diagnosing from the empty state alone.
-    return includeFilters.length > 0
-      ? `No files match the view filters (${formatFilterHint(includeFilters)})`
+    return args.includeFilters.length > 0
+      ? `No files match the view filters (${formatFilterHint(args.includeFilters)})`
       : 'All files here are hidden by the exclude filters';
   }
   return 'No files in this folder';
@@ -155,9 +160,10 @@ const ForestSectionEmptyState = ({
   isFilteredOut: boolean;
 }) => {
   const { includeFilters } = useActiveWorkspaceFilters();
+  const quickFilter = useFileExplorerStoreSelector((s) => s.quickFilter);
   return (
     <div className="px-9 py-1.5 text-muted-foreground text-xs">
-      {forestEmptyStateMessage(isLoading, isFilteredOut, includeFilters)}
+      {forestEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
     </div>
   );
 };
@@ -397,7 +403,11 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   // then applies the GLOBAL workspace view filters for display — every section
   // shows exactly what the (same-filtered) scans can select.
   const treeContext = useFileTreeContext();
-  const filteredTree = useGlobalFilteredTree(treeContext.fileTree);
+  const viewFilteredTree = useGlobalFilteredTree(treeContext.fileTree);
+  // The QUICK FILTER (search box) applies to every section's display too —
+  // it is workspace-global state, and a search box that only filtered the
+  // invisible panel tree silently did nothing in forest mode.
+  const { tree: filteredTree } = useQuickFilteredTree(viewFilteredTree);
   const deferredTree = useDeferredValue(filteredTree);
   const isLoading = treeContext.isLoading || isLoadingProp;
   const hasContent = deferredTree.length > 0;
@@ -427,15 +437,25 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
     (s) => s.addMultipleSelectedFilesChunked
   );
-  // The registry callback fires later than this render — read the LATEST
-  // section tree at call time, not the tree captured at registration.
+  // The registry callbacks fire later than this render — read the LATEST
+  // section state at call time, not what was captured at registration.
   const sectionTreeRef = useRef(treeContext.fileTree);
   sectionTreeRef.current = treeContext.fileTree;
+  const displayedTreeRef = useRef(filteredTree);
+  displayedTreeRef.current = filteredTree;
   useEffect(() => {
     if (!forestActions) {
       return;
     }
     return forestActions.register(folderId, {
+      getVisibleQuickFilterKeys: () => {
+        // Composite keys of the files currently DISPLAYED in this section
+        // (view filters + quick filter applied) — quick-filter Select All
+        // selects exactly what the user sees, no scanning beyond it.
+        const visible = new Set<string>();
+        collectVisibleFiles(displayedTreeRef.current, visible);
+        return Array.from(visible, (path) => `${folderId}|@|${path}`);
+      },
       expandAll: async () => {
         const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
           const currentPaths = store.getState().expandedDirectoryPaths;

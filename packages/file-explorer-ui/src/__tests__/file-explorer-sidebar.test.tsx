@@ -1174,6 +1174,121 @@ describe('FileExplorerSidebar', () => {
     );
   });
 
+  // The QUICK FILTER (search box) must filter every forest section's display
+  // and quick-filter Select All must see the matches across ALL roots — both
+  // were focused-panel-only before (the search box silently did nothing to
+  // the visible forest).
+  it('quick filter filters EVERY forest section and visible keys aggregate across roots', async () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes =
+          handle.path === '/project-a'
+            ? [
+                createFileNode({
+                  name: 'alpha.ts',
+                  path: '/project-a/alpha.ts',
+                  rootFolderId: ROOT_ID_A,
+                }),
+                createFileNode({
+                  name: 'other.ts',
+                  path: '/project-a/other.ts',
+                  rootFolderId: ROOT_ID_A,
+                }),
+              ]
+            : [
+                createFileNode({
+                  name: 'alpha-b.ts',
+                  path: '/project-b/alpha-b.ts',
+                  rootFolderId: ROOT_ID_B,
+                }),
+              ];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+
+    const forestActionsRef: { current: ForestTreeActionsValue | null } = { current: null };
+    function ForestActionsProbe() {
+      forestActionsRef.current = useOptionalForestTreeActions();
+      return null;
+    }
+    const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+      current: null,
+    };
+    function StoreProbe() {
+      storeRef.current = useFileExplorerStoreContext();
+      return null;
+    }
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <ForestTreeActionsProvider>
+          <ForestActionsProbe />
+          <StoreProbe />
+          <FileExplorerSidebar
+            {...defaultProps}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={
+              new Map([
+                ['/project-a', ROOT_ID_A],
+                ['/project-b', ROOT_ID_B],
+              ])
+            }
+            setFocusedRoot={vi.fn()}
+          />
+        </ForestTreeActionsProvider>
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText('other.ts')).toBeInTheDocument();
+    });
+
+    act(() => {
+      storeRef.current?.getState().setQuickFilter('alpha');
+    });
+
+    // BOTH sections filter by the search term.
+    await waitFor(() => {
+      expect(screen.queryByText('other.ts')).toBeNull();
+    });
+    expect(screen.getByText('alpha.ts')).toBeInTheDocument();
+    expect(screen.getByText('alpha-b.ts')).toBeInTheDocument();
+
+    // The registry aggregates the visible matches as COMPOSITE keys per root.
+    const keys = forestActionsRef.current?.collectVisibleQuickFilterKeys() ?? [];
+    expect(keys.sort()).toEqual([
+      `${ROOT_ID_A}|@|/project-a/alpha.ts`,
+      `${ROOT_ID_B}|@|/project-b/alpha-b.ts`,
+    ]);
+
+    // A term matching nothing → the quick-filter empty state names the term.
+    act(() => {
+      storeRef.current?.getState().setQuickFilter('zzz-no-match');
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('No files match the search "zzz-no-match"').length).toBe(2);
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Disconnect flow (Phase 5)
   // -------------------------------------------------------------------------

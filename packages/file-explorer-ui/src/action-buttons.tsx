@@ -49,6 +49,13 @@ export interface ActionButtonsProps {
   isLoadingForSelectAll?: boolean | undefined;
   maxSelectionCount: number;
   /**
+   * FOREST MODE override for quick-filter Select All: selects the visible
+   * quick-filter matches across EVERY root (the local fallback only sees the
+   * focused panel tree). When provided it owns the whole quick-filter path,
+   * including zero-match feedback.
+   */
+  quickFilterSelectAllOverride?: (() => void) | undefined;
+  /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.
    */
@@ -78,6 +85,7 @@ export const ActionButtons = React.memo(
     hasFilesInTree = false,
     filteredTree,
     hasActiveQuickFilter = false,
+    quickFilterSelectAllOverride,
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll = false,
@@ -148,6 +156,10 @@ export const ActionButtons = React.memo(
       }
 
       if (hasActiveQuickFilter) {
+        if (quickFilterSelectAllOverride) {
+          quickFilterSelectAllOverride();
+          return;
+        }
         performFallbackSelection(currentFolderId);
         return;
       }
@@ -167,6 +179,7 @@ export const ActionButtons = React.memo(
       performRecursiveSelection,
       performFallbackSelection,
       hasActiveQuickFilter,
+      quickFilterSelectAllOverride,
     ]);
 
     // Clears all selected files
@@ -184,9 +197,11 @@ export const ActionButtons = React.memo(
     const hasDisplayedFiles = displayedFiles.size > 0;
     const hasSelectedFiles = selectedFilePaths.size > 0;
 
-    // Enable button if there are displayed files OR if tree has files (for recursive selection)
+    // Enable button if there are displayed files OR if tree has files (for
+    // recursive selection). The forest quick-filter override owns its own
+    // zero-match feedback, so its presence keeps the button live.
     const canSelectFiles = hasActiveQuickFilter
-      ? (visibleFilePaths?.length ?? 0) > 0
+      ? Boolean(quickFilterSelectAllOverride) || (visibleFilePaths?.length ?? 0) > 0
       : hasDisplayedFiles || hasFilesInTree;
 
     const getButtonText = () => {

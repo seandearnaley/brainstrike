@@ -30,6 +30,11 @@ export interface SectionSelectAllSummary {
 export interface SectionTreeActions {
   cancelExpandAll: () => void;
   expandAll: () => Promise<void>;
+  /**
+   * Composite keys of the files currently DISPLAYED in this section (view
+   * filters + quick filter applied) — what quick-filter Select All selects.
+   */
+  getVisibleQuickFilterKeys: () => string[];
   /** Section-scoped recursive select-all (quiet: no per-root toasts). */
   selectAll: () => Promise<SectionSelectAllSummary>;
 }
@@ -46,6 +51,12 @@ export interface ForestSelectAllSummary {
 export interface ForestTreeActionsValue {
   /** Cancel every section's in-flight progressive expansion. */
   cancelExpandAll: () => void;
+  /**
+   * Composite keys of every file currently displayed across ALL sections
+   * (view filters + quick filter applied) — the forest-wide source for
+   * quick-filter Select All.
+   */
+  collectVisibleQuickFilterKeys: () => string[];
   /** True while a forest-wide expand-all is running. */
   isExpandingAll: boolean;
   /** Register a section's actions; returns the unregister cleanup. */
@@ -120,15 +131,31 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
     return summary;
   }, []);
 
+  const collectVisibleQuickFilterKeys = useCallback((): string[] => {
+    const keys: string[] = [];
+    for (const [, actions] of sectionsRef.current) {
+      keys.push(...actions.getVisibleQuickFilterKeys());
+    }
+    return keys;
+  }, []);
+
   const value = useMemo(
     () => ({
       cancelExpandAll,
+      collectVisibleQuickFilterKeys,
       isExpandingAll: runningCount > 0,
       register,
       runExpandAll,
       runSelectAll,
     }),
-    [cancelExpandAll, register, runExpandAll, runningCount, runSelectAll]
+    [
+      cancelExpandAll,
+      collectVisibleQuickFilterKeys,
+      register,
+      runExpandAll,
+      runningCount,
+      runSelectAll,
+    ]
   );
 
   return (
