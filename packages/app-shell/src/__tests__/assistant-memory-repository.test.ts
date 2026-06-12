@@ -345,7 +345,11 @@ describe('createAssistantThreadHistoryAdapter', () => {
     });
 
     const history = await adapter.load();
-    const toolAssistant = history.messages.find((item) => item.message.id === 'message-2');
+    // The tool-call row, tool-result row, and final text row are one live
+    // assistant turn, so they hydrate back into ONE message (under the last
+    // row's id) — exactly how the thread rendered while streaming.
+    expect(history.messages.map((item) => item.message.id)).toEqual(['message-1', 'message-4']);
+    const toolAssistant = history.messages.find((item) => item.message.id === 'message-4');
 
     expect(toolAssistant?.message.content).toEqual([
       {
@@ -357,6 +361,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
         result: { matches: ['src/a.ts'] },
         isError: false,
       },
+      { type: 'text', text: 'I found one match.' },
     ]);
   });
 
@@ -631,6 +636,500 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
       expect(getReasoningTexts(history)).toEqual([]);
     });
+  });
+});
+
+describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', () => {
+  // These fixtures mirror what Mastra 1.x ACTUALLY writes to mastra_messages
+  // (format-2 content; tool calls as nested `tool-invocation` parts with
+  // inline results; `data-om-*`/`step-start` bookkeeping parts; observational
+  // memory persisting progressive snapshot rows of the same logical message).
+  // The live-loop proof for this shape is
+  // packages/agent/src/__tests__/mastra-memory-persistence.spec.ts — keep the
+  // two in sync.
+  interface HistoryMessageRow {
+    content: unknown;
+    createdAt: Date;
+    id: string;
+    role: 'assistant' | 'user';
+  }
+
+  function makeRepository(args: {
+    messages: HistoryMessageRow[];
+    runEvents?: AssistantRunEvent[];
+  }): Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'] {
+    return {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listMessages: vi.fn(async () => args.messages),
+    } as Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'];
+  }
+
+  function makeToolInvocationPart(args: {
+    toolCallId: string;
+    toolName: string;
+    input?: Record<string, unknown>;
+    state?: string;
+    result?: unknown;
+    errorText?: string;
+  }): Record<string, unknown> {
+    return {
+      type: 'tool-invocation',
+      toolInvocation: {
+        toolCallId: args.toolCallId,
+        toolName: args.toolName,
+        args: args.input ?? {},
+        state: args.state ?? 'result',
+        ...(args.result === undefined ? {} : { result: args.result }),
+        ...(args.errorText === undefined ? {} : { errorText: args.errorText }),
+      },
+      providerMetadata: { openai: { itemId: 'fc_test' } },
+    };
+  }
+
+  const OM_STATUS_PART = {
+    type: 'data-om-status',
+    data: { stepNumber: 1, recordId: 'om-record-1' },
+    createdAt: 1_781_183_967_655,
+  };
+
+  async function loadHistory(args: {
+    messages: HistoryMessageRow[];
+    runEvents?: AssistantRunEvent[];
+  }) {
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository: makeRepository(args),
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+    return await adapter.load();
+  }
+
+  it('hydrates tool-invocation parts with inline results from format-2 content', async () => {
+    const history = await loadHistory({
+      messages: [
+        {
+          id: 'message-user',
+          role: 'user',
+          content: {
+            format: 2,
+            parts: [{ type: 'text', text: 'weather in Paris?' }],
+            content: 'weather in Paris?',
+          },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
+        },
+        {
+          id: 'message-assistant',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              OM_STATUS_PART,
+              // OpenAI encrypted reasoning persists as an empty-reasoning part.
+              { type: 'reasoning', reasoning: '', details: [{ type: 'text', text: '' }] },
+              makeToolInvocationPart({
+                toolCallId: 'call-1',
+                toolName: 'get_weather',
+                input: { city: 'Paris' },
+                result: { city: 'Paris', temperatureC: 21 },
+              }),
+              { type: 'step-start' },
+              { type: 'text', text: 'It is 21C in Paris.' },
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+        },
+      ],
+    });
+
+    const assistant = history.messages.find((item) => item.message.id === 'message-assistant');
+    expect(assistant).toBeDefined();
+    expect(assistant?.message.content).toContainEqual({
+      type: 'tool-call',
+      toolCallId: 'call-1',
+      toolName: 'get_weather',
+      args: { city: 'Paris' },
+      argsText: '{"city":"Paris"}',
+      result: { city: 'Paris', temperatureC: 21 },
+    });
+    expect(assistant?.message.content).toContainEqual({
+      type: 'text',
+      text: 'It is 21C in Paris.',
+    });
+    // Bookkeeping parts and empty reasoning never become visible content.
+    const types = assistant?.message.content.map((part) => part.type);
+    expect(types).not.toContain('reasoning');
+    expect(types).toEqual(['tool-call', 'text']);
+  });
+
+  it('marks output-error invocations as failed tool calls with the error text as result', async () => {
+    const history = await loadHistory({
+      messages: [
+        {
+          id: 'message-assistant',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              makeToolInvocationPart({
+                toolCallId: 'call-err',
+                toolName: 'get_weather',
+                input: { city: 'Atlantis' },
+                state: 'output-error',
+                errorText: 'city not found',
+              }),
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+        },
+      ],
+    });
+
+    expect(history.messages[0]?.message.content).toContainEqual({
+      type: 'tool-call',
+      toolCallId: 'call-err',
+      toolName: 'get_weather',
+      args: { city: 'Atlantis' },
+      argsText: '{"city":"Atlantis"}',
+      result: 'city not found',
+      isError: true,
+    });
+  });
+
+  it('dedupes tool calls repeated across observational-memory snapshot rows', async () => {
+    // OM sealing persists progressive snapshots of the same accumulating
+    // assistant message under fresh row ids. The same toolCallId must render
+    // once, at its first (chronological) position, with the richer result
+    // merged in from the later snapshot.
+    const history = await loadHistory({
+      messages: [
+        {
+          id: 'snapshot-1',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              OM_STATUS_PART,
+              makeToolInvocationPart({
+                toolCallId: 'call-a',
+                toolName: 'grep_search',
+                input: { pattern: 'foo' },
+                state: 'call',
+              }),
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+        },
+        {
+          id: 'snapshot-2',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              makeToolInvocationPart({
+                toolCallId: 'call-a',
+                toolName: 'grep_search',
+                input: { pattern: 'foo' },
+                result: { matches: 3 },
+              }),
+              makeToolInvocationPart({
+                toolCallId: 'call-b',
+                toolName: 'read_file',
+                input: { path: 'a.ts' },
+                result: { ok: true },
+              }),
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:29Z'),
+        },
+        {
+          id: 'tail',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              makeToolInvocationPart({
+                toolCallId: 'call-a',
+                toolName: 'grep_search',
+                input: { pattern: 'foo' },
+                result: { matches: 3 },
+              }),
+              makeToolInvocationPart({
+                toolCallId: 'call-b',
+                toolName: 'read_file',
+                input: { path: 'a.ts' },
+                result: { ok: true },
+              }),
+              { type: 'text', text: 'Found 3 matches.' },
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:40Z'),
+        },
+      ],
+    });
+
+    // The snapshot rows collapse into ONE assistant message (under the last
+    // row's id), mirroring the single live turn.
+    expect(history.messages.map((item) => item.message.id)).toEqual(['tail']);
+    const merged = history.messages[0];
+
+    const toolCalls = merged?.message.content.filter((part) => part.type === 'tool-call') ?? [];
+    expect(toolCalls.map((part) => (part as { toolCallId: string }).toolCallId)).toEqual([
+      'call-a',
+      'call-b',
+    ]);
+
+    // First occurrence of call-a (state 'call' with no result in snapshot-1)
+    // was upgraded with the result from the later snapshot.
+    expect(merged?.message.content).toContainEqual(
+      expect.objectContaining({ toolCallId: 'call-a', result: { matches: 3 } })
+    );
+
+    // Execution order, once each: call-a, call-b, then the final text.
+    expect(merged?.message.content.map((part) => part.type)).toEqual([
+      'tool-call',
+      'tool-call',
+      'text',
+    ]);
+  });
+
+  it('interleaves run events with timestamped content parts in live order', async () => {
+    const makeEvent = (id: string, timestamp: string, label: string): AssistantRunEvent => ({
+      id,
+      runId: 'run-1',
+      kind: 'run.step.finished',
+      status: 'completed',
+      label,
+      sequence: Number.parseInt(id.split('-')[1] ?? '0', 10),
+      timestamp,
+    });
+    const history = await loadHistory({
+      runEvents: [
+        makeEvent('event-1', '2026-06-11T13:18:12.000Z', 'run started'),
+        makeEvent('event-2', '2026-06-11T13:18:20.000Z', 'step 1 completed'),
+        makeEvent('event-3', '2026-06-11T13:18:45.000Z', 'run completed'),
+      ],
+      messages: [
+        {
+          id: 'message-user',
+          role: 'user',
+          content: { format: 2, parts: [{ type: 'text', text: 'go' }], content: 'go' },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
+        },
+        {
+          id: 'snapshot-1',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              {
+                ...makeToolInvocationPart({
+                  toolCallId: 'call-1',
+                  toolName: 'grep_search',
+                  input: { pattern: 'x' },
+                  result: { matches: 1 },
+                }),
+                createdAt: Date.parse('2026-06-11T13:18:15.000Z'),
+              },
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+        },
+        {
+          id: 'tail',
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              {
+                type: 'text',
+                text: 'Done.',
+                createdAt: Date.parse('2026-06-11T13:18:40.000Z'),
+              },
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:41Z'),
+        },
+      ],
+    });
+
+    expect(history.messages.map((item) => item.message.id)).toEqual(['message-user', 'tail']);
+    const merged = history.messages.at(-1);
+    // Live order: run-start event → tool call (13:18:15) → step event
+    // (13:18:20) → final text (13:18:40) → completion event (13:18:45).
+    expect(
+      merged?.message.content.map((part) =>
+        part.type === 'data' ? `event:${(part.data as AssistantRunEvent).id}` : part.type
+      )
+    ).toEqual(['event:event-1', 'tool-call', 'event:event-2', 'text', 'event:event-3']);
+  });
+
+  it('re-times untimed tool calls to their tool.started events instead of clumping at snapshot boundaries', async () => {
+    // Mastra does not persist per-part createdAt for tool invocations, but
+    // every execution emits a tool.started run event carrying the toolCallId.
+    const makeToolEvent = (
+      id: string,
+      kind: 'tool.started' | 'tool.completed',
+      timestamp: string,
+      toolCallId: string,
+      sequence: number
+    ): AssistantRunEvent => ({
+      id,
+      runId: 'run-1',
+      kind,
+      status: kind === 'tool.started' ? 'running' : 'completed',
+      label: toolCallId,
+      sequence,
+      timestamp,
+      metadata: { toolCallId },
+    });
+    const history = await loadHistory({
+      runEvents: [
+        makeToolEvent('event-1', 'tool.started', '2026-06-11T13:18:12.000Z', 'call-early', 1),
+        makeToolEvent('event-2', 'tool.completed', '2026-06-11T13:18:13.000Z', 'call-early', 2),
+        makeToolEvent('event-3', 'tool.started', '2026-06-11T13:18:30.000Z', 'call-late', 3),
+        makeToolEvent('event-4', 'tool.completed', '2026-06-11T13:18:31.000Z', 'call-late', 4),
+      ],
+      messages: [
+        {
+          id: 'snapshot-1',
+          role: 'assistant',
+          // BOTH calls persisted (untimed) in one snapshot row saved at
+          // 13:18:35 — without event re-timing they would clump together
+          // after every event.
+          content: {
+            format: 2,
+            parts: [
+              makeToolInvocationPart({
+                toolCallId: 'call-early',
+                toolName: 'grep_search',
+                input: { pattern: 'a' },
+                result: { matches: 1 },
+              }),
+              makeToolInvocationPart({
+                toolCallId: 'call-late',
+                toolName: 'read_file',
+                input: { path: 'b.ts' },
+                result: { ok: true },
+              }),
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:35Z'),
+        },
+      ],
+    });
+
+    const merged = history.messages.at(-1);
+    expect(
+      merged?.message.content.map((part) =>
+        part.type === 'data' ? `event:${(part.data as AssistantRunEvent).id}` : part.type
+      )
+    ).toEqual([
+      'event:event-1', // call-early started
+      'tool-call', //      call-early sits at its own start time
+      'event:event-2', // call-early completed
+      'event:event-3', // call-late started
+      'tool-call', //      call-late sits at its own start time
+      'event:event-4', // call-late completed
+    ]);
+  });
+
+  it('keeps each turn’s run events with that turn across multiple assistant groups', async () => {
+    const makeEvent = (id: string, timestamp: string, sequence: number): AssistantRunEvent => ({
+      id,
+      runId: `run-${sequence}`,
+      kind: 'run.finished',
+      status: 'completed',
+      label: 'Assistant run completed',
+      sequence,
+      timestamp,
+    });
+    const history = await loadHistory({
+      runEvents: [
+        makeEvent('event-turn-1', '2026-06-11T13:18:20.000Z', 1),
+        makeEvent('event-turn-2', '2026-06-11T13:20:20.000Z', 2),
+      ],
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: { format: 2, parts: [{ type: 'text', text: 'first' }], content: 'first' },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: { format: 2, parts: [{ type: 'text', text: 'first answer' }] },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+        },
+        {
+          id: 'user-2',
+          role: 'user',
+          content: { format: 2, parts: [{ type: 'text', text: 'second' }], content: 'second' },
+          createdAt: new Date('2026-06-11T13:20:10Z'),
+        },
+        {
+          id: 'assistant-2',
+          role: 'assistant',
+          content: { format: 2, parts: [{ type: 'text', text: 'second answer' }] },
+          createdAt: new Date('2026-06-11T13:20:16Z'),
+        },
+      ],
+    });
+
+    const firstAssistant = history.messages.find((item) => item.message.id === 'assistant-1');
+    const secondAssistant = history.messages.find((item) => item.message.id === 'assistant-2');
+    const eventIds = (content: readonly { type: string; data?: unknown }[] | undefined) =>
+      (content ?? [])
+        .filter((part) => part.type === 'data')
+        .map((part) => (part.data as AssistantRunEvent).id);
+    expect(eventIds(firstAssistant?.message.content)).toEqual(['event-turn-1']);
+    expect(eventIds(secondAssistant?.message.content)).toEqual(['event-turn-2']);
+  });
+
+  it('attaches run events to the newest assistant row even when no row has renderable parts', async () => {
+    const runEvent: AssistantRunEvent = {
+      id: 'event-1',
+      runId: 'run-1',
+      kind: 'tool.completed',
+      status: 'completed',
+      label: 'grep_search completed',
+      sequence: 0,
+      timestamp: '2026-06-11T13:18:20.000Z',
+    };
+    const history = await loadHistory({
+      runEvents: [runEvent],
+      messages: [
+        {
+          id: 'message-user',
+          role: 'user',
+          content: { format: 2, parts: [{ type: 'text', text: 'hi' }], content: 'hi' },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
+        },
+        {
+          id: 'message-assistant-empty',
+          role: 'assistant',
+          content: { format: 2, parts: [OM_STATUS_PART] },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+        },
+      ],
+    });
+
+    const assistant = history.messages.find(
+      (item) => item.message.id === 'message-assistant-empty'
+    );
+    expect(assistant).toBeDefined();
+    expect(assistant?.message.content).toEqual([
+      { type: 'data', name: 'brainstrike.run-event', data: runEvent },
+    ]);
   });
 });
 

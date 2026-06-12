@@ -248,6 +248,50 @@ When changing this flow, update this section and the related tests.
 
 ---
 
+## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
+
+Hosted-provider turns are persisted by Mastra (the durable writer) into
+`mastra_messages`; the client history adapter is read-through only. Two
+contracts keep reloaded threads identical to live ones:
+
+1. **Persisted dialect (Mastra v2 / `MastraMessageContentV2`):** content is
+   `{ format: 2, parts: [...] }`. Tool calls are
+   `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
+   state, result } }` parts with results INLINE — there are NO `role: 'tool'`
+   rows in this dialect (the legacy `tool-call` part + separate tool rows is
+   still supported for old data). Reasoning may arrive with a `reasoning`
+   field instead of `text` (and is often empty for encrypted provider
+   reasoning). `step-start` and `data-om-*` bookkeeping parts are not
+   renderable. Live-loop proof (real agent + real PGlite memory, no mocks):
+   packages/agent/src/__tests__/mastra-memory-persistence.spec.ts. Hydration
+   fixtures must mirror REAL persisted rows, never hand-written shapes — a
+   hand-written `tool-call` fixture previously kept tests green while real
+   tool history silently vanished on every reload.
+2. **Snapshot grouping + live-order interleaving:** observational-memory
+   sealing and per-step saves split ONE live assistant turn into several
+   `mastra_messages` rows (progressive snapshots under fresh ids, so one
+   toolCallId can appear in several rows). Hydration
+   (packages/app-shell/src/assistant-memory-repository.ts) therefore:
+   - merges consecutive assistant rows into ONE assistant-ui message (id =
+     last row, createdAt = first row; legacy `role: 'tool'` rows don't split
+     a group),
+   - dedupes tool calls by toolCallId (first occurrence wins; later
+     result/error fields merge in),
+   - assigns each turn's run events to its own group by timestamp and weaves
+     them between content parts in time order. Tool-invocation parts carry no
+     persisted timestamp, so each is re-timed to its `tool.started` run event
+     (matched via `metadata.toolCallId`); other untimed parts anchor to their
+     snapshot row's save time. A group with only run events still renders.
+
+Known gap: built-in LOCAL provider turns do not persist to Mastra memory at
+all (LocalRuntimeChat has no history adapter) — local threads are
+session-only today.
+
+When changing message persistence or hydration, update this section and the
+paired tests in packages/agent and packages/app-shell.
+
+---
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

@@ -498,9 +498,20 @@ type AssistantHydratedContentPart =
   | AssistantHistoryToolCallPart
   | AssistantHistoryReasoningPart;
 type AssistantHistoryRepositoryMessages = AssistantHistoryLoadResult['messages'];
+type AssistantRunEventDataPart = ReturnType<typeof toRunEventDataParts>[number];
 interface AssistantToolResultSnapshot {
   readonly isError?: boolean;
   readonly result?: unknown;
+}
+
+/**
+ * A hydrated content part paired with the epoch-ms moment it was produced
+ * (Mastra persists per-part `createdAt` numbers). The timestamp drives
+ * run-event interleaving so a reloaded thread reads in live order.
+ */
+interface TimedHistoryContentPart {
+  readonly at?: number;
+  readonly part: AssistantHydratedContentPart;
 }
 
 function extractText(value: unknown, seenObjects = new WeakSet<object>()): string {
@@ -612,6 +623,82 @@ function toHistoryReasoningPart(
   return trimmed ? { type: 'reasoning', text: trimmed } : undefined;
 }
 
+/**
+ * Mastra v2 (`MastraMessageContentV2`) persists tool calls as
+ * `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
+ * state, result } }` parts with the result INLINE — there are no separate
+ * `role: 'tool'` rows in this dialect (see the live-loop proof in
+ * packages/agent/src/__tests__/mastra-memory-persistence.spec.ts).
+ */
+function toHistoryToolCallPartFromInvocation(
+  record: Record<string, unknown>
+): AssistantHistoryToolCallPart | undefined {
+  const invocation = record['toolInvocation'];
+  if (!invocation || typeof invocation !== 'object' || Array.isArray(invocation)) {
+    return;
+  }
+  const inv = invocation as Record<string, unknown>;
+  const state = typeof inv['state'] === 'string' ? inv['state'] : undefined;
+  if (state === 'partial-call') {
+    // Streaming-intermediate state; Mastra filters these before persisting,
+    // so a stray one carries no renderable information.
+    return;
+  }
+  const toolCallId = inv['toolCallId'];
+  const toolName = inv['toolName'];
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+    return;
+  }
+  if (typeof toolName !== 'string' || toolName.length === 0) {
+    return;
+  }
+  const args = (
+    inv['args'] && typeof inv['args'] === 'object' && !Array.isArray(inv['args']) ? inv['args'] : {}
+  ) as AssistantHistoryToolCallPart['args'];
+  const hasResult = Object.hasOwn(inv, 'result');
+  const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
+  const isError = state === 'output-error' || inv['isError'] === true;
+  return {
+    type: 'tool-call',
+    toolCallId,
+    toolName,
+    args,
+    argsText: stringifyArgsText(args),
+    ...(hasResult
+      ? { result: inv['result'] }
+      : errorText === undefined
+        ? {}
+        : { result: errorText }),
+    ...(isError ? { isError: true } : {}),
+  };
+}
+
+/**
+ * Observational-memory sealing persists progressive snapshots of the same
+ * accumulating assistant message under fresh row ids, so one logical tool call
+ * can appear in several assistant rows. Hydration keeps the FIRST occurrence
+ * (preserving execution order) and merges richer fields (result, error flag)
+ * from later duplicates into it.
+ */
+function dedupeHistoryToolCallPart(
+  part: AssistantHistoryToolCallPart,
+  seenToolCallsById: Map<string, AssistantHistoryToolCallPart>
+): AssistantHistoryToolCallPart | undefined {
+  const existing = seenToolCallsById.get(part.toolCallId);
+  if (!existing) {
+    seenToolCallsById.set(part.toolCallId, part);
+    return part;
+  }
+  const mutable = existing as { result?: unknown; isError?: boolean };
+  if (!Object.hasOwn(existing, 'result') && Object.hasOwn(part, 'result')) {
+    mutable.result = (part as { result?: unknown }).result;
+  }
+  if (existing.isError === undefined && part.isError !== undefined) {
+    mutable.isError = part.isError;
+  }
+  return;
+}
+
 function resolveRawContentPart(
   record: Record<string, unknown>,
   toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
@@ -623,29 +710,43 @@ function resolveRawContentPart(
   if (record['type'] === 'tool-call') {
     return toHistoryToolCallPart(record, toolResultsByCallId);
   }
+  if (record['type'] === 'tool-invocation') {
+    return toHistoryToolCallPartFromInvocation(record);
+  }
   if (record['type'] === 'reasoning') {
     return toHistoryReasoningPart(record);
   }
   return;
 }
 
+function readPartCreatedAtMs(record: Record<string, unknown>): number | undefined {
+  const value = record['createdAt'];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function toAssistantHistoryContentParts(
   value: unknown,
-  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
-): AssistantHydratedContentPart[] {
+  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>,
+  seenToolCallsById?: Map<string, AssistantHistoryToolCallPart>
+): TimedHistoryContentPart[] {
   const rawParts = readContentPartArray(value);
   if (!rawParts) {
-    return toTextHistoryContentParts(value);
+    return toTextHistoryContentParts(value).map((part) => ({ part }));
   }
 
-  const parts: AssistantHydratedContentPart[] = [];
+  const parts: TimedHistoryContentPart[] = [];
   for (const rawPart of rawParts) {
     if (!rawPart || typeof rawPart !== 'object' || Array.isArray(rawPart)) {
       continue;
     }
-    const resolved = resolveRawContentPart(rawPart as Record<string, unknown>, toolResultsByCallId);
+    const record = rawPart as Record<string, unknown>;
+    let resolved = resolveRawContentPart(record, toolResultsByCallId);
+    if (resolved?.type === 'tool-call' && seenToolCallsById) {
+      resolved = dedupeHistoryToolCallPart(resolved, seenToolCallsById);
+    }
     if (resolved) {
-      parts.push(resolved);
+      const at = readPartCreatedAtMs(record);
+      parts.push(at === undefined ? { part: resolved } : { at, part: resolved });
     }
   }
   return parts;
@@ -717,29 +818,138 @@ function collectToolResults(
   return results;
 }
 
-function appendAssistantHistoryMessage(args: {
-  latestAssistantMessageId: string | null;
-  message: AssistantHistoryMessage;
+/**
+ * A run of consecutive assistant rows (split only by user/system rows; legacy
+ * `role: 'tool'` rows do not break a run). Observational-memory sealing and
+ * per-step saves split ONE live assistant turn into several rows, so a group
+ * hydrates back into a single assistant-ui message — matching what the thread
+ * looked like while it streamed.
+ */
+interface AssistantHistoryRowGroup {
+  readonly kind: 'assistant-group';
+  readonly parts: TimedHistoryContentPart[];
+  readonly rows: AssistantHistoryMessage[];
+}
+
+interface AssistantHistorySingleUnit {
+  readonly kind: 'user' | 'system';
+  readonly message: AssistantHistoryMessage;
+}
+
+type AssistantHistoryUnit = AssistantHistoryRowGroup | AssistantHistorySingleUnit;
+
+function runEventTimeMs(eventPart: AssistantRunEventDataPart): number {
+  const ms = Date.parse(eventPart.data.timestamp);
+  // Unparseable timestamps surface at the front of the group (the legacy
+  // prepend position) instead of being dropped.
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+
+/**
+ * Tool-invocation parts rarely carry their own persisted timestamp, but every
+ * tool execution emits a `tool.started` run event whose metadata names the
+ * toolCallId — re-time each tool-call part to its own start event so reloaded
+ * calls sit exactly where they executed instead of clumping at a snapshot
+ * boundary.
+ */
+function applyToolEventTimes(
+  parts: readonly TimedHistoryContentPart[],
+  eventParts: readonly AssistantRunEventDataPart[]
+): readonly TimedHistoryContentPart[] {
+  const startTimesByToolCallId = new Map<string, number>();
+  for (const eventPart of eventParts) {
+    if (eventPart.data.kind !== 'tool.started') {
+      continue;
+    }
+    const toolCallId = eventPart.data.metadata?.['toolCallId'];
+    if (typeof toolCallId !== 'string' || startTimesByToolCallId.has(toolCallId)) {
+      continue;
+    }
+    const ms = Date.parse(eventPart.data.timestamp);
+    if (!Number.isNaN(ms)) {
+      startTimesByToolCallId.set(toolCallId, ms);
+    }
+  }
+  if (startTimesByToolCallId.size === 0) {
+    return parts;
+  }
+  return parts.map((timed) => {
+    if (timed.part.type !== 'tool-call') {
+      return timed;
+    }
+    const ms = startTimesByToolCallId.get(timed.part.toolCallId);
+    return ms === undefined ? timed : { at: ms, part: timed.part };
+  });
+}
+
+/**
+ * Interleave run events with content parts in live order: each event is
+ * emitted before the first content part produced after it. Parts without a
+ * persisted timestamp inherit the previous part's moment, so relative content
+ * order is never changed.
+ */
+function weaveRunEventsIntoContent(
+  parts: readonly TimedHistoryContentPart[],
+  eventParts: readonly AssistantRunEventDataPart[],
+  groupStartMs: number
+): Array<AssistantHydratedContentPart | AssistantRunEventDataPart> {
+  if (eventParts.length === 0) {
+    return parts.map((timed) => timed.part);
+  }
+  const woven: Array<AssistantHydratedContentPart | AssistantRunEventDataPart> = [];
+  let eventIndex = 0;
+  let lastAt = groupStartMs;
+  for (const timed of parts) {
+    const at = timed.at ?? lastAt;
+    lastAt = at;
+    while (eventIndex < eventParts.length) {
+      const eventPart = eventParts[eventIndex];
+      if (!eventPart || runEventTimeMs(eventPart) > at) {
+        break;
+      }
+      woven.push(eventPart);
+      eventIndex += 1;
+    }
+    woven.push(timed.part);
+  }
+  for (; eventIndex < eventParts.length; eventIndex += 1) {
+    const eventPart = eventParts[eventIndex];
+    if (eventPart) {
+      woven.push(eventPart);
+    }
+  }
+  return woven;
+}
+
+function appendAssistantGroupMessage(args: {
+  group: AssistantHistoryRowGroup;
+  groupEventParts: readonly AssistantRunEventDataPart[];
   parentId: string | null;
   repositoryMessages: AssistantHistoryRepositoryMessages;
-  runEventDataParts: ReturnType<typeof toRunEventDataParts>;
-  runEvents: readonly AssistantRunEvent[];
-  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>;
-}): boolean {
-  const content = toAssistantHistoryContentParts(args.message.content, args.toolResultsByCallId);
-  if (content.length === 0) {
-    return false;
+}): string | null {
+  const firstRow = args.group.rows.at(0);
+  const lastRow = args.group.rows.at(-1);
+  if (!(firstRow && lastRow)) {
+    return null;
   }
-
-  const isLatestAssistantMessage =
-    args.runEvents.length > 0 && args.message.id === args.latestAssistantMessageId;
+  // A group with no renderable parts of its own is still appended when it
+  // carries run events — otherwise the persisted execution path would be
+  // invisible after reload.
+  if (args.group.parts.length === 0 && args.groupEventParts.length === 0) {
+    return null;
+  }
+  const content = weaveRunEventsIntoContent(
+    applyToolEventTimes(args.group.parts, args.groupEventParts),
+    args.groupEventParts,
+    firstRow.createdAt.getTime()
+  );
   args.repositoryMessages.push({
     parentId: args.parentId,
     message: {
-      id: args.message.id,
+      id: lastRow.id,
       role: 'assistant',
-      content: isLatestAssistantMessage ? [...args.runEventDataParts, ...content] : content,
-      createdAt: args.message.createdAt,
+      content,
+      createdAt: firstRow.createdAt,
       status: { type: 'complete', reason: 'stop' },
       metadata: {
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
@@ -753,7 +963,7 @@ function appendAssistantHistoryMessage(args: {
       },
     },
   });
-  return true;
+  return lastRow.id;
 }
 
 function appendUserHistoryMessage(args: {
@@ -803,6 +1013,92 @@ function appendSystemHistoryMessage(args: {
   return true;
 }
 
+/**
+ * Partition the row stream into units: user/system rows stand alone;
+ * consecutive assistant rows collapse into one group (legacy `role: 'tool'`
+ * rows neither render nor break a group). Conversion happens here exactly
+ * once per row, in chronological order — the tool-call dedupe map is stateful
+ * (it keeps the FIRST occurrence of each toolCallId across snapshot rows), so
+ * re-converting a row would corrupt it.
+ */
+function buildHistoryUnits(
+  messages: readonly AssistantHistoryMessage[],
+  toolResultsByCallId: ReadonlyMap<string, AssistantToolResultSnapshot>
+): AssistantHistoryUnit[] {
+  const units: AssistantHistoryUnit[] = [];
+  const seenToolCallsById = new Map<string, AssistantHistoryToolCallPart>();
+  let openGroup: { rows: AssistantHistoryMessage[]; parts: TimedHistoryContentPart[] } | null =
+    null;
+
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      openGroup ??= { rows: [], parts: [] };
+      openGroup.rows.push(message);
+      // Parts without a persisted timestamp anchor to their snapshot row's
+      // save time — each row seals shortly after its parts were produced.
+      const rowMs = message.createdAt.getTime();
+      openGroup.parts.push(
+        ...toAssistantHistoryContentParts(
+          message.content,
+          toolResultsByCallId,
+          seenToolCallsById
+        ).map((timed) => (timed.at === undefined ? { at: rowMs, part: timed.part } : timed))
+      );
+      continue;
+    }
+    if (message.role === 'user' || message.role === 'system') {
+      if (openGroup) {
+        units.push({ kind: 'assistant-group', ...openGroup });
+        openGroup = null;
+      }
+      units.push({ kind: message.role, message });
+    }
+    // Other roles (legacy 'tool' rows) are folded into tool results and never
+    // rendered — they intentionally do not split an assistant group.
+  }
+  if (openGroup) {
+    units.push({ kind: 'assistant-group', ...openGroup });
+  }
+  return units;
+}
+
+/**
+ * Distribute the thread's run events across assistant groups by time: a group
+ * owns every not-yet-assigned event that occurred before the NEXT group
+ * started (so each turn's events stay with that turn). The last group takes
+ * the remainder, including post-run completion events.
+ */
+function assignRunEventsToGroups(
+  units: readonly AssistantHistoryUnit[],
+  runEvents: readonly AssistantRunEvent[]
+): Map<AssistantHistoryUnit, AssistantRunEventDataPart[]> {
+  const assignments = new Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>();
+  const groups = units.filter((unit) => unit.kind === 'assistant-group');
+  if (groups.length === 0 || runEvents.length === 0) {
+    return assignments;
+  }
+  const eventParts = toRunEventDataParts(runEvents);
+  let eventIndex = 0;
+  for (const [groupIndex, group] of groups.entries()) {
+    const nextGroup = groups[groupIndex + 1];
+    const nextStartMs = nextGroup?.rows.at(0)?.createdAt.getTime();
+    const assigned: AssistantRunEventDataPart[] = [];
+    while (eventIndex < eventParts.length) {
+      const eventPart = eventParts[eventIndex];
+      if (!eventPart) {
+        break;
+      }
+      if (nextStartMs !== undefined && runEventTimeMs(eventPart) >= nextStartMs) {
+        break;
+      }
+      assigned.push(eventPart);
+      eventIndex += 1;
+    }
+    assignments.set(group, assigned);
+  }
+  return assignments;
+}
+
 function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
@@ -811,53 +1107,29 @@ function toHistoryRepository(
     ReturnType<AssistantUiThreadHistoryAdapter['load']>
   >['messages'] = [];
   let parentId: string | null = null;
-  let latestAssistantMessageId: string | null = null;
-  const runEventDataParts = toRunEventDataParts(runEvents);
   const toolResultsByCallId = collectToolResults(messages);
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (
-      candidate?.role === 'assistant' &&
-      toAssistantHistoryContentParts(candidate.content, toolResultsByCallId).length > 0
-    ) {
-      latestAssistantMessageId = candidate.id;
-      break;
-    }
-  }
+  const units = buildHistoryUnits(messages, toolResultsByCallId);
+  const runEventAssignments = assignRunEventsToGroups(units, runEvents);
 
-  for (const message of messages) {
-    if (!(message.role === 'user' || message.role === 'assistant' || message.role === 'system')) {
+  for (const unit of units) {
+    if (unit.kind === 'assistant-group') {
+      const appendedId = appendAssistantGroupMessage({
+        group: unit,
+        groupEventParts: runEventAssignments.get(unit) ?? [],
+        parentId,
+        repositoryMessages,
+      });
+      if (appendedId !== null) {
+        parentId = appendedId;
+      }
       continue;
     }
-
-    let appended = false;
-    if (message.role === 'assistant') {
-      // This compatibility view attaches persisted run summaries to the latest
-      // assistant message until run records carry a durable message id.
-      appended = appendAssistantHistoryMessage({
-        latestAssistantMessageId,
-        message,
-        parentId,
-        repositoryMessages,
-        runEventDataParts,
-        runEvents,
-        toolResultsByCallId,
-      });
-    } else if (message.role === 'user') {
-      appended = appendUserHistoryMessage({
-        message,
-        parentId,
-        repositoryMessages,
-      });
-    } else {
-      appended = appendSystemHistoryMessage({
-        message,
-        parentId,
-        repositoryMessages,
-      });
-    }
+    const appended =
+      unit.kind === 'user'
+        ? appendUserHistoryMessage({ message: unit.message, parentId, repositoryMessages })
+        : appendSystemHistoryMessage({ message: unit.message, parentId, repositoryMessages });
     if (appended) {
-      parentId = message.id;
+      parentId = unit.message.id;
     }
   }
 
