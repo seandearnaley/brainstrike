@@ -48,7 +48,7 @@ import type {
   AssistantThreadRuntimeKind,
 } from './assistant-memory-repository';
 
-const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
+const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
 
 export function resolveModelNameFromComposite(
   composite: string | null | undefined
@@ -98,7 +98,7 @@ function resolveSemanticRecallDisabledReason(
 
   const providerId = memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
   if (!(providerId && SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId))) {
-    return 'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.';
+    return 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.';
   }
 
   return;

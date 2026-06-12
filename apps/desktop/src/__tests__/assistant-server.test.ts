@@ -985,6 +985,122 @@ describe('assistant-server', () => {
       );
     });
 
+    it('builds semantic recall on the built-in local embedder via the embedding host', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const embeddingHostManager = {
+        queryEmbedding: vi.fn().mockResolvedValue([0.1, 0.2]),
+      };
+
+      const response = await runRequest(
+        {
+          method: 'POST',
+          url: '/',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+            data: {
+              provider: 'openai',
+              memory: {
+                threadId: 'thread-local-recall',
+                resourceId: 'workspace-local-recall',
+                memorySettings: {
+                  observationalMemory: {
+                    enabled: false,
+                    modelTarget: 'openai/gpt-5.4-mini',
+                    scope: 'thread',
+                    messageTokens: 20_000,
+                    observationTokens: 40_000,
+                    retrievalMode: 'off',
+                  },
+                  semanticRecall: {
+                    enabled: true,
+                    embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+                    scope: 'resource',
+                    topK: 5,
+                    messageRange: 2,
+                  },
+                },
+              },
+            },
+          }),
+        },
+        { embeddingHostManager }
+      );
+
+      expect(response.status).toBe(200);
+      // The REAL local embedder (not the mocked hosted factory) reached memory
+      // construction, keyless, bound to the embedding host client.
+      expect(createPgliteMastraMemory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embedder: expect.objectContaining({
+            provider: 'local',
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+            specificationVersion: 'v2',
+          }),
+        })
+      );
+    });
+
+    it('fails local semantic recall with a structured error when no embedding host manager is injected', async () => {
+      const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-local-recall-missing',
+              resourceId: 'workspace-local-recall-missing',
+              memorySettings: {
+                observationalMemory: {
+                  enabled: false,
+                  modelTarget: 'openai/gpt-5.4-mini',
+                  scope: 'thread',
+                  messageTokens: 20_000,
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                },
+                semanticRecall: {
+                  enabled: true,
+                  embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+                  scope: 'resource',
+                  topK: 5,
+                  messageRange: 2,
+                },
+              },
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(502);
+      const payload = JSON.parse(response.body) as { error: string };
+      expect(payload.error).toBe('agent_stream_init_failed');
+    });
+
     it('fails local observational memory with a structured error when no llm-host manager is injected', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([

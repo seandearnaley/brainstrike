@@ -18,7 +18,9 @@ const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
   'openrouter',
   'local',
 ]);
-const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
+// 'local' embedders run in the hidden embedding-host renderer, proxied for
+// Mastra semantic recall by the assistant server (no API key).
+const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
 
 function providerById(providers: readonly DbProvider[]): Map<string, DbProvider> {
   return new Map(providers.map((provider) => [provider.id, provider]));

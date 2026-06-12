@@ -1467,7 +1467,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
         expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-          'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.'
+          'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
         );
       })
     );

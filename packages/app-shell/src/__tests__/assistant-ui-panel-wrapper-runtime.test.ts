@@ -138,7 +138,7 @@ describe('assistant runtime helpers', () => {
         },
       })
     ).toBe(
-      'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.'
+      'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
     );
   });
 

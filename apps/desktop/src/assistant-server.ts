@@ -17,6 +17,7 @@ import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
   createEmbeddingProvider,
+  createLocalHostEmbeddingModel,
   createProvider,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasNonEmptyAssistantPrompt,
@@ -97,6 +98,9 @@ const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
 const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'google',
+  // Built-in local embedders: proxied to the hidden embedding-host renderer
+  // (no API key); requires the embedding host manager.
+  'local',
 ]);
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
@@ -781,7 +785,7 @@ function parseSemanticRecallEmbeddingModelTarget(
     formatLabel: 'Semantic recall embedding model target',
     unsupportedProviderLabel: 'semantic recall embedding',
     disallowedProviderMessage: (provider) =>
-      `Desktop Mastra semantic recall currently supports hosted OpenAI and Google embedders; received "${provider}" in "${modelTarget}".`,
+      `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders or the built-in local embedder; received "${provider}" in "${modelTarget}".`,
   });
 }
 
@@ -1080,7 +1084,8 @@ async function initializeAgentStream(
                 queuedRunEvents.push({ ...event, runId });
               }
             : undefined,
-          runtime
+          runtime,
+          { embeddingHostManager: toolDependencies.embeddingHostManager }
         )
       : undefined;
     if (toolApprovalAction && !memoryResult?.storage) {
@@ -1122,11 +1127,17 @@ async function initializeAgentStream(
   }
 }
 
+/** Host services memory construction can use (injected from the server options). */
+interface DesktopMemoryDependencies {
+  readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+}
+
 async function getDesktopMastraMemory(
   memorySettings: RuntimeAssistantMemorySettings | undefined,
   runId?: string | undefined,
   eventSink?: ((event: AssistantRunEvent) => void) | undefined,
-  runtimeData?: RuntimeData | undefined
+  runtimeData?: RuntimeData | undefined,
+  memoryDependencies?: DesktopMemoryDependencies | undefined
 ): Promise<DesktopMastraMemoryResult> {
   const memoryOptions = runtimeData?.memory?.memoryOptions;
   const cacheState = createDesktopMastraMemoryCacheState({
@@ -1153,6 +1164,7 @@ async function getDesktopMastraMemory(
     const pendingMemory = createDesktopMastraMemoryFromCacheState({
       cacheState,
       eventSink,
+      memoryDependencies,
       memoryOptions,
       memorySettings,
       runId,
@@ -1170,6 +1182,7 @@ async function getDesktopMastraMemory(
   return createDesktopMastraMemoryFromCacheState({
     cacheState,
     eventSink,
+    memoryDependencies,
     memoryOptions,
     memorySettings,
     runId,
@@ -1238,6 +1251,7 @@ function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheS
 async function createDesktopMastraMemoryFromCacheState({
   cacheState,
   eventSink,
+  memoryDependencies,
   memoryOptions,
   memorySettings,
   runId,
@@ -1245,6 +1259,7 @@ async function createDesktopMastraMemoryFromCacheState({
 }: {
   readonly cacheState: DesktopMastraMemoryCacheState;
   readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
+  readonly memoryDependencies: DesktopMemoryDependencies | undefined;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly runId: string | undefined;
@@ -1270,6 +1285,7 @@ async function createDesktopMastraMemoryFromCacheState({
         )
       : undefined);
   const { embedder, observationalMemoryModel } = createDesktopMastraMemoryProviderBindings({
+    memoryDependencies,
     observationalMemoryTarget,
     runtimeData,
     semanticRecallEmbeddingTarget,
@@ -1411,11 +1427,61 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
   };
 }
 
+/**
+ * Build the semantic-recall embedder for a local target: queries are proxied
+ * to the hidden embedding-host renderer, and dimensions resolve lazily from
+ * the models catalog.
+ */
+function createLocalSemanticRecallEmbedder(
+  modelId: string,
+  memoryDependencies: DesktopMemoryDependencies | undefined
+): ReturnType<typeof createEmbeddingProvider> {
+  const embeddingHostManager = memoryDependencies?.embeddingHostManager;
+  if (!embeddingHostManager) {
+    throw new Error(
+      'Local semantic recall requires the embedding host manager; the assistant server was started without one.'
+    );
+  }
+  // Mastra ships an internal copy of the AI SDK v5 types, so the structurally
+  // identical EmbeddingModelV2 needs the same cast provider-factory uses for
+  // MastraModelConfig.
+  return createLocalHostEmbeddingModel({
+    client: embeddingHostManager,
+    modelId,
+    resolveDimensions: () => resolveLocalEmbeddingDimensions(modelId),
+  }) as unknown as ReturnType<typeof createEmbeddingProvider>;
+}
+
+async function resolveLocalEmbeddingDimensions(modelId: string): Promise<number> {
+  const database = await getDatabase();
+  const result = await database.query(
+    'SELECT capabilities FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
+    [modelId, 'local']
+  );
+  const row = (result.rows as Array<{ capabilities?: unknown }>)[0];
+  if (!row) {
+    throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
+  }
+  const capabilities =
+    typeof row.capabilities === 'string'
+      ? (JSON.parse(row.capabilities) as { defaultDimension?: unknown })
+      : (row.capabilities as { defaultDimension?: unknown } | null | undefined);
+  const dimension = capabilities?.defaultDimension;
+  if (typeof dimension !== 'number' || !Number.isSafeInteger(dimension) || dimension <= 0) {
+    throw new Error(
+      `Local embedding model "${modelId}" has no valid defaultDimension in the model catalog.`
+    );
+  }
+  return dimension;
+}
+
 function createDesktopMastraMemoryProviderBindings({
+  memoryDependencies,
   observationalMemoryTarget,
   runtimeData,
   semanticRecallEmbeddingTarget,
 }: {
+  readonly memoryDependencies: DesktopMemoryDependencies | undefined;
   readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
   readonly runtimeData: RuntimeData | undefined;
   readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
@@ -1438,13 +1504,17 @@ function createDesktopMastraMemoryProviderBindings({
         runtimeData
       )
     : undefined;
-  const embedder = semanticRecallEmbeddingTarget
-    ? createEmbeddingProvider(
-        semanticRecallEmbeddingTarget.provider,
-        semanticRecallEmbeddingTarget.apiKey,
-        semanticRecallEmbeddingTarget.model
-      )
-    : undefined;
+  let embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
+  if (semanticRecallEmbeddingTarget) {
+    embedder =
+      semanticRecallEmbeddingTarget.provider === 'local'
+        ? createLocalSemanticRecallEmbedder(semanticRecallEmbeddingTarget.model, memoryDependencies)
+        : createEmbeddingProvider(
+            semanticRecallEmbeddingTarget.provider,
+            semanticRecallEmbeddingTarget.apiKey,
+            semanticRecallEmbeddingTarget.model
+          );
+  }
   return { embedder, observationalMemoryModel };
 }
 
@@ -1546,7 +1616,16 @@ export function resetDesktopMastraMemoryCacheForTests(): void {
 
 export async function getDesktopMastraMemoryForTests(
   memorySettings: RuntimeAssistantMemorySettings | undefined,
-  runtimeData?: RuntimeData | undefined
+  runtimeData?: RuntimeData | undefined,
+  memoryDependencies?: {
+    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  }
 ): Promise<DesktopMastraMemoryResult> {
-  return getDesktopMastraMemory(memorySettings, undefined, undefined, runtimeData);
+  return getDesktopMastraMemory(
+    memorySettings,
+    undefined,
+    undefined,
+    runtimeData,
+    memoryDependencies
+  );
 }

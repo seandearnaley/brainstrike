@@ -14,6 +14,11 @@ export type {
   LocalLlmHostProgress,
   LocalLlmHostRequestOptions,
 } from './llm-host-client';
+export {
+  createLocalHostEmbeddingModel,
+  type LocalEmbeddingHostClient,
+  type LocalEmbeddingHostQuery,
+} from './local-host-embedding-model';
 export { createLocalLanguageModel, LocalLanguageModel } from './local-language-model';
 export {
   addAllowedModels,
