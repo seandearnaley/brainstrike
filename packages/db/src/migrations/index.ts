@@ -37,6 +37,7 @@ import { migration035Uuidv7PrimaryKeys } from './035-uuidv7-primary-keys.js';
 import { migration036WorkspaceIndexSystemRole } from './036-workspace-index-system-role.js';
 import { migration037FileRecordMtimeMs } from './037-file-record-mtime-ms.js';
 import { migration038PgTrgmGrepIndex } from './038-pg-trgm-grep-index.js';
+import { migration039RootsTable } from './039-roots-table.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -80,6 +81,7 @@ export const migrations: Migration[] = [
   migration036WorkspaceIndexSystemRole,
   migration037FileRecordMtimeMs,
   migration038PgTrgmGrepIndex,
+  migration039RootsTable,
 ];
 
 // Export base migrations (without chunks table) for test environments

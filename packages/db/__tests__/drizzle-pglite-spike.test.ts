@@ -41,12 +41,27 @@ describe('Drizzle + PGlite Spike', () => {
     await client.query('CREATE EXTENSION IF NOT EXISTS vector');
 
     // Run the migration SQL directly for testing
+    // Minimal roots table mirroring migration 038 (uuidv7 default omitted —
+    // spike inserts never rely on it); must exist before file_records.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "roots" (
+        "id" text PRIMARY KEY,
+        "kind" text NOT NULL,
+        "display_name" text NOT NULL,
+        "path" text,
+        "status" text DEFAULT 'live' NOT NULL,
+        "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+        "last_verified_at" timestamp with time zone
+      )
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS "file_records" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
         "name" text NOT NULL,
         "path" text NOT NULL,
         "source_root_path" text,
+        "root_id" text REFERENCES "roots"("id") ON DELETE CASCADE,
         "size" integer NOT NULL,
         "mtime_ms" bigint,
         "created_at" timestamp with time zone DEFAULT now() NOT NULL,

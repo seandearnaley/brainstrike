@@ -127,21 +127,20 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear database with data', async () => {
-      const mockTransaction: TransactionMock = vi.fn(async (callback: TransactionCallback) => {
-        const mockTx = {
-          query: vi
-            .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
-            .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockResolvedValueOnce(undefined) // DELETE selection_snapshot_files
-            .mockResolvedValueOnce(undefined) // DELETE selection_snapshots
-            .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE files
-            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-            .mockResolvedValueOnce(undefined), // DELETE job_queue
-        };
-        return await callback(mockTx);
-      });
+      const queryMock = vi
+        .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
+        .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
+        .mockResolvedValueOnce(undefined) // DELETE chunks
+        .mockResolvedValueOnce(undefined) // DELETE selection_snapshot_files
+        .mockResolvedValueOnce(undefined) // DELETE selection_snapshots
+        .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // files count
+        .mockResolvedValueOnce(undefined) // DELETE files
+        .mockResolvedValueOnce(undefined) // DELETE roots
+        .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+        .mockResolvedValueOnce(undefined); // DELETE job_queue
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
       const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
       activeDatabases.push(mockDb);
 
@@ -175,6 +174,9 @@ describe('Database clearing functionality', () => {
         deletedFiles: 5,
         deletedChunks: 10,
       });
+      // Factory-reset contract: stale roots must not survive a clear and
+      // resurface as ghost workspaces once consumers read the roots table.
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
     });
 
     it('should handle transaction errors gracefully', async () => {

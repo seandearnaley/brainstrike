@@ -854,6 +854,9 @@ describe('database IPC handlers', () => {
       });
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM collection_indexing_stats');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM embedding_sets');
+      // Factory-reset contract: stale roots must not survive a clear and
+      // resurface as ghost workspaces once consumers read the roots table.
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
     });
 
     it('handles database errors gracefully', async () => {

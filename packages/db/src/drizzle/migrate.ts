@@ -28,6 +28,7 @@ import { migration035Uuidv7PrimaryKeys } from '../migrations/035-uuidv7-primary-
 import { migration036WorkspaceIndexSystemRole } from '../migrations/036-workspace-index-system-role.js';
 import { migration037FileRecordMtimeMs } from '../migrations/037-file-record-mtime-ms.js';
 import { migration038PgTrgmGrepIndex } from '../migrations/038-pg-trgm-grep-index.js';
+import { migration039RootsTable } from '../migrations/039-roots-table.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -158,6 +159,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-036-workspace-index-system-role', migration036WorkspaceIndexSystemRole),
   customMigration('custom-037-file-record-mtime-ms', migration037FileRecordMtimeMs),
   customMigration('custom-038-pg-trgm-grep-index', migration038PgTrgmGrepIndex),
+  customMigration('custom-039-roots-table', migration039RootsTable),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
