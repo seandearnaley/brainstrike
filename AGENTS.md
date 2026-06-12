@@ -426,7 +426,17 @@ Flow:
      WebGPU session — overlapping model.generate calls corrupt it). The Mastra
      loop's chat steps and a local observational-memory observation can
      legitimately overlap; the backend queue is the chokepoint for every
-     consumer. Do not rely on caller-side locks.
+     consumer (`dispose` takes a queue turn too). Do not rely on caller-side locks.
+   - Engine-fault recovery (llm-host-runtime.tsx): a generate-stage GPU fault
+     (narrow `ENGINE_FAULT_PATTERN` — high-signal substrings only) disposes the
+     engine and RETRIES the generation ONCE, announced via a 'stage' progress
+     report + logs (never silent). A fault that survives the retry reports the
+     visible "engine was reset" error. Aborts never trigger recovery.
+   - Loading badge smoothing (use-local-model-loading.ts): parallel per-file
+     progress reports are folded into a mean aggregate with a stable
+     "(completed/total)" message and the laggard file as the label, throttled
+     to one update per 250ms (stage changes apply immediately). Unkeyed
+     reports keep the monotonic floor instead.
    - Server side: `LlmHostManager.generateForMain/warmupForMain` (main-process
      client API with progress callbacks + AbortSignal cancel) →
      `createMainLlmHostClient` (apps/desktop/src/assistant-server/local-llm-host-client.ts)

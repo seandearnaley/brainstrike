@@ -188,9 +188,75 @@ describe('LlmHostRuntime', () => {
     });
   });
 
-  it('resets the engine after a GPU fault and says so in the reported error', async () => {
-    generateMock.mockRejectedValueOnce(new Error('operation does not support unaligned accesses'));
+  it('retries the generation once after an engine fault and completes it', async () => {
+    // GPU faults usually come from accumulated WebGPU session state — a fresh
+    // engine on the same prompt typically succeeds, so the host retries once
+    // (visibly) instead of failing the user's turn.
+    generateMock
+      .mockRejectedValueOnce(new Error('operation does not support unaligned accesses'))
+      .mockResolvedValueOnce({
+        finishReason: 'stop',
+        text: 'retried result',
+        usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+      });
     disposeMock.mockResolvedValueOnce(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-retry-success',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-retry-success',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'result',
+          requestId: 'req-retry-success',
+          payload: expect.objectContaining({
+            result: expect.objectContaining({ text: 'retried result' }),
+          }),
+        })
+      );
+    });
+    // The poisoned engine was disposed before the retry.
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+    expect(generateMock).toHaveBeenCalledTimes(2);
+    // The retry is never silent: a stage progress report announces it.
+    expect(reportProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'req-retry-success',
+        payload: expect.objectContaining({
+          kind: 'stage',
+          message: expect.stringContaining('retrying'),
+        }),
+      })
+    );
+    // No error was reported for the recovered request.
+    expect(reportResponseMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', requestId: 'req-retry-success' })
+    );
+  });
+
+  it('resets the engine and reports the failure when the fault survives the retry', async () => {
+    generateMock.mockRejectedValue(new Error('operation does not support unaligned accesses'));
+    disposeMock.mockResolvedValue(undefined);
 
     render(<LlmHostRuntime />);
     const requestListener = onRequestCallback;
@@ -226,9 +292,11 @@ describe('LlmHostRuntime', () => {
         })
       );
     });
-    // The poisoned WebGPU session is disposed so the NEXT warmup/generate
-    // reinitializes cleanly instead of failing forever.
-    expect(disposeMock).toHaveBeenCalled();
+    // One automatic retry, no more: two generate attempts total.
+    expect(generateMock).toHaveBeenCalledTimes(2);
+    // Disposed before the retry AND after the persistent fault, so the NEXT
+    // warmup/generate reinitializes cleanly instead of failing forever.
+    expect(disposeMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not reset the engine when a generation is merely aborted', async () => {
@@ -315,8 +383,8 @@ describe('LlmHostRuntime', () => {
   });
 
   it('resets the engine when the WebGPU device is lost', async () => {
-    generateMock.mockRejectedValueOnce(new Error('Device lost: the logical device was destroyed'));
-    disposeMock.mockResolvedValueOnce(undefined);
+    generateMock.mockRejectedValue(new Error('Device lost: the logical device was destroyed'));
+    disposeMock.mockResolvedValue(undefined);
 
     render(<LlmHostRuntime />);
     const requestListener = onRequestCallback;

@@ -170,7 +170,22 @@ async function handleGenerateRequest(
   if (payload.kind !== 'generate') {
     throw new Error('Llm host generate handler received a non-generate request.');
   }
-  await backend.initialize({ modelId: payload.modelId });
+  // Cold (or post-reset) generates reload the model here — report the load
+  // so the renderer badge shows progress instead of a silent stall.
+  await backend.initialize({
+    modelId: payload.modelId,
+    onProgress: (progress) => {
+      reportProgress(
+        createLlmHostProgressReport(request, {
+          clientRequestId: payload.clientRequestId,
+          kind: 'loading',
+          message: progress.message,
+          progress: progress.progress,
+          ...(progress.file ? { file: progress.file } : {}),
+        })
+      );
+    },
+  });
   const result = (await backend.generate(payload.messages, {
     ...payload.options,
     signal: abortController.signal,
@@ -301,6 +316,37 @@ async function recoverFromEngineFault(
   return notice;
 }
 
+/**
+ * GPU faults usually come from accumulated WebGPU session state (they tend to
+ * appear on a SECOND-or-later generation), so a fresh engine on the same
+ * prompt typically succeeds. Reset and retry the generation ONCE — announced
+ * via a stage progress report and logs, never silently. A fault that survives
+ * the retry propagates to the caller for the visible reset-notice error path.
+ */
+async function retryGenerateOnceAfterEngineFault(
+  backend: LocalLlmBackend,
+  request: LlmHostRequest,
+  runtimeId: string,
+  abortController: AbortController,
+  faultError: unknown
+): Promise<void> {
+  logger.warn('Llm host engine fault — resetting the engine and retrying the generation once', {
+    error: faultError instanceof Error ? faultError.message : String(faultError),
+    requestId: request.requestId,
+    runtimeId,
+  });
+  reportProgress(
+    createLlmHostProgressReport(request, {
+      clientRequestId:
+        request.payload.kind === 'generate' ? request.payload.clientRequestId : undefined,
+      kind: 'stage',
+      message: 'local engine fault — reloading the model and retrying',
+    })
+  );
+  await backend.dispose();
+  await handleGenerateRequest(backend, request, runtimeId, abortController);
+}
+
 async function processLlmHostRequest(
   backend: LocalLlmBackend,
   request: LlmHostRequest,
@@ -320,6 +366,11 @@ async function processLlmHostRequest(
     const abortController = createAbortController(request.requestId);
     try {
       await handleGenerateRequest(backend, request, runtimeId, abortController);
+    } catch (error) {
+      if (!isEngineFault(error) || abortController.signal.aborted) {
+        throw error;
+      }
+      await retryGenerateOnceAfterEngineFault(backend, request, runtimeId, abortController, error);
     } finally {
       clearAbortController(request.requestId);
     }

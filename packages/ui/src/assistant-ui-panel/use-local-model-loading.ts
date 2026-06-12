@@ -49,6 +49,45 @@ function isLoadingProgressReport(report: unknown): report is HostLoadingProgress
   return candidate.type === 'progress' && candidate.payload?.kind === 'loading';
 }
 
+// Apply at most one badge update per window during a same-stage report burst.
+// Transformers.js loads many artifacts in parallel and its interleaved
+// per-file callbacks arrive in rapid bursts — rendering each one flashed the
+// badge between unrelated file names ("seizure inducing").
+const PROGRESS_THROTTLE_MS = 250;
+
+/**
+ * Fold a per-file progress report into the session's file map and derive ONE
+ * stable view: mean progress across every file seen, a "(completed/total)"
+ * message, and the laggard file as the label (the file users are actually
+ * waiting on — never whichever file happened to report last).
+ */
+function aggregateFileProgress(
+  fileProgress: Map<string, number>,
+  state: LocalModelLoadingState & { file: string }
+): LocalModelLoadingState {
+  fileProgress.set(state.file, Math.max(fileProgress.get(state.file) ?? 0, state.progress));
+  let total = 0;
+  let completed = 0;
+  let laggardFile: string | undefined;
+  let laggardProgress = Number.POSITIVE_INFINITY;
+  for (const [file, progress] of fileProgress) {
+    total += progress;
+    if (progress >= 100) {
+      completed += 1;
+    } else if (progress < laggardProgress) {
+      laggardProgress = progress;
+      laggardFile = file;
+    }
+  }
+  const verb = state.stage === 'downloading' ? 'Downloading' : 'Loading';
+  return {
+    stage: state.stage,
+    progress: Math.round(total / fileProgress.size),
+    message: `${verb} model files (${completed}/${fileProgress.size})`,
+    ...(laggardFile ? { file: laggardFile } : {}),
+  };
+}
+
 export function useLocalModelLoading(args: {
   localViaDataStream: boolean;
   modelName: string | undefined;
@@ -59,21 +98,78 @@ export function useLocalModelLoading(args: {
 } {
   const { localViaDataStream, modelName } = args;
   const [localLoadingState, setLocalLoadingState] = useState<LocalModelLoadingState | undefined>();
-  // Per-file artifact downloads each report 0→100, which made the badge jump
-  // backwards constantly (visual jank). Within one loading session the shown
+  // Unkeyed reports (no file field) each run 0→100 per artifact, which made
+  // the badge jump backwards constantly. Within one loading session the shown
   // progress is monotonically non-decreasing; terminal stages reset the floor.
+  // (File-keyed reports use the mean aggregate instead — clamping THAT would
+  // pin the percent at 100 as soon as any small file completed.)
   const monotonicProgressRef = useRef(0);
+  const fileProgressRef = useRef(new Map<string, number>());
+  const lastAppliedStageRef = useRef<LocalModelLoadingState['stage'] | undefined>(undefined);
+  const lastAppliedAtRef = useRef(0);
+  const pendingStateRef = useRef<LocalModelLoadingState | null>(null);
+  const throttleTimerRef = useRef<number | null>(null);
 
-  const handleLocalLoadingStateChange = useCallback((state: LocalModelLoadingState) => {
-    if (state.stage === 'loading' || state.stage === 'downloading') {
-      const progress = Math.max(monotonicProgressRef.current, state.progress);
-      monotonicProgressRef.current = progress;
-      setLocalLoadingState({ ...state, progress });
-      return;
-    }
-    monotonicProgressRef.current = 0;
+  const applyLoadingState = useCallback((state: LocalModelLoadingState) => {
+    lastAppliedAtRef.current = Date.now();
+    lastAppliedStageRef.current = state.stage;
     setLocalLoadingState(state);
   }, []);
+
+  const clearThrottle = useCallback(() => {
+    if (throttleTimerRef.current !== null) {
+      window.clearTimeout(throttleTimerRef.current);
+      throttleTimerRef.current = null;
+    }
+    pendingStateRef.current = null;
+  }, []);
+
+  useEffect(() => clearThrottle, [clearThrottle]);
+
+  const handleLocalLoadingStateChange = useCallback(
+    (state: LocalModelLoadingState) => {
+      if (!(state.stage === 'loading' || state.stage === 'downloading')) {
+        // Terminal stages end the smoothing session and always render now.
+        monotonicProgressRef.current = 0;
+        fileProgressRef.current.clear();
+        clearThrottle();
+        applyLoadingState(state);
+        return;
+      }
+
+      let smoothed: LocalModelLoadingState;
+      if (state.file) {
+        smoothed = aggregateFileProgress(
+          fileProgressRef.current,
+          state as LocalModelLoadingState & { file: string }
+        );
+      } else {
+        const progress = Math.max(monotonicProgressRef.current, state.progress);
+        monotonicProgressRef.current = progress;
+        smoothed = { ...state, progress };
+      }
+
+      const stageChanged = lastAppliedStageRef.current !== state.stage;
+      const elapsed = Date.now() - lastAppliedAtRef.current;
+      if (stageChanged || elapsed >= PROGRESS_THROTTLE_MS) {
+        clearThrottle();
+        applyLoadingState(smoothed);
+        return;
+      }
+      pendingStateRef.current = smoothed;
+      if (throttleTimerRef.current === null) {
+        throttleTimerRef.current = window.setTimeout(() => {
+          throttleTimerRef.current = null;
+          const pending = pendingStateRef.current;
+          pendingStateRef.current = null;
+          if (pending) {
+            applyLoadingState(pending);
+          }
+        }, PROGRESS_THROTTLE_MS - elapsed);
+      }
+    },
+    [applyLoadingState, clearThrottle]
+  );
 
   useEffect(() => {
     if (localLoadingState?.stage !== 'ready') {
