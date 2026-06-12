@@ -188,6 +188,89 @@ describe('LlmHostRuntime', () => {
     });
   });
 
+  it('resets the engine after a GPU fault and says so in the reported error', async () => {
+    generateMock.mockRejectedValueOnce(new Error('operation does not support unaligned accesses'));
+    disposeMock.mockResolvedValueOnce(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-gpu-fault',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-gpu-fault',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          requestId: 'req-gpu-fault',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('local model engine was reset'),
+          }),
+        })
+      );
+    });
+    // The poisoned WebGPU session is disposed so the NEXT warmup/generate
+    // reinitializes cleanly instead of failing forever.
+    expect(disposeMock).toHaveBeenCalled();
+  });
+
+  it('does not reset the engine when a generation is merely aborted', async () => {
+    generateMock.mockRejectedValueOnce(
+      new DOMException('The operation was aborted.', 'AbortError')
+    );
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-aborted',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-aborted',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', requestId: 'req-aborted' })
+      );
+    });
+    expect(disposeMock).not.toHaveBeenCalled();
+    const [errorReport] = reportResponseMock.mock.calls.at(-1) ?? [];
+    expect(
+      (errorReport as { payload: { errorMessage: string } }).payload.errorMessage
+    ).not.toContain('engine was reset');
+  });
+
   it('reports an error (keyed to the envelope) for requests that fail validation', async () => {
     render(<LlmHostRuntime />);
 

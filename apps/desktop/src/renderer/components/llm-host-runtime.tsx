@@ -244,6 +244,61 @@ function reportRequestError(
   );
 }
 
+/**
+ * Engine/GPU faults poison the WebGPU session: subsequent generations keep
+ * failing until the engine is rebuilt. Cancellations and prompt/validation
+ * errors do NOT warrant the (expensive) reset.
+ */
+const ENGINE_FAULT_PATTERN =
+  /webgpu|gpu|unaligned|device|buffer|adapter|out of memory|session|tensor/i;
+
+function isEngineFault(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return false;
+  }
+  if (error instanceof Error && error.name === 'AbortError') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return ENGINE_FAULT_PATTERN.test(message);
+}
+
+/**
+ * Dispose the poisoned engine so the next warmup/generate reinitializes a
+ * clean WebGPU session (reload from the local artifact cache — no
+ * re-download), and return an error that SAYS the reset happened so the
+ * recovery is visible in the chat error block, never silent.
+ */
+async function recoverFromEngineFault(
+  backend: LocalLlmBackend,
+  request: LlmHostRequest,
+  runtimeId: string,
+  error: unknown
+): Promise<Error> {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error('Llm host engine fault — resetting the local model engine', {
+    error: message,
+    requestId: request.requestId,
+    runtimeId,
+  });
+  try {
+    await backend.dispose();
+  } catch (disposeError) {
+    logger.error('Llm host engine reset failed after engine fault', {
+      error: disposeError instanceof Error ? disposeError.message : String(disposeError),
+      requestId: request.requestId,
+      runtimeId,
+    });
+  }
+  const notice = new Error(
+    `${message} — the local model engine was reset; the next message will reload the model.`
+  );
+  if (error instanceof Error && typeof error.stack === 'string') {
+    notice.stack = error.stack;
+  }
+  return notice;
+}
+
 async function processLlmHostRequest(
   backend: LocalLlmBackend,
   request: LlmHostRequest,
@@ -267,7 +322,11 @@ async function processLlmHostRequest(
       clearAbortController(request.requestId);
     }
   } catch (error) {
-    reportRequestError(request, runtimeId, stage, error);
+    const reportedError =
+      stage === 'generate-response' && isEngineFault(error)
+        ? await recoverFromEngineFault(backend, request, runtimeId, error)
+        : error;
+    reportRequestError(request, runtimeId, stage, reportedError);
   }
 }
 
