@@ -84,6 +84,7 @@ export function createDeps(
     })),
     ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     onManagedCollectionMissing: vi.fn(),
+    resolveDbRootId: vi.fn().mockResolvedValue(null),
     resolveQosPolicy: vi.fn(async () => BALANCED_QOS_POLICY),
     setImporting: vi.fn(),
     setStatus: vi.fn(),

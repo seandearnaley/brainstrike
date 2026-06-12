@@ -107,6 +107,12 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   >;
   log?: typeof logger;
   onManagedCollectionMissing?: (managedCollectionId: string) => void;
+  /**
+   * Maps a root directory path to the canonical DB root id from the `roots`
+   * table, awaiting the reconciliation result. Returns `null` if the path is
+   * not mapped (logs once per path). ALWAYS settles — never hangs.
+   */
+  resolveDbRootId: (rootPath: string) => Promise<string | null>;
   resolveQosPolicy: () => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
@@ -133,6 +139,8 @@ export interface WorkspaceCollectionSyncRequest {
 interface ResolvedSyncContext {
   activeRootPath: string;
   collection: EmbeddingSet;
+  /** DB root id from the `roots` table, or null if the path is unmapped. */
+  dbRootId: string | null;
   provider: EmbeddingProviderType;
   rootPath: string;
 }
@@ -408,9 +416,13 @@ export class WorkspaceCollectionSyncService {
       return null;
     }
 
+    // Short-circuit: '' is never a valid lookup key, and passing it would
+    // pollute the warn-once set with a misleading entry on path-less runs.
+    const dbRootId = rootPath ? await this.deps.resolveDbRootId(rootPath) : null;
     return {
       collection,
       activeRootPath: rootPath ?? '',
+      dbRootId,
       provider,
       rootPath: rootPath ?? '',
     };
@@ -998,6 +1010,7 @@ export class WorkspaceCollectionSyncService {
         ? { fileContentProcessor: this.deps.fileContentProcessor }
         : {}),
       fileRecordRepository: this.deps.fileRecordRepository,
+      rootId: args.context.dbRootId,
       onProgress: (progress) => {
         latestImportProgress = progress;
         if (progress.phase === 'complete') {

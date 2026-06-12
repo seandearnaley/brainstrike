@@ -847,4 +847,190 @@ describe('applyManagedCacheBatch', () => {
       }),
     ]);
   });
+
+  it('writes root_id on import when rootId is provided in the batch args', async () => {
+    const now = new Date().toISOString();
+
+    // Insert a roots row first — file_records.root_id has an FK reference.
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name) VALUES ('root-db-1', 'path', 'fixture')`
+    );
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-db-1',
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            id: 'root-id-import-file',
+            name: 'root-id-import.ts',
+            path: 'src/root-id-import.ts',
+            size: 10,
+            sourceRootPath: '/workspace/root',
+            createdAt: now,
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const rootId = true;',
+            contentHash: 'root-id-import-hash',
+            tokenCount: 5,
+          },
+        },
+      ],
+    });
+
+    const result = await db.query<{ root_id: string | null }>(
+      'SELECT root_id FROM file_records WHERE id = $1',
+      ['root-id-import-file']
+    );
+    expect(result.rows[0]?.root_id).toBe('root-db-1');
+  });
+
+  it('writes root_id as NULL on import when rootId is omitted from the batch args', async () => {
+    const now = new Date().toISOString();
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            id: 'no-root-id-import-file',
+            name: 'no-root-id.ts',
+            path: 'src/no-root-id.ts',
+            size: 10,
+            sourceRootPath: '/workspace/root',
+            createdAt: now,
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const noRootId = true;',
+            contentHash: 'no-root-id-hash',
+            tokenCount: 5,
+          },
+        },
+      ],
+    });
+
+    const result = await db.query<{ root_id: string | null }>(
+      'SELECT root_id FROM file_records WHERE id = $1',
+      ['no-root-id-import-file']
+    );
+    expect(result.rows[0]?.root_id).toBeNull();
+  });
+
+  it('does not change root_id on replacement (UPDATE by id; root never changes on replace)', async () => {
+    const now = new Date().toISOString();
+
+    // Insert a roots row and a file record pre-assigned to that root.
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name) VALUES ('root-db-replace', 'path', 'fixture-replace')`
+    );
+    await fileRecordRepository.createWithContent({
+      id: 'replace-with-root-file',
+      name: 'replace-with-root.ts',
+      path: 'src/replace-with-root.ts',
+      size: 10,
+      sourceRootPath: '/workspace/root',
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-with-root-old-hash',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+    });
+    await db.query(
+      `UPDATE file_records SET root_id = 'root-db-replace' WHERE id = 'replace-with-root-file'`
+    );
+
+    // Apply a replace batch — root_id must NOT be cleared or changed.
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-db-replace',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'replace-with-root-file',
+            name: 'replace-with-root.ts',
+            path: 'src/replace-with-root.ts',
+            size: 20,
+            sourceRootPath: '/workspace/root',
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const version = 2;',
+            contentHash: 'replace-with-root-new-hash',
+            tokenCount: 6,
+          },
+        },
+      ],
+    });
+
+    const result = await db.query<{ root_id: string | null }>(
+      'SELECT root_id FROM file_records WHERE id = $1',
+      ['replace-with-root-file']
+    );
+    expect(result.rows[0]?.root_id).toBe('root-db-replace');
+  });
+
+  it('parseManagedCacheBatchArgs accepts rootId as a non-empty string', () => {
+    const parsed = parseManagedCacheBatchArgs({
+      embeddingSetId: 'set-1',
+      rootId: 'root-db-1',
+      changes: [],
+    });
+    expect(parsed.rootId).toBe('root-db-1');
+  });
+
+  it('parseManagedCacheBatchArgs accepts absent rootId (back-compat)', () => {
+    const parsed = parseManagedCacheBatchArgs({
+      embeddingSetId: 'set-1',
+      changes: [],
+    });
+    expect(parsed.rootId).toBeUndefined();
+  });
+
+  it('parseManagedCacheBatchArgs accepts null rootId', () => {
+    const parsed = parseManagedCacheBatchArgs({
+      embeddingSetId: 'set-1',
+      rootId: null,
+      changes: [],
+    });
+    expect(parsed.rootId).toBeNull();
+  });
+
+  it('parseManagedCacheBatchArgs rejects a non-string non-null rootId with a thrown error', () => {
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        rootId: 42,
+        changes: [],
+      })
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        rootId: true,
+        changes: [],
+      })
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        rootId: [],
+        changes: [],
+      })
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
+
+    // '' would pass a bare typeof check and reach the DB as a doomed FK lookup.
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        rootId: '',
+        changes: [],
+      })
+    ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
+  });
 });

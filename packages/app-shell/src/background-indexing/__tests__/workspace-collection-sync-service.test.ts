@@ -2093,4 +2093,50 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
   });
+
+  it('passes resolved db root id to runRootFolderCacheImport when resolveDbRootId returns a value', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 1;',
+        })),
+      },
+      resolveDbRootId: vi.fn().mockResolvedValue('root-db-1'),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ rootId: 'root-db-1' })
+    );
+  });
+
+  it('passes null rootId to runRootFolderCacheImport when resolveDbRootId returns null', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 1;',
+        })),
+      },
+      resolveDbRootId: vi.fn().mockResolvedValue(null),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ rootId: null })
+    );
+  });
 });

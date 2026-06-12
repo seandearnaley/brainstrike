@@ -12,6 +12,7 @@ import type {
   DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
+  FileSystemChange,
   StreamingDirectoryReadOptions,
 } from '../types';
 import {
@@ -54,6 +55,50 @@ declare global {
   interface FileSystemPermissionDescriptor {
     mode?: 'read' | 'readwrite';
   }
+
+  /**
+   * Minimal ambient type for the WICG FileSystemObserver draft (Chrome 133+,
+   * behind the File System Observer Origin Trial / experimental flag).
+   * No lib.dom types exist for this API yet; these declarations mirror the
+   * spec at https://github.com/WICG/file-system-observer.
+   *
+   * Keep in sync with the WICG draft shape; update when the API ships in
+   * stable DOM typings.
+   *
+   * Pattern: interface (instance type) + var (constructor value) is the
+   * standard TypeScript idiom for declaring a constructable global without
+   * the class keyword, avoiding OXC "already declared" parse errors that
+   * arise when combining `class` + `var` in the same declare-global block.
+   */
+  interface FileSystemObserverRecord {
+    readonly changedHandle: FileSystemHandle;
+    readonly relativePathComponents: readonly string[];
+    /** For 'moved' records: the previous path relative to root, else null. */
+    readonly relativePathMovedFrom: readonly string[] | null;
+    readonly root: FileSystemDirectoryHandle;
+    readonly type: 'appeared' | 'disappeared' | 'errored' | 'modified' | 'moved' | 'unknown';
+  }
+
+  type FileSystemObserverCallback = (
+    records: FileSystemObserverRecord[],
+    observer: FileSystemObserver
+  ) => void;
+
+  interface FileSystemObserver {
+    disconnect(): void;
+    observe(
+      handle: FileSystemDirectoryHandle,
+      options?: { recursive?: boolean }
+    ): void | Promise<void>;
+  }
+
+  // Exposes the constructor as a value on globalThis for typeof feature detection.
+  // This is a TypeScript ambient `var` declaration (no runtime effect — the var
+  // keyword here is a TypeScript idiom for declaring a constructable global in
+  // a declare-global block; it does not produce a real var statement in output).
+  var FileSystemObserver: {
+    new (callback: FileSystemObserverCallback): FileSystemObserver;
+  };
 }
 
 // limiter shared via utils
@@ -580,8 +625,129 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     };
   }
 
-  // Web API doesn't support file watching
-  // watchDirectory not implemented
+  /**
+   * Watch a directory for changes using the FileSystemObserver API (Chrome 133+,
+   * WICG draft, feature-gated — NOT a silent fallback).
+   *
+   * When `typeof FileSystemObserver !== 'undefined'` (feature gate passes):
+   *   - Constructs a `FileSystemObserver` with a callback that maps WICG observer
+   *     records to the existing `FileSystemChange[]` shape expected by callers.
+   *     `moved` records map to a removed+added pair (old path from
+   *     `relativePathMovedFrom`); `errored`/`unknown` records are dropped.
+   *   - Calls `observe(handle._internal, { recursive: true })`. In shipping
+   *     Chrome `observe()` returns a Promise — a rejection (e.g. permission
+   *     revoked asynchronously) is caught, warn-logged, and the observer is
+   *     disconnected so no phantom watcher lingers behind the disposer.
+   *   - Returns a disposer that calls `observer.disconnect()`.
+   *
+   * If `observe()` throws synchronously: logs a warn and returns a no-op
+   * disposer so callers always receive a valid cleanup function. The warn is
+   * intentionally visible — this is a capability failure, not a silent path.
+   *
+   * DESIGN: this method is ALWAYS present on the web adapter and no-ops
+   * (returns a no-op disposer) when `FileSystemObserver` is unavailable. This
+   * is deliberate: callers get a uniform call-site with no undefined-check.
+   * Callers that need a capability signal (e.g. to surface "live re-index
+   * unsupported" UI) should feature-detect `typeof FileSystemObserver`
+   * themselves rather than probing for this method.
+   */
+  watchDirectory(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
+  ): () => void {
+    // Feature gate: FileSystemObserver is only available in Chrome 133+ with the
+    // experimental flag or Origin Trial enabled. When absent, return a no-op
+    // disposer — no polling, no silent fallback, callers should treat the folder
+    // as unwatched.
+    if (typeof FileSystemObserver === 'undefined') {
+      return () => {};
+    }
+
+    const observer = new FileSystemObserver((records) => {
+      const changes: FileSystemChange[] = records.flatMap((r): FileSystemChange[] => {
+        // Build a path by joining the root handle path with the relative components.
+        const relPath = r.relativePathComponents.join('/');
+        const fullPath = relPath ? `${handle.path}/${relPath}` : handle.path;
+        const kind: FileSystemChange['kind'] =
+          r.changedHandle.kind === 'directory' ? 'directory' : 'file';
+
+        switch (r.type) {
+          case 'appeared':
+            return [{ type: 'added', path: fullPath, kind }];
+          case 'disappeared':
+            return [{ type: 'removed', path: fullPath, kind }];
+          case 'modified':
+            return [{ type: 'modified', path: fullPath, kind }];
+          case 'moved': {
+            // A rename is a removed+added pair so consumers re-index both the
+            // vacated and the new path. When the observer didn't report the
+            // old location (null/empty relativePathMovedFrom), emit only the
+            // added event — there is no old path to invalidate.
+            const movedFrom = r.relativePathMovedFrom;
+            if (movedFrom && movedFrom.length > 0) {
+              const oldFullPath = `${handle.path}/${movedFrom.join('/')}`;
+              return [
+                { type: 'removed', path: oldFullPath, kind },
+                { type: 'added', path: fullPath, kind },
+              ];
+            }
+            return [{ type: 'added', path: fullPath, kind }];
+          }
+          default:
+            // 'errored' and 'unknown' have no FileSystemChange equivalent;
+            // errored conditions are surfaced via the observe() rejection
+            // handler below, not as change events.
+            return [];
+        }
+      });
+
+      if (changes.length > 0) {
+        callback(changes);
+      }
+    });
+
+    const internalHandle = handle._internal;
+    if (!(internalHandle instanceof Object)) {
+      logger.warn('watchDirectory: handle._internal is not a valid FileSystemDirectoryHandle', {
+        path: handle.path,
+      });
+      return () => {};
+    }
+
+    try {
+      // MDN/shipping Chrome define observe() as Promise-returning. A rejection
+      // (e.g. permission revoked after setup) means observation never started:
+      // warn visibly and disconnect so the disposer isn't holding a phantom
+      // watcher. The sync try/catch still covers engines/stubs that throw.
+      const observeResult = observer.observe(internalHandle as FileSystemDirectoryHandle, {
+        recursive: true,
+      });
+      if (observeResult instanceof Promise) {
+        observeResult.catch((err: unknown) => {
+          logger.warn(
+            'watchDirectory: FileSystemObserver.observe() rejected, folder is unwatched',
+            {
+              path: handle.path,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          );
+          observer.disconnect();
+        });
+      }
+    } catch (err) {
+      // Permission revoked or handle invalid: log a visible warn and return a
+      // no-op disposer. This is a capability failure — it must not be silent.
+      logger.warn('watchDirectory: FileSystemObserver.observe() threw, folder is unwatched', {
+        path: handle.path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return () => {};
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }
 
   /**
    * Stream directory contents with batched callbacks (BST-147).
