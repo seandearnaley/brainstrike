@@ -11,7 +11,10 @@ import type { FC } from 'react';
  * message has no error, so this is safe to mount on every assistant message.
  */
 export const AssistantMessageError: FC = () => (
-  <ErrorPrimitive.Root className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-destructive text-sm">
-    <ErrorPrimitive.Message className="break-words" />
+  // Root is an UNSTYLED always-rendered live region; all visible chrome lives
+  // on Message, which renders only when the message actually has an error —
+  // styling Root paints an empty red bar under every assistant message.
+  <ErrorPrimitive.Root>
+    <ErrorPrimitive.Message className="mt-1 block break-words rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-destructive text-sm" />
   </ErrorPrimitive.Root>
 );
