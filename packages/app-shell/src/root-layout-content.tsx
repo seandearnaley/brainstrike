@@ -213,27 +213,21 @@ function ContextExplorerSurface({
   );
 
   return (
-    // ONE shared file-system instance for the whole workspace surface — the
-    // tree wrapper, the background-indexing sync provider, AND the explorer
-    // UI all read it. Separate instances diverge on mid-session Add Folder
-    // (the indexer never saw new roots until the next launch).
-    <FileSystemProvider>
-      <FileTreeWrapper>
-        {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-            the route-local context explorer panes inside that workspace surface. The
-            editor area itself hosts the Context Explorer app and any open file tabs;
-            there is no longer a south "console" panel. */}
-        <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-          <IdeLayout
-            panelIdPrefix="context-explorer"
-            rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-            rightPanelContent={resolvedPanelContent}
-          >
-            {contextExplorerPageContent}
-          </IdeLayout>
-        </PanelLayoutProvider>
-      </FileTreeWrapper>
-    </FileSystemProvider>
+    <FileTreeWrapper>
+      {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
+          the route-local context explorer panes inside that workspace surface. The
+          editor area itself hosts the Context Explorer app and any open file tabs;
+          there is no longer a south "console" panel. */}
+      <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+        <IdeLayout
+          panelIdPrefix="context-explorer"
+          rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+          rightPanelContent={resolvedPanelContent}
+        >
+          {contextExplorerPageContent}
+        </IdeLayout>
+      </PanelLayoutProvider>
+    </FileTreeWrapper>
   );
 }
 
@@ -332,55 +326,66 @@ export function RootLayoutContent({
   });
 
   return (
-    <AppLayout
-      config={appConfig}
-      currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
-      onNavigationClick={handleNavigationClick}
-    >
-      {/* These providers now intentionally stay app-wide so background chunking and embedding
+    // ONE shared file-system instance for the ENTIRE app surface. The explorer
+    // UI, the background-indexing sync provider, the tree wrapper, AND
+    // cross-route consumers (database panel import flow, assistant panels)
+    // all read it — separate instances diverge on mid-session Add Folder (the
+    // indexer never saw new roots until the next launch), and any consumer
+    // mounted outside the provider hard-throws (white screen) by design.
+    <FileSystemProvider>
+      <AppLayout
+        config={appConfig}
+        currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
+        onNavigationClick={handleNavigationClick}
+      >
+        {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
           unless a feature explicitly opts into them. */}
-      <ActionRegistryProvider registry={actionRegistry}>
-        <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-          <EmbeddingRuntimeProvider>
-            <IndexingActivityCoordinator />
-            <div
-              aria-hidden={activeTab !== 'explorer'}
-              className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-              data-testid="explorer-route"
-            >
-              <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-                <ExplorerAppSurface
-                  contextExplorerPageContent={contextExplorerPageContent}
-                  contextExplorerPanelContent={contextExplorerPanelContent}
-                  databaseTabChunkingMode={databaseTabChunkingMode}
-                  loadEmbeddingQueue={loadEmbeddingQueue}
-                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                />
-              </PanelLayoutProvider>
-            </div>
-            {mountedTabs.has('prompts') ? (
+        <ActionRegistryProvider registry={actionRegistry}>
+          <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
+            <EmbeddingRuntimeProvider>
+              <IndexingActivityCoordinator />
               <div
-                aria-hidden={activeTab !== 'prompts'}
-                className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-                data-testid="prompts-route"
+                aria-hidden={activeTab !== 'explorer'}
+                className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                data-testid="explorer-route"
               >
-                {promptsPageContent ?? null}
+                <PanelLayoutProvider
+                  controlledState={panelState}
+                  onChange={handlePanelLayoutChange}
+                >
+                  <ExplorerAppSurface
+                    contextExplorerPageContent={contextExplorerPageContent}
+                    contextExplorerPanelContent={contextExplorerPanelContent}
+                    databaseTabChunkingMode={databaseTabChunkingMode}
+                    loadEmbeddingQueue={loadEmbeddingQueue}
+                    {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                  />
+                </PanelLayoutProvider>
               </div>
-            ) : null}
-            {mountedTabs.has('settings') ? (
-              <div
-                aria-hidden={activeTab !== 'settings'}
-                className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
-                data-testid="settings-route"
-              >
-                {settingsPageContent}
-              </div>
-            ) : null}
-          </EmbeddingRuntimeProvider>
-        </ChunkingWorkerProvider>
-      </ActionRegistryProvider>
-    </AppLayout>
+              {mountedTabs.has('prompts') ? (
+                <div
+                  aria-hidden={activeTab !== 'prompts'}
+                  className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
+                  data-testid="prompts-route"
+                >
+                  {promptsPageContent ?? null}
+                </div>
+              ) : null}
+              {mountedTabs.has('settings') ? (
+                <div
+                  aria-hidden={activeTab !== 'settings'}
+                  className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
+                  data-testid="settings-route"
+                >
+                  {settingsPageContent}
+                </div>
+              ) : null}
+            </EmbeddingRuntimeProvider>
+          </ChunkingWorkerProvider>
+        </ActionRegistryProvider>
+      </AppLayout>
+    </FileSystemProvider>
   );
 }
