@@ -421,6 +421,9 @@ describe('useFileSystem context hook', () => {
       result.current.store.setState({
         currentFolderId: CONTROLLED_ROOT_ID,
         selectedFilePaths: new Set<string>(),
+        // Expansion is WORKSPACE-GLOBAL: persistence keeps it in the
+        // top-level set (folder snapshots are no longer hydrated).
+        expandedDirectoryPaths: new Set<string>(['src']),
         selectionModel: {
           mode: 'explicit',
           explicitPaths: new Set<string>(),

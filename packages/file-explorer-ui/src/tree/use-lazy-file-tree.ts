@@ -1294,10 +1294,13 @@ export function useLazyFileTree(
   }, [cancelAllLoading, commitNormalizedTree, portRef]);
 
   const runWorkerExpandAll = useCallback(
-    async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult> => {
+    async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult | null> => {
       const port = portRef.current;
       if (!port) {
-        throw new Error('File tree worker is unavailable for expand-all');
+        // Worker unavailable (failed to start, or test env) — signal the
+        // caller to run the in-renderer session path instead of erroring.
+        logger.warn('Expand-all worker unavailable — using in-renderer fallback');
+        return null;
       }
       // Storage v5: use durable RootId UUID when available.
       const rootFolderId = rootId ?? getRootFolderId(rootDirectoryHandle);

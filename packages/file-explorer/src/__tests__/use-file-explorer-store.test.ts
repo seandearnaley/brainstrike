@@ -444,6 +444,37 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(store.getState().useRegex).toBe(false);
     });
 
+    // Expansion state is WORKSPACE-GLOBAL in forest mode: all section trees
+    // read the one top-level set (paths are globally unique), so a focus
+    // switch must never replace it with a folder snapshot — that collapsed
+    // every other section's expansions on each section click.
+    it('focus switch does NOT replace expandedDirectoryPaths with the folder snapshot', () => {
+      store.setExpandedPaths(new Set(['/project-a/src', '/project-b/lib']));
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            expandedDirectoryPaths: new Set(['/project-b/old-only']),
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      expect(store.getState().expandedDirectoryPaths).toEqual(
+        new Set(['/project-a/src', '/project-b/lib'])
+      );
+    });
+
+    it('collapseAllDirectories clears the global expansion set (every section collapses)', () => {
+      store.setExpandedPaths(new Set(['/project-a/src', '/project-b/lib']));
+
+      store.collapseAllDirectories();
+
+      expect(store.getState().expandedDirectoryPaths.size).toBe(0);
+    });
+
     it('foreign writes clamp against the GLOBAL maxSelectionCount, not the stale folder snapshot', () => {
       store.setMaxSelectionCount(100);
       // Seed B's folderState with a stale per-folder cap of 2.

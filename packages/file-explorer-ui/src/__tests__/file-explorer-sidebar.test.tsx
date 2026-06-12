@@ -11,6 +11,11 @@ import { act, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
+import {
+  ForestTreeActionsProvider,
+  type ForestTreeActionsValue,
+  useOptionalForestTreeActions,
+} from '../shell/forest-tree-actions-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // ---------------------------------------------------------------------------
@@ -875,6 +880,113 @@ describe('FileExplorerSidebar', () => {
         expect(screen.getByText('index.html')).toBeInTheDocument();
       });
     });
+  });
+
+  // Toolbar Expand All must run EACH section's progressive expansion (the
+  // focused panel provider's expansion only touches the invisible top-level
+  // tree in forest mode).
+  it('forest expand-all expands unloaded directories in EVERY section via the registry', async () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+    const subDirB: IFileNode = {
+      ...createDirectoryNode({
+        name: 'sub',
+        path: '/project-b/sub',
+        rootFolderId: ROOT_ID_B,
+        children: [],
+      }),
+      handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
+      loadState: 'unloaded',
+    } as unknown as IFileNode;
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes =
+          handle.path === '/project-b'
+            ? [subDirB]
+            : handle.path === '/project-b/sub'
+              ? [
+                  createFileNode({
+                    name: 'inner.ts',
+                    path: '/project-b/sub/inner.ts',
+                    rootFolderId: ROOT_ID_B,
+                  }),
+                ]
+              : [];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+    vi.spyOn(adapter, 'readDirectory').mockImplementation(async (handle) =>
+      handle.path === '/project-b/sub'
+        ? [
+            createFileNode({
+              name: 'inner.ts',
+              path: '/project-b/sub/inner.ts',
+              rootFolderId: ROOT_ID_B,
+            }),
+          ]
+        : []
+    );
+
+    const forestActionsRef: { current: ForestTreeActionsValue | null } = { current: null };
+    function ForestActionsProbe() {
+      forestActionsRef.current = useOptionalForestTreeActions();
+      return null;
+    }
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+    act(() => {
+      renderWithPopulatedAdapter(
+        <ForestTreeActionsProvider>
+          <ForestActionsProbe />
+          <FileExplorerSidebar
+            {...defaultProps}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={
+              new Map([
+                ['/project-a', ROOT_ID_A],
+                ['/project-b', ROOT_ID_B],
+              ])
+            }
+            setFocusedRoot={vi.fn()}
+          />
+        </ForestTreeActionsProvider>
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('sub')).toBeInTheDocument();
+    });
+
+    // Toolbar-equivalent: run expand-all across all registered sections.
+    await act(async () => {
+      await forestActionsRef.current?.runExpandAll();
+    });
+
+    // Section B's unloaded subdirectory loaded AND expanded — its child shows.
+    await waitFor(
+      () => {
+        expect(screen.getByText('inner.ts')).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
   });
 
   // -------------------------------------------------------------------------

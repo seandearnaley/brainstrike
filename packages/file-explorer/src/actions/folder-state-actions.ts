@@ -34,12 +34,14 @@ function buildRestoreState(
     selectedFilePaths: new Set(folderState.selectedFilePaths),
     selectionModel: folderState.selectionModel,
     querySelectionManifest: null,
-    expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths),
-    // WORKSPACE-GLOBAL settings are never hydrated from folder snapshots:
-    // maxSelectionCount, includeFilters, excludeFilters, useRegex, and
-    // viewFilterPresetId. Forest mode switches focus on every section click;
-    // stale per-folder copies would silently revert the user's setting per
-    // clicked root (caps flipping, "all files" reverting to old filters).
+    // WORKSPACE-GLOBAL state is never hydrated from folder snapshots:
+    // maxSelectionCount, includeFilters, excludeFilters, useRegex,
+    // viewFilterPresetId, and expandedDirectoryPaths. Forest mode switches
+    // focus on every section click; stale per-folder copies would silently
+    // revert the user's setting per clicked root (caps flipping, "all files"
+    // reverting, every other section's expansions collapsing). Expansion
+    // paths are globally unique absolute paths, so the one top-level set
+    // serves every section.
     includeProjectTree: folderState.includeProjectTree,
     tokenBudget: folderState.tokenBudget,
     folderSummaryThreshold: folderState.folderSummaryThreshold,
@@ -60,7 +62,8 @@ function buildNewFolderState(
     selectedFilePaths: new Set<string>(),
     selectionModel: createNewFolderState().selectionModel,
     querySelectionManifest: null,
-    expandedDirectoryPaths: new Set<string>(),
+    // expandedDirectoryPaths is WORKSPACE-GLOBAL — focusing a brand-new root
+    // must not collapse every other section's expansions.
   };
 }
 
@@ -185,9 +188,9 @@ export const createFolderStateActions = (
         selectedFilePaths: new Set(folderState.selectedFilePaths),
         selectionModel: folderState.selectionModel,
         querySelectionManifest: null,
-        expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths),
-        // WORKSPACE-GLOBAL settings (filters, useRegex, viewFilterPresetId,
-        // maxSelectionCount) are never hydrated — see buildRestoreState.
+        // WORKSPACE-GLOBAL state (filters, useRegex, viewFilterPresetId,
+        // maxSelectionCount, expandedDirectoryPaths) is never hydrated — see
+        // buildRestoreState.
         includeProjectTree: folderState.includeProjectTree,
         tokenBudget: folderState.tokenBudget,
         folderSummaryThreshold: folderState.folderSummaryThreshold,

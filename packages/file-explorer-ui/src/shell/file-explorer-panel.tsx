@@ -57,6 +57,10 @@ import {
 import FileExplorerSidebar from './file-explorer-sidebar';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
+import {
+  ForestTreeActionsProvider,
+  useOptionalForestTreeActions,
+} from './forest-tree-actions-context';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -135,11 +139,41 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
+/** Forest mode = more than one active root (sections render per root). */
+function isForestModeActive(rootDirectoryHandles: readonly unknown[] | undefined): boolean {
+  return (rootDirectoryHandles?.length ?? 0) > 1;
+}
+
+/** Single-root path: progressive expand-all over the focused provider's tree. */
+function runFocusedTreeExpandAll(
+  store: ReturnType<typeof useFileExplorerStoreContext>,
+  expandAllProgressively: (
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths: Set<string>
+  ) => unknown,
+  fileTree: IFileNode[] | undefined
+): void {
+  if (!(fileTree && fileTree.length > 0)) {
+    logger.warn('expandAll: no file tree or empty tree');
+    return;
+  }
+  logger.info('expandAll: calling expandAllProgressively');
+  const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
+    const currentPaths = store.getState().expandedDirectoryPaths;
+    const newPaths = updater(currentPaths);
+    if (newPaths === currentPaths) {
+      return;
+    }
+    store.getState().setExpandedPaths(newPaths);
+  };
+  void expandAllProgressively(setExpandedPaths, store.getState().expandedDirectoryPaths);
+}
+
 /**
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
  */
-export const FileExplorerPanel: React.FC = React.memo(() => {
+const FileExplorerPanelInner: React.FC = React.memo(() => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const [
@@ -686,41 +720,50 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     showStaleBanner,
   ]);
 
+  // Forest mode: Expand All must run inside EACH root section's own tree
+  // context — the legacy path below only expands the focused provider's
+  // (invisible) top-level tree when multiple roots are active.
+  const forestActions = useOptionalForestTreeActions();
+  const isForestMode = isForestModeActive(rootDirectoryHandles);
+  const isForestExpandingAll = Boolean(forestActions?.isExpandingAll);
+
   const expandAll = useCallback(() => {
     logger.info('expandAll clicked', {
       isExpandingAll,
+      isForestMode,
       hasFileTree: !!fileTree,
       fileTreeLength: fileTree?.length ?? 0,
     });
 
     // Prevent clicks while expand-all is already running
-    if (isExpandingAll) {
+    if (isExpandingAll || isForestExpandingAll) {
       logger.info('expandAll: blocked - already expanding');
       return;
     }
-    if (fileTree && fileTree.length > 0) {
-      logger.info('expandAll: calling expandAllProgressively');
-      // Use progressive expand-all that loads directories on demand
-      const currentExpandedPaths = store.getState().expandedDirectoryPaths;
-      const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
-        const currentPaths = store.getState().expandedDirectoryPaths;
-        const newPaths = updater(currentPaths);
-        if (newPaths === currentPaths) {
-          return;
-        }
-        store.getState().setExpandedPaths(newPaths);
-      };
-      void expandAllProgressively(setExpandedPaths, currentExpandedPaths);
-    } else {
-      logger.warn('expandAll: no file tree or empty tree');
+
+    if (isForestMode && forestActions) {
+      void forestActions.runExpandAll();
+      return;
     }
-  }, [fileTree, store, expandAllProgressively, isExpandingAll]);
+
+    runFocusedTreeExpandAll(store, expandAllProgressively, fileTree);
+  }, [
+    fileTree,
+    forestActions,
+    isForestExpandingAll,
+    isForestMode,
+    store,
+    expandAllProgressively,
+    isExpandingAll,
+  ]);
 
   const collapseAll = useCallback(() => {
-    // Cancel any in-progress expand-all first
+    // Cancel any in-progress expand-all first (every section + the legacy path),
+    // then clear the workspace-global expansion set — all sections collapse.
+    forestActions?.cancelExpandAll();
     cancelExpandAll();
     store.getState().collapseAllDirectories();
-  }, [store, cancelExpandAll]);
+  }, [forestActions, store, cancelExpandAll]);
 
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
@@ -830,7 +873,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   onClear={clearQuickFilter}
                   trailing={
                     <TreeActionButtons
-                      isExpandingAll={isExpandingAll}
+                      isExpandingAll={isExpandingAll || isForestExpandingAll}
                       isLoading={isLoading}
                       isRefreshing={isRefreshing}
                       onCollapseAll={collapseAll}
@@ -1079,5 +1122,18 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     </FileExplorerErrorBoundary>
   );
 });
+
+FileExplorerPanelInner.displayName = 'FileExplorerPanelInner';
+
+/**
+ * Public panel: wraps the inner panel with the forest tree-actions registry
+ * so toolbar Expand All / Collapse All can drive every root section's own
+ * tree context (the inner panel and the sidebar sections both consume it).
+ */
+export const FileExplorerPanel: React.FC = () => (
+  <ForestTreeActionsProvider>
+    <FileExplorerPanelInner />
+  </ForestTreeActionsProvider>
+);
 
 FileExplorerPanel.displayName = 'FileExplorerPanel';

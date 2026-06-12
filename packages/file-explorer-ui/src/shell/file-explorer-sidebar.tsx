@@ -3,7 +3,7 @@ import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
@@ -11,7 +11,11 @@ import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { getSelectionCount } from '../utils/selection-projection';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
-import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
+import { useOptionalForestTreeActions } from './forest-tree-actions-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
 const NoFilesSelected = () => (
@@ -364,6 +368,36 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   // matches IFileNode.rootFolderId (linchpin equality).
   const folderId = rootId ?? getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
   const sectionRecursiveSelect = useSectionRecursiveSelect(folderId);
+
+  // Register this section's expand-all with the forest registry so the
+  // toolbar's Expand All runs INSIDE this root's tree context (routing it
+  // through the focused panel provider only expands the invisible top-level
+  // tree). Expansion paths land in the workspace-global expanded set.
+  const store = useFileExplorerStoreContext();
+  const forestActions = useOptionalForestTreeActions();
+  const sectionExpandAllProgressively = treeContext.expandAllProgressively;
+  const sectionCancelExpandAll = treeContext.cancelExpandAll;
+  useEffect(() => {
+    if (!forestActions) {
+      return;
+    }
+    return forestActions.register(folderId, {
+      expandAll: async () => {
+        const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
+          const currentPaths = store.getState().expandedDirectoryPaths;
+          const nextPaths = updater(currentPaths);
+          if (nextPaths !== currentPaths) {
+            store.getState().setExpandedPaths(nextPaths);
+          }
+        };
+        await sectionExpandAllProgressively(
+          setExpandedPathsUpdater,
+          store.getState().expandedDirectoryPaths
+        );
+      },
+      cancelExpandAll: sectionCancelExpandAll,
+    });
+  }, [forestActions, folderId, sectionExpandAllProgressively, sectionCancelExpandAll, store]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">

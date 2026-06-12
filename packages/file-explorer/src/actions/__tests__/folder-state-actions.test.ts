@@ -76,10 +76,11 @@ describe('folder-state-actions hydrateFolderState', () => {
     ) => Partial<FileExplorerState>;
     const updated = updateFn(state);
     expect(updated.selectedFilePaths).toEqual(new Set(['a']));
-    expect(updated.expandedDirectoryPaths).toEqual(new Set(['dir']));
-    // WORKSPACE-GLOBAL settings (view filters, useRegex, viewFilterPresetId,
-    // maxSelectionCount) must be ABSENT from the hydration partial — stale
-    // per-folder snapshots would silently revert the user's workspace values.
+    // WORKSPACE-GLOBAL state (expansion, view filters, useRegex,
+    // viewFilterPresetId, maxSelectionCount) must be ABSENT from the
+    // hydration partial — stale per-folder snapshots would silently revert
+    // the user's workspace values.
+    expect(updated.expandedDirectoryPaths).toBeUndefined();
     expect(updated.includeFilters).toBeUndefined();
     expect(updated.excludeFilters).toBeUndefined();
     expect(updated.useRegex).toBeUndefined();

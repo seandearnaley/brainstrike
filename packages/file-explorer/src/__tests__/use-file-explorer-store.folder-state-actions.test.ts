@@ -116,7 +116,9 @@ describe('Folder State Actions', () => {
     expect(newState.lastActiveTab).toBe('files');
     expect(newState.lastAccessed).toBeGreaterThan(0);
     expect(state.selectedFilePaths.size).toBe(0);
-    expect(state.expandedDirectoryPaths.size).toBe(0);
+    // expandedDirectoryPaths is WORKSPACE-GLOBAL — switching to a new folder
+    // must not collapse other sections' expansions (forest mode).
+    expect(state.expandedDirectoryPaths).toEqual(new Set(['dir1']));
   });
 
   it('should hydrate state with stored folder state when folder id is provided', () => {
@@ -151,9 +153,10 @@ describe('Folder State Actions', () => {
 
     const state = store.getState();
     expect(state.selectedFilePaths).toEqual(selectedPaths);
-    expect(state.expandedDirectoryPaths).toEqual(expandedPaths);
-    // WORKSPACE-GLOBAL settings (view filters, useRegex, maxSelectionCount)
-    // are never hydrated from folder snapshots — the top-level values stay.
+    // WORKSPACE-GLOBAL settings (view filters, useRegex, maxSelectionCount,
+    // expandedDirectoryPaths) are never hydrated from folder snapshots — the
+    // top-level values stay.
+    expect(state.expandedDirectoryPaths).toEqual(DEFAULT_STATE.expandedDirectoryPaths);
     expect(state.includeFilters).toEqual(DEFAULT_STATE.includeFilters);
     expect(state.excludeFilters).toEqual(DEFAULT_STATE.excludeFilters);
     expect(state.useRegex).toBe(DEFAULT_STATE.useRegex);
@@ -286,9 +289,10 @@ describe('Folder State Actions', () => {
     }));
 
     // Switch to root B — A's selection must NOT leak into B.
+    // (Expansion is WORKSPACE-GLOBAL and intentionally persists.)
     store.setCurrentFolderId(ROOT_B);
     expect(store.getState().selectedFilePaths.size).toBe(0);
-    expect(store.getState().expandedDirectoryPaths.size).toBe(0);
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['src']));
     store.setState((state: FileExplorerState) => ({
       ...state,
       selectedFilePaths: new Set([`${ROOT_B}|@|${RELATIVE_PATH}`]),
