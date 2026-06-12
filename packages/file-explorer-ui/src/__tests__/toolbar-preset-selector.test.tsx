@@ -1,5 +1,5 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,9 +33,16 @@ const mockPresets: ViewFilterPreset[] = [
   },
 ];
 
-const mockSetViewFilterPresetId = vi.fn();
-const mockSetFilters = vi.fn();
-const mockSetUseRegex = vi.fn();
+const mockSetViewFilterPresetId = vi.fn((id: string | null) => {
+  mockStoreState.viewFilterPresetId = id;
+});
+const mockSetFilters = vi.fn((includes: string[], excludes: string[]) => {
+  mockStoreState.includeFilters = includes;
+  mockStoreState.excludeFilters = excludes;
+});
+const mockSetUseRegex = vi.fn((value: boolean) => {
+  mockStoreState.useRegex = value;
+});
 const mockCreatePreset = vi.fn();
 const mockUpdatePreset = vi.fn();
 const mockDeletePreset = vi.fn();
@@ -103,14 +110,29 @@ const defaultMockStoreState = (): MockStoreState => ({
 
 let mockStoreState: MockStoreState = defaultMockStoreState();
 
-// Create mock persist API
-const mockStorageData: Record<string, unknown> = {};
-const mockStorage = {
-  getItem: vi.fn((key: string) => mockStorageData[key] ?? null),
-  setItem: vi.fn((key: string, value: unknown) => {
-    mockStorageData[key] = value;
-  }),
+// Canonical-writer capture: persistFileExplorerStateImmediately writes the
+// whole store snapshot through the ADAPTERS storage adapter.
+const mockAdapterStorage = {
+  getItem: vi.fn(async () => null),
+  setItem: vi.fn(async () => undefined),
+  removeItem: vi.fn(async () => undefined),
+  clear: vi.fn(async () => undefined),
+  getAllKeys: vi.fn(async () => []),
 };
+
+// Hydration controls: false simulates the pre-rehydration boot window.
+let mockHasHydrated = true;
+const hydrationListeners: Array<() => void> = [];
+function finishHydration(): void {
+  mockHasHydrated = true;
+  for (const listener of hydrationListeners.splice(0)) {
+    listener();
+  }
+}
+
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: () => ({ storageAdapter: mockAdapterStorage }),
+}));
 
 vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: vi.fn(() => {
@@ -122,10 +144,19 @@ vi.mock('../shell/file-explorer-provider', () => ({
     storeFn.persist = {
       getOptions: () => ({
         name: 'file-explorer-storage-v4',
-        storage: mockStorage,
         version: 1,
         partialize: (state: unknown) => state,
       }),
+      hasHydrated: () => mockHasHydrated,
+      onFinishHydration: (callback: () => void) => {
+        hydrationListeners.push(callback);
+        return () => {
+          const index = hydrationListeners.indexOf(callback);
+          if (index >= 0) {
+            hydrationListeners.splice(index, 1);
+          }
+        };
+      },
     };
     return storeFn;
   }),
@@ -159,10 +190,8 @@ describe('ToolbarPresetSelector', () => {
     vi.clearAllMocks();
     vi.mocked(useViewFilterPresets).mockReturnValue(defaultMockViewFilterPresetsResult());
     mockStoreState = defaultMockStoreState();
-    // Reset storage mock
-    for (const key of Object.keys(mockStorageData)) {
-      delete mockStorageData[key];
-    }
+    mockHasHydrated = true;
+    hydrationListeners.length = 0;
   });
 
   afterEach(() => {
@@ -232,102 +261,59 @@ describe('ToolbarPresetSelector', () => {
     expect(screen.queryByRole('button', { name: /Source Files/i })).not.toBeInTheDocument();
   });
 
-  it('persists preset selection to storage', async () => {
+  it('persists the CANONICAL store snapshot immediately on preset selection', async () => {
     const user = userEvent.setup();
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    // Open the dropdown
     const triggerButton = screen.getByRole('button', { name: /Source Files/i });
     await user.click(triggerButton);
-
-    // Wait for dropdown to open and select Documentation preset
     await waitFor(() => {
       expect(screen.getByText('Documentation')).toBeInTheDocument();
     });
+    await user.click(screen.getByText('Documentation'));
 
-    const docOption = screen.getByText('Documentation');
-    await user.click(docOption);
-
-    // Verify storage was called
     await waitFor(() => {
-      expect(mockStorage.setItem).toHaveBeenCalled();
+      expect(mockAdapterStorage.setItem).toHaveBeenCalled();
     });
-
-    const lastCall = mockStorage.setItem.mock.calls.at(-1);
-    if (lastCall) {
-      const savedState = lastCall[1] as {
-        state: {
-          currentFolderId: string | null;
-          folderStates: Record<string, { viewFilterPresetId: string | null }>;
-        };
-      };
-      expect(savedState.state.currentFolderId).toBe('mock-root');
-      expect(savedState.state.folderStates['mock-root']?.viewFilterPresetId).toBe('preset-1');
-    }
+    const lastCall = mockAdapterStorage.setItem.mock.calls.at(-1) as unknown as [string, string];
+    expect(lastCall[0]).toBe('file-explorer-storage-v4');
+    const payload = JSON.parse(lastCall[1]) as {
+      state: { excludeFilters: string[]; includeFilters: string[]; viewFilterPresetId: string };
+      version: number;
+    };
+    // The snapshot is the LIVE store serialization (store actions applied
+    // before the write), never a hand-merged patch.
+    expect(payload.version).toBe(1);
+    expect(payload.state.viewFilterPresetId).toBe('preset-2');
+    expect(payload.state.includeFilters).toEqual(['*.md']);
+    expect(payload.state.excludeFilters).toEqual([]);
   });
 
-  it('handles persistence with existing wrapper state', async () => {
-    // Set up existing wrapped state
-    mockStorageData['file-explorer-storage-v4'] = {
-      version: 1,
-      state: { existingKey: 'existingValue' },
-    };
+  it('does not sync the preset id or write storage before the store rehydrates (boot-clobber guard)', async () => {
+    // The store still holds DEFAULTS during this window — any write would
+    // overwrite the user's persisted settings with them.
+    mockHasHydrated = false;
+    // A mismatch that WOULD trigger the sync effect once hydrated: stored id
+    // points at preset-1 but the live filters match preset-2.
+    mockStoreState.includeFilters = ['*.md'];
+    mockStoreState.excludeFilters = [];
+    mockStoreState.viewFilterPresetId = 'preset-1';
 
-    const user = userEvent.setup();
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    // Open the dropdown and select a preset
-    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
-    await user.click(triggerButton);
-
-    await waitFor(() => {
-      expect(screen.getByText('Documentation')).toBeInTheDocument();
+    // Give effects a chance to (incorrectly) fire.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();
+    expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
 
-    const docOption = screen.getByText('Documentation');
-    await user.click(docOption);
-
-    // Verify storage was updated with merged state
-    await waitFor(() => {
-      expect(mockStorage.setItem).toHaveBeenCalled();
+    // Hydration completes → the sync proceeds normally.
+    act(() => {
+      finishHydration();
     });
-
-    const lastCall = mockStorage.setItem.mock.calls.at(-1);
-    if (lastCall) {
-      const savedState = lastCall[1] as {
-        state: {
-          existingKey: string;
-          viewFilterPresetId: string | null;
-        };
-      };
-      expect(savedState.state.existingKey).toBe('existingValue');
-      expect(savedState.state.viewFilterPresetId).toBe('preset-2');
-    }
-  });
-
-  it('handles persistence without wrapper', async () => {
-    // Set up non-wrapped state
-    mockStorageData['file-explorer-storage-v4'] = {
-      existingKey: 'existingValue',
-    };
-
-    const user = userEvent.setup();
-    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
-
-    // Open the dropdown and select a preset
-    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
-    await user.click(triggerButton);
-
     await waitFor(() => {
-      expect(screen.getByText('Documentation')).toBeInTheDocument();
-    });
-
-    const docOption = screen.getByText('Documentation');
-    await user.click(docOption);
-
-    // Verify storage was called
-    await waitFor(() => {
-      expect(mockStorage.setItem).toHaveBeenCalled();
+      expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-2');
     });
   });
 
@@ -374,7 +360,7 @@ describe('ToolbarPresetSelector', () => {
       expect(screen.getByRole('button')).toBeInTheDocument();
     });
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
-    expect(mockStorage.setItem).not.toHaveBeenCalled();
+    expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();
   });
 
   it('handles null selected preset', async () => {
@@ -408,10 +394,6 @@ describe('ToolbarPresetSelector', () => {
 
   it('synchronizes the preset id when active filters match a preset exactly', async () => {
     mockStoreState.viewFilterPresetId = null;
-    mockStorageData['file-explorer-storage-v4'] = {
-      version: 1,
-      state: {},
-    };
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
@@ -419,7 +401,7 @@ describe('ToolbarPresetSelector', () => {
       expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-1');
     });
     await waitFor(() => {
-      expect(mockStorage.setItem).toHaveBeenCalled();
+      expect(mockAdapterStorage.setItem).toHaveBeenCalled();
     });
   });
 
@@ -461,6 +443,6 @@ describe('ToolbarPresetSelector', () => {
       expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
     });
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
-    expect(mockStorage.setItem).not.toHaveBeenCalled();
+    expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();
   });
 });
