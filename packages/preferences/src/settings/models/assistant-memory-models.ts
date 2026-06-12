@@ -9,7 +9,15 @@ export interface AssistantMemoryModelOption {
   target: string;
 }
 
-const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter']);
+// 'local' resolves to the built-in Gemma model proxied through the desktop
+// llm-host (no API key); the assistant server allows the same provider set.
+const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+  'local',
+]);
 const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
 
 function providerById(providers: readonly DbProvider[]): Map<string, DbProvider> {

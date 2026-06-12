@@ -90,6 +90,9 @@ const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'anthropic',
   'google',
   'openrouter',
+  // Built-in local model: resolved to the llm-host proxy chat model (no API
+  // key); requires the llm-host manager to be injected into the runtime.
+  'local',
 ]);
 const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   'openai',
@@ -766,7 +769,7 @@ function parseObservationalMemoryModelTarget(
     formatLabel: 'Observational memory model target',
     unsupportedProviderLabel: 'observational memory',
     disallowedProviderMessage: (provider) =>
-      `Desktop observational memory requires a hosted model provider; received "${provider}" in "${modelTarget}".`,
+      `Desktop observational memory requires a hosted model provider or the built-in local model; received "${provider}" in "${modelTarget}".`,
   });
 }
 
@@ -962,20 +965,43 @@ async function resumeStreamIfAvailable(
   return true;
 }
 
+function isLocalChatProvider(runtimeData: RuntimeData | undefined): boolean {
+  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  return provider.toLowerCase() === 'local';
+}
+
+/** Model id from a 'local/<modelId>' observational-memory target, if active. */
+function resolveLocalObservationalMemoryModelId(
+  runtimeData: RuntimeData | undefined
+): string | undefined {
+  const observationalMemory = runtimeData?.memory?.memorySettings?.observationalMemory;
+  if (!observationalMemory?.enabled) {
+    return;
+  }
+  const target = observationalMemory.modelTarget?.trim() ?? '';
+  if (!target.toLowerCase().startsWith('local/')) {
+    return;
+  }
+  const modelId = target.slice('local/'.length).trim();
+  return modelId.length > 0 ? modelId : undefined;
+}
+
 function resolveLocalLlmHostClient(
   runtimeData: RuntimeData | undefined,
   toolDependencies: {
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   }
 ): ReturnType<typeof createMainLlmHostClient> | undefined {
-  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
-  if (provider.toLowerCase() !== 'local') {
+  const needsClient =
+    isLocalChatProvider(runtimeData) ||
+    resolveLocalObservationalMemoryModelId(runtimeData) !== undefined;
+  if (!needsClient) {
     return;
   }
   const manager = toolDependencies.llmHostManager;
   if (!manager) {
     throw new Error(
-      'Assistant provider "local" requires the llm-host manager; the assistant server was started without one.'
+      'The built-in local model requires the llm-host manager; the assistant server was started without one.'
     );
   }
   return createMainLlmHostClient(manager);
@@ -991,6 +1017,19 @@ function resolveLocalModelId(runtimeData: RuntimeData | undefined): string {
     throw new Error('No default model is registered for the local provider.');
   }
   return fallback;
+}
+
+/** Every local model this request will drive (chat and/or memory), deduped. */
+function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): string[] {
+  const modelIds = new Set<string>();
+  if (isLocalChatProvider(runtimeData)) {
+    modelIds.add(resolveLocalModelId(runtimeData));
+  }
+  const memoryModelId = resolveLocalObservationalMemoryModelId(runtimeData);
+  if (memoryModelId) {
+    modelIds.add(memoryModelId);
+  }
+  return [...modelIds];
 }
 
 async function initializeAgentStream(
@@ -1025,9 +1064,11 @@ async function initializeAgentStream(
     };
     // Cold model loads (multi-GB download) exceed the generate request's hard
     // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
-    // before the Mastra loop issues its first generation.
+    // before the Mastra loop or observational memory issues a generation.
     if (localLlmHostClient) {
-      await localLlmHostClient.warmup(resolveLocalModelId(runtimeData), { signal });
+      for (const modelId of collectLocalLlmWarmupModelIds(runtimeData)) {
+        await localLlmHostClient.warmup(modelId, { signal });
+      }
     }
     const queuedRunEvents: AssistantRunEvent[] = [];
     const memoryResult = runtime.memory
@@ -1304,12 +1345,30 @@ function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
   return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);
 }
 
+/**
+ * The built-in local provider needs no API key: its memory models are proxied
+ * to the hidden llm-host, so the cache key carries a fixed marker instead of
+ * a key hash.
+ */
+function resolveLocalMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T
+): T & { readonly apiKey: string; readonly cacheKey: string } {
+  return {
+    ...target,
+    apiKey: '',
+    cacheKey: `${target.provider}/${target.model}:local-llm-host`,
+  };
+}
+
 async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
   target: T,
   runtimeData: RuntimeData | undefined,
   label: string
 ): Promise<T & { readonly apiKey: string; readonly cacheKey: string }> {
   const { model, provider } = target;
+  if (provider === 'local') {
+    return resolveLocalMemoryModelTarget(target);
+  }
   const runtimeProvider = resolveRequestedProvider(runtimeData);
   const runtimeApiKey =
     runtimeProvider === provider && runtimeData?.apiKey?.trim()
@@ -1333,6 +1392,9 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
 ): (T & { readonly apiKey: string; readonly cacheKey: string }) | undefined {
   if (!target) {
     return;
+  }
+  if (target.provider === 'local') {
+    return resolveLocalMemoryModelTarget(target);
   }
   const runtimeProvider = resolveRequestedProvider(runtimeData);
   const apiKey =
@@ -1361,6 +1423,13 @@ function createDesktopMastraMemoryProviderBindings({
   readonly embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
   readonly observationalMemoryModel: ReturnType<typeof createProvider> | undefined;
 } {
+  if (observationalMemoryTarget?.provider === 'local' && !runtimeData?.localLlmHostClient) {
+    // Without the injected client, createProvider would construct the
+    // in-process browser backend, which cannot run in Electron main.
+    throw new Error(
+      'Local observational memory model requires the llm-host proxy client on the runtime.'
+    );
+  }
   const observationalMemoryModel = observationalMemoryTarget
     ? createProvider(
         observationalMemoryTarget.provider,

@@ -40,6 +40,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { RuntimeAssistantMemorySettings } from '../memory-settings';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
+import { LlmHostChatModel } from '../providers/local/llm-host-chat-model';
+import type {
+  LocalLlmHostClient,
+  LocalLlmHostGenerateRequest,
+} from '../providers/local/llm-host-client';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
 // returns must live in a hoisted holder the factory can close over.
@@ -215,6 +220,7 @@ async function runTurnWithMemory(args: {
   threadId: string;
   signal?: AbortSignal;
   observationDelayMs?: number;
+  observationalMemoryModel?: LanguageModelV2;
   onStreamConsumed?: () => void;
 }): Promise<{ finalText: string }> {
   const memoryFactoryOptions: PgliteMastraMemoryOptions = {
@@ -222,9 +228,10 @@ async function runTurnWithMemory(args: {
     memorySettings: args.memorySettings,
   };
   if (args.memorySettings.observationalMemory.enabled) {
-    memoryFactoryOptions.observationalMemoryModel = createFakeObservationModel(
-      args.observationDelayMs ?? 0
-    ) as NonNullable<PgliteMastraMemoryOptions['observationalMemoryModel']>;
+    memoryFactoryOptions.observationalMemoryModel = (args.observationalMemoryModel ??
+      createFakeObservationModel(args.observationDelayMs ?? 0)) as NonNullable<
+      PgliteMastraMemoryOptions['observationalMemoryModel']
+    >;
   }
   const { memory } = await createPgliteMastraMemory(memoryFactoryOptions);
 
@@ -340,6 +347,56 @@ describe('mastra memory persistence through the live stream path', () => {
     },
     30_000
   );
+
+  it('drives observational memory through the REAL llm-host proxy model (local memory model)', async () => {
+    // Mirrors the desktop "memory model = built-in local" configuration: the
+    // observational-memory Observer runs on LlmHostChatModel, whose generations
+    // are proxied to a host client (the seam desktop main implements over the
+    // hidden llm-host). Proves OM works against the proxy with plain text
+    // prompting — no JSON mode, no API key.
+    const hostRequests: LocalLlmHostGenerateRequest[] = [];
+    const hostClient: LocalLlmHostClient = {
+      warmup: () => Promise.resolve(),
+      generate: (request) => {
+        hostRequests.push(request);
+        return Promise.resolve({
+          text: 'Observed: the user asked about Paris weather.',
+          finishReason: 'stop' as const,
+          usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+        });
+      },
+    };
+
+    const threadId = 'thread-local-om-proxy';
+    const { finalText } = await runTurnWithMemory({
+      database,
+      memorySettings: OM_TINY_THRESHOLD_SETTINGS,
+      observationalMemoryModel: new LlmHostChatModel(
+        'onnx-community/gemma-4-E2B-it-ONNX',
+        hostClient
+      ),
+      threadId,
+    });
+
+    expect(finalText).toContain('21C in Paris');
+
+    // OM observation generation ran through the host client (it may fire from
+    // background buffering shortly after the turn completes).
+    await vi.waitFor(
+      () => {
+        expect(hostRequests.length).toBeGreaterThan(0);
+      },
+      { timeout: 10_000 }
+    );
+    expect(hostRequests[0]?.modelId).toBe('onnx-community/gemma-4-E2B-it-ONNX');
+
+    const rows = await listThreadMessages(database, threadId);
+    const assistantParts = rows.filter((row) => row.role === 'assistant').flatMap(parseParts);
+    const persistedTexts = assistantParts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text ?? '');
+    expect(persistedTexts.join('\n')).toContain('21C in Paris');
+  }, 30_000);
 
   it('persists the final assistant text even when the request signal aborts right after the stream is consumed (desktop request-close behavior)', async () => {
     // The desktop assistant server wires `req.on('close', ...)` to an

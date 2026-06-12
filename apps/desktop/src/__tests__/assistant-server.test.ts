@@ -900,6 +900,135 @@ describe('assistant-server', () => {
       );
     });
 
+    it('builds observational memory on the built-in local model via the llm-host proxy', async () => {
+      const { createProvider, toAiSdkStyleStream, convertAssistantUiMessages } = await import(
+        '@brainstrike/agent'
+      );
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const llmHostManager = {
+        generateForMain: vi.fn(),
+        warmupForMain: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const response = await runRequest(
+        {
+          method: 'POST',
+          url: '/',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+            data: {
+              provider: 'openai',
+              memory: {
+                threadId: 'thread-local-om',
+                resourceId: 'workspace-local-om',
+                memorySettings: {
+                  observationalMemory: {
+                    enabled: true,
+                    modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+                    scope: 'thread',
+                    messageTokens: 20_000,
+                    observationTokens: 40_000,
+                    retrievalMode: 'off',
+                  },
+                  semanticRecall: {
+                    enabled: false,
+                    embeddingModelTarget: 'openai/text-embedding-3-small',
+                    scope: 'resource',
+                    topK: 5,
+                    messageRange: 2,
+                  },
+                },
+              },
+            },
+          }),
+        },
+        { llmHostManager }
+      );
+
+      expect(response.status).toBe(200);
+      // The memory model was warmed even though the CHAT provider is hosted.
+      expect(llmHostManager.warmupForMain).toHaveBeenCalledTimes(1);
+      expect(llmHostManager.warmupForMain.mock.calls[0]?.[0]).toBe(
+        'onnx-community/gemma-4-E2B-it-ONNX'
+      );
+      // The OM model resolved through the local provider with no API key and
+      // the proxy client present on the runtime.
+      expect(createProvider).toHaveBeenCalledWith(
+        'local',
+        '',
+        'onnx-community/gemma-4-E2B-it-ONNX',
+        expect.objectContaining({ localLlmHostClient: expect.anything() })
+      );
+      expect(createPgliteMastraMemory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          observationalMemoryModel: expect.objectContaining({
+            provider: 'local',
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          }),
+        })
+      );
+    });
+
+    it('fails local observational memory with a structured error when no llm-host manager is injected', async () => {
+      const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-local-om-missing',
+              resourceId: 'workspace-local-om-missing',
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
+                  scope: 'thread',
+                  messageTokens: 20_000,
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                },
+                semanticRecall: {
+                  enabled: false,
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  scope: 'resource',
+                  topK: 5,
+                  messageRange: 2,
+                },
+              },
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(502);
+      const payload = JSON.parse(response.body) as { error: string };
+      expect(payload.error).toBe('agent_stream_init_failed');
+    });
+
     it('routes tool approval actions through Mastra approval resume without requiring a new prompt', async () => {
       const { streamMastraToolApprovalAction, toAiSdkStyleStream, convertAssistantUiMessages } =
         await import('@brainstrike/agent');
