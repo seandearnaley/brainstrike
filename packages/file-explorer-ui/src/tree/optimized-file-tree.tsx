@@ -746,12 +746,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
         if (isLoadingForSelection) {
+          logger.warn('selection click ignored: recursive selection in progress', {
+            path: rowData.fileNode.path,
+          });
           return;
         }
 
         const node = rowData.fileNode;
         const selectionState = getNodeSelectionState(rowData);
         if (selectionState.wouldExceedLimit) {
+          logger.warn('selection click ignored: would exceed selection limit', {
+            path: node.path,
+            maxSelectionCount,
+            selectedCount,
+          });
           return;
         }
 
@@ -789,6 +797,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
         const directoryTotalFiles = rowData.directoryTotalFiles;
         if (directoryTotalFiles === 0) {
+          // No-silent-fallbacks: a loaded-but-empty (or fully filtered)
+          // directory checkbox click must be diagnosable.
+          logger.warn('selection click ignored: directory has no selectable files', {
+            path: node.path,
+          });
           return;
         }
 

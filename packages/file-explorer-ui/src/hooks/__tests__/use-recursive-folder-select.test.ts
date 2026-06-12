@@ -14,6 +14,8 @@ vi.mock('@brainstrike/hooks', () => ({
   }),
 }));
 
+const showToastMock = vi.fn();
+
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     storageAdapter: {
@@ -24,6 +26,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
       getAllKeys: vi.fn(),
     },
   }),
+  useToastManager: () => ({ showToast: showToastMock }),
 }));
 
 vi.mock('../../shell/file-explorer-provider', () => ({
@@ -620,6 +623,65 @@ describe('useRecursiveFolderSelect', () => {
     expect(selectionResult.success).toBe(true);
     expect(setQuerySelection).toHaveBeenCalled();
     expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+  });
+
+  it('shows a toast when the folder has no selectable files (filtered to zero)', async () => {
+    // The historical failure mode: workspace include filters (e.g. *.ts) make
+    // a folder of .html files scan to ZERO matches — the checkbox click must
+    // never be a silent no-op.
+    const root = createDirectory({
+      path: '/root/html-only',
+      loadState: 'unloaded',
+      children: [],
+    });
+    const fileSystemAdapter = createMockAdapter({
+      '/root/html-only': [createFile({ name: 'index.html', path: '/root/html-only/index.html' })],
+    });
+
+    // includeFilters come from the store selector mock — set BEFORE render.
+    mockStoreState = { includeFilters: ['**/*.ts'], excludeFilters: [] };
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'folder-id', addMultipleSelectedFiles, 10, 0)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual([]);
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(showToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('No selectable files') })
+    );
+  });
+
+  it('shows a toast when the selection limit blocks the folder selection', async () => {
+    const root = createDirectory({ path: '/root/src', loadState: 'unloaded', children: [] });
+    const fileSystemAdapter = createMockAdapter({});
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+        onError,
+      })
+    );
+
+    // currentSelectionSize === maxSelectionCount → zero slots.
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'folder-id', addMultipleSelectedFiles, 10, 10)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(showToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('Selection limit') })
+    );
   });
 
   it('surfaces adapter errors through onError', async () => {
