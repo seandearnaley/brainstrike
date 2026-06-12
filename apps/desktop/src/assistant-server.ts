@@ -1351,11 +1351,22 @@ function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
 ): DesktopMemoryModelTargetDescriptor | undefined {
   const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
   const semanticRecallSettings = effectiveSettings.semanticRecall;
-  if (!semanticRecallSettings.enabled) {
+  // Observational-memory vector retrieval embeds observations with the SAME
+  // configured embedder, so it needs the target resolved even when the
+  // semantic-recall toggle itself is off (createPgliteMastraMemory throws
+  // without an embedder in that mode).
+  const observationalVectorRetrieval =
+    effectiveSettings.observationalMemory.enabled &&
+    effectiveSettings.observationalMemory.retrievalMode === 'vector';
+  if (!(semanticRecallSettings.enabled || observationalVectorRetrieval)) {
     return;
   }
   if (!semanticRecallSettings.embeddingModelTarget?.trim()) {
-    throw new Error('Semantic recall requires a configured embedding model target.');
+    throw new Error(
+      semanticRecallSettings.enabled
+        ? 'Semantic recall requires a configured embedding model target.'
+        : 'Observational vector retrieval requires a configured semantic recall embedding model target.'
+    );
   }
 
   return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);

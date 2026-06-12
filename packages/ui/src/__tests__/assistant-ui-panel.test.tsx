@@ -196,6 +196,12 @@ vi.mock('@assistant-ui/react', () => {
         </button>
       ),
     },
+    // biome-ignore lint/style/useNamingConvention: assistant-ui export name
+    ErrorPrimitive: {
+      Root: Primitive,
+      // Mirrors the real primitive: renders nothing when the message has no error.
+      Message: () => null,
+    },
     MessagePrimitive: {
       Root: Primitive,
       Parts: ({ components }: PartsProps) => {

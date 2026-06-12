@@ -730,6 +730,43 @@ describe('PgliteMemoryStore', () => {
     );
   });
 
+  it('emits inline detail strings on memory run events so the timeline shows real data', async () => {
+    const events: Array<{ detail?: string; label: string }> = [];
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: (event) => {
+        events.push({ label: event.label, ...(event.detail ? { detail: event.detail } : {}) });
+      },
+      runId: 'run-detail',
+    });
+    await observedStore.initialize();
+
+    const created = await observedStore.initializeObservationalMemory({
+      threadId: 'thread-detail',
+      resourceId: 'workspace-detail',
+      scope: 'thread',
+      config: { observation: { messageTokens: 1000 } },
+    });
+    await observedStore.updateActiveObservations({
+      id: created.id,
+      observations: '- User asked about run-event details.',
+      tokenCount: 7,
+      lastObservedAt: new Date('2026-04-22T10:00:00Z'),
+      observedMessageIds: ['message-detail-1'],
+    });
+    await observedStore.getObservationalMemory('thread-detail', 'workspace-detail');
+    await observedStore.listMessages({ threadId: 'thread-detail' });
+    await observedStore.getResourceById({ resourceId: 'workspace-detail' });
+
+    const detailFor = (label: string): string | undefined =>
+      events.find((event) => event.label === label)?.detail;
+
+    expect(detailFor('Observational memory configured')).toBe('thread scope');
+    expect(detailFor('Observational memory read')).toContain('observation tokens');
+    expect(detailFor('Conversation history loaded')).toBe('0 messages');
+    expect(detailFor('Working memory loaded')).toBe('empty');
+  });
+
   it('deletes thread messages and observational memory atomically with the thread', async () => {
     await store.saveThread({
       thread: {

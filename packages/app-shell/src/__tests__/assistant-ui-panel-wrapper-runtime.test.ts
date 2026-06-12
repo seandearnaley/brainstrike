@@ -142,6 +142,47 @@ describe('assistant runtime helpers', () => {
     );
   });
 
+  it('blocks observational vector retrieval when the recall embedder is unsupported, even with semantic recall off', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            retrievalMode: 'vector',
+          },
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            enabled: false,
+            embeddingModelTarget: 'cohere/embed-english-v3.0',
+          },
+        },
+      })
+    ).toBe(
+      'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.'
+    );
+
+    // A supported embedder satisfies vector observation retrieval.
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memorySettings: {
+          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            retrievalMode: 'vector',
+          },
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            enabled: false,
+            embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+          },
+        },
+      })
+    ).toBeUndefined();
+  });
+
   it('creates assistant thread run records with copied settings', async () => {
     const createThreadRun = vi.fn(async (input) => ({
       id: input.id,

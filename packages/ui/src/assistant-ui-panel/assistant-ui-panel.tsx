@@ -53,6 +53,7 @@ import { ModelPicker } from '../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { Progress } from '../progress';
 import { ControlsMenu } from './assistant-controls-menu';
+import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import {
@@ -1263,6 +1264,7 @@ const AssistantMessage: FC = () => {
             Text: AssistantMessageText,
           }}
         />
+        <AssistantMessageError />
       </div>
 
       <AssistantActionBar />

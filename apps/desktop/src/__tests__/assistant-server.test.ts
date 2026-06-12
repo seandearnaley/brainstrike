@@ -1057,6 +1057,77 @@ describe('assistant-server', () => {
       );
     });
 
+    it('resolves the recall embedder when observational vector retrieval is on but semantic recall is off', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const embeddingHostManager = {
+        queryEmbedding: vi.fn().mockResolvedValue([0.1, 0.2]),
+      };
+
+      const response = await runRequest(
+        {
+          method: 'POST',
+          url: '/',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+            data: {
+              provider: 'openai',
+              memory: {
+                threadId: 'thread-om-vector',
+                resourceId: 'workspace-om-vector',
+                memorySettings: {
+                  observationalMemory: {
+                    enabled: true,
+                    modelTarget: 'openai/gpt-5.4-mini',
+                    scope: 'thread',
+                    messageTokens: 20_000,
+                    observationTokens: 40_000,
+                    // Vector observation retrieval needs the recall embedder
+                    // even though the semanticRecall toggle below is OFF.
+                    retrievalMode: 'vector',
+                  },
+                  semanticRecall: {
+                    enabled: false,
+                    embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+                    scope: 'resource',
+                    topK: 5,
+                    messageRange: 2,
+                  },
+                },
+              },
+            },
+          }),
+        },
+        { embeddingHostManager }
+      );
+
+      expect(response.status).toBe(200);
+      expect(createPgliteMastraMemory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embedder: expect.objectContaining({
+            provider: 'local',
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+          }),
+        })
+      );
+    });
+
     it('fails local semantic recall with a structured error when no embedding host manager is injected', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
