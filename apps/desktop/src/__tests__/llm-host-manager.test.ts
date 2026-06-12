@@ -52,6 +52,7 @@ vi.mock('../renderer-host-lifecycle', () => ({
 }));
 
 import { LlmHostManager } from '../llm-host-manager';
+import { assertLlmHostRequest } from '../llm-host-shared';
 
 type TestableLlmHostManager = LlmHostManager & {
   acceptResponseReport(
@@ -570,6 +571,55 @@ describe('LlmHostManager', () => {
   });
 
   describe('main-process client API', () => {
+    it('sends envelopes that pass the REAL host-side request validation', async () => {
+      // The hidden host runtime rejects payloads without clientRequestId; a
+      // manager-generated request that fails assertLlmHostRequest is silently
+      // dropped host-side and waits out its full timeout (the "stuck on
+      // Thinking" bug). Validate exactly what gets sent over IPC.
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
+      await vi.waitFor(() => {
+        expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(1);
+      });
+      const generatePromise = manager.generateForMain({
+        messages: [{ role: 'user', content: 'hi' }],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      });
+      await vi.waitFor(() => {
+        expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(2);
+      });
+
+      for (const [, sentRequest] of mockHostWindow.webContents.send.mock.calls) {
+        const validated = assertLlmHostRequest(sentRequest);
+        expect(validated.payload).toMatchObject({
+          clientRequestId: expect.stringMatching(/.+/),
+        });
+        // The stamped clientRequestId is the unscoped portion of the envelope id.
+        expect(`main:${(validated.payload as { clientRequestId?: string }).clientRequestId}`).toBe(
+          validated.requestId
+        );
+      }
+
+      for (const requestId of [...manager.pendingRequests.keys()]) {
+        manager.acceptResponseReport(71, {
+          type: 'result',
+          channel: 'llm-result',
+          requestId,
+          runtimeId: 'llm-host-runtime',
+          payload: {
+            result: {
+              text: 'ok',
+              finishReason: 'stop',
+              usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+            },
+          },
+        });
+      }
+      await expect(warmupPromise).resolves.toBeUndefined();
+      await expect(generatePromise).resolves.toMatchObject({ text: 'ok' });
+    });
+
     it('generateForMain scopes request ids to main, forwards progress, and resolves the result', async () => {
       const manager = new LlmHostManager() as TestableLlmHostManager;
       const progressEvents: unknown[] = [];

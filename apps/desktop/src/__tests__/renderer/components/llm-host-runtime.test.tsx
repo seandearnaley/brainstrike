@@ -187,4 +187,41 @@ describe('LlmHostRuntime', () => {
       expect(runningIdleStatuses).toHaveLength(2);
     });
   });
+
+  it('reports an error (keyed to the envelope) for requests that fail validation', async () => {
+    render(<LlmHostRuntime />);
+
+    const requestListener = onRequestCallback as unknown as (request: unknown) => void;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      // Missing clientRequestId — must be rejected with a report, not
+      // swallowed (a silent drop leaves the main-process caller waiting out
+      // its full multi-minute timeout).
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'main:bad-warmup-1',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'warmup',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        },
+      });
+    });
+
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(initializeMock).not.toHaveBeenCalled();
+    expect(reportResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        requestId: 'main:bad-warmup-1',
+        payload: expect.objectContaining({
+          errorMessage: expect.stringContaining('clientRequestId'),
+        }),
+      })
+    );
+  });
 });

@@ -461,12 +461,23 @@ export class LlmHostManager {
       }
       this.pendingRequests.set(requestId, pending);
 
+      // The host-side payload validators REQUIRE clientRequestId; callers that
+      // rely on the manager-generated id (main-process clients, the legacy
+      // modelId-only warmup) must have the unscoped id stamped back in, or the
+      // host rejects the request and the pending entry waits out its timeout.
+      const payloadWithClientRequestId:
+        | LlmHostGenerateRequestPayload
+        | LlmHostWarmupRequestPayload =
+        payload.clientRequestId && payload.clientRequestId.trim().length > 0
+          ? payload
+          : { ...payload, clientRequestId: requestId.slice(requestId.indexOf(':') + 1) };
+
       const request: LlmHostRequest = {
         type: 'request',
         channel: 'llm',
         requestId,
         runtimeId: this.getStatus().runtimeId,
-        payload,
+        payload: payloadWithClientRequestId,
       };
 
       try {

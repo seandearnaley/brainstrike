@@ -163,6 +163,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       try {
         const window = await this.createWindow(runtimeId);
         if (this.disposed) {
+          this.clearHostWindow(window);
           if (!window.isDestroyed()) {
             clearWindowRoleByWebContentsId(window.webContents.id);
             window.destroy();
@@ -374,6 +375,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       }
       const window = this.buildWindow();
       assignWindowRole(window, this.options.role);
+      // Expose the in-flight window to status-report acceptance BEFORE the
+      // page-load await: the host app can mount and send its one-shot
+      // 'running' status while loadURL/loadFile is still pending. If the
+      // manager's acceptStatusReport can't see this window yet, that report
+      // is dropped and ensureStarted waits out the full ready timeout (then
+      // destroys a perfectly healthy host).
+      this.hostWindow = window;
       try {
         await this.loadWindow(window, runtimeId);
         return window;
@@ -386,6 +394,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
             errorMessage: lastError.message,
           }
         );
+        this.clearHostWindow(window);
         clearWindowRoleByWebContentsId(window.webContents.id);
         if (attempt < HOST_LOAD_RETRY_ATTEMPTS - 1) {
           // Register the closed listener BEFORE destroy() — Electron's destroy()

@@ -71,6 +71,46 @@ function createIdleStatus(runtimeId: string): LlmHostStatus {
   };
 }
 
+/**
+ * Validate an incoming host request. A request that fails validation must NOT
+ * vanish: report the error back (keyed to the raw envelope when readable) so
+ * the caller's pending entry rejects immediately instead of waiting out its
+ * multi-minute timeout, and log loudly for diagnosis.
+ */
+function parseLlmHostRequestOrReport(
+  rawRequest: unknown,
+  fallbackRuntimeId: string
+): LlmHostRequest | null {
+  try {
+    return assertLlmHostRequest(rawRequest);
+  } catch (error) {
+    const envelope = rawRequest as { requestId?: unknown; runtimeId?: unknown } | null;
+    const requestId = typeof envelope?.requestId === 'string' ? envelope.requestId : null;
+    const envelopeRuntimeId =
+      typeof envelope?.runtimeId === 'string' ? envelope.runtimeId : fallbackRuntimeId;
+    logger.error('Llm host received an invalid request', {
+      requestId,
+      runtimeId: envelopeRuntimeId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (requestId) {
+      reportResponse(
+        createLlmHostErrorReport(
+          {
+            type: 'request',
+            channel: 'llm',
+            requestId,
+            runtimeId: envelopeRuntimeId,
+            payload: { kind: 'cancel', requestId },
+          },
+          error
+        )
+      );
+    }
+    return null;
+  }
+}
+
 function logRequestReceived(request: LlmHostRequest, runtimeId: string): void {
   logger.info('Llm host request received', {
     requestId: request.requestId,
@@ -263,7 +303,10 @@ export function LlmHostRuntime(): null {
     };
 
     const unsubscribeRequest = getLlmHostBridge()?.onRequest?.((rawRequest: LlmHostRequest) => {
-      const request = assertLlmHostRequest(rawRequest);
+      const request = parseLlmHostRequestOrReport(rawRequest, runtimeIdRef.current);
+      if (!request) {
+        return;
+      }
       if (request.payload.kind === 'cancel') {
         abortControllersRef.current.get(request.payload.requestId)?.abort();
         return;
