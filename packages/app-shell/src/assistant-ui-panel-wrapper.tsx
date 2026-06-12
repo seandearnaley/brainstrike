@@ -31,6 +31,7 @@ import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
+  hasDesktopLlmHost,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -668,6 +669,11 @@ export function AssistantUiPanelWrapper({
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable =
     selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
+  // Desktop routes built-in local chat through the assistant server (real
+  // Mastra loop with persistence/run events; inference proxied to the hidden
+  // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
+  const localChatTransport: 'data-stream' | 'local-runtime' =
+    desktopAssistantBackendAvailable && hasDesktopLlmHost() ? 'data-stream' : 'local-runtime';
 
   useEffect(() => {
     if (!(assistantThreadRepository && memoryResourceId)) {
@@ -1042,6 +1048,7 @@ export function AssistantUiPanelWrapper({
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}
       {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+      localChatTransport={localChatTransport}
       {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}

@@ -71,6 +71,7 @@ import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
+import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   const statusOverride = useAuiState((state) =>
@@ -214,6 +215,14 @@ export interface AssistantUiPanelProps {
   effectiveInputBudget?: number | undefined;
   historyAdapter?: ThreadHistoryAdapter;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
+  /**
+   * Transport for the built-in local provider. 'data-stream' routes local
+   * chat through the assistant server (real Mastra loop: memory, run events,
+   * tool guards) with inference proxied to the hidden llm-host — desktop
+   * only. 'local-runtime' (default) keeps the in-renderer assistant-ui local
+   * runtime (web, or desktop without the llm-host bridge).
+   */
+  localChatTransport?: 'data-stream' | 'local-runtime';
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -245,14 +254,6 @@ declare global {
   interface Window {
     assistant?: { getUrl?: () => Promise<string>; url?: string };
   }
-}
-
-// Local model loading state for progress display
-interface LocalModelLoadingState {
-  file?: string;
-  message: string;
-  progress: number;
-  stage: 'downloading' | 'generating' | 'loading' | 'ready' | 'error';
 }
 
 const LocalModelStatus: FC<{ state: LocalModelLoadingState }> = ({ state }) => {
@@ -746,6 +747,8 @@ const DataStreamRuntimeChat: FC<
     historyAdapter: ThreadHistoryAdapter | undefined;
     requestData: Record<string, unknown> | undefined;
     prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+    /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
+    prepareLocalModel?: (() => Promise<void>) | undefined;
     modelName: string | undefined;
     threadKey?: string | undefined;
   }
@@ -765,11 +768,13 @@ const DataStreamRuntimeChat: FC<
   onUsage,
   disabled,
   disabledReason,
+  localLoadingState,
   api,
   completePreparedRequest,
   historyAdapter,
   requestData,
   prepareRequestData,
+  prepareLocalModel,
   modelName,
   toolMenu,
   threadKey,
@@ -800,6 +805,11 @@ const DataStreamRuntimeChat: FC<
     body: async () => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
+      }
+      // Warm the local model first so cold downloads surface progress in the
+      // renderer instead of stalling silently inside the server-side stream.
+      if (prepareLocalModel) {
+        await prepareLocalModel();
       }
       const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
       preparedRequestRef.current = { data: preparedRequestData };
@@ -834,6 +844,7 @@ const DataStreamRuntimeChat: FC<
           effectiveInputBudget={effectiveInputBudget}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
+          localLoadingState={localLoadingState}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -1063,6 +1074,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   disabledReason,
   historyAdapter,
   loadLocalLlmBackend,
+  localChatTransport = 'local-runtime',
   threadKey,
 }) => {
   // API URL for data stream runtime (hosted providers)
@@ -1073,9 +1085,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         ? `${window.assistant.url}/assistant`
         : '/api/assistant';
   const [api, setApi] = useState<string>(initialApi);
-
-  // Local model loading state
-  const [localLoadingState, setLocalLoadingState] = useState<LocalModelLoadingState | undefined>();
 
   useEffect(() => {
     void preloadMarkdownText();
@@ -1111,25 +1120,10 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
   // Check if using local provider
   const isLocalProvider = selectedProvider === 'local';
+  const localViaDataStream = isLocalProvider && localChatTransport === 'data-stream';
 
-  // Handler for local model loading state updates
-  const handleLocalLoadingStateChange = useCallback((state: LocalModelLoadingState) => {
-    setLocalLoadingState(state);
-  }, []);
-
-  useEffect(() => {
-    if (localLoadingState?.stage !== 'ready') {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setLocalLoadingState((current) => (current?.stage === 'ready' ? undefined : current));
-    }, 1200);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [localLoadingState]);
+  const { handleLocalLoadingStateChange, localLoadingState, prepareLocalModel } =
+    useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
     <section
@@ -1137,7 +1131,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
       data-testid="chat-panel"
     >
-      {isLocalProvider && modelName ? (
+      {isLocalProvider && modelName && !localViaDataStream ? (
         <LocalRuntimeChat
           completePreparedRequest={completePreparedRequest}
           contextWindow={contextWindow}
@@ -1175,11 +1169,13 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           effectiveInputBudget={effectiveInputBudget}
           historyAdapter={historyAdapter}
           key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
+          localLoadingState={localLoadingState}
           modelName={modelName}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onStreamActivity={onStreamActivity}
           onThreadRunStart={onThreadRunStart}
+          prepareLocalModel={prepareLocalModel}
           {...(onUsage ? { onUsage } : {})}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}

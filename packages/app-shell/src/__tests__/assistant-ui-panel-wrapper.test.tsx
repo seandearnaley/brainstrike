@@ -19,6 +19,7 @@ import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import {
   fileExplorerMocks,
+  hasDesktopLlmHostMock,
   loadTestLocalLlmBackend,
   type McpToolDescriptor,
   mockDb,
@@ -34,6 +35,32 @@ import {
 } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper', () => {
+  test('routes local chat through the data-stream transport when the desktop bridges exist', async () => {
+    Object.defineProperty(window, 'assistant', {
+      configurable: true,
+      value: { url: 'http://127.0.0.1:51234' },
+    });
+    hasDesktopLlmHostMock.mockReturnValue(true);
+    try {
+      await renderAssistantPanel(['openai'], () =>
+        waitFor(() => {
+          expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('data-stream');
+        })
+      );
+    } finally {
+      Object.defineProperty(window, 'assistant', { configurable: true, value: undefined });
+      hasDesktopLlmHostMock.mockReturnValue(false);
+    }
+  });
+
+  test('keeps the in-renderer local transport without the desktop llm-host bridge', async () => {
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('local-runtime');
+      })
+    );
+  });
+
   test('auto-selects first provider and default model when none selected', async () => {
     await renderAssistantPanel(['openai', 'anthropic'], () =>
       waitFor(

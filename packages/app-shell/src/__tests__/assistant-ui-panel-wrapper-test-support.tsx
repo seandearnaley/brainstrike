@@ -15,6 +15,10 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 export const NATIVE_TOOL_COUNT = Object.keys(NATIVE_TOOL_DEFAULTS).length;
 
+const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
+  hasDesktopLlmHostMock: vi.fn((): boolean => false),
+}));
+
 const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
@@ -617,6 +621,9 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
 
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
+  // Defaults to no desktop llm-host bridge, so local chat resolves to the
+  // in-renderer transport; tests flip the mock to cover the data-stream route.
+  hasDesktopLlmHost: hasDesktopLlmHostMock,
   AssistantUiPanel: ({
     providerGroups = [],
     selectedProvider,
@@ -628,6 +635,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
+    localChatTransport,
     requestData,
     disabled,
     disabledReason,
@@ -655,6 +663,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     ) => Promise<void> | void;
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
+    localChatTransport?: string;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
     disabledReason?: string;
@@ -685,6 +694,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     return (
       <div data-testid="assistant-ui-panel">
         <div data-testid="panel-disabled">{String(disabled)}</div>
+        <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
         <div data-testid="request-data">{JSON.stringify(requestData ?? {})}</div>
         <div data-testid="context-menu">{JSON.stringify(contextMenu ?? {})}</div>
         {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
@@ -1032,4 +1042,10 @@ export type SelectionUpdateHandler = (
   }
 ) => void;
 
-export { fileExplorerMocks, mockDb, preparedRequestDataLog, testEnabledModels };
+export {
+  fileExplorerMocks,
+  hasDesktopLlmHostMock,
+  mockDb,
+  preparedRequestDataLog,
+  testEnabledModels,
+};
