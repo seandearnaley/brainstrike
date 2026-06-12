@@ -118,6 +118,33 @@ const EmptyStateComponent = ({
   </div>
 );
 
+function forestEmptyStateMessage(isLoading: boolean, isFilteredOut: boolean): string {
+  if (isLoading) {
+    return 'Loading files…';
+  }
+  if (isFilteredOut) {
+    return 'No files match the current view filters';
+  }
+  return 'No files in this folder';
+}
+
+/**
+ * Compact per-section empty state for forest mode. The full-height
+ * single-tree empty state reads as a giant blank gap between root sections,
+ * so a section with no visible rows gets ONE line that says why.
+ */
+const ForestSectionEmptyState = ({
+  isLoading,
+  isFilteredOut,
+}: {
+  isLoading: boolean;
+  isFilteredOut: boolean;
+}) => (
+  <div className="px-9 py-1.5 text-muted-foreground text-xs">
+    {forestEmptyStateMessage(isLoading, isFilteredOut)}
+  </div>
+);
+
 /**
  * Inner component for a root section's tree content.
  * Must be rendered inside a FileTreeProvider so it can read the per-root tree
@@ -416,10 +443,9 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
           onSelectFolderRecursively={sectionRecursiveSelect.onSelectFolderRecursively}
         />
       ) : (
-        <EmptyStateComponent
+        <ForestSectionEmptyState
+          isFilteredOut={treeContext.fileTree.length > 0}
           isLoading={isLoading}
-          quickFilteredTree={deferredTree}
-          rootDirectoryHandle={rootDirectoryHandle}
         />
       )}
     </div>

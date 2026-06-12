@@ -880,6 +880,87 @@ describe('FileExplorerSidebar', () => {
         expect(screen.getByText('index.html')).toBeInTheDocument();
       });
     });
+
+    it('shows compact per-section empty states: filtered-out vs genuinely empty', async () => {
+      const handleA = {
+        name: 'project-a',
+        kind: 'directory' as const,
+        path: '/project-a',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      };
+      const handleB = {
+        name: 'project-b',
+        kind: 'directory' as const,
+        path: '/project-b',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      };
+      const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+      const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+      // Section A streams ZERO nodes (genuinely empty folder); section B has
+      // files, but the workspace filter will hide every one of them.
+      const adapter = new MockFileSystemAdapter();
+      vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+        async (handle, onBatch, _opts) => {
+          const nodes =
+            handle.path === '/project-b'
+              ? [
+                  createFileNode({
+                    name: 'b.ts',
+                    path: '/project-b/b.ts',
+                    rootFolderId: ROOT_ID_B,
+                  }),
+                ]
+              : [];
+          onBatch(nodes, { done: true, total: nodes.length });
+        }
+      );
+
+      const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+        current: null,
+      };
+      function StoreProbe() {
+        storeRef.current = useFileExplorerStoreContext();
+        return null;
+      }
+
+      const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+      act(() => {
+        renderWithPopulatedAdapter(
+          <>
+            <StoreProbe />
+            <FileExplorerSidebar
+              {...defaultProps}
+              rootDirectoryHandle={handleA}
+              rootDirectoryHandles={[handleA, handleB]}
+              rootIdByPath={
+                new Map([
+                  ['/project-a', ROOT_ID_A],
+                  ['/project-b', ROOT_ID_B],
+                ])
+              }
+              setFocusedRoot={vi.fn()}
+            />
+          </>
+        );
+      });
+      act(() => {
+        storeRef.current?.getState().setCurrentFolderId(ROOT_ID_A);
+        // No section matches *.md — section B is filtered to zero.
+        storeRef.current?.getState().setFilters(['*.md'], []);
+      });
+
+      // Section B: has files, all hidden by the view filters — say so.
+      await waitFor(() => {
+        expect(screen.getByText('No files match the current view filters')).toBeInTheDocument();
+      });
+      // Section A: streamed zero nodes — genuinely empty, different message.
+      expect(screen.getByText('No files in this folder')).toBeInTheDocument();
+      // The full-height single-tree empty state must NOT appear in forest mode.
+      expect(screen.queryByText('No matching files found')).toBeNull();
+    });
   });
 
   // Toolbar Expand All must run EACH section's progressive expansion (the
