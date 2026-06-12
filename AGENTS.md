@@ -171,6 +171,11 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
+  - DESKTOP runs local chat through the assistant server's real Mastra loop
+    (persistence, run events, tool guards); inference is proxied to the hidden
+    llm-host. The built-in local model is also selectable as the observational
+    memory model and local embedders as the semantic recall embedder — all
+    keyless. See LOCAL LLM ARCHITECTURE.
 - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
@@ -283,9 +288,11 @@ contracts keep reloaded threads identical to live ones:
      (matched via `metadata.toolCallId`); other untimed parts anchor to their
      snapshot row's save time. A group with only run events still renders.
 
-Known gap: built-in LOCAL provider turns do not persist to Mastra memory at
-all (LocalRuntimeChat has no history adapter) — local threads are
-session-only today.
+Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
+the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
+run events, and reload hydration behave exactly like hosted providers.
+Known gap: WEB local turns still use the in-renderer LocalRuntimeChat (no
+history adapter) and remain session-only.
 
 When changing message persistence or hydration, update this section and the
 paired tests in packages/agent and packages/app-shell.
@@ -398,29 +405,63 @@ Flow:
    - Main creates a hidden BrowserWindow with `?mode=llm-host`.
    - The host renderer owns `LocalLlmBackend` initialization, warmup, generation, and progress events.
    - The host renderer reports status/progress/response back to main over dedicated IPC channels.
-2. Visible renderer
+2. Desktop chat path — local THROUGH the Mastra loop (data-stream)
+   - `AssistantUiPanel` prop `localChatTransport` ('data-stream' on desktop,
+     'local-runtime' otherwise) — set by the app-shell wrapper when the
+     assistant backend AND `window.llmHost` bridge exist. Desktop local chat
+     POSTs to the assistant server like hosted providers, gaining Mastra
+     memory persistence, run events, tool guards, and the stream watchdog.
+   - The renderer pre-warms the model (existing download-progress badge UX,
+     `warmDesktopLocalModel` in local-runtime-adapter.ts) before the request;
+     the server also warms as a safety net — cold multi-GB loads exceed the
+     llm-host generate request's HARD 5-minute ceiling (warmup gets 20).
+   - Server side: `LlmHostManager.generateForMain/warmupForMain` (main-process
+     client API with progress callbacks + AbortSignal cancel) →
+     `createMainLlmHostClient` (apps/desktop/src/assistant-server/local-llm-host-client.ts)
+     is injected as `RuntimeData.localLlmHostClient`; provider-factory's
+     'local' case resolves it to `LlmHostChatModel`
+     (packages/agent/src/providers/local/llm-host-chat-model.ts) — a real
+     LanguageModelV2 that converts cumulative host text/reasoning snapshots
+     into incremental deltas. NEVER serialized over IPC/HTTP.
+   - Local memory models ride the same seam: 'local/<model>' observational
+     memory targets resolve keyless to the proxy model; 'local/<model>'
+     semantic-recall targets resolve to `createLocalHostEmbeddingModel`
+     (queries proxied to the embedding host; dimensions from the models
+     catalog). Both throw clear errors if their host manager is missing.
+   - Live-loop proofs (no agent mocks): packages/agent/src/__tests__/
+     mastra-local-host-execution.spec.ts (chat + tools through the real
+     provider factory) and the local-OM test in mastra-memory-persistence.spec.ts.
+3. Visible renderer (web local chat, and desktop status/warmup UX)
    - Files:
      - packages/ui/src/assistant-ui-panel/local-runtime-adapter.ts
+     - packages/ui/src/assistant-ui-panel/use-local-model-loading.ts
      - packages/app-shell/src/assistant-ui-panel-wrapper.tsx
    - Does NOT run the built-in local LLM directly in desktop mode.
    - Talks to the hidden host over the preload bridge (`window.llmHost`).
-   - Owns UI state only: reasoning/tool panels, streaming snapshots, and status affordances.
-3. Main
+   - WEB still uses the in-renderer `LocalRuntimeChat` (assistant-ui local
+     runtime; session-only, no Mastra loop) — there is no assistant server in
+     the browser.
+4. Main
    - Files:
      - apps/desktop/src/main.ts
      - apps/desktop/src/preload.ts
-   - Does NOT execute Gemma inference in-process.
+   - Does NOT execute Gemma inference in-process (the Mastra loop runs in
+     main, but every generation is proxied to the hidden llm-host renderer).
    - Owns hidden-host lifecycle, IPC registration, and shutdown/reset coordination.
-4. Shared local runtime
+5. Shared local runtime
    - Files:
      - packages/agent/src/local-llm.ts
      - packages/agent/src/providers/local/local-llm-backend.ts
      - packages/agent/src/providers/local/gemma4-engine.ts
      - packages/agent/src/providers/local/local-model-specs.ts
      - packages/agent/src/providers/local/local-artifact-store.ts
+     - packages/agent/src/providers/local/local-message-conversion.ts (shared
+       AI-SDK v2 ↔ local dialect: preserves assistant tool calls, parses V2
+       tool-result `output` envelopes)
    - `local-llm.ts` is the browser-safe entrypoint for renderer usage.
    - `LocalLlmBackend` is a thin orchestrator over the Gemma engine/spec/artifact layers.
-   - Tool calls are executed through the existing UI/runtime tool bridge; reasoning/tool details are hidden by default in the UI and expandable on demand.
+   - On web, tool calls are executed through the UI/runtime tool bridge; on
+     desktop they run through the Mastra agent loop like hosted providers.
 
 Constraints:
 - Built-in local model downloads are manifest-based, not single-file heuristics.
