@@ -637,6 +637,152 @@ describe('FileExplorerSidebar', () => {
     expect(panelSelectFolderRecursively).not.toHaveBeenCalled();
   });
 
+  // Forest mode: each root section header carries a tristate select-all
+  // checkbox scoped to THAT root (select all files in the root up to the
+  // limit; clicking again clears the root's selection).
+  describe('root section select-all checkboxes', () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+
+    function setupForest() {
+      const fileA = createFileNode({
+        name: 'a.ts',
+        path: '/project-a/a.ts',
+        rootFolderId: ROOT_ID_A,
+      });
+      const fileB = createFileNode({
+        name: 'b.ts',
+        path: '/project-b/b.ts',
+        rootFolderId: ROOT_ID_B,
+      });
+      const adapter = new MockFileSystemAdapter();
+      vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+        async (handle, onBatch, _opts) => {
+          const nodes =
+            handle.path === '/project-a' ? [fileA] : handle.path === '/project-b' ? [fileB] : [];
+          onBatch(nodes, { done: true, total: nodes.length });
+        }
+      );
+
+      const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+        current: null,
+      };
+      function StoreProbe() {
+        storeRef.current = useFileExplorerStoreContext();
+        return null;
+      }
+
+      const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+      act(() => {
+        renderWithPopulatedAdapter(
+          <>
+            <StoreProbe />
+            <FileExplorerSidebar
+              {...defaultProps}
+              rootDirectoryHandle={handleA}
+              rootDirectoryHandles={[handleA, handleB]}
+              rootIdByPath={
+                new Map([
+                  ['/project-a', ROOT_ID_A],
+                  ['/project-b', ROOT_ID_B],
+                ])
+              }
+              setFocusedRoot={vi.fn()}
+            />
+          </>
+        );
+      });
+      act(() => {
+        storeRef.current?.getState().setCurrentFolderId(ROOT_ID_A);
+      });
+      return { storeRef };
+    }
+
+    it('renders a tristate select-all checkbox in each root section header', async () => {
+      setupForest();
+      await waitFor(() => {
+        expect(screen.getByLabelText('Select all in project-a')).toBeInTheDocument();
+        expect(screen.getByLabelText('Select all in project-b')).toBeInTheDocument();
+      });
+      expect(screen.getByLabelText('Select all in project-b')).not.toBeChecked();
+    });
+
+    it('selects all files of a NON-focused root into ITS folderState and toggles back to clear', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      const { storeRef } = setupForest();
+
+      await waitFor(() => {
+        expect(screen.getByText('b.ts')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByLabelText('Select all in project-b'));
+
+      // The root's files land in ITS folderState (focused root is A)...
+      await waitFor(() => {
+        expect(
+          storeRef.current
+            ?.getState()
+            .folderStates[ROOT_ID_B]?.selectedFilePaths.has(`${ROOT_ID_B}|@|/project-b/b.ts`)
+        ).toBe(true);
+      });
+      // ...never the focused top-level set, and never query mode.
+      expect(storeRef.current?.getState().selectedFilePaths.size).toBe(0);
+      expect(storeRef.current?.getState().selectionModel.mode).toBe('explicit');
+      // The header checkbox reflects the full selection.
+      await waitFor(() => {
+        expect(screen.getByLabelText('Select all in project-b')).toBeChecked();
+      });
+
+      // Clicking again clears the root's selection.
+      await user.click(screen.getByLabelText('Select all in project-b'));
+      await waitFor(() => {
+        expect(storeRef.current?.getState().folderStates[ROOT_ID_B]?.selectedFilePaths.size).toBe(
+          0
+        );
+      });
+      expect(screen.getByLabelText('Select all in project-b')).not.toBeChecked();
+    });
+
+    it('selects all files of the FOCUSED root into the top-level selection', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      const { storeRef } = setupForest();
+
+      await waitFor(() => {
+        expect(screen.getByText('a.ts')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByLabelText('Select all in project-a'));
+
+      await waitFor(() => {
+        const s = storeRef.current?.getState();
+        const effectiveCount =
+          s?.selectionModel.mode === 'query'
+            ? (s?.querySelectionManifest?.filePaths.length ?? 0)
+            : (s?.selectedFilePaths.size ?? 0);
+        expect(effectiveCount).toBe(1);
+      });
+      await waitFor(() => {
+        expect(screen.getByLabelText('Select all in project-a')).toBeChecked();
+      });
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Disconnect flow (Phase 5)
   // -------------------------------------------------------------------------

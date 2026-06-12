@@ -1,13 +1,14 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { EmptyState } from '@brainstrike/ui';
+import { EmptyState, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
+import { getSelectionCount } from '../utils/selection-projection';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -197,6 +198,119 @@ function useSectionRecursiveSelect(folderId: string): {
   };
 }
 
+/** Count visible files in a (filtered) section tree + whether any directory is still unloaded. */
+function countTreeFiles(nodes: readonly IFileNode[]): { files: number; hasUnloaded: boolean } {
+  let files = 0;
+  let hasUnloaded = false;
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    if (node.type === 'file') {
+      files += 1;
+    } else if (node.type === 'directory') {
+      if (node.loadState !== 'loaded') {
+        hasUnloaded = true;
+      }
+      if (node.children) {
+        stack.push(...node.children);
+      }
+    }
+  }
+  return { files, hasUnloaded };
+}
+
+/**
+ * Tristate select-all checkbox for one root section. Lives INSIDE the
+ * section's FileTreeProvider so it runs the SECTION-scoped select-all over
+ * this root's own tree. Selection reads mirror OptimizedFileTree's
+ * focused/foreign derivation (the null-focus guard MUST match the store's
+ * write routing): focused root → effective top-level count (explicit set or
+ * query manifest), any other root → its folderState.
+ */
+function RootSelectAllCheckbox({
+  displayName,
+  folderId,
+}: {
+  displayName: string;
+  folderId: string;
+}) {
+  const treeContext = useFileTreeContext();
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
+  const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
+  const clearSelectedFiles = useFileExplorerStoreSelector((s) => s.clearSelectedFiles);
+  const setFolderSelection = useFileExplorerStoreSelector((s) => s.setFolderSelection);
+  const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
+  const selectionCount = useFileExplorerStoreSelector((s) => {
+    const isForeign = s.currentFolderId !== null && folderId !== s.currentFolderId;
+    if (isForeign) {
+      return s.folderStates[folderId]?.selectedFilePaths.size ?? 0;
+    }
+    return getSelectionCount(s.selectionModel, s.selectedFilePaths, s.querySelectionManifest);
+  });
+
+  const { files: totalVisibleFiles, hasUnloaded } = useMemo(
+    () => countTreeFiles(treeContext.fileTree),
+    [treeContext.fileTree]
+  );
+
+  // Tristate: "all selected" is only claimable when every subtree is loaded
+  // and the (filtered) visible file count is fully covered.
+  const checked: boolean | 'indeterminate' =
+    selectionCount === 0
+      ? false
+      : hasUnloaded || selectionCount < totalVisibleFiles
+        ? 'indeterminate'
+        : true;
+
+  const sectionFileTree = treeContext.fileTree;
+  const sectionSelectAll = treeContext.selectAllRecursively;
+  const handleCheckedChange = useCallback(() => {
+    if (selectionCount > 0) {
+      // Clear THIS root's selection only.
+      if (currentFolderId === null || currentFolderId === folderId) {
+        clearSelectedFiles();
+      } else {
+        setFolderSelection(folderId, []);
+      }
+      return;
+    }
+    void sectionSelectAll(
+      sectionFileTree,
+      folderId,
+      addMultipleSelectedFiles,
+      maxSelectionCount,
+      addMultipleSelectedFilesChunked
+    );
+  }, [
+    addMultipleSelectedFiles,
+    addMultipleSelectedFilesChunked,
+    clearSelectedFiles,
+    currentFolderId,
+    folderId,
+    maxSelectionCount,
+    sectionFileTree,
+    sectionSelectAll,
+    selectionCount,
+    setFolderSelection,
+  ]);
+
+  return (
+    <LightweightCheckbox
+      aria-label={`Select all in ${displayName}`}
+      checked={checked}
+      className="h-3.5 w-3.5"
+      disabled={treeContext.isLoadingForSelectAll}
+      onCheckedChange={handleCheckedChange}
+    />
+  );
+}
+
 // NOTE: the shared panel props ALSO carry loadingPaths/onLoadChildren/
 // cancelChildLoading/onSelectFolderRecursively/isLoadingForSelection/
 // loadingPathForSelection, but those are bound to the FOCUSED root's
@@ -312,33 +426,39 @@ const RootSection: React.FC<RootSectionProps> = ({
 
   return (
     <div className="flex flex-col">
-      <RootSectionHeader
-        displayName={rootDirectoryHandle.name}
-        isCollapsed={isCollapsed}
-        onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
-        onToggleCollapse={handleToggle}
-      />
-      <DisconnectRootDialog
-        displayName={rootDirectoryHandle.name}
-        onConfirm={handleDisconnectConfirm}
-        onOpenChange={setIsDisconnectDialogOpen}
-        open={isDisconnectDialogOpen}
-      />
-      {!isCollapsed && (
-        // Each root gets its own FileTreeProvider so it runs its own useFileTree
-        // independently — previously all non-focused roots received an empty
-        // quickFilteredTree=[]; now each loads and shows its own real content.
-        // Keyed by resolvedRootId (UUID) when available — if two roots share the
-        // same path but have different UUIDs they get correctly distinct providers.
-        // Falls back to handle.path for pre-v5 handles.
-        <FileTreeProvider
-          key={resolvedRootId ?? rootDirectoryHandle.path}
-          rootDirectoryHandle={rootDirectoryHandle}
-          {...(resolvedRootId !== undefined && { rootId: resolvedRootId })}
-        >
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents: tree rows have their own keyboard handlers; this is a focus-switch affordance only */}
-          {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: intentional event-bubbling capture boundary for focus-switch */}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: intentional event-bubbling capture boundary for focus-switch */}
+      {/* Each root gets its own FileTreeProvider so it runs its own useFileTree
+          independently. The provider wraps the HEADER too so the per-root
+          select-all checkbox can read this root's tree and run the
+          section-scoped select-all. Keyed by resolvedRootId (UUID) when
+          available — same-path roots with different UUIDs get distinct
+          providers; falls back to handle.path for pre-v5 handles. */}
+      <FileTreeProvider
+        key={resolvedRootId ?? rootDirectoryHandle.path}
+        rootDirectoryHandle={rootDirectoryHandle}
+        {...(resolvedRootId !== undefined && { rootId: resolvedRootId })}
+      >
+        <RootSectionHeader
+          displayName={rootDirectoryHandle.name}
+          isCollapsed={isCollapsed}
+          onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
+          onToggleCollapse={handleToggle}
+          selectionControl={
+            <RootSelectAllCheckbox
+              displayName={rootDirectoryHandle.name}
+              folderId={resolvedRootId ?? getRootFolderId(rootDirectoryHandle) ?? ''}
+            />
+          }
+        />
+        <DisconnectRootDialog
+          displayName={rootDirectoryHandle.name}
+          onConfirm={handleDisconnectConfirm}
+          onOpenChange={setIsDisconnectDialogOpen}
+          open={isDisconnectDialogOpen}
+        />
+        {!isCollapsed && (
+          // biome-ignore lint/a11y/useKeyWithClickEvents: tree rows have their own keyboard handlers; this is a focus-switch affordance only
+          // biome-ignore lint/a11y/noNoninteractiveElementInteractions: intentional event-bubbling capture boundary for focus-switch
+          // biome-ignore lint/a11y/noStaticElementInteractions: intentional event-bubbling capture boundary for focus-switch
           <div onClick={handleTreeInteraction}>
             <PerRootTreePane
               rootDirectoryHandle={rootDirectoryHandle}
@@ -346,8 +466,8 @@ const RootSection: React.FC<RootSectionProps> = ({
               {...rest}
             />
           </div>
-        </FileTreeProvider>
-      )}
+        )}
+      </FileTreeProvider>
     </div>
   );
 };
