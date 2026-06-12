@@ -51,6 +51,23 @@ vi.mock('../renderer-host-lifecycle', () => ({
   }),
 }));
 
+const { mockVisibleWindow } = vi.hoisted(() => ({
+  mockVisibleWindow: {
+    isDestroyed: vi.fn(() => false),
+    webContents: {
+      id: 5,
+      send: vi.fn(),
+    },
+  },
+}));
+
+vi.mock('electron', () => ({
+  // biome-ignore lint/style/useNamingConvention: electron export name
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [mockVisibleWindow]),
+  },
+}));
+
 import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
 
@@ -787,6 +804,94 @@ describe('LlmHostManager', () => {
       await expect(observedRejection).resolves.toMatchObject({
         message: expect.stringContaining('returned no result payload'),
       });
+    });
+
+    it('broadcasts main-initiated loading progress to visible windows so the UI shows downloads', async () => {
+      // Cold MEMORY-model warmups are triggered by the assistant server (main
+      // process) with no renderer request in flight; without this broadcast
+      // the user stares at a silent spinner while gigabytes download.
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+
+      const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      const [requestId] = [...manager.pendingRequests.keys()];
+
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          kind: 'loading',
+          progress: 42,
+          message: 'Downloading model',
+          file: 'model.onnx',
+        },
+      });
+
+      expect(mockVisibleWindow.webContents.send).toHaveBeenCalledWith(
+        expect.stringContaining('progress'),
+        expect.objectContaining({
+          type: 'progress',
+          payload: expect.objectContaining({ kind: 'loading', progress: 42 }),
+        })
+      );
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: null },
+      });
+      await expect(warmupPromise).resolves.toBeUndefined();
+
+      // Completion broadcasts a terminal 100% so the badge can resolve to
+      // ready instead of sticking at the last partial percentage.
+      expect(mockVisibleWindow.webContents.send).toHaveBeenCalledWith(
+        expect.stringContaining('progress'),
+        expect.objectContaining({
+          payload: expect.objectContaining({ kind: 'loading', progress: 100 }),
+        })
+      );
+    });
+
+    it('does not broadcast renderer-initiated progress a second time', async () => {
+      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const requester = createRequester(101);
+
+      const requestPromise = manager.generate(requester, {
+        clientRequestId: 'req-renderer-progress',
+        kind: 'generate',
+        messages: [],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        options: {},
+      });
+
+      await vi.waitFor(() => {
+        expect(manager.pendingRequests.size).toBe(1);
+      });
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: '101:req-renderer-progress',
+        runtimeId: 'llm-host-runtime',
+        payload: { kind: 'loading', progress: 10 },
+      });
+
+      // Renderer callers already receive progress over their own IPC channel.
+      expect(mockVisibleWindow.webContents.send).not.toHaveBeenCalled();
+
+      manager.acceptResponseReport(71, {
+        type: 'result',
+        channel: 'llm-result',
+        requestId: '101:req-renderer-progress',
+        runtimeId: 'llm-host-runtime',
+        payload: { result: { text: 'done' } },
+      });
+      await expect(requestPromise).resolves.toEqual({ text: 'done' });
     });
 
     it('warmupForMain resolves when the host acknowledges with a null result', async () => {

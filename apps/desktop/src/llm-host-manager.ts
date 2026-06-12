@@ -1,6 +1,7 @@
 import type { LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { BrowserWindow, WebContents } from 'electron';
+import { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import {
   createStoppedLlmHostStatus,
   LLM_HOST_PROGRESS_EVENT,
@@ -23,6 +24,7 @@ import {
 } from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
 import { waitForWindowClosed } from './window-lifecycle-utils';
+import { getWindowRoleByWebContentsId } from './window-role';
 
 const logger = createLogger('LlmHostManager');
 const LLM_HOST_GENERATE_TIMEOUT_MS = 5 * 60_000;
@@ -80,11 +82,40 @@ export interface LlmHostMainRequestOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Main-initiated model LOADS have no renderer request in flight (e.g. the
+ * assistant server warming a cold local memory model), so their download
+ * progress is broadcast to visible windows — otherwise the user stares at a
+ * silent spinner while gigabytes download. Renderer-initiated requests
+ * already receive progress over their own IPC reply channel.
+ */
+function broadcastLoadingProgressToVisibleWindows(report: LlmHostProgressReport): void {
+  for (const window of ElectronBrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    // Hidden runtime hosts have an assigned role; visible UI windows do not.
+    if (getWindowRoleByWebContentsId(window.webContents.id)) {
+      continue;
+    }
+    try {
+      window.webContents.send(LLM_HOST_PROGRESS_EVENT, report);
+    } catch (error) {
+      logger.warn('Failed to broadcast llm host loading progress', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
 function clientForMain(options: LlmHostMainRequestOptions): LlmHostRequestClient {
   return {
     scopeId: MAIN_CLIENT_SCOPE_ID,
     forwardProgress: (report) => {
       options.onProgress?.(report.payload);
+      if (report.payload.kind === 'loading') {
+        broadcastLoadingProgressToVisibleWindows(report);
+      }
     },
     subscribeTeardown: (handler) => {
       const signal = options.signal;
@@ -332,6 +363,16 @@ export class LlmHostManager {
     this.assertMainRequestNotAborted(options);
     logger.info('Dispatching llm-host warmup request from main', { modelId });
     await this.sendRequest(clientForMain(options), { kind: 'warmup', modelId });
+    // Terminal 100% lets the renderer badge resolve to ready instead of
+    // sticking at the last partial percentage (loading events stop on the
+    // final result, which is not broadcast).
+    broadcastLoadingProgressToVisibleWindows({
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: `${MAIN_CLIENT_SCOPE_ID}:warmup-complete`,
+      runtimeId: this.getStatus().runtimeId,
+      payload: { kind: 'loading', progress: 100, message: 'Model loaded' },
+    });
   }
 
   /**
