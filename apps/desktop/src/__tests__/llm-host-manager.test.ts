@@ -229,12 +229,57 @@ describe('LlmHostManager', () => {
     });
   });
 
-  it('enforces a hard timeout ceiling even when progress keeps arriving', async () => {
+  it('keeps a generation alive past the base timeout while progress keeps arriving (inactivity window)', async () => {
+    // The timeout protects against a WEDGED host, not a slow one: a long
+    // local generation streams progress snapshots continuously, so each
+    // progress report extends the deadline. A hard wall-clock ceiling killed
+    // legitimate long prefills at exactly 5 minutes.
     const manager = new LlmHostManager() as TestableLlmHostManager;
     const requester = createRequester(111);
 
     const requestPromise = manager.generate(requester, {
-      clientRequestId: 'req-hard-timeout',
+      clientRequestId: 'req-long-generation',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    // 3 rounds of 4 minutes with progress between them: 12 minutes total,
+    // far past the 5-minute base window — must still be pending.
+    for (let round = 0; round < 3; round += 1) {
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: '111:req-long-generation',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          kind: 'text',
+          text: `cumulative output after round ${round}`,
+        },
+      });
+    }
+    expect(manager.pendingRequests.has('111:req-long-generation')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: '111:req-long-generation',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'done after 12 minutes' },
+      },
+    });
+    await expect(requestPromise).resolves.toEqual({ text: 'done after 12 minutes' });
+  });
+
+  it('times out a generation after the inactivity window passes with NO progress', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(112);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-wedged',
       kind: 'generate',
       messages: [],
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
@@ -245,25 +290,22 @@ describe('LlmHostManager', () => {
       (error: unknown) => error
     );
 
-    for (let elapsed = 59_000; elapsed < 5 * 60_000; elapsed += 59_000) {
-      await vi.advanceTimersByTimeAsync(59_000);
-      manager.acceptResponseReport(71, {
-        type: 'progress',
-        channel: 'llm-progress',
-        requestId: '111:req-hard-timeout',
-        runtimeId: 'llm-host-runtime',
-        payload: {
-          kind: 'stage',
-          message: `still working @ ${elapsed}`,
-        },
-      });
-    }
+    await vi.advanceTimersByTimeAsync(59_000);
+    manager.acceptResponseReport(71, {
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: '112:req-wedged',
+      runtimeId: 'llm-host-runtime',
+      payload: { kind: 'stage', message: 'one last sign of life' },
+    });
 
-    await vi.advanceTimersByTimeAsync(6000);
+    // Silence for the full window after the last progress: the host is wedged.
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
 
     await expect(observedRejection).resolves.toMatchObject({
-      message: 'Llm host request 111:req-hard-timeout timed out.',
+      message: 'Llm host request 112:req-wedged timed out.',
     });
+    expect(manager.pendingRequests.has('112:req-wedged')).toBe(false);
   });
 
   it('uses a longer timeout window for warmup requests', async () => {

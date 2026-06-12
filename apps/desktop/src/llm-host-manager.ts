@@ -535,13 +535,18 @@ export class LlmHostManager {
 
   private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {
     clearTimeout(pending.timeoutId);
-    const remainingMs = Math.max(0, pending.deadlineAt - getMonotonicNow());
+    // The timeout is an INACTIVITY window, not a wall-clock ceiling: each
+    // progress report (download %, text/reasoning snapshots) proves the host
+    // is alive and extends the deadline by the full window. Long local
+    // generations stream progress continuously; a wedged host goes silent
+    // and still times out one window after its last report.
+    pending.deadlineAt = getMonotonicNow() + pending.timeoutMs;
     pending.timeoutId = setTimeout(() => {
       pending.cleanupRequesterListener?.();
       this.pendingRequests.delete(pending.requestId);
-      this.tryCancelHostRequest(pending.requestId, undefined, 'refreshed-timeout');
+      this.tryCancelHostRequest(pending.requestId, undefined, 'inactivity-timeout');
       pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
-    }, remainingMs);
+    }, pending.timeoutMs);
   }
 
   private clearPreCancelledRequest(requestId: string): boolean {
