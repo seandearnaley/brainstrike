@@ -1063,39 +1063,22 @@ function buildHistoryUnits(
 }
 
 /**
- * Distribute the thread's run events across assistant groups by time: a group
- * owns every not-yet-assigned event that occurred before the NEXT group
- * started (so each turn's events stay with that turn). The last group takes
- * the remainder, including post-run completion events.
+ * Anchor the thread's run events to the LAST assistant group. The event
+ * source (listThreadRunEvents) returns ONLY the latest run's events, and a
+ * run's early events (memory loads, tool starts) occur BEFORE that run's
+ * first assistant row is saved — splitting by time against group start times
+ * assigned those early events to the PREVIOUS turn's group on reload.
  */
 function assignRunEventsToGroups(
   units: readonly AssistantHistoryUnit[],
   runEvents: readonly AssistantRunEvent[]
 ): Map<AssistantHistoryUnit, AssistantRunEventDataPart[]> {
   const assignments = new Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>();
-  const groups = units.filter((unit) => unit.kind === 'assistant-group');
-  if (groups.length === 0 || runEvents.length === 0) {
+  const lastGroup = units.findLast((unit) => unit.kind === 'assistant-group');
+  if (!lastGroup || runEvents.length === 0) {
     return assignments;
   }
-  const eventParts = toRunEventDataParts(runEvents);
-  let eventIndex = 0;
-  for (const [groupIndex, group] of groups.entries()) {
-    const nextGroup = groups[groupIndex + 1];
-    const nextStartMs = nextGroup?.rows.at(0)?.createdAt.getTime();
-    const assigned: AssistantRunEventDataPart[] = [];
-    while (eventIndex < eventParts.length) {
-      const eventPart = eventParts[eventIndex];
-      if (!eventPart) {
-        break;
-      }
-      if (nextStartMs !== undefined && runEventTimeMs(eventPart) >= nextStartMs) {
-        break;
-      }
-      assigned.push(eventPart);
-      eventIndex += 1;
-    }
-    assignments.set(group, assigned);
-  }
+  assignments.set(lastGroup, toRunEventDataParts(runEvents));
   return assignments;
 }
 

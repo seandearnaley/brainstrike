@@ -1023,7 +1023,15 @@ function resolveLocalModelId(runtimeData: RuntimeData | undefined): string {
   return fallback;
 }
 
-/** Every local model this request will drive (chat and/or memory), deduped. */
+/**
+ * Every local model this request will drive (chat and/or memory), deduped.
+ *
+ * SINGLE-ENGINE ASSUMPTION: the llm-host backend holds ONE engine, so warming
+ * model A then model B unloads A. With today's catalog (one Gemma spec) chat
+ * and local-OM targets always dedupe to one id; if the local catalog grows a
+ * second spec, differing chat/OM targets would thrash (warm A → warm B
+ * unloads A → the chat generation reloads A → the OM observation reloads B…).
+ */
 function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): string[] {
   const modelIds = new Set<string>();
   if (isLocalChatProvider(runtimeData)) {

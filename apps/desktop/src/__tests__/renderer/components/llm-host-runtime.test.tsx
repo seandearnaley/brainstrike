@@ -271,6 +271,90 @@ describe('LlmHostRuntime', () => {
     ).not.toContain('engine was reset');
   });
 
+  it('does not reset the engine for non-GPU errors that merely mention generic engine words', async () => {
+    // "tensor"/"session"/"device"/"buffer" appear in tokenizer, template, and
+    // validation errors too — a false-positive reset throws away a warmed
+    // multi-GB model. Only high-signal GPU substrings may trigger recovery.
+    generateMock.mockRejectedValueOnce(
+      new Error('Invalid session options: tensor shape mismatch for input device buffer')
+    );
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-non-gpu-error',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-non-gpu-error',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', requestId: 'req-non-gpu-error' })
+      );
+    });
+    expect(disposeMock).not.toHaveBeenCalled();
+    const [errorReport] = reportResponseMock.mock.calls.at(-1) ?? [];
+    expect(
+      (errorReport as { payload: { errorMessage: string } }).payload.errorMessage
+    ).not.toContain('engine was reset');
+  });
+
+  it('resets the engine when the WebGPU device is lost', async () => {
+    generateMock.mockRejectedValueOnce(new Error('Device lost: the logical device was destroyed'));
+    disposeMock.mockResolvedValueOnce(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-device-lost',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-device-lost',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          requestId: 'req-device-lost',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('local model engine was reset'),
+          }),
+        })
+      );
+    });
+    expect(disposeMock).toHaveBeenCalled();
+  });
+
   it('reports an error (keyed to the envelope) for requests that fail validation', async () => {
     render(<LlmHostRuntime />);
 

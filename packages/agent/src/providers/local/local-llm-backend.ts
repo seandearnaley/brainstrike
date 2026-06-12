@@ -188,13 +188,27 @@ export class LocalLlmBackend {
   }
 
   async dispose(): Promise<void> {
-    if (this.engine) {
-      await this.engine.dispose();
+    // Disposal takes a queue turn like generate(): GPU-fault recovery (and
+    // re-initialize) can call dispose while another consumer's generation is
+    // still in flight, and tearing down the engine mid-generate is exactly
+    // the overlap the queue exists to prevent.
+    const previousTurn = this.generationQueue;
+    let releaseTurn!: () => void;
+    this.generationQueue = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    await previousTurn;
+    try {
+      if (this.engine) {
+        await this.engine.dispose();
+      }
+      this.engine = null;
+      this.modelId = null;
+      this.selectedDevice = null;
+      this.status = { state: 'uninitialized' };
+    } finally {
+      releaseTurn();
     }
-    this.engine = null;
-    this.modelId = null;
-    this.selectedDevice = null;
-    this.status = { state: 'uninitialized' };
   }
 
   static isDeviceAvailable(device: 'webgpu' | 'wasm'): boolean {

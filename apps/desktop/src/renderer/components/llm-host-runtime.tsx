@@ -247,10 +247,12 @@ function reportRequestError(
 /**
  * Engine/GPU faults poison the WebGPU session: subsequent generations keep
  * failing until the engine is rebuilt. Cancellations and prompt/validation
- * errors do NOT warrant the (expensive) reset.
+ * errors do NOT warrant the (expensive) reset, so only high-signal GPU fault
+ * substrings match — generic words like "device"/"buffer"/"session"/"tensor"
+ * also appear in tokenizer/template/validation errors, and a false positive
+ * throws away a warmed multi-GB model. ("gpu" also covers "webgpu".)
  */
-const ENGINE_FAULT_PATTERN =
-  /webgpu|gpu|unaligned|device|buffer|adapter|out of memory|session|tensor/i;
+const ENGINE_FAULT_PATTERN = /gpu|unaligned|adapter|out of memory|device lost/i;
 
 function isEngineFault(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') {

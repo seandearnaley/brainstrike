@@ -1042,20 +1042,25 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     ]);
   });
 
-  it('keeps each turn’s run events with that turn across multiple assistant groups', async () => {
+  it('anchors latest-run events to the latest assistant turn, never an older one', async () => {
+    // listThreadRunEvents returns ONLY the latest run's events, and the early
+    // ones (memory loads, tool starts) occur BEFORE the latest assistant row
+    // is first saved. Pure time-splitting assigned those to the PREVIOUS
+    // turn's group on reload.
     const makeEvent = (id: string, timestamp: string, sequence: number): AssistantRunEvent => ({
       id,
-      runId: `run-${sequence}`,
-      kind: 'run.finished',
+      runId: 'run-latest',
+      kind: sequence === 1 ? 'memory.history.loaded' : 'run.finished',
       status: 'completed',
-      label: 'Assistant run completed',
+      label: sequence === 1 ? 'Loaded conversation history' : 'Assistant run completed',
       sequence,
       timestamp,
     });
     const history = await loadHistory({
       runEvents: [
-        makeEvent('event-turn-1', '2026-06-11T13:18:20.000Z', 1),
-        makeEvent('event-turn-2', '2026-06-11T13:20:20.000Z', 2),
+        // Emitted after user-2 sent but before assistant-2 was first saved.
+        makeEvent('event-early', '2026-06-11T13:20:12.000Z', 1),
+        makeEvent('event-finished', '2026-06-11T13:20:20.000Z', 2),
       ],
       messages: [
         {
@@ -1091,8 +1096,8 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       (content ?? [])
         .filter((part) => part.type === 'data')
         .map((part) => (part.data as AssistantRunEvent).id);
-    expect(eventIds(firstAssistant?.message.content)).toEqual(['event-turn-1']);
-    expect(eventIds(secondAssistant?.message.content)).toEqual(['event-turn-2']);
+    expect(eventIds(firstAssistant?.message.content)).toEqual([]);
+    expect(eventIds(secondAssistant?.message.content)).toEqual(['event-early', 'event-finished']);
   });
 
   it('attaches run events to the newest assistant row even when no row has renderable parts', async () => {

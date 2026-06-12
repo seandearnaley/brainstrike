@@ -564,6 +564,49 @@ describe('LocalLlmBackend', () => {
     expect(mockModelGenerate).toHaveBeenCalledTimes(1);
   });
 
+  it('waits for the in-flight generation before disposing the engine', async () => {
+    // GPU-fault recovery (and re-initialize) call dispose() while another
+    // consumer's generation can still be in flight — disposing the engine
+    // mid-generate is exactly the overlap the generation queue exists to
+    // prevent, so dispose must take a queue turn like generate does.
+    const disposeModel = vi.fn().mockResolvedValue(undefined);
+    mockFromPretrainedModel.mockResolvedValueOnce({
+      dispose: disposeModel,
+      generate: mockModelGenerate,
+    });
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    const releases: Array<() => void> = [];
+    mockModelGenerate.mockImplementation(function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      return new Promise((resolve) => {
+        releases.push(() => {
+          inputs.streamer?.callback_function?.('Final answer');
+          resolve({ slice: vi.fn().mockReturnValue('TOKENS') });
+        });
+      });
+    });
+
+    const inFlight = backend.generate([{ role: 'user', content: 'one' }]);
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+    });
+
+    const disposal = backend.dispose();
+    // Give the (buggy) dispose a chance to run ahead of the generation.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(disposeModel).not.toHaveBeenCalled();
+
+    releases[0]?.();
+    await expect(inFlight).resolves.toMatchObject({ text: 'Final answer' });
+    await disposal;
+    expect(disposeModel).toHaveBeenCalledOnce();
+    expect(backend.isReady()).toBe(false);
+  });
+
   it('strips Gemma thought traces from generated text', async () => {
     const backend = new LocalLlmBackend();
 
