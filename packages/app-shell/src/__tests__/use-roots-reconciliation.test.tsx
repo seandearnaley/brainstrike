@@ -251,4 +251,41 @@ describe('useRootsReconciliation', () => {
     const resolved = await result.current.resolveDbRootId(rootPath);
     expect(resolved).toBe(dbId);
   });
+
+  // (j) regression: an adapter WITHOUT restoreRoots settles the boot promise
+  // empty. If a restoreRoots-capable adapter replaces it, the settling promise
+  // must be re-keyed — promises settle once, so reusing the empty one would
+  // silently drop the real mapping.
+  it('resolveDbRootId returns the real db id after a restoreRoots-capable adapter replaces an incapable one', async () => {
+    const rootPath = '/workspace/docs';
+    const dbId = 'db-root-id';
+    const restoreRoots = vi.fn(
+      async (): Promise<RootDescriptor[]> => [
+        grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+      ]
+    );
+    const incapableAdapter = makeAdapter();
+    const capableAdapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+    const { db } = makeDbWithRootRow(rootPath, dbId);
+
+    const { rerender, result } = renderHook(
+      ({ currentAdapter }: { currentAdapter: FileSystemAdapter }) =>
+        useRootsReconciliation({ adapter: currentAdapter, db }),
+      { initialProps: { currentAdapter: incapableAdapter } }
+    );
+
+    // The incapable adapter settles the boot promise empty.
+    const firstResolved = await result.current.resolveDbRootId(rootPath);
+    expect(firstResolved).toBeNull();
+
+    rerender({ currentAdapter: capableAdapter });
+
+    await waitFor(() => {
+      expect(restoreRoots).toHaveBeenCalledTimes(1);
+    });
+
+    // The fresh settling promise carries the real mapping.
+    const resolved = await result.current.resolveDbRootId(rootPath);
+    expect(resolved).toBe(dbId);
+  });
 });
