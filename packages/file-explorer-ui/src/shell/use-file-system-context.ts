@@ -101,7 +101,17 @@ async function selectDirectoryWithErrorMapping(
 /** Custom event dispatched to all listeners when a watched root reports changes. */
 const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
 
-export function useFileSystem() {
+/**
+ * The file-system INSTANCE hook — owns root handle state, watchers, and
+ * restore side effects. MUST be mounted exactly once via FileSystemProvider
+ * (file-system-provider.tsx): every call creates an independent handle list,
+ * and two instances silently diverge the moment a root is added mid-session
+ * (the historical bug: Add Folder updated the explorer's instance while the
+ * background-indexing provider's instance never learned the new root, so the
+ * indexer stayed idle until the next app launch re-restored every instance).
+ * Consumers use useFileSystem() below, which reads the shared instance.
+ */
+export function useFileSystemInstance() {
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
   const hydrateFolderState = useFileExplorerStoreSelector((s) => s.hydrateFolderState);

@@ -27,7 +27,7 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import { useFileSystem } from './use-file-system-context';
+import { useFileSystem } from './file-system-provider';
 
 const logger = createLogger('FileExplorerContext');
 

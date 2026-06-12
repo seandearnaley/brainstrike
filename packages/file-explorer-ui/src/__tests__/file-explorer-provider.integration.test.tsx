@@ -10,7 +10,7 @@ import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import { useFileSystem } from '../shell/use-file-system-context';
+import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
 
 interface ExposedHooks {
   fs: ReturnType<typeof useFileSystem>;

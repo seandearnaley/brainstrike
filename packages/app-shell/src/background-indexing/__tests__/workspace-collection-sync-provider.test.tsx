@@ -1885,6 +1885,58 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(root1Calls).toHaveLength(1);
   });
 
+  it('starts a sync pass for a newly ADDED root mid-session (indexer must not stay idle)', async () => {
+    const root1 = fileSystemState.rootDirectoryHandle;
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalled());
+      const callsBeforeAdd = syncSpy.mock.calls.length;
+
+      // Add Folder mid-session: the handles list grows and the id map learns
+      // the new path. The sync loop MUST run a pass over the new root.
+      const addedRoot = {
+        kind: 'directory',
+        name: 'added',
+        path: '/workspace/added',
+        platform: 'electron',
+      };
+      fileSystemState.rootDirectoryHandles = [...fileSystemState.rootDirectoryHandles, addedRoot];
+      fileSystemState.rootIdByPath = new Map<string, string>([
+        ['/workspace/root', 'root-id-1'],
+        ['/workspace/added', 'root-id-2'],
+      ]);
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => {
+        const syncedPaths = syncSpy.mock.calls
+          .slice(callsBeforeAdd)
+          .map((call) => (call[0].rootDirectoryHandle as { path?: string } | null)?.path);
+        expect(syncedPaths).toContain('/workspace/added');
+      });
+      // The pre-existing root also resyncs (sequential whole-forest loop)
+      // BEFORE the new root, so the new root's pass is not starved.
+      const syncedPaths = syncSpy.mock.calls
+        .slice(callsBeforeAdd)
+        .map((call) => (call[0].rootDirectoryHandle as { path?: string } | null)?.path);
+      expect(syncedPaths).toContain(root1?.path);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('does not register handles that have no rootId mapping yet', async () => {
     fileSystemState.rootIdByPath = new Map<string, string>();
 

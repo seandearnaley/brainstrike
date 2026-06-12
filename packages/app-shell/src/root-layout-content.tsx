@@ -2,6 +2,7 @@ import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { usePGliteDatabase } from '@brainstrike/db';
 import {
   FileExplorerPanel,
+  FileSystemProvider,
   RootDataDeletionProvider,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui/shell';
@@ -212,21 +213,27 @@ function ContextExplorerSurface({
   );
 
   return (
-    <FileTreeWrapper>
-      {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-          the route-local context explorer panes inside that workspace surface. The
-          editor area itself hosts the Context Explorer app and any open file tabs;
-          there is no longer a south "console" panel. */}
-      <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout
-          panelIdPrefix="context-explorer"
-          rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-          rightPanelContent={resolvedPanelContent}
-        >
-          {contextExplorerPageContent}
-        </IdeLayout>
-      </PanelLayoutProvider>
-    </FileTreeWrapper>
+    // ONE shared file-system instance for the whole workspace surface — the
+    // tree wrapper, the background-indexing sync provider, AND the explorer
+    // UI all read it. Separate instances diverge on mid-session Add Folder
+    // (the indexer never saw new roots until the next launch).
+    <FileSystemProvider>
+      <FileTreeWrapper>
+        {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
+            the route-local context explorer panes inside that workspace surface. The
+            editor area itself hosts the Context Explorer app and any open file tabs;
+            there is no longer a south "console" panel. */}
+        <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+          <IdeLayout
+            panelIdPrefix="context-explorer"
+            rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+            rightPanelContent={resolvedPanelContent}
+          >
+            {contextExplorerPageContent}
+          </IdeLayout>
+        </PanelLayoutProvider>
+      </FileTreeWrapper>
+    </FileSystemProvider>
   );
 }
 

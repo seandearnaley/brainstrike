@@ -4,6 +4,7 @@ export * from './file-explorer-provider';
 export { default as FileExplorerSidebar } from './file-explorer-sidebar';
 export * from './file-explorer-toolbar';
 export * from './file-filter-bar';
+export * from './file-system-provider';
 export * from './root-data-deletion-context';
 export * from './use-file-explorer-context';
 export * from './use-file-system-context';

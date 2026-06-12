@@ -6,7 +6,7 @@ import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
-import { useFileSystem } from '../shell/use-file-system-context';
+import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 function useExposed() {
