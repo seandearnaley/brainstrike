@@ -87,6 +87,7 @@ function resolveProgressPercent(progress: {
 
 export class LocalLlmBackend {
   private engine: Gemma4Engine | null = null;
+  private generationQueue: Promise<void> = Promise.resolve();
   private modelId: string | null = null;
   private selectedDevice: 'webgpu' | null = null;
   private status: LocalLlmProviderStatus = { state: 'uninitialized' };
@@ -153,14 +154,37 @@ export class LocalLlmBackend {
       throw new Error('Model not initialized. Call initialize() first.');
     }
 
-    const result = await this.engine.generate(messages, options);
-    return {
-      text: result.text,
-      finishReason: result.toolCalls.length > 0 ? 'tool_calls' : 'stop',
-      ...(result.reasoningText ? { reasoningText: result.reasoningText } : {}),
-      ...(result.toolCalls.length > 0 ? { toolCalls: result.toolCalls } : {}),
-      usage: result.usage,
-    };
+    // Serialize generations: there is ONE engine on ONE WebGPU session, and
+    // overlapping model.generate calls corrupt it (interleaved KV/streamer
+    // state). Callers can overlap legitimately — the Mastra loop's chat
+    // generation and observational-memory observation both target this
+    // backend — so the backend is the serialization chokepoint, not its
+    // consumers.
+    const previousTurn = this.generationQueue;
+    let releaseTurn!: () => void;
+    this.generationQueue = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    await previousTurn;
+    try {
+      if (options.signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+      const engine = this.engine;
+      if (!engine) {
+        throw new Error('Model was disposed while waiting for the generation slot.');
+      }
+      const result = await engine.generate(messages, options);
+      return {
+        text: result.text,
+        finishReason: result.toolCalls.length > 0 ? 'tool_calls' : 'stop',
+        ...(result.reasoningText ? { reasoningText: result.reasoningText } : {}),
+        ...(result.toolCalls.length > 0 ? { toolCalls: result.toolCalls } : {}),
+        usage: result.usage,
+      };
+    } finally {
+      releaseTurn();
+    }
   }
 
   async dispose(): Promise<void> {

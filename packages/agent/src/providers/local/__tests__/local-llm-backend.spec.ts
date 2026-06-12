@@ -480,6 +480,90 @@ describe('LocalLlmBackend', () => {
     );
   });
 
+  it('serializes concurrent generations on the single Gemma engine', async () => {
+    // One engine, one WebGPU session: overlapping model.generate calls corrupt
+    // the session (and interleave streamer state). The Mastra path can issue
+    // chat + observational-memory generations close together, so the backend
+    // must be the serialization chokepoint for every consumer.
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    let active = 0;
+    let maxActive = 0;
+    const releases: Array<() => void> = [];
+    mockModelGenerate.mockImplementation(function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      return new Promise((resolve) => {
+        releases.push(() => {
+          active -= 1;
+          inputs.streamer?.callback_function?.('Final answer');
+          resolve({ slice: vi.fn().mockReturnValue('TOKENS') });
+        });
+      });
+    });
+
+    const first = backend.generate([{ role: 'user', content: 'one' }]);
+    const second = backend.generate([{ role: 'user', content: 'two' }]);
+
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+    });
+    releases[0]?.();
+    await first;
+
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(2);
+    });
+    releases[1]?.();
+    await second;
+
+    expect(maxActive).toBe(1);
+  });
+
+  it('rejects a queued generation when its signal aborts while waiting for the slot', async () => {
+    const backend = new LocalLlmBackend();
+    await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
+
+    const releases: Array<() => void> = [];
+    mockModelGenerate.mockImplementation(function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      return new Promise((resolve) => {
+        releases.push(() => {
+          inputs.streamer?.callback_function?.('Final answer');
+          resolve({ slice: vi.fn().mockReturnValue('TOKENS') });
+        });
+      });
+    });
+
+    const abortController = new AbortController();
+    const first = backend.generate([{ role: 'user', content: 'one' }]);
+    const second = backend.generate([{ role: 'user', content: 'two' }], {
+      signal: abortController.signal,
+    });
+    const observedSecond = second.then(
+      () => 'resolved' as const,
+      (error: unknown) => error
+    );
+
+    await vi.waitFor(() => {
+      expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+    });
+    abortController.abort();
+    releases[0]?.();
+    await first;
+
+    const outcome = await observedSecond;
+    expect(outcome).toBeInstanceOf(Error);
+    // The aborted request must never have reached the engine.
+    expect(mockModelGenerate).toHaveBeenCalledTimes(1);
+  });
+
   it('strips Gemma thought traces from generated text', async () => {
     const backend = new LocalLlmBackend();
 
