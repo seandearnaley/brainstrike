@@ -218,6 +218,25 @@ describe('FileTreeProvider', () => {
     );
   });
 
+  it('forwards the rootId UUID to the lazy tree hook so nodes carry the durable identity', () => {
+    // Storage v5 linchpin: the lazy tree hook reads options.rootId and stamps
+    // it onto every node as rootFolderId. Restoration keys by the same UUID.
+    const ROOT_UUID = 'd4e516c5-e91e-4b1d-89ed-cb01cbfec159';
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={ROOT_UUID}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+
+    expect(useFileTreeMock).toHaveBeenCalledWith(
+      rootHandle,
+      expect.objectContaining({ rootId: ROOT_UUID })
+    );
+    expect(useExpandedPathRestorationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ currentRootFolderId: ROOT_UUID })
+    );
+  });
+
   it('throws for required hooks outside the provider and returns null for optional hooks', () => {
     expect(() => renderHook(() => useFileTreeContext())).toThrow(
       'useFileTreeContext must be used within a FileTreeProvider'

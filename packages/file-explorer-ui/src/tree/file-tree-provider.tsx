@@ -214,7 +214,9 @@ export function FileTreeProvider({
     [index, bumpIndexVersion]
   );
 
-  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes.
+  // The lazy tree hook (use-file-tree-context → useLazyFileTree) reads `rootId`
+  // and stamps it onto every node as `rootFolderId`.
   const options = useMemo(() => {
     const base: {
       onNodesIndexed: typeof onNodesIndexed;
