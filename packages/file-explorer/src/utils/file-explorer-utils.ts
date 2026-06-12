@@ -58,6 +58,36 @@ export const getUnionSelectionCount = (
   > & { querySelectionManifest?: { filePaths: string[] } | null }
 ): number => getFocusedSelectionCount(state) + getForeignSelectionCount(state);
 
+/**
+ * FOREST INVARIANT: folderState selections are ALWAYS explicit. A query
+ * selection lives in TOP-LEVEL state (manifest + descriptor) that belongs to
+ * the focused root only — snapshotting the query model verbatim loses the
+ * selection on focus switch (empty key set, dead manifest). Materialize it
+ * into composite keys instead (mutates `ownKeys` in place). Single-root keeps
+ * query snapshots: its resolver rebuilds the manifest from the persisted
+ * snapshotId on restore.
+ */
+function materializeQuerySnapshotModel(
+  state: FileExplorerData,
+  folderId: string,
+  ownKeys: Set<string>,
+  snapshotModel: FileExplorerData['selectionModel']
+): FileExplorerData['selectionModel'] {
+  const isForest = (state.activeRootIds?.length ?? 0) > 1;
+  if (!isForest || state.selectionModel?.mode !== 'query') {
+    return snapshotModel;
+  }
+  const sourcePaths =
+    state.querySelectionManifest?.filePaths ??
+    (state.selectionModel.materializedPaths
+      ? Array.from(state.selectionModel.materializedPaths)
+      : []);
+  for (const path of sourcePaths) {
+    ownKeys.add(path.includes('|@|') ? path : `${folderId}|@|${path}`);
+  }
+  return { ...createEmptySelectionModel(), explicitPaths: new Set(ownKeys) };
+}
+
 // Helper function to save current folder state.
 // Phase 6 forest hardening: the snapshot PARTITIONS the live selection by key
 // identity — only the outgoing folder's OWN composite keys belong in its
@@ -86,10 +116,12 @@ export const saveFolderState = (
     foreignByFolder.set(keyFolderId, bucket);
   }
   const baseModel = state.selectionModel ?? createEmptySelectionModel();
-  const snapshotModel =
+  let snapshotModel =
     baseModel.mode === 'explicit' && foreignByFolder.size > 0
       ? { ...baseModel, explicitPaths: new Set(ownKeys) }
       : baseModel;
+
+  snapshotModel = materializeQuerySnapshotModel(state, folderId, ownKeys, snapshotModel);
 
   const folderState: FolderState = {
     selectedFilePaths: ownKeys,

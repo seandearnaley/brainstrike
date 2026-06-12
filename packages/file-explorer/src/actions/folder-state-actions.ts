@@ -1,4 +1,9 @@
-import type { FileExplorerState, FolderState } from '@brainstrike/types';
+import {
+  createEmptySelectionModel,
+  type FileExplorerState,
+  type FolderState,
+  type SelectionModel,
+} from '@brainstrike/types';
 import type { GetState, SetState } from '../types/store-types';
 import {
   cleanupOldFolderStates,
@@ -6,6 +11,29 @@ import {
   saveFolderState,
   updateFolderAccessOrder,
 } from '../utils/file-explorer-utils';
+
+/**
+ * FOREST INVARIANT: hydrated selections are ALWAYS explicit when multiple
+ * roots are active. A persisted query-mode snapshot (pre-invariant profiles)
+ * references a top-level manifest that no longer exists — restoring it
+ * verbatim produces a phantom selection (checkbox state and counts disagree
+ * with the keys actually present). Degrade it to the explicit keys the
+ * snapshot DOES carry. Single-root restores keep the query model — its
+ * resolver rebuilds the manifest from the persisted snapshotId.
+ */
+function normalizeHydratedSelectionModel(
+  state: Pick<FileExplorerState, 'activeRootIds'>,
+  folderState: FolderState
+): SelectionModel {
+  const isForest = (state.activeRootIds?.length ?? 0) > 1;
+  if (isForest && folderState.selectionModel.mode === 'query') {
+    return {
+      ...createEmptySelectionModel(),
+      explicitPaths: new Set(folderState.selectedFilePaths),
+    };
+  }
+  return folderState.selectionModel;
+}
 
 export interface FolderStateActions {
   hydrateFolderState: (folderId: string) => void;
@@ -22,6 +50,7 @@ export interface FolderStateActions {
 
 /** Build the state update for restoring an existing folder */
 function buildRestoreState(
+  state: Pick<FileExplorerState, 'activeRootIds'>,
   folderId: string,
   folderState: FolderState,
   folderStates: Record<string, FolderState>,
@@ -32,7 +61,7 @@ function buildRestoreState(
     folderStates,
     folderAccessOrder: order,
     selectedFilePaths: new Set(folderState.selectedFilePaths),
-    selectionModel: folderState.selectionModel,
+    selectionModel: normalizeHydratedSelectionModel(state, folderState),
     querySelectionManifest: null,
     // WORKSPACE-GLOBAL state is never hydrated from folder snapshots:
     // maxSelectionCount, includeFilters, excludeFilters, useRegex,
@@ -102,13 +131,14 @@ function prepareFolderStates(
 /** Handle restoring an existing folder's state */
 function handleRestoreFolder(
   set: SetState<FileExplorerState>,
+  state: Pick<FileExplorerState, 'activeRootIds'>,
   folderId: string,
   folderState: FolderState,
   folderStates: Record<string, FolderState>,
   order: string[]
 ): void {
   const updatedOrder = updateFolderAccessOrder(order, folderId);
-  set(buildRestoreState(folderId, folderState, folderStates, updatedOrder));
+  set(buildRestoreState(state, folderId, folderState, folderStates, updatedOrder));
 }
 
 /** Handle creating a new folder state */
@@ -142,7 +172,7 @@ export const createFolderStateActions = (
     const existingFolderState = folderStates[folderId as string];
 
     if (folderId && existingFolderState) {
-      handleRestoreFolder(set, folderId, existingFolderState, folderStates, order);
+      handleRestoreFolder(set, state, folderId, existingFolderState, folderStates, order);
     } else if (folderId) {
       handleCreateNewFolder(set, state, folderId, folderStates, order);
     } else {
@@ -186,7 +216,7 @@ export const createFolderStateActions = (
         folderStates: { ...state.folderStates, [folderId]: updatedFolderState },
         folderAccessOrder: order,
         selectedFilePaths: new Set(folderState.selectedFilePaths),
-        selectionModel: folderState.selectionModel,
+        selectionModel: normalizeHydratedSelectionModel(state, folderState),
         querySelectionManifest: null,
         // WORKSPACE-GLOBAL state (filters, useRegex, viewFilterPresetId,
         // maxSelectionCount, expandedDirectoryPaths) is never hydrated — see

@@ -398,6 +398,72 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(store.getState().maxSelectionCount).toBe(100);
     });
 
+    // FOREST INVARIANT: folderState selections are ALWAYS explicit. A query
+    // selection lives on TOP-LEVEL state (manifest + descriptor) the focused
+    // root owns — snapshotting the query model verbatim loses the selection
+    // on focus switch (P6fix round 7: "select all works on one root, then
+    // the others stop responding").
+    it('focus switch MATERIALIZES a query-mode selection into the outgoing snapshot', () => {
+      store.setState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+        querySelectionManifest: {
+          directoryCounts: new Map(),
+          errorMessage: null,
+          filePaths: ['/a/x.ts', '/a/y.ts'],
+          fingerprint: 'fp',
+          pathSet: new Set(['/a/x.ts', '/a/y.ts']),
+          snapshotId: null,
+          status: 'ready',
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const snapshot = store.getState().folderStates[ROOT_A];
+      expect(snapshot?.selectionModel.mode).toBe('explicit');
+      expect(snapshot?.selectedFilePaths).toEqual(new Set([keyA('/a/x.ts'), keyA('/a/y.ts')]));
+      expect(snapshot?.selectionModel.explicitPaths).toEqual(
+        new Set([keyA('/a/x.ts'), keyA('/a/y.ts')])
+      );
+    });
+
+    it('hydrating a stale query-mode snapshot in forest mode degrades it to explicit', () => {
+      // Pre-invariant profiles persisted query models into folderStates; the
+      // manifest they reference is gone, so restoring them verbatim creates a
+      // phantom selection (counts/checkboxes disagree with the actual keys).
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            selectedFilePaths: new Set([keyB('x.ts')]),
+            selectionModel: {
+              mode: 'query',
+              explicitPaths: new Set<string>(),
+              ruleSetJson: null,
+              materializedPaths: null,
+              materializedAt: null,
+              queryDescriptor: null,
+            },
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.selectionModel.mode).toBe('explicit');
+      expect(s.selectionModel.explicitPaths).toEqual(new Set([keyB('x.ts')]));
+      expect(s.selectedFilePaths).toEqual(new Set([keyB('x.ts')]));
+    });
+
     // View filters are WORKSPACE-GLOBAL (same contract as maxSelectionCount):
     // forest mode switches focus on every section click, so per-folder filter
     // snapshots would silently revert the user's filter change per clicked

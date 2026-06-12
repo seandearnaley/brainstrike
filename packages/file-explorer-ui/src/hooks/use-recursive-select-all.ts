@@ -31,6 +31,7 @@ import {
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
   hasPersistApi,
+  isForestStore,
   yieldToBrowser,
 } from './recursive-selection-utils';
 
@@ -163,13 +164,16 @@ async function commitSelectAllResult(args: {
 
   const fullSelectionResult =
     args.maxSelectionCount >= result.filePaths.length && !result.limitReached;
-  // Query-mode selection lives on the TOP-LEVEL selection model, which
-  // belongs to the FOCUSED root in forest mode — a per-root select-all for
-  // any other root must use explicit selection (the store mutators route
-  // those keys into that root's folderState).
+  // FOREST INVARIANT: selections are ALWAYS explicit when multiple roots are
+  // active. Query mode lives on TOP-LEVEL state (manifest + descriptor) that
+  // a focus switch — which forest mode performs on every section click —
+  // cannot carry into a folderState snapshot. Single-root keeps query mode
+  // for very large select-alls.
   const targetsFocusedRoot = args.currentFolderId === null || args.currentFolderId === folderId;
   const querySelectionSetter =
-    targetsFocusedRoot && fullSelectionResult ? args.setQuerySelection : undefined;
+    targetsFocusedRoot && fullSelectionResult && !isForestStore(args.store)
+      ? args.setQuerySelection
+      : undefined;
 
   if (querySelectionSetter) {
     await commitSelectAllQuerySelection({

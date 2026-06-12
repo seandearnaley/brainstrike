@@ -25,6 +25,7 @@ import {
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
   hasPersistApi,
+  isForestStore,
 } from './recursive-selection-utils';
 
 const logger = createLogger('RecursiveFolderSelect');
@@ -313,15 +314,16 @@ export function useRecursiveFolderSelect(
           });
         }
 
-        // Query-mode selection lives on the TOP-LEVEL selection model, which
-        // belongs to the FOCUSED root in forest mode. A foreign root's
-        // recursive select must use explicit selection instead — the store
-        // mutators route those keys into that root's folderState. The
+        // FOREST INVARIANT: selections are ALWAYS explicit when multiple
+        // roots are active — query mode lives on TOP-LEVEL state that a
+        // focus switch (every forest section click) cannot carry into a
+        // folderState snapshot. Single-root keeps the query fast path; the
         // null-focus case keeps legacy single-root behavior.
         const targetsFocusedRoot = currentFolderId === null || currentFolderId === folderId;
         const canUseQuerySelection =
           Boolean(setQuerySelection) &&
           targetsFocusedRoot &&
+          !isForestStore(store) &&
           currentSelectionSize === currentDirectorySelectionSize &&
           availableSlots >= result.filePaths.length &&
           !result.limitReached;

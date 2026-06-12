@@ -608,6 +608,43 @@ describe('useRecursiveSelectAll', () => {
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Load failed' }));
   });
 
+  it('commits EXPLICIT selection (never query mode) in forest mode, even for the focused root', async () => {
+    // FOREST INVARIANT: query selections live on top-level state that focus
+    // switches cannot carry into folderState snapshots — with multiple
+    // active roots every select-all is explicit.
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+      currentFolderId: 'folder-1',
+      activeRootIds: ['folder-1', 'root-b'],
+      selectionModel: { mode: 'explicit' },
+      selectedFilePaths: new Set<string>(),
+      folderStates: {},
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(setQuerySelection).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFiles).toHaveBeenCalledWith('folder-1', [
+      '/src/index.ts',
+      '/src/utils.ts',
+      '/README.md',
+    ]);
+  });
+
   it('shrinks the scan cap by other roots’ selections (forest-union budget)', async () => {
     // Whole-forest cap: with max 3 and root-b already holding 2 selections,
     // a focused-root select-all may take at most 1. The focused root's OWN
