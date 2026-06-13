@@ -13,7 +13,10 @@ import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
+import {
+  getCachedFileRequestName,
+  useSharedFileContentLoading,
+} from '../use-shared-file-content-loading';
 
 // Mock the worker
 vi.mock('@brainstrike/workers/file-content-worker', () => ({
@@ -205,6 +208,15 @@ describe('useSharedFileContentLoading - caching', () => {
     expect(findSpy).not.toHaveBeenCalled();
     expect(readSpy).toHaveBeenCalledTimes(2);
     expect(readSpy.mock.calls[1]?.[0]._internal).toBe(fileNode2.handle);
+  });
+});
+
+describe('getCachedFileRequestName', () => {
+  it('extracts slash-delimited file names without changing trailing slash behavior', () => {
+    expect(getCachedFileRequestName('/root/src/cached.txt')).toBe('cached.txt');
+    expect(getCachedFileRequestName('cached.txt')).toBe('cached.txt');
+    expect(getCachedFileRequestName('/root/src/')).toBe('/root/src/');
+    expect(getCachedFileRequestName('')).toBe('');
   });
 });
 

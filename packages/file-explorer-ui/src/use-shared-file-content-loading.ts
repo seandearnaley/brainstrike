@@ -273,6 +273,17 @@ function markFileLoading(
   setLoadingFiles((prev) => new Set(prev).add(compositeKey));
 }
 
+/** @internal Exported for focused regression coverage. */
+export function getCachedFileRequestName(path: string): string {
+  const lastSlashIndex = path.lastIndexOf('/');
+  if (lastSlashIndex === -1) {
+    return path;
+  }
+
+  const name = path.slice(lastSlashIndex + 1);
+  return name || path;
+}
+
 async function buildCachedFileRequest(args: {
   handleCache: CachedHandleLookup | null;
   folderId: string;
@@ -309,7 +320,8 @@ async function buildCachedFileRequest(args: {
   }
 
   markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
-  const name = path.split('/').pop() || path;
+  // Avoid split/pop here: cached browser handle requests can be prepared in bulk.
+  const name = getCachedFileRequestName(path);
   const fileHandle: FileHandle = {
     path,
     name,
