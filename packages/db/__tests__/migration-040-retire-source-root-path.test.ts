@@ -135,6 +135,37 @@ describe('migration 040: retire source_root_path', () => {
     ]);
   });
 
+  it('prefers the exact root when both a bare and a trailing-slash root exist (deterministic)', async () => {
+    // 039's unique index is on the RAW path, so '/x' and '/x/' can coexist as
+    // two distinct roots. The trimmed predicate matches both; exact-first
+    // ordering makes the pick deterministic instead of an arbitrary
+    // UPDATE ... FROM choice — each source resolves to its exact-match root.
+    await seedRoot('root-bare', '/Users/me/dup');
+    await seedRoot('root-slash', '/Users/me/dup/');
+    await seedFileRecord({
+      id: 'dup-bare-source',
+      path: 'a.ts',
+      sourceRootPath: '/Users/me/dup',
+      rootId: null,
+    });
+    await seedFileRecord({
+      id: 'dup-slash-source',
+      path: 'b.ts',
+      sourceRootPath: '/Users/me/dup/',
+      rootId: null,
+    });
+
+    await runner.up([getMigration040()]);
+
+    const rows = await db.query<FileRecordRootRow>(
+      "SELECT id, root_id FROM file_records WHERE id LIKE 'dup-%' ORDER BY id"
+    );
+    expect(rows.rows).toEqual([
+      { id: 'dup-bare-source', root_id: 'root-bare' },
+      { id: 'dup-slash-source', root_id: 'root-slash' },
+    ]);
+  });
+
   it('drops the source_root_path column and the 029 indexes, keeps the 039 root_id index', async () => {
     await runner.up([getMigration040()]);
 
