@@ -136,7 +136,12 @@ declare global {
     };
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;
-      enqueueBackfill: (request: EmbeddingHostBackfillRequest) => Promise<{ requestId: string }>;
+      // Resolves { canceled: true } for a deliberate backfill cancellation — the
+      // main-process handler swallows the cancellation sentinel rather than
+      // rejecting (a rejection makes Electron log "Error occurred in handler").
+      enqueueBackfill: (
+        request: EmbeddingHostBackfillRequest
+      ) => Promise<{ requestId: string } | { canceled: true }>;
       cancelBackfill: (embeddingSetId: string) => Promise<void>;
       cancelAllBackfills: () => Promise<void>;
       getBackfillsInFlight: () => Promise<EmbeddingHostBackfillInfo[]>;

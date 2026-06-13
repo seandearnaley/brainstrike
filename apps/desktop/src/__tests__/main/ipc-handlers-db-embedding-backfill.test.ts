@@ -531,9 +531,12 @@ describe('database IPC embedding backfill handlers', () => {
       }
     );
 
-    await expect(backfillHandler({ sender } as unknown, 'set-123')).rejects.toThrow(
-      'Embedding backfill was canceled.'
-    );
+    // A deliberate cancellation now resolves a benign { canceled: true } instead of
+    // rejecting, so Electron's ipcMain.handle does not log "Error occurred in
+    // handler" on every background-indexing cancel. (Matches this test's title.)
+    await expect(backfillHandler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      canceled: true,
+    });
   });
 
   it('embedding-host:enqueue-backfill treats reset maintenance interruption as planned', async () => {

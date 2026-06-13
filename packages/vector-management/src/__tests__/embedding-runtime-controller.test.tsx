@@ -660,7 +660,7 @@ describe('useEmbeddingRuntimeController', () => {
       })
     );
 
-    let pendingBackfill: Promise<{ requestId: string }> | null = null;
+    let pendingBackfill: Promise<{ requestId: string } | { canceled: true }> | null = null;
     await act(async () => {
       const startedBackfill = result.current.enqueueBackfill('set-1', {
         source: 'background-indexing',
@@ -795,8 +795,8 @@ describe('useEmbeddingRuntimeController', () => {
     const progressListener = vi.fn();
     const unsubscribe = result.current.onBackfillProgress(progressListener);
 
-    let pendingOne: Promise<{ requestId: string }> | null = null;
-    let pendingTwo: Promise<{ requestId: string }> | null = null;
+    let pendingOne: Promise<{ requestId: string } | { canceled: true }> | null = null;
+    let pendingTwo: Promise<{ requestId: string } | { canceled: true }> | null = null;
     await act(async () => {
       const startedOne = result.current.enqueueBackfill('set-1');
       const startedTwo = result.current.enqueueBackfill('set-2');

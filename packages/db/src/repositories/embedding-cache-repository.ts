@@ -95,6 +95,29 @@ function chunkArray<T>(items: readonly T[], size: number): readonly T[][] {
   return chunks;
 }
 
+// De-duplicate entries on their (contentHash, modelKey) conflict key, keeping the first
+// occurrence. A multi-row `INSERT ... ON CONFLICT (content_hash, model_key) DO UPDATE`
+// fails with SQLSTATE 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second
+// time") if the VALUES list carries the same conflict-target key twice. Under multi-root
+// workspaces, identical content (empty __init__.py, vendored files, lockfiles) lives under
+// two roots as distinct file_records that share one content_hash, so a mixed-root embedding
+// batch routinely carries the duplicate key. NUL separates the two fields because modelKey
+// itself contains ':' (e.g. `local:Xenova/bge-m3`). Mirrors getBatch's read-side de-dup.
+function dedupeByContentAndModel<T extends { contentHash: string; modelKey: string }>(
+  entries: readonly T[]
+): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const entry of entries) {
+    const key = `${entry.contentHash}\u0000${entry.modelKey}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(entry);
+    }
+  }
+  return result;
+}
+
 export class EmbeddingCacheRepository {
   private readonly logger = createLogger('EmbeddingCacheRepository');
   private readonly maxEntries: number;
@@ -244,8 +267,9 @@ export class EmbeddingCacheRepository {
       dimensions: number;
     }>
   ): Promise<number> {
+    const dedupedEntries = dedupeByContentAndModel(entries);
     let stored = 0;
-    for (const chunk of chunkArray(entries, MAX_BATCH_SIZE)) {
+    for (const chunk of chunkArray(dedupedEntries, MAX_BATCH_SIZE)) {
       if (chunk.length === 0) {
         continue;
       }

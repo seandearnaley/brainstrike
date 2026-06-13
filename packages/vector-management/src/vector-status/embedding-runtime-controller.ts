@@ -31,13 +31,21 @@ export interface EmbeddingRuntimeBackfillInfo {
 
 export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 'embedding-worker'>;
 
+/**
+ * Result of enqueueBackfill. `{ canceled: true }` is returned (desktop only) when
+ * the backfill was deliberately canceled before it started — desktop main resolves
+ * this instead of rejecting the IPC call (a rejection logs "Error occurred in
+ * handler"). The local/web runtime always returns `{ requestId }`.
+ */
+export type EnqueueBackfillResult = { requestId: string } | { canceled: true };
+
 export interface EmbeddingRuntimeController {
   cancelAllBackfills: () => Promise<void>;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
   enqueueBackfill: (
     embeddingSetId: string,
     options?: { signal?: AbortSignal; source?: EmbeddingRuntimeBackfillSource }
-  ) => Promise<{ requestId: string }>;
+  ) => Promise<EnqueueBackfillResult>;
   ensureStarted: () => Promise<EmbeddingRuntimeStatus>;
   getBackfillsInFlight: () => Promise<EmbeddingRuntimeBackfillInfo[]>;
   getStatus: () => Promise<EmbeddingRuntimeStatus>;
@@ -64,7 +72,7 @@ interface EmbeddingHostApi {
   readonly enqueueBackfill?: (request: {
     embeddingSetId: string;
     source?: EmbeddingRuntimeBackfillSource;
-  }) => Promise<{ requestId: string }>;
+  }) => Promise<EnqueueBackfillResult>;
   readonly ensureStarted: () => Promise<EmbeddingHostStatus>;
   readonly getBackfillsInFlight?: () => Promise<EmbeddingRuntimeBackfillInfo[]>;
   readonly getStatus: () => Promise<EmbeddingHostStatus>;
@@ -385,7 +393,7 @@ export function useEmbeddingRuntimeController(
       enqueueBackfill: async (
         embeddingSetId: string,
         options?: { signal?: AbortSignal; source?: EmbeddingRuntimeBackfillSource }
-      ): Promise<{ requestId: string }> => {
+      ): Promise<EnqueueBackfillResult> => {
         const source = options?.source ?? 'manual';
         if (desktopHost?.enqueueBackfill) {
           const status = await ensureDesktopHostStarted();

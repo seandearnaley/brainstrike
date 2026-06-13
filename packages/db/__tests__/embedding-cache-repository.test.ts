@@ -118,6 +118,45 @@ describe('createEmbeddingCacheRepository', () => {
     expect(finalStats.totalEntries).toBe(1);
   });
 
+  it('de-duplicates a batch on (contentHash, modelKey) so a duplicate key does not throw', async () => {
+    const db = {
+      query: async <T = unknown>(sql: string, params?: unknown[]) => client.query<T>(sql, params),
+    };
+    const repo = createEmbeddingCacheRepository(db);
+
+    // Two entries sharing one (contentHash, modelKey) — e.g. byte-identical file content
+    // (an empty __init__.py, a lockfile) indexed under two roots in a single mixed-root
+    // batch. Without de-dup this emits a multi-row `ON CONFLICT ... DO UPDATE` whose VALUES
+    // carry the same conflict target twice, and PostgreSQL throws 21000 ("ON CONFLICT DO
+    // UPDATE command cannot affect row a second time").
+    const stored = await repo.setBatch([
+      {
+        contentHash: 'shared-content',
+        dimensions: 4,
+        embedding: [0.1, 0.2, 0.3, 0.4],
+        modelKey: 'local:test-model',
+      },
+      {
+        contentHash: 'shared-content',
+        dimensions: 4,
+        embedding: [0.5, 0.6, 0.7, 0.8],
+        modelKey: 'local:test-model',
+      },
+    ]);
+
+    expect(stored).toBe(1);
+
+    const stats = await repo.getStats();
+    expect(stats.totalEntries).toBe(1);
+
+    // First occurrence wins, matching the ON CONFLICT "first value wins" semantics.
+    const hit = await repo.get('shared-content', 'local:test-model');
+    expect(hit.hit).toBe(true);
+    if (hit.hit) {
+      expect(hit.entry.embedding).toEqual([0.1, 0.2, 0.3, 0.4]);
+    }
+  });
+
   it('evicts oldest entries with a single query-handle round trip', async () => {
     const queries: string[] = [];
     const db = {

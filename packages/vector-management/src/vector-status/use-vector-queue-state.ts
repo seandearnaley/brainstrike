@@ -185,6 +185,18 @@ function isBackfillCancellationError(error: unknown): boolean {
   return error.name === 'AbortError';
 }
 
+/**
+ * Build a cancellation error recognized by isBackfillCancellationError (name ===
+ * 'AbortError'). Used to re-raise a desktop `{ canceled: true }` enqueue result so
+ * a deliberately-canceled backfill is handled identically to a local AbortSignal
+ * cancel — never reported as a completion.
+ */
+function createBackfillCancellationError(): Error {
+  const error = new Error('Embedding backfill was canceled.');
+  error.name = 'AbortError';
+  return error;
+}
+
 function subscribeBackfillProgress(
   controller: EmbeddingRuntimeController,
   activeEmbeddingSetId: string,
@@ -707,7 +719,18 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     );
     try {
       logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
-      await controller.enqueueBackfill(activeEmbeddingSetId, { source: 'manual' });
+      const enqueueResult = await controller.enqueueBackfill(activeEmbeddingSetId, {
+        source: 'manual',
+      });
+      // Desktop main resolves { canceled: true } for a deliberate cancellation
+      // instead of rejecting (a rejection logs "Error occurred in handler"). A
+      // canceled backfill is NOT a completion — re-raise it as an abort so the
+      // catch's cancellation branch handles it (no queue-drained, no "completed").
+      // The local/web controller resolves { requestId } (and progress-only
+      // controllers may resolve nothing), so guard the membership check.
+      if (enqueueResult && 'canceled' in enqueueResult) {
+        throw createBackfillCancellationError();
+      }
       dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {
