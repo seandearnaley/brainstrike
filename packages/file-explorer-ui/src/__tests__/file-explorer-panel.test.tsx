@@ -1,4 +1,5 @@
 import type { PendingRestoreState } from '@brainstrike/file-explorer-hooks';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { FileExplorerState } from '@brainstrike/types';
 import { screen, waitFor } from '@testing-library/react';
@@ -108,7 +109,8 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: vi.fn(),
+      isCheckingStoredHandles: false,
+      beginRestore: vi.fn().mockResolvedValue([]),
       dismissRestore: vi.fn(),
       chooseDifferentFolder: vi.fn(),
       clearStoredHandles: vi.fn(),
@@ -281,6 +283,11 @@ describe('FileExplorerPanel', () => {
       selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
       cancelSelectAll: vi.fn(),
       isLoadingForSelectAll: false,
+      // Multi-root (Phase 4+)
+      rootDirectoryHandles: [],
+      addRootDirectory: vi.fn().mockResolvedValue(null),
+      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      setFocusedRoot: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 
@@ -466,7 +473,7 @@ describe('FileExplorerPanel', () => {
   it('restores a pending raw handle immediately when read permission is granted', async () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
-    const beginRestoreMock = vi.fn<() => Promise<null>>(async () => null);
+    const beginRestoreMock = vi.fn<() => Promise<readonly DirectoryHandle[]>>(async () => []);
     const setAccessLoadingMock = vi.fn();
     const setRootDirectoryHandleMock = vi.fn();
     const requestPermissionMock = vi.fn<() => Promise<PermissionState>>(async () => 'granted');
@@ -512,18 +519,27 @@ describe('FileExplorerPanel', () => {
     expect(setAccessLoadingMock).toHaveBeenLastCalledWith(false);
   });
 
-  it('falls back to beginRestore when pending raw-handle permission is denied', async () => {
+  it('registers EVERY restored handle when pending raw-handle permission is denied (multi-root)', async () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
-    const restoredHandle = {
-      path: 'restored',
-      name: 'restored',
+    const restoredHandleA = {
+      path: 'restored-a',
+      name: 'restored-a',
       kind: 'directory' as const,
       platform: 'web' as const,
       _internal: {},
-    };
-    const beginRestoreMock = vi.fn(async () => restoredHandle);
-    const setRootDirectoryHandleMock = vi.fn();
+    } satisfies DirectoryHandle;
+    const restoredHandleB = {
+      path: 'restored-b',
+      name: 'restored-b',
+      kind: 'directory' as const,
+      platform: 'web' as const,
+      _internal: {},
+    } satisfies DirectoryHandle;
+    const beginRestoreMock = vi.fn(
+      async () => [restoredHandleA, restoredHandleB] as readonly DirectoryHandle[]
+    );
+    const registerRestoredHandlesMock = vi.fn().mockResolvedValue(undefined);
     const requestPermissionMock = vi.fn<() => Promise<PermissionState>>(async () => 'denied');
     const rawHandle = {
       kind: 'directory',
@@ -545,20 +561,24 @@ describe('FileExplorerPanel', () => {
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
       rootDirectoryHandle: null,
-      setRootDirectoryHandle: setRootDirectoryHandleMock,
+      registerRestoredHandles: registerRestoredHandlesMock,
     });
 
     renderWithProviders(<FileExplorerPanel />);
     await user.click(screen.getByRole('button', { name: 'Restore folder access' }));
 
     await waitFor(() => expect(beginRestoreMock).toHaveBeenCalledTimes(1));
-    expect(setRootDirectoryHandleMock).toHaveBeenCalledWith(restoredHandle);
+    // ALL restored handles flow into the multi-root registration path —
+    // not just handles[0] via setRootDirectoryHandle.
+    await waitFor(() =>
+      expect(registerRestoredHandlesMock).toHaveBeenCalledWith([restoredHandleA, restoredHandleB])
+    );
   });
 
   it('falls back to beginRestore when raw-handle permission rejects', async () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
-    const beginRestoreMock = vi.fn(async () => null);
+    const beginRestoreMock = vi.fn(async () => [] as readonly DirectoryHandle[]);
     const requestPermissionMock = vi.fn<() => Promise<PermissionState>>(async () => {
       throw new Error('permission failed');
     });
@@ -599,9 +619,9 @@ describe('FileExplorerPanel', () => {
       kind: 'directory' as const,
       platform: 'web' as const,
       _internal: {},
-    };
-    const beginRestoreMock = vi.fn(async () => restoredHandle);
-    const setRootDirectoryHandleMock = vi.fn();
+    } satisfies DirectoryHandle;
+    const beginRestoreMock = vi.fn(async () => [restoredHandle] as readonly DirectoryHandle[]);
+    const registerRestoredHandlesMock = vi.fn().mockResolvedValue(undefined);
     const pendingRestore = createPendingRestore({
       name: 'brainstrike',
     } as FileSystemDirectoryHandle);
@@ -620,14 +640,14 @@ describe('FileExplorerPanel', () => {
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
       rootDirectoryHandle: null,
-      setRootDirectoryHandle: setRootDirectoryHandleMock,
+      registerRestoredHandles: registerRestoredHandlesMock,
     });
 
     renderWithProviders(<FileExplorerPanel />);
     await user.click(screen.getByRole('button', { name: 'Restore folder access' }));
 
     await waitFor(() => expect(beginRestoreMock).toHaveBeenCalledTimes(1));
-    expect(setRootDirectoryHandleMock).toHaveBeenCalledWith(restoredHandle);
+    await waitFor(() => expect(registerRestoredHandlesMock).toHaveBeenCalledWith([restoredHandle]));
   });
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {

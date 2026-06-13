@@ -1,4 +1,5 @@
-import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { createMemoryStorageAdapter, MemoryStorageAdapter } from '@brainstrike/storage';
+import type { StoredRootDescriptor } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 beforeEach(() => {
@@ -67,5 +68,166 @@ describe('createFileExplorerStore with custom adapter', () => {
     });
 
     expect(newStore.getState().currentFolderId).toBe('foo');
+  });
+});
+
+// ============================================================================
+// Active roots store tests (Task 1: Phase 4 multi-root)
+// These tests use async dynamic imports to respect vi.resetModules() from
+// the file-level beforeEach.
+// ============================================================================
+
+describe('active roots — setActiveRoots', () => {
+  it('initialises with empty activeRootIds and rootDescriptors', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual([]);
+    expect(state.rootDescriptors).toEqual({});
+  });
+
+  it('setActiveRoots replaces both fields atomically', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    const roots: StoredRootDescriptor[] = [
+      { rootId: 'root-1', displayName: 'Project A', path: '/home/user/project-a' },
+      { rootId: 'root-2', displayName: 'Project B', path: '/home/user/project-b' },
+    ];
+
+    store.getState().setActiveRoots(roots);
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual(['root-1', 'root-2']);
+    expect(state.rootDescriptors).toEqual({
+      'root-1': { rootId: 'root-1', displayName: 'Project A', path: '/home/user/project-a' },
+      'root-2': { rootId: 'root-2', displayName: 'Project B', path: '/home/user/project-b' },
+    });
+  });
+
+  it('setActiveRoots replaces previous state fully', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setActiveRoots([{ rootId: 'old-root', displayName: 'Old', path: '/old' }]);
+    store.getState().setActiveRoots([{ rootId: 'new-root', displayName: 'New', path: '/new' }]);
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual(['new-root']);
+    expect(Object.keys(state.rootDescriptors)).toEqual(['new-root']);
+    expect(state.rootDescriptors['old-root']).toBeUndefined();
+  });
+
+  it('setActiveRoots with empty array clears both fields', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().setActiveRoots([{ rootId: 'root-1', displayName: 'A', path: '/a' }]);
+    store.getState().setActiveRoots([]);
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual([]);
+    expect(state.rootDescriptors).toEqual({});
+  });
+
+  it('setActiveRoots preserves insertion order in activeRootIds', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    const roots: StoredRootDescriptor[] = [
+      { rootId: 'c', displayName: 'C', path: '/c' },
+      { rootId: 'a', displayName: 'A', path: '/a' },
+      { rootId: 'b', displayName: 'B', path: '/b' },
+    ];
+    store.getState().setActiveRoots(roots);
+    expect(store.getState().activeRootIds).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('active roots — addActiveRoot', () => {
+  it('appends a new root to activeRootIds and rootDescriptors', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+
+    const state = store.getState();
+    expect(state.activeRootIds).toEqual(['root-1']);
+    expect(state.rootDescriptors['root-1']).toEqual({
+      rootId: 'root-1',
+      displayName: 'A',
+      path: '/a',
+    });
+  });
+
+  it('appends multiple roots in order', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'r1', displayName: 'R1', path: '/r1' });
+    store.getState().addActiveRoot({ rootId: 'r2', displayName: 'R2', path: '/r2' });
+
+    expect(store.getState().activeRootIds).toEqual(['r1', 'r2']);
+  });
+
+  it('is a no-op for duplicate rootId (does not append again)', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'A', path: '/a' });
+
+    expect(store.getState().activeRootIds).toEqual(['root-1']);
+  });
+
+  it('updates the descriptor record when re-adding an existing rootId', async () => {
+    const { createFileExplorerStore } = await import('../store');
+    const store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'Old Name', path: '/old' });
+    store.getState().addActiveRoot({ rootId: 'root-1', displayName: 'New Name', path: '/new' });
+
+    const state = store.getState();
+    // activeRootIds still has one entry (no duplicate append)
+    expect(state.activeRootIds).toEqual(['root-1']);
+    // descriptor is refreshed with new values
+    expect(state.rootDescriptors['root-1']).toEqual({
+      rootId: 'root-1',
+      displayName: 'New Name',
+      path: '/new',
+    });
+  });
+});
+
+describe('active roots — persist round-trip', () => {
+  it('activeRootIds and rootDescriptors survive a serialize/rehydrate cycle', async () => {
+    const adapter = new MemoryStorageAdapter();
+    const { createFileExplorerStore } = await import('../store');
+
+    const store1 = createFileExplorerStore(adapter);
+    const roots: StoredRootDescriptor[] = [
+      { rootId: 'rt-root', displayName: 'RT Project', path: '/rt/project' },
+    ];
+    store1.getState().setActiveRoots(roots);
+
+    // Wait for persist to flush
+    for (let i = 0; i < 100; i++) {
+      if (adapter.getSize() > 0) {
+        break;
+      }
+      await new Promise((resolve) => process.nextTick(resolve));
+    }
+
+    const store2 = createFileExplorerStore(adapter);
+    await new Promise<void>((resolve) => {
+      const unsub = store2.persist.onFinishHydration(() => {
+        resolve();
+        unsub();
+      });
+      if (store2.persist.hasHydrated()) {
+        resolve();
+        unsub();
+      }
+    });
+
+    const state = store2.getState();
+    expect(state.activeRootIds).toEqual(['rt-root']);
+    expect(state.rootDescriptors['rt-root']).toEqual({
+      rootId: 'rt-root',
+      displayName: 'RT Project',
+      path: '/rt/project',
+    });
   });
 });

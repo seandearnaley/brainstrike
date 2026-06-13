@@ -159,6 +159,19 @@ const {
       path: string;
       platform: string;
     } | null,
+    rootDirectoryHandles: [
+      {
+        kind: 'directory',
+        name: 'workspace',
+        path: '/workspace/root',
+        platform: 'electron',
+      },
+    ] as Array<{
+      kind: string;
+      name: string;
+      path: string;
+      platform: string;
+    }>,
   },
   fileTreeContextState: {
     current: {
@@ -310,6 +323,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({
     isAccessLoading: fileSystemState.isAccessLoading,
     rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
+    rootDirectoryHandles: fileSystemState.rootDirectoryHandles,
   }),
 }));
 
@@ -386,6 +400,14 @@ describe('WorkspaceCollectionSyncProvider', () => {
       path: '/workspace/root',
       platform: 'electron',
     };
+    fileSystemState.rootDirectoryHandles = [
+      {
+        kind: 'directory',
+        name: 'workspace',
+        path: '/workspace/root',
+        platform: 'electron',
+      },
+    ];
     fileTreeContextState.current = {
       isLoading: false,
       isRestorationSettled: true,
@@ -1619,5 +1641,181 @@ describe('WorkspaceCollectionSyncProvider', () => {
         })
       )
     );
+  });
+
+  // ─── Task 6: sequential per-root sync passes ───────────────────────────────
+
+  it('calls service.sync once per root, in order, sequentially, when two handles are active', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    // Use a deferred to prove ordering: the second sync only starts after the first resolves.
+    let resolveFirstSync!: () => void;
+    const firstSyncDone = new Promise<void>((res) => {
+      resolveFirstSync = res;
+    });
+    const callOrder: string[] = [];
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        callOrder.push(`start:${path}`);
+        if (path === root1.path) {
+          await firstSyncDone;
+        }
+        callOrder.push(`end:${path}`);
+        return;
+      });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // Wait until the first sync has started.
+      await waitFor(() => expect(callOrder).toContain(`start:${root1.path}`));
+
+      // The second sync must NOT have started yet (sequential, not parallel).
+      expect(callOrder).not.toContain(`start:${root2.path}`);
+
+      // Let root1 finish.
+      resolveFirstSync();
+
+      // Now root2 should complete.
+      await waitFor(() => expect(callOrder).toContain(`end:${root2.path}`));
+
+      expect(callOrder).toEqual([
+        `start:${root1.path}`,
+        `end:${root1.path}`,
+        `start:${root2.path}`,
+        `end:${root2.path}`,
+      ]);
+      expect(syncSpy).toHaveBeenCalledTimes(2);
+      expect(syncSpy.mock.calls[0]?.[0]).toMatchObject({ rootDirectoryHandle: root1 });
+      expect(syncSpy.mock.calls[1]?.[0]).toMatchObject({ rootDirectoryHandle: root2 });
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('stops the stale loop when a new triggerSync fires mid-loop', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    // firstSyncStarted lets the test gate when to fire the re-trigger.
+    let firstSyncStarted!: () => void;
+    const firstSyncStartedPromise = new Promise<void>((res) => {
+      firstSyncStarted = res;
+    });
+    // neverResolve keeps root1 in-flight so we can confirm root2 from the OLD
+    // loop is never called while the service is busy.
+    const neverResolvePromise = new Promise<void>(() => {
+      // intentionally never resolved — the service's own abort ends the in-flight pass
+    });
+
+    const syncCallHandles: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        syncCallHandles.push(path);
+        if (syncCallHandles.filter((p) => p === root1.path).length === 1) {
+          // First call for root1: signal it started, then hang.
+          firstSyncStarted();
+          await neverResolvePromise;
+        }
+        // All subsequent calls resolve immediately.
+        return;
+      });
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // Wait for the first loop's root1 pass to begin.
+      await firstSyncStartedPromise;
+
+      // Re-trigger by forcing a rerender (simulates a state change that re-fires the effect).
+      fileSystemState.rootDirectoryHandles = [root1, root2];
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // Wait for the new loop to call root1 again.
+      await waitFor(() => expect(syncCallHandles.filter((p) => p === root1.path).length).toBe(2));
+
+      // Allow microtasks to flush so root2 from the new loop can be reached.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+
+      // root2 from the OLD stale loop must never have been invoked.
+      // Only root2 from the NEW loop may appear (after root1 resolves from the new loop).
+      // Since root1 from the new loop also uses neverResolve (second call → resolves immediately),
+      // we can assert root2 appears exactly once (from the new loop only).
+      const root2Calls = syncCallHandles.filter((p) => p === root2.path);
+      // The stale guard prevents the old loop from ever reaching root2,
+      // so root2 can only appear from the new loop.
+      // New loop's root1 resolves immediately (second call) → root2 follows.
+      expect(root2Calls.length).toBeLessThanOrEqual(1);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('calls service.sync exactly once with the legacy single-handle request shape when only one handle is active', async () => {
+    // fileSystemState already has one handle from beforeEach — confirm no change needed.
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      expect(syncSpy.mock.calls[0]?.[0]).toMatchObject({
+        rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
+        managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      });
+    } finally {
+      syncSpy.mockRestore();
+    }
   });
 });

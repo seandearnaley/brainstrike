@@ -1,3 +1,5 @@
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
 import {
   composeWrappers,
   createDirectoryNode,
@@ -5,17 +7,34 @@ import {
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { act, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeWrapper(adapter?: MockFileSystemAdapter) {
+  return composeWrappers(({ children }) => (
+    <FileExplorerTestWrapper
+      mockStorageAdapter={new MemoryStorageAdapter()}
+      {...(adapter ? { mockFileSystemAdapter: adapter } : {})}
+    >
+      {children}
+    </FileExplorerTestWrapper>
+  ));
+}
+
+// ---------------------------------------------------------------------------
+// Default setup (single-root tests — adapter not populated; tree is empty/loading)
+// ---------------------------------------------------------------------------
 
 const Wrapper = composeWrappers(({ children }) => (
   <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
 ));
 const renderWithProviders = makeRenderWithProviders(Wrapper);
-
-// No need to mock self-package; sidebar does not import FolderBadge.
 
 describe('FileExplorerSidebar', () => {
   const mockTreeData: IFileNode[] = [
@@ -51,6 +70,10 @@ describe('FileExplorerSidebar', () => {
     currentFolderId: 'test-folder',
     onTreeRender: vi.fn(),
   };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('renders with directory and files', () => {
     act(() => {
@@ -113,5 +136,200 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByText('No matching files found')).toBeInTheDocument();
+  });
+
+  // Single-root regression: rootDirectoryHandles with one entry → no section headers
+  it('renders single-root layout (no section headers) when rootDirectoryHandles has one entry', () => {
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandles={[mockDirectoryHandle]}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    // Single-root: no section headers, just the tree
+    expect(screen.queryByTestId('root-section-header')).toBeNull();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+  });
+
+  // Single-root regression: undefined rootDirectoryHandles → original layout
+  it('renders single-root layout (no section headers) when rootDirectoryHandles is undefined', () => {
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandles={undefined}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    expect(screen.queryByTestId('root-section-header')).toBeNull();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+  });
+
+  // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)
+  it('renders EXACTLY 2 section headers and 2 treegrids in forest mode', async () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+
+    const nodesA: IFileNode[] = [
+      createFileNode({ name: 'a.ts', path: '/project-a/a.ts', rootFolderId: '/project-a' }),
+    ];
+    const nodesB: IFileNode[] = [
+      createFileNode({ name: 'b.ts', path: '/project-b/b.ts', rootFolderId: '/project-b' }),
+    ];
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes = handle.path === '/project-a' ? nodesA : nodesB;
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+
+    act(() => {
+      renderWithPopulatedAdapter(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={vi.fn()}
+        />
+      );
+    });
+
+    // Two section headers
+    const headers = screen.getAllByTestId('root-section-header');
+    expect(headers).toHaveLength(2);
+    expect(screen.getByText('project-a')).toBeInTheDocument();
+    expect(screen.getByText('project-b')).toBeInTheDocument();
+
+    // Each section header has aria-expanded=true (both expanded on mount)
+    for (const header of headers) {
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+    }
+
+    // Wait for both per-root FileTreeProviders to load and render treegrids
+    await waitFor(() => {
+      const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+      expect(trees).toHaveLength(2);
+    });
+  });
+
+  // Row-click in root B's tree calls setFocusedRoot with B's path
+  it('calls setFocusedRoot with root B path when clicking inside root B tree area', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    const setFocusedRoot = vi.fn();
+
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+
+    const nodesB: IFileNode[] = [
+      createFileNode({ name: 'b.ts', path: '/project-b/b.ts', rootFolderId: '/project-b' }),
+    ];
+
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
+      async (handle, onBatch, _opts) => {
+        const nodes = handle.path === '/project-b' ? nodesB : [];
+        onBatch(nodes, { done: true, total: nodes.length });
+      }
+    );
+
+    const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
+
+    act(() => {
+      renderWithPopulatedAdapter(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={setFocusedRoot}
+        />
+      );
+    });
+
+    // Wait for root B's treegrid to appear then click a row in it
+    await waitFor(() => {
+      const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+      // At least root B's tree should be present (has content)
+      expect(trees.length).toBeGreaterThanOrEqual(1);
+    });
+
+    // The second root section wraps its tree in a focus-switch div;
+    // clicking any row in root B's tree should trigger setFocusedRoot('/project-b').
+    const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+    const rootBTree = trees.at(-1) as HTMLElement;
+    await user.click(rootBTree);
+    expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');
+  });
+
+  // Header click still focuses AND collapses
+  it('calls setFocusedRoot when a section header is clicked in forest mode', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    const setFocusedRoot = vi.fn();
+
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootDirectoryHandle={handleA}
+          rootDirectoryHandles={[handleA, handleB]}
+          setFocusedRoot={setFocusedRoot}
+        />
+      );
+    });
+
+    // Click on the header of the second root section to focus root B
+    const headers = screen.getAllByTestId('root-section-header');
+    await user.click(headers.at(1) as HTMLElement);
+    expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');
   });
 });

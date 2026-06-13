@@ -286,7 +286,7 @@ export function WorkspaceCollectionSyncProvider({
   children,
 }: WorkspaceCollectionSyncProviderProps) {
   const { fileSystemAdapter } = useAdapters();
-  const { isAccessLoading, rootDirectoryHandle } = useFileSystem();
+  const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles } = useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
 
@@ -340,6 +340,10 @@ export function WorkspaceCollectionSyncProvider({
   const windowVisibleRef = useRef(windowVisible);
   windowVisibleRef.current = windowVisible;
   const workspaceIndexBootstrapInFlightRef = useRef(false);
+  // Stale-loop guard for sequential multi-root sync: incremented each time
+  // triggerSync fires so that an older loop can detect it is superseded and
+  // stop iterating before feeding more roots to service.sync.
+  const syncLoopGenerationRef = useRef(0);
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -595,6 +599,10 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
 
+    // Bump the generation so any in-flight loop from a previous triggerSync
+    // call can detect that it is now stale and stop iterating.
+    syncLoopGenerationRef.current += 1;
+
     if (!service) {
       if (enabled) {
         setSyncStatus({
@@ -680,16 +688,36 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
 
-    void service
-      .sync({
-        enabled,
-        indexingPolicyPreset,
-        managedCollectionId,
-        rootDirectoryHandle,
-      })
-      .catch((error) => {
-        reportAsyncError('sync', error);
-      });
+    // Multi-root sequential loop: when more than one handle is active, iterate
+    // each root in order and await each pass before starting the next. The
+    // service self-serializes via runId/abort so parallelising would abort its
+    // own passes — sequential is the only safe strategy.
+    //
+    // Single-root path: rootDirectoryHandles has exactly one element (the same
+    // object as rootDirectoryHandle), so the loop body runs exactly once and
+    // behaviour is byte-identical to the pre-multi-root code.
+    const handlesToSync =
+      rootDirectoryHandles.length > 0 ? rootDirectoryHandles : [rootDirectoryHandle];
+    const myGeneration = syncLoopGenerationRef.current;
+
+    void (async () => {
+      for (const handle of handlesToSync) {
+        // Stale-loop guard: a newer triggerSync has fired — stop immediately.
+        if (syncLoopGenerationRef.current !== myGeneration) {
+          return;
+        }
+        await service
+          .sync({
+            enabled,
+            indexingPolicyPreset,
+            managedCollectionId,
+            rootDirectoryHandle: handle,
+          })
+          .catch((error) => {
+            reportAsyncError('sync', error);
+          });
+      }
+    })();
   }, [
     backgroundWorkSnapshot,
     enabled,
@@ -701,6 +729,7 @@ export function WorkspaceCollectionSyncProvider({
     reportAsyncError,
     resetSyncStatus,
     rootDirectoryHandle,
+    rootDirectoryHandles,
     service,
     setSyncStatus,
     triggerWorkspaceIndexBootstrap,

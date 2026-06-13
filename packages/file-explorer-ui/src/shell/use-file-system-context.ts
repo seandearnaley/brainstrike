@@ -4,9 +4,13 @@
  * This hook provides file system functionality using the context-based store.
  */
 
-import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
+import {
+  useAdapters,
+  useFileSystem as useCoreFileSystem,
+  useFileSystemWatcher,
+} from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -88,6 +92,9 @@ async function selectDirectoryWithErrorMapping(
   }
 }
 
+/** Custom event dispatched to all listeners when a watched root reports changes. */
+const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
+
 export function useFileSystem() {
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
@@ -95,6 +102,10 @@ export function useFileSystem() {
   const storedRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
   const setRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.setRootDirectoryHandle);
   const setStoreIsAccessLoading = useFileExplorerStoreSelector((s) => s.setIsAccessLoading);
+  // Multi-root store actions: without these the boot restore never populates
+  // activeRootIds and focus-by-recency always falls back to handles[0].
+  const addActiveRoot = useFileExplorerStoreSelector((s) => s.addActiveRoot);
+  const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
 
   const rehydrateCurrentFolderStateIfNeeded = useCallback(
     (folderId: string) => {
@@ -158,10 +169,22 @@ export function useFileSystem() {
     [store]
   );
 
+  /**
+   * Getter for the store's folderAccessOrder (focus-by-recency during boot
+   * restore). Read lazily via getState so it is always fresh at call time.
+   */
+  const getFolderAccessOrder = useCallback(
+    (): readonly string[] => store.getState().folderAccessOrder,
+    [store]
+  );
+
   const coreApi = useCoreFileSystem({
     setCurrentFolderId,
     waitForHydration,
     getPersistedCurrentFolderId,
+    addActiveRoot,
+    setActiveRoots,
+    getFolderAccessOrder,
   });
 
   const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
@@ -178,6 +201,22 @@ export function useFileSystem() {
   const clearRootDirectory = () => {
     coreApi.clearRootDirectory();
     setRootDirectoryHandle(null);
+  };
+
+  /**
+   * Register ALL handles returned by the restore-access flow (multi-root).
+   * Delegates to the core hook (per-handle addOrFocusHandle + addActiveRoot,
+   * handles[0] focused), then syncs the focused handle to the store and
+   * rehydrates its persisted folder state — same store side effects as
+   * setRootHandle, but without dropping handles[1..n].
+   */
+  const registerRestoredHandles = async (handles: readonly DirectoryHandle[]): Promise<void> => {
+    await coreApi.registerRestoredHandles(handles);
+    const first = handles[0];
+    if (first) {
+      setRootDirectoryHandle(first);
+      rehydrateCurrentFolderStateIfNeeded(first.path);
+    }
   };
 
   /**
@@ -216,21 +255,85 @@ export function useFileSystem() {
     setStoreIsAccessLoading(coreApi.isAccessLoading);
   }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
 
+  // Per-root file watcher lifecycle (multi-root, Phase 4+).
+  // Dispatches the file-explorer refresh event whenever any root reports changes,
+  // which triggers the sync provider to pick up new / deleted files.
+  const { fileSystemAdapter } = useAdapters();
+
+  const watcherRoots = useMemo(
+    () =>
+      coreApi.rootDirectoryHandles.map((handle) => ({
+        rootId: coreApi.rootIdByPath.get(handle.path) ?? handle.path,
+        handle,
+      })),
+    [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
+  );
+
+  // Debounce timer for the refresh event dispatch. Held in a ref so the
+  // timer identity never drives re-renders and the callback closure always
+  // sees the same ref object without needing it in deps.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced watcher callback: 300ms trailing. Multiple rapid change
+  // notifications from the same or different roots collapse into a single
+  // FILE_EXPLORER_REFRESH_EVENT dispatch, preventing redundant tree reloads
+  // during a burst of file-system activity (e.g. a build writing many files).
+  const handleWatcherChanges = useCallback((_rootId: string): void => {
+    if (refreshTimerRef.current !== null) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
+    }, 300);
+  }, []);
+
+  // Clear any pending debounced dispatch on unmount to avoid dispatching after
+  // the component has been torn down.
+  // biome-ignore lint/plugin: cleanup-only effect; not state-as-event-handler
+  useEffect(
+    () => () => {
+      if (refreshTimerRef.current !== null) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    },
+    []
+  );
+
+  useFileSystemWatcher({
+    adapter: fileSystemAdapter,
+    roots: watcherRoots,
+    onChanges: handleWatcherChanges,
+  });
+
   // Memoize the return object with stable primitive/reference dependencies only
   // Functions are recreated each render but the object identity changes only when
   // the actual data values change
   return useMemo(
     () => ({
       rootDirectoryHandle: storedRootDirectoryHandle ?? coreApi.rootDirectoryHandle,
+      /** All active root handles (multi-root, Phase 4+). */
+      rootDirectoryHandles: coreApi.rootDirectoryHandles,
       isAccessLoading: coreApi.isAccessLoading,
       selectRootDirectory,
       isFileSystemAccessSupported,
       clearRootDirectory,
       setRootDirectoryHandle: setRootHandle,
       setAccessLoading: coreApi.setAccessLoading,
+      /** Add an additional root directory (multi-root, Phase 4+). */
+      addRootDirectory: coreApi.addRootDirectory,
+      /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
+      registerRestoredHandles,
+      /** Switch focused root to the given path (multi-root, Phase 4+). */
+      setFocusedRoot: coreApi.setFocusedRoot,
     }),
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope
-    [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, coreApi.isAccessLoading]
+    [
+      storedRootDirectoryHandle,
+      coreApi.rootDirectoryHandle,
+      coreApi.rootDirectoryHandles,
+      coreApi.isAccessLoading,
+    ]
   );
 }

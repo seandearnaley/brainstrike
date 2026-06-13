@@ -6,7 +6,7 @@ import { RestoreAccessModal } from '../restore-access-modal';
 describe('RestoreAccessModal', () => {
   const defaultProps = {
     isOpen: true,
-    folderName: 'test-folder',
+    folderNames: ['test-folder'],
     variant: 'pending' as const,
     onRestore: vi.fn(),
     onDismiss: vi.fn(),

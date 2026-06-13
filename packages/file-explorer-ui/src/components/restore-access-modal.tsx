@@ -13,7 +13,8 @@ import type * as React from 'react';
 export type RestoreAccessModalVariant = 'pending' | 'denied' | 'stale';
 
 export interface RestoreAccessModalProps {
-  folderName: string;
+  /** One or more folder names. When multiple, the aria-label uses a count. */
+  folderNames: readonly string[];
   isOpen: boolean;
   isRestoring?: boolean;
   onChooseDifferentFolder: () => void;
@@ -41,7 +42,7 @@ const variantCopy = {
 
 export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
   isOpen,
-  folderName,
+  folderNames,
   variant,
   isRestoring = false,
   onChooseDifferentFolder,
@@ -52,13 +53,21 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
   const Icon = variant === 'pending' ? FolderClock : AlertTriangle;
   const showRestoreButton = variant !== 'stale';
 
+  // Derive a single display name for labels (first name, or count for multi)
+  const folderLabel =
+    folderNames.length === 1
+      ? folderNames[0]
+      : folderNames.length > 1
+        ? `${folderNames.length} folders`
+        : 'folder';
+
   // Generate descriptive label for screen readers
   const ariaLabel =
     variant === 'pending'
-      ? `Restore access to folder ${folderName}`
+      ? `Restore access to folder ${folderLabel}`
       : variant === 'denied'
-        ? `Access to folder ${folderName} was denied`
-        : `Folder ${folderName} is no longer accessible`;
+        ? `Access to folder ${folderLabel} was denied`
+        : `Folder ${folderLabel} is no longer accessible`;
 
   return (
     <Dialog onOpenChange={(open) => !open && onDismiss()} open={isOpen}>
@@ -72,8 +81,8 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
           </div>
           <DialogTitle className="text-center">{copy.title}</DialogTitle>
           <DialogDescription className="text-center">
-            {folderName && <span className="font-medium">"{folderName}"</span>}
-            {folderName && ' - '}
+            {folderLabel && <span className="font-medium">"{folderLabel}"</span>}
+            {folderLabel && ' - '}
             {copy.description}
           </DialogDescription>
         </DialogHeader>

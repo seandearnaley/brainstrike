@@ -11,6 +11,8 @@ const logger = createLogger('Persistence');
 
 function createEmptySerializedState(): SerializedState {
   return {
+    activeRootIds: [],
+    rootDescriptors: {},
     currentFolderId: null,
     devInlineFixtureEnabled: DEFAULT_STATE.devInlineFixtureEnabled,
     excludeFilters: [...DEFAULT_STATE.excludeFilters],

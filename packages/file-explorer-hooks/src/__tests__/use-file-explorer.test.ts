@@ -102,8 +102,13 @@ describe('useFileExplorer', () => {
 
     vi.mocked(useFileSystem).mockReturnValue({
       rootDirectoryHandle: mockRootHandle,
+      rootDirectoryHandles: [mockRootHandle],
+      rootIdByPath: new Map(),
       isAccessLoading: false,
+      addRootDirectory: vi.fn().mockResolvedValue(mockRootHandle),
+      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       selectRootDirectory: mockSelectRootDirectory,
+      setFocusedRoot: vi.fn(),
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
       clearRootDirectory: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
@@ -171,8 +176,13 @@ describe('useFileExplorer', () => {
   it('should throw when refreshing without root directory', async () => {
     vi.mocked(useFileSystem).mockReturnValue({
       rootDirectoryHandle: null,
+      rootDirectoryHandles: [],
+      rootIdByPath: new Map(),
       isAccessLoading: false,
+      addRootDirectory: vi.fn().mockResolvedValue(null),
+      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       selectRootDirectory: mockSelectRootDirectory,
+      setFocusedRoot: vi.fn(),
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
       clearRootDirectory: vi.fn(),
       setRootDirectoryHandle: vi.fn(),

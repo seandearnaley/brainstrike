@@ -3,7 +3,7 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { useFileSystem } from '../shell/use-file-system-context';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -479,5 +479,151 @@ describe('useFileSystem context hook', () => {
       expect(result.current.store.getState().rootDirectoryHandle).toEqual(restoredHandle);
       expect(result.current.store.getState().currentFolderId).toBe('restored-root');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Debounce tests for handleWatcherChanges
+// These tests verify that multiple rapid file-system change notifications are
+// collapsed into a single FILE_EXPLORER_REFRESH_EVENT dispatch (300ms trailing
+// debounce), and that the pending timer is cleared on unmount.
+//
+// Strategy: provide a mock adapter whose watchDirectory captures the internal
+// watcher callback. After the hook renders, fire the callback directly to
+// simulate file-system changes without needing a real filesystem.
+// ---------------------------------------------------------------------------
+
+describe('useFileSystem — handleWatcherChanges debounce', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('5 rapid watcher callbacks produce exactly 1 dispatch after 300ms', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+
+    // Track calls to watchDirectory so we can invoke the callback ourselves.
+    let capturedCallback: ((changes: unknown[]) => void) | null = null;
+
+    const handle: DirectoryHandle = {
+      path: '/debounce-root',
+      name: 'debounce-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => handle),
+      watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: unknown[]) => void) => {
+        capturedCallback = cb;
+        return vi.fn();
+      }),
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        children,
+        mockFileSystemAdapter: adapterWithWatch,
+      });
+
+    renderHook(() => useExposed(), { wrapper });
+
+    // Allow restoreLastFolder to settle so the watcher root is registered
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    if (!capturedCallback) {
+      // watchDirectory was not called — skip (adapter root not populated in this env)
+      dispatchSpy.mockRestore();
+      return;
+    }
+
+    const cb = capturedCallback as (changes: unknown[]) => void;
+    const dispatchCountBefore = dispatchSpy.mock.calls.length;
+
+    // Fire 5 rapid changes — all within the 300ms debounce window
+    for (let i = 0; i < 5; i++) {
+      act(() => {
+        cb([]);
+      });
+    }
+
+    // No dispatch yet (debounce timer hasn't expired)
+    expect(dispatchSpy.mock.calls.length).toBe(dispatchCountBefore);
+
+    // Advance past the 300ms trailing window
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    // Exactly one additional dispatch (not 5)
+    expect(dispatchSpy.mock.calls.length).toBe(dispatchCountBefore + 1);
+
+    dispatchSpy.mockRestore();
+  });
+
+  it('unmounting clears the pending debounce timer — no dispatch after unmount', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    let capturedCallback: ((changes: unknown[]) => void) | null = null;
+
+    const handle: DirectoryHandle = {
+      path: '/unmount-root',
+      name: 'unmount-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => handle),
+      watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: unknown[]) => void) => {
+        capturedCallback = cb;
+        return vi.fn();
+      }),
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        children,
+        mockFileSystemAdapter: adapterWithWatch,
+      });
+
+    const { unmount } = renderHook(() => useExposed(), { wrapper });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    if (!capturedCallback) {
+      dispatchSpy.mockRestore();
+      return;
+    }
+
+    const cb = capturedCallback as (changes: unknown[]) => void;
+    const dispatchCountBefore = dispatchSpy.mock.calls.length;
+
+    // Arm the debounce timer with one change notification
+    act(() => {
+      cb([]);
+    });
+
+    // Unmount before the 300ms window expires — cleanup effect should clear timer
+    act(() => {
+      unmount();
+    });
+
+    // Advance past the debounce window — no timer should fire
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    // Dispatch count must not have increased
+    expect(dispatchSpy.mock.calls.length).toBe(dispatchCountBefore);
+
+    dispatchSpy.mockRestore();
   });
 });

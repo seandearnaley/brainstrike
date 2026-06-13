@@ -63,8 +63,12 @@ interface RestoreAccessState {
   /**
    * Begin restore - requests permission SYNCHRONOUSLY in the click handler.
    * MUST be called directly from a user gesture (click) handler.
+   *
+   * Multi-root: all requestPermission calls are INITIATED before any is awaited
+   * (burst-before-drain), so Chrome batches them into one permission prompt.
+   * Returns all granted DirectoryHandles (empty array if none granted).
    */
-  beginRestore: () => Promise<DirectoryHandle | null>;
+  beginRestore: () => Promise<readonly DirectoryHandle[]>;
   chooseDifferentFolder: () => Promise<DirectoryHandle | null>;
   clearStoredHandles: () => Promise<void>;
   dismissRestore: () => void;
@@ -85,8 +89,15 @@ interface RestoreHandleResult {
 
 interface WebHandleCacheShape {
   clear?: () => Promise<void>;
+  /** Returns all stored root handles. The `handle` field is populated when available
+   *  (real WebHandleCache always returns it; legacy/test shapes may omit it). */
   getAllRootHandles?: () => Promise<
-    Array<{ folderId: string; name: string; lastAccessedAt: number }>
+    Array<{
+      folderId: string;
+      handle?: FileSystemDirectoryHandle;
+      name: string;
+      lastAccessedAt: number;
+    }>
   >;
   getLastRootHandleForRestore?: () => Promise<RestoreHandleResult | null>;
   markHandleRestored?: (folderId: string) => Promise<void>;
@@ -202,6 +213,141 @@ async function loadStoredHandles({
   }
 }
 
+/** Handle with a confirmed raw FileSystemDirectoryHandle (post-filter shape).
+ *  requestPermission is guaranteed non-optional because the filter checked typeof. */
+interface HandleWithRaw {
+  folderId: string;
+  handle: FileSystemDirectoryHandle & {
+    requestPermission: (descriptor: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
+  };
+  lastAccessedAt: number;
+  name: string;
+}
+
+interface MultiRootBurstParams {
+  alreadyGranted: DirectoryHandle[];
+  handleCache: WebHandleCacheShape | null;
+  needsPrompt: HandleWithRaw[];
+  setPendingRestore: (state: PendingRestoreState | null) => void;
+  setShowDeniedBanner: (v: boolean) => void;
+  setShowStaleBanner: (v: boolean) => void;
+}
+
+/** Process a rejected permission result and return whether it was stale. */
+async function processRejectedPermission(
+  reason: unknown,
+  folderId: string,
+  handleCache: WebHandleCacheShape | null
+): Promise<boolean> {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  if (error.name === 'AbortError') {
+    logger.debug('beginRestore: user cancelled permission dialog', { folderId });
+    return false;
+  }
+  if (error.name === 'NotFoundError') {
+    logger.info('beginRestore: handle target no longer exists', { folderId });
+    await handleCache?.removeRootHandle?.(folderId);
+    return true;
+  }
+  logger.warn('beginRestore: permission request failed', {
+    errorName: error.name,
+    error: error.message,
+    folderId,
+  });
+  return true;
+}
+
+interface ClassifyParams {
+  handleCache: WebHandleCacheShape | null;
+  pendingGrantedFolderId: string | undefined;
+  rawHandlesFromCache: HandleWithRaw[];
+}
+
+interface ClassifyResult {
+  alreadyGranted: DirectoryHandle[];
+  needsPrompt: HandleWithRaw[];
+}
+
+/** Pre-classify handles into already-granted (skip dialog) vs needs-prompt.
+ *  Already-granted ones are marked restored immediately. */
+async function classifyHandles({
+  handleCache,
+  pendingGrantedFolderId,
+  rawHandlesFromCache,
+}: ClassifyParams): Promise<ClassifyResult> {
+  const alreadyGranted: DirectoryHandle[] = [];
+  const needsPrompt: HandleWithRaw[] = [];
+
+  for (const h of rawHandlesFromCache) {
+    if (pendingGrantedFolderId === h.folderId) {
+      await handleCache?.markHandleRestored?.(h.folderId);
+      alreadyGranted.push(toDirectoryHandle(h.handle));
+    } else {
+      needsPrompt.push(h);
+    }
+  }
+
+  return { alreadyGranted, needsPrompt };
+}
+
+/** BURST-BEFORE-DRAIN: start all requestPermission calls, then await results.
+ *  Called only when the handle cache exposes raw handles for multiple roots. */
+async function runMultiRootBurst({
+  alreadyGranted,
+  handleCache,
+  needsPrompt,
+  setShowDeniedBanner,
+  setShowStaleBanner,
+  setPendingRestore,
+}: MultiRootBurstParams): Promise<readonly DirectoryHandle[]> {
+  // BURST: initiate ALL requestPermission calls before awaiting any
+  const permissionTasks = needsPrompt.map((h) => ({
+    h,
+    promise: h.handle.requestPermission({ mode: 'read' }),
+  }));
+
+  // DRAIN: await all settled results
+  const rawResults = await Promise.allSettled(permissionTasks.map((t) => t.promise));
+  const taskResults = permissionTasks.map((task, i) => ({
+    task,
+    result: rawResults[i] as PromiseSettledResult<PermissionState>,
+  }));
+
+  const granted: DirectoryHandle[] = [...alreadyGranted];
+  let anyDenied = false;
+  let anyStale = false;
+
+  for (const { task, result } of taskResults) {
+    if (result.status === 'fulfilled') {
+      if (result.value === 'granted') {
+        await handleCache?.markHandleRestored?.(task.h.folderId);
+        granted.push(toDirectoryHandle(task.h.handle));
+      } else if (result.value === 'denied') {
+        anyDenied = true;
+        logger.warn('beginRestore: permission denied for handle', { folderId: task.h.folderId });
+      } else {
+        logger.debug('beginRestore: permission prompt dismissed', { folderId: task.h.folderId });
+      }
+    } else {
+      const wasStale = await processRejectedPermission(result.reason, task.h.folderId, handleCache);
+      if (wasStale) {
+        anyStale = true;
+      }
+    }
+  }
+
+  if (anyDenied) {
+    setShowDeniedBanner(true);
+  }
+  if (anyStale) {
+    setShowStaleBanner(true);
+  }
+  if (granted.length > 0) {
+    setPendingRestore(null);
+  }
+  return granted;
+}
+
 /** Request permission and return DirectoryHandle if granted */
 async function requestPermissionAndRestore(
   rawHandle: FileSystemDirectoryHandle,
@@ -256,6 +402,75 @@ async function requestPermissionAndRestore(
     });
     return { handle: null, showDenied: false, showStale: true };
   }
+}
+
+interface FallbackRestoreParams {
+  handleCache: WebHandleCacheShape | null;
+  pendingRestore: PendingRestoreState | null;
+  setPendingRestore: (state: PendingRestoreState | null) => void;
+  setShowDeniedBanner: (v: boolean) => void;
+  setShowStaleBanner: (v: boolean) => void;
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void;
+}
+
+/** Single-handle and legacy paths when the handle cache has no raw handles. */
+async function runFallbackRestore({
+  handleCache,
+  pendingRestore,
+  setPendingRestore,
+  setShowDeniedBanner,
+  setShowStaleBanner,
+  setStoredFolders,
+}: FallbackRestoreParams): Promise<readonly DirectoryHandle[]> {
+  // SINGLE-HANDLE PATH: Cache doesn't expose raw handles — use pendingRestore.
+  if (pendingRestore?.rawHandle) {
+    const { rawHandle, folderId, permissionState } = pendingRestore;
+
+    if (permissionState === 'granted') {
+      logger.info('beginRestore: permission already granted');
+      await handleCache?.markHandleRestored?.(folderId);
+      setPendingRestore(null);
+      return [toDirectoryHandle(rawHandle)];
+    }
+
+    if (permissionState === 'denied') {
+      logger.info('beginRestore: permission denied');
+      setShowDeniedBanner(true);
+      return [];
+    }
+
+    // Permission is 'prompt' or 'unknown' - request it NOW
+    logger.info('beginRestore: requesting permission synchronously');
+    const singleResult = await requestPermissionAndRestore(
+      rawHandle,
+      folderId,
+      handleCache,
+      setPendingRestore
+    );
+
+    if (singleResult.showDenied) {
+      setShowDeniedBanner(true);
+    }
+    if (singleResult.showStale) {
+      setShowStaleBanner(true);
+    }
+    return singleResult.handle ? [singleResult.handle] : [];
+  }
+
+  // LEGACY PATH: No raw handle, use old restoreLastRootHandle method
+  if (!handleCache?.restoreLastRootHandle) {
+    logger.warn('beginRestore: no restore method available');
+    return [];
+  }
+
+  const legacyResult = await legacyRestore(handleCache, setPendingRestore, setStoredFolders);
+  if (legacyResult.showDenied) {
+    setShowDeniedBanner(true);
+  }
+  if (legacyResult.showStale) {
+    setShowStaleBanner(true);
+  }
+  return legacyResult.handle ? [legacyResult.handle] : [];
 }
 
 /** Legacy restore using restoreLastRootHandle */
@@ -381,7 +596,7 @@ export function useRestoreAccess(): RestoreAccessState {
     return () => clearTimeout(timer);
   }, [handleCache]);
 
-  const beginRestore = useCallback(async (): Promise<DirectoryHandle | null> => {
+  const beginRestore = useCallback(async (): Promise<readonly DirectoryHandle[]> => {
     logger.info('beginRestore called', {
       hasPendingRestore: !!pendingRestore,
       hasRawHandle: !!pendingRestore?.rawHandle,
@@ -391,59 +606,55 @@ export function useRestoreAccess(): RestoreAccessState {
     setShowDeniedBanner(false);
     setShowStaleBanner(false);
 
-    // NEW PATH: We have the raw handle - request permission synchronously
-    if (pendingRestore?.rawHandle) {
-      const { rawHandle, folderId, permissionState } = pendingRestore;
+    // MULTI-ROOT PATH: Fetch all stored handles; initiate all requestPermission calls
+    // before awaiting any (burst-before-drain — Chrome batches into one permission prompt).
+    const allStored = await handleCache?.getAllRootHandles?.();
+    const rawHandlesFromCache = (allStored ?? []).filter(
+      (h): h is HandleWithRaw =>
+        h.handle != null && typeof h.handle.requestPermission === 'function'
+    );
 
-      // folderId is the stored RootId (UUID); it is canonical under v2 keying.
+    if (rawHandlesFromCache.length > 0) {
+      logger.info('beginRestore: multi-root burst path', { count: rawHandlesFromCache.length });
 
-      // If already granted, just return it
-      if (permissionState === 'granted') {
-        logger.info('beginRestore: permission already granted');
-        await handleCache?.markHandleRestored?.(folderId);
-        setPendingRestore(null);
-        return toDirectoryHandle(rawHandle);
-      }
+      // pendingRestore carries the last-checked permission state; use folderId to match.
+      const pendingGrantedFolderId =
+        pendingRestore?.permissionState === 'granted' ? pendingRestore.folderId : undefined;
 
-      // If denied, show banner
-      if (permissionState === 'denied') {
-        logger.info('beginRestore: permission denied');
-        setShowDeniedBanner(true);
-        return null;
-      }
-
-      // Permission is 'prompt' or 'unknown' - request it NOW
-      logger.info('beginRestore: requesting permission synchronously');
-      const result = await requestPermissionAndRestore(
-        rawHandle,
-        folderId,
+      const { alreadyGranted, needsPrompt } = await classifyHandles({
         handleCache,
-        setPendingRestore
-      );
+        pendingGrantedFolderId,
+        rawHandlesFromCache,
+      });
 
-      if (result.showDenied) {
-        setShowDeniedBanner(true);
+      if (needsPrompt.length === 0) {
+        // All handles were already granted — no dialog needed
+        if (alreadyGranted.length > 0) {
+          setPendingRestore(null);
+        }
+        return alreadyGranted;
       }
-      if (result.showStale) {
-        setShowStaleBanner(true);
-      }
-      return result.handle;
+
+      // Delegate burst-before-drain to extracted helper (complexity limit)
+      return runMultiRootBurst({
+        alreadyGranted,
+        handleCache,
+        needsPrompt,
+        setShowDeniedBanner,
+        setShowStaleBanner,
+        setPendingRestore,
+      });
     }
 
-    // LEGACY PATH: No raw handle, use old restoreLastRootHandle method
-    if (!handleCache?.restoreLastRootHandle) {
-      logger.warn('beginRestore: no restore method available');
-      return null;
-    }
-
-    const result = await legacyRestore(handleCache, setPendingRestore, setStoredFolders);
-    if (result.showDenied) {
-      setShowDeniedBanner(true);
-    }
-    if (result.showStale) {
-      setShowStaleBanner(true);
-    }
-    return result.handle;
+    // SINGLE-HANDLE + LEGACY PATH: delegate to extracted helper (complexity limit)
+    return runFallbackRestore({
+      handleCache,
+      pendingRestore,
+      setPendingRestore,
+      setShowDeniedBanner,
+      setShowStaleBanner,
+      setStoredFolders,
+    });
   }, [handleCache, pendingRestore]);
 
   const dismissRestore = useCallback(() => {

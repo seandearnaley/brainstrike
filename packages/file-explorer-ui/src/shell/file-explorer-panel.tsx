@@ -142,6 +142,36 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
+function FilterChipsToggleButton({
+  isFilterChipsVisible,
+  setFilterChipsVisible,
+}: {
+  isFilterChipsVisible: boolean;
+  setFilterChipsVisible: (visible: boolean) => void;
+}) {
+  const label = isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label={label}
+          aria-pressed={isFilterChipsVisible}
+          className="@[300px]:h-9 h-8 @[300px]:w-9 w-8 shrink-0"
+          data-testid="toggle-filter-chips-button"
+          onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
+          size="icon"
+          variant="ghost"
+        >
+          {isFilterChipsVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
@@ -219,6 +249,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     loadingFiles,
     filterError,
     rootDirectoryHandle,
+    rootDirectoryHandles,
     isFileSystemAccessSupported,
     refreshFileExplorer,
     isInitialLoad,
@@ -244,6 +275,9 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll,
+    addRootDirectory,
+    registerRestoredHandles,
+    setFocusedRoot,
   } = useFileExplorer();
 
   const {
@@ -602,8 +636,19 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   }, [dismissRestore, handleDirectorySelect]);
 
   const handleToolbarDirectorySelect = useCallback(async (): Promise<void> => {
+    // When roots already exist, use addRootDirectory (multi-root Add Folder).
+    // Otherwise fall back to the standard single-root select flow.
+    const hasRoots = (rootDirectoryHandles?.length ?? 0) > 0;
+    if (hasRoots && addRootDirectory) {
+      try {
+        await addRootDirectory();
+      } catch (error) {
+        handleDirectorySelectError(error);
+      }
+      return;
+    }
     await handleDirectorySelect();
-  }, [handleDirectorySelect]);
+  }, [handleDirectorySelect, rootDirectoryHandles, addRootDirectory, handleDirectorySelectError]);
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
@@ -740,6 +785,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
         {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
           <FileExplorerToolbar
+            hasRoots={(rootDirectoryHandles?.length ?? 0) > 0}
             isLoading={isLoading}
             onDirectorySelect={handleToolbarDirectorySelect}
             rootDirectoryHandle={rootDirectoryHandle}
@@ -787,30 +833,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                         className="@[300px]:h-9 h-8 min-w-0 flex-1"
                         onFilterChange={handleFilterChange}
                       />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            aria-label={
-                              isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips'
-                            }
-                            aria-pressed={isFilterChipsVisible}
-                            className="@[300px]:h-9 h-8 @[300px]:w-9 w-8 shrink-0"
-                            data-testid="toggle-filter-chips-button"
-                            onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
-                            size="icon"
-                            variant="ghost"
-                          >
-                            {isFilterChipsVisible ? (
-                              <Eye className="h-4 w-4" />
-                            ) : (
-                              <EyeOff className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{isFilterChipsVisible ? 'Hide filter chips' : 'Show filter chips'}</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <FilterChipsToggleButton
+                        isFilterChipsVisible={isFilterChipsVisible}
+                        setFilterChipsVisible={setFilterChipsVisible}
+                      />
                     </div>
                     {/* Filter chips - independently collapsible to reclaim vertical
                         space. Same grid-rows technique as the section collapse so
@@ -894,6 +920,8 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                 onSelectFolderRecursively={handleSelectFolderRecursively}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
+                rootDirectoryHandles={rootDirectoryHandles}
+                setFocusedRoot={setFocusedRoot}
                 treeError={error}
               />
             </Suspense>
@@ -949,7 +977,13 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
 
         {/* Restore Access Modal - shown when stored handles exist but need permission */}
         <RestoreAccessModal
-          folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
+          folderNames={
+            storedFolders.length > 0
+              ? storedFolders.map((f) => f.name)
+              : pendingRestore?.name
+                ? [pendingRestore.name]
+                : ['previous folder']
+          }
           isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
           isRestoring={isRestoring}
           onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
@@ -975,9 +1009,17 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   platform: 'web' as const,
                   _internal: handle,
                 };
+                // beginRestore's burst seeds its result with already-granted
+                // handles (incl. this one), so registering its FULL return is
+                // the multi-root-complete path; the eager single-handle set
+                // keeps the focused tree responsive while the burst settles.
                 setRootDirectoryHandle(directoryHandle);
-                // Note: setRootDirectoryHandle already calls setCurrentFolderId internally
                 beginRestore()
+                  .then((restoredHandles) =>
+                    restoredHandles.length > 0
+                      ? registerRestoredHandles(restoredHandles)
+                      : undefined
+                  )
                   .catch(() => {})
                   .finally(() => {
                     setIsRestoring(false);
@@ -1045,11 +1087,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                     setAccessLoading(true);
                     setIsRestoring(true);
                     beginRestore()
-                      .then((restored) => {
-                        if (restored) {
-                          setRootDirectoryHandle(restored);
-                        }
-                      })
+                      .then((restoredHandles) => registerRestoredHandles(restoredHandles))
                       .catch(() => {})
                       .finally(() => {
                         setIsRestoring(false);
@@ -1063,11 +1101,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   setAccessLoading(true);
                   setIsRestoring(true);
                   beginRestore()
-                    .then((restored) => {
-                      if (restored) {
-                        setRootDirectoryHandle(restored);
-                      }
-                    })
+                    .then((restoredHandles) => registerRestoredHandles(restoredHandles))
                     .catch(() => {})
                     .finally(() => {
                       setIsRestoring(false);
@@ -1082,11 +1116,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
             setAccessLoading(true);
             setIsRestoring(true);
             beginRestore()
-              .then((restored) => {
-                if (restored) {
-                  setRootDirectoryHandle(restored);
-                }
-              })
+              .then((restoredHandles) => registerRestoredHandles(restoredHandles))
               .catch(() => {})
               .finally(() => {
                 setIsRestoring(false);
