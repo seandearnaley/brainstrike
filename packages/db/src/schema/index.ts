@@ -143,7 +143,6 @@ export const fileRecords = pgTable(
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     path: text('path').notNull(),
-    sourceRootPath: text('source_root_path'),
     rootId: text('root_id').references(() => roots.id, { onDelete: 'cascade' }),
     size: integer('size').notNull(),
     // Nullable epoch-ms stat used by the background-sync stat-cache fast-path
@@ -163,7 +162,6 @@ export const fileRecords = pgTable(
   },
   (table) => [
     index('idx_file_records_path').on(table.path),
-    index('idx_file_records_source_root_path').on(table.sourceRootPath),
     index('idx_file_records_content_hash').on(table.contentHash),
     index('idx_file_records_embedding_set_id').on(table.embeddingSetId),
     index('idx_file_records_root_id').on(table.rootId),

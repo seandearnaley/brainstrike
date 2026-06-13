@@ -135,13 +135,12 @@ describe('ElectronFileRecordRepository', () => {
     await repo.createWithContent(record);
 
     expect(query).toHaveBeenCalledWith(
-      'INSERT INTO file_records (id, name, path, size, source_root_path, created_at, updated_at, content, content_hash, token_count, processed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+      'INSERT INTO file_records (id, name, path, size, created_at, updated_at, content, content_hash, token_count, processed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
       [
         record.id,
         record.name,
         record.path,
         record.size,
-        null,
         record.createdAt,
         record.updatedAt,
         '',
@@ -165,19 +164,19 @@ describe('ElectronFileRecordRepository', () => {
   });
 
   it('findByManagedCacheIdentity uses cache identity SQL', async () => {
-    await repo.findByManagedCacheIdentity('set-1', '/workspace/a', 'src/index.ts');
+    await repo.findByManagedCacheIdentity('set-1', 'root-a', 'src/index.ts');
 
     expect(query).toHaveBeenCalledWith(
-      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND source_root_path = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1',
-      ['set-1', '/workspace/a', 'src/index.ts']
+      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1',
+      ['set-1', 'root-a', 'src/index.ts']
     );
   });
 
-  it('listManagedCacheEntries filters by embedding set and source root metadata', async () => {
+  it('listManagedCacheEntries filters by embedding set and root id metadata', async () => {
     await repo.listManagedCacheEntries('set-1');
 
     expect(query).toHaveBeenCalledWith(
-      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
+      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC',
       ['set-1']
     );
   });
@@ -186,7 +185,7 @@ describe('ElectronFileRecordRepository', () => {
     await repo.listManagedCacheEntryMetadata('set-1');
 
     expect(query).toHaveBeenCalledWith(
-      'SELECT id, embedding_set_id, source_root_path, path, content_hash, size, mtime_ms, updated_at FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
+      'SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, updated_at FROM file_records WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC',
       ['set-1']
     );
   });

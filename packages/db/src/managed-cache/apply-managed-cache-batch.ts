@@ -14,7 +14,6 @@ interface ManagedCacheRecordBase {
   path: string;
   processedAt: string;
   size: number;
-  sourceRootPath: string;
   tokenCount: number;
   updatedAt: string;
 }
@@ -96,7 +95,6 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
       isNonEmptyString(candidate['name']) &&
       isNonEmptyString(candidate['path']) &&
       isFiniteNonNegativeInteger(candidate['size']) &&
-      isNonEmptyString(candidate['sourceRootPath']) &&
       isIsoTimestampString(candidate['updatedAt']) &&
       isIsoTimestampString(candidate['processedAt']) &&
       typeof candidate['content'] === 'string' &&
@@ -122,7 +120,6 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
     name: candidate['name'],
     path: candidate['path'],
     size: candidate['size'],
-    sourceRootPath: candidate['sourceRootPath'],
     updatedAt: candidate['updatedAt'],
     processedAt: candidate['processedAt'],
     content: candidate['content'],
@@ -225,7 +222,6 @@ const IMPORT_COLUMNS = [
   'path',
   'size',
   'mtime_ms',
-  'source_root_path',
   'created_at',
   'updated_at',
   'content',
@@ -242,7 +238,6 @@ const REPLACE_VALUE_COLUMNS = [
   'path',
   'size',
   'mtime_ms',
-  'source_root_path',
   'updated_at',
   'content',
   'content_hash',
@@ -341,7 +336,6 @@ async function insertManagedCacheImports(
     record.path,
     record.size,
     toBigIntMtime(record.mtimeMs),
-    record.sourceRootPath,
     record.createdAt,
     record.updatedAt,
     record.content,
@@ -389,7 +383,6 @@ async function applyManagedCacheReplacements(
     record.path,
     record.size,
     toBigIntMtime(record.mtimeMs),
-    record.sourceRootPath,
     record.updatedAt,
     record.content,
     record.contentHash,
@@ -404,7 +397,6 @@ async function applyManagedCacheReplacements(
            path = replacement_values.path,
            size = replacement_values.size::integer,
            mtime_ms = replacement_values.mtime_ms::bigint,
-           source_root_path = replacement_values.source_root_path,
            updated_at = replacement_values.updated_at::timestamptz,
            content = replacement_values.content,
            content_hash = replacement_values.content_hash,
@@ -422,7 +414,6 @@ async function applyManagedCacheReplacements(
         path,
         size,
         mtime_ms,
-        source_root_path,
         updated_at,
         content,
         content_hash,
@@ -464,6 +455,17 @@ export async function applyManagedCacheBatch(
     MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH,
     'replace'
   );
+  // Cache identity is the durable root_id (source_root_path retired): an INSERT
+  // with a null root_id has no stable identity and cannot dedup, so it would be
+  // re-imported on every sync. Refuse it rather than silently orphan the row —
+  // callers resolve a real root_id (or skip the import) before reaching here.
+  // Replacements are exempt: they UPDATE by id and never touch root_id. Checked
+  // after the structural/limit asserts so a malformed batch reports that first.
+  if (imports.length > 0 && (args.rootId === null || args.rootId === undefined)) {
+    throw new Error(
+      'Managed cache import requires a non-null rootId — an import with no root_id would have no cache identity.'
+    );
+  }
 
   await db.transaction(async (tx) => {
     // Replacements must run first so stale chunks are cleared before any new rows in the same

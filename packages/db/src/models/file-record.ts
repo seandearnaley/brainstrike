@@ -14,7 +14,6 @@ export interface FileRecord {
   path: string;
   processedAt?: string; // ISO date when file was processed/imported
   size: number;
-  sourceRootPath?: string; // Canonical root folder path for managed cache entries
   tokenCount?: number; // Number of tokens in content
   updatedAt: string; // ISO date string
 }
@@ -28,7 +27,6 @@ type NullableFileRecordUpdateFields =
   | 'embedding'
   | 'embeddingSetId'
   | 'processedAt'
-  | 'sourceRootPath'
   | 'tokenCount';
 
 export type FileRecordUpdate = Omit<Partial<FileRecord>, NullableFileRecordUpdateFields> & {
@@ -40,7 +38,6 @@ export type FileRecordUpdate = Omit<Partial<FileRecord>, NullableFileRecordUpdat
   embedding?: number[] | null;
   embeddingSetId?: string | null;
   processedAt?: string | null;
-  sourceRootPath?: string | null;
   tokenCount?: number | null;
 };
 
@@ -56,8 +53,10 @@ export interface ManagedCacheEntryMetadata {
   // Both optional so callers that don't select them still type-check.
   mtimeMs?: number | null;
   relativePath: string;
+  // Durable DB root id (roots.id) — the managed-cache dedup identity since the
+  // source_root_path retirement. Distinct same-named roots stay distinct here.
+  rootId: string;
   size?: number;
-  sourceRootPath: string;
   updatedAt: string;
 }
 
@@ -67,7 +66,6 @@ export interface FileImportRequest {
   name: string;
   path: string;
   size: number;
-  sourceRootPath?: string; // Canonical root folder path for managed cache entries
 }
 
 export interface FileImportResult {

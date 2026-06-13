@@ -73,7 +73,7 @@ function existingEntry(
     mtimeMs: 1000,
     relativePath,
     size: 42,
-    sourceRootPath: ROOT,
+    rootId: ROOT,
     updatedAt: '2026-06-09T00:00:00.000Z',
     ...overrides,
   };
@@ -84,7 +84,7 @@ function existingByIdentity(
 ): Map<string, ManagedCacheEntryMetadata> {
   return new Map(
     entries.map((entry) => [
-      buildRootFolderCacheIdentityKey(entry.sourceRootPath, entry.relativePath),
+      buildRootFolderCacheIdentityKey(entry.rootId, entry.relativePath),
       entry,
     ])
   );
@@ -96,7 +96,7 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual(preparations);
@@ -108,7 +108,7 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([]);
@@ -120,7 +120,7 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([]);
@@ -132,7 +132,7 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([]);
@@ -144,7 +144,7 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: null })]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([]);
@@ -156,7 +156,7 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([]);
@@ -171,13 +171,13 @@ describe('partitionPreparationsByStatCache', () => {
       fileRecordId: 'rec-a.ts',
       mtimeMs: 1000,
       relativePath: 'a.ts',
-      sourceRootPath: ROOT,
+      rootId: ROOT,
       updatedAt: '2026-06-09T00:00:00.000Z',
     };
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([noSizeEntry]),
       preparations,
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([]);
@@ -194,7 +194,7 @@ describe('partitionPreparationsByStatCache', () => {
         existingEntry('edited.ts', { size: 42, mtimeMs: 1000 }),
       ]),
       preparations: [unchanged, editedMtime, fresh],
-      rootPath: ROOT,
+      rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual([unchanged]);
@@ -265,6 +265,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
         contentReadConcurrency: 1,
         importBatchSize: 10,
       },
+      rootId: ROOT,
       rootPath: ROOT,
     });
 
@@ -298,6 +299,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
         contentReadConcurrency: 1,
         importBatchSize: 10,
       },
+      rootId: ROOT,
       rootPath: ROOT,
     });
 
@@ -328,6 +330,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
         contentReadConcurrency: 1,
         importBatchSize: 10,
       },
+      rootId: ROOT,
       rootPath: ROOT,
     });
 
@@ -359,6 +362,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
           contentReadConcurrency: 1,
           importBatchSize: 10,
         },
+        rootId: ROOT,
         rootPath: ROOT,
       });
 
@@ -390,6 +394,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
         contentReadConcurrency: 1,
         importBatchSize: 10,
       },
+      rootId: ROOT,
       rootPath: ROOT,
     });
 
@@ -420,7 +425,7 @@ function makeMinimalChange(): PreparedCacheChange {
       fileSystemAdapter: {} as FileSystemAdapter,
     },
     size: 42,
-    sourceRootPath: ROOT,
+    rootId: ROOT,
   };
 }
 

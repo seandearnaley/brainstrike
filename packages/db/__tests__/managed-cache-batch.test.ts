@@ -19,6 +19,12 @@ describe('applyManagedCacheBatch', () => {
     const dataDir = createPGliteTestDataDir('pglite-managed-cache-batch');
     db = await wasmLoader.createPGlite(dataDir);
     await migrate(db);
+    // file_records.root_id has an FK to roots(id); managed-cache imports now
+    // require a non-null root_id (source_root_path retired), so seed a fixture
+    // root every import batch can reference.
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path) VALUES ('root-fixture', 'path', 'fixture', '/workspace/root')`
+    );
     fileRecordRepository = new FileRecordRepository(db);
     fileChunkRepository = new FileChunkRepository(db);
   });
@@ -39,7 +45,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'index.ts',
               path: 'src/index.ts',
               size: 12,
-              sourceRootPath: '/workspace/root',
               createdAt: '2026-04-16T00:00:00.000Z',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
@@ -61,7 +66,6 @@ describe('applyManagedCacheBatch', () => {
             name: 'index.ts',
             path: 'src/index.ts',
             size: 12,
-            sourceRootPath: '/workspace/root',
             createdAt: '2026-04-16T00:00:00.000Z',
             updatedAt: '2026-04-16T00:00:00.000Z',
             processedAt: '2026-04-16T00:00:00.000Z',
@@ -84,7 +88,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'replace.ts',
               path: 'src/replace.ts',
               size: 16,
-              sourceRootPath: '/workspace/root',
               createdAt: '2026-04-15T00:00:00.000Z',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
@@ -106,7 +109,6 @@ describe('applyManagedCacheBatch', () => {
             name: 'replace.ts',
             path: 'src/replace.ts',
             size: 16,
-            sourceRootPath: '/workspace/root',
             updatedAt: '2026-04-16T00:00:00.000Z',
             processedAt: '2026-04-16T00:00:00.000Z',
             content: 'export const value = 3;',
@@ -138,7 +140,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'index.ts',
               path: 'src/index.ts',
               size: -1,
-              sourceRootPath: '/workspace/root',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
               content: 'export const value = 2;',
@@ -161,7 +162,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'bad-size.ts',
               path: 'src/bad-size.ts',
               size: 1.5,
-              sourceRootPath: '/workspace/root',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
               content: 'export const value = 4;',
@@ -184,7 +184,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'empty-hash.ts',
               path: 'src/empty-hash.ts',
               size: 1,
-              sourceRootPath: '/workspace/root',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
               content: '',
@@ -207,7 +206,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'bad-date.ts',
               path: 'src/bad-date.ts',
               size: 1,
-              sourceRootPath: '/workspace/root',
               createdAt: 'not-a-date',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
@@ -243,7 +241,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'bad-updated-at.ts',
               path: 'src/bad-updated-at.ts',
               size: 1,
-              sourceRootPath: '/workspace/root',
               updatedAt: '',
               processedAt: '2026-04-16T00:00:00.000Z',
               content: 'export const value = 6;',
@@ -265,6 +262,7 @@ describe('applyManagedCacheBatch', () => {
 
     await applyManagedCacheBatch(transactionalDb as unknown as PGlite, {
       embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
       changes: [],
     });
 
@@ -280,6 +278,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(nonTransactionalDb as unknown as PGlite, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
@@ -288,7 +287,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'file.ts',
               path: 'src/file.ts',
               size: 1,
-              sourceRootPath: '/workspace/root',
               createdAt: '2026-04-16T00:00:00.000Z',
               updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
@@ -310,7 +308,6 @@ describe('applyManagedCacheBatch', () => {
       name: 'replace.ts',
       path: 'src/replace.ts',
       size: 10,
-      sourceRootPath: '/workspace/root',
       createdAt: now,
       updatedAt: now,
       content: 'export const version = 1;',
@@ -342,7 +339,6 @@ describe('applyManagedCacheBatch', () => {
       name: 'existing.ts',
       path: 'src/existing.ts',
       size: 10,
-      sourceRootPath: '/workspace/root',
       createdAt: now,
       updatedAt: now,
       content: 'export const existing = true;',
@@ -361,6 +357,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(db, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: [
           {
             mode: 'replace',
@@ -369,7 +366,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'replace.ts',
               path: 'src/replace.ts',
               size: 11,
-              sourceRootPath: '/workspace/root',
               updatedAt: now,
               processedAt: now,
               content: 'export const version = 2;',
@@ -384,7 +380,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'new.ts',
               path: 'src/new.ts',
               size: 12,
-              sourceRootPath: '/workspace/root',
               createdAt: now,
               updatedAt: now,
               processedAt: now,
@@ -453,6 +448,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(failingStatsDb as unknown as PGlite, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
@@ -461,7 +457,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'stats-failure.ts',
               path: 'src/stats-failure.ts',
               size: 12,
-              sourceRootPath: '/workspace/root',
               createdAt: now,
               updatedAt: now,
               processedAt: now,
@@ -487,7 +482,6 @@ describe('applyManagedCacheBatch', () => {
         name: `file-${index}.ts`,
         path: `src/file-${index}.ts`,
         size: 10,
-        sourceRootPath: '/workspace/root',
         createdAt: now,
         updatedAt: now,
         processedAt: now,
@@ -500,6 +494,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(db, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: oversizedImports,
       })
     ).rejects.toThrow('Managed cache batch import exceeds the PostgreSQL parameter limit.');
@@ -511,7 +506,6 @@ describe('applyManagedCacheBatch', () => {
         name: `file-${index}.ts`,
         path: `src/file-${index}.ts`,
         size: 10,
-        sourceRootPath: '/workspace/root',
         updatedAt: now,
         processedAt: now,
         content: 'export const value = 2;',
@@ -523,6 +517,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(db, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: oversizedReplacements,
       })
     ).rejects.toThrow('Managed cache batch replace exceeds the PostgreSQL parameter limit.');
@@ -537,7 +532,6 @@ describe('applyManagedCacheBatch', () => {
         name: `file-${index}.ts`,
         path: `src/file-${index}.ts`,
         size: 10,
-        sourceRootPath: '/workspace/root',
         updatedAt: now,
         processedAt: now,
         content: 'export const value = 2;',
@@ -560,6 +554,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(db, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
@@ -568,7 +563,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'first.ts',
               path: 'src/first.ts',
               size: 10,
-              sourceRootPath: '/workspace/root',
               createdAt: now,
               updatedAt: now,
               processedAt: now,
@@ -584,7 +578,6 @@ describe('applyManagedCacheBatch', () => {
               name: 'second.ts',
               path: 'src/second.ts',
               size: 10,
-              sourceRootPath: '/workspace/root',
               updatedAt: now,
               processedAt: now,
               content: 'export const second = true;',
@@ -605,7 +598,6 @@ describe('applyManagedCacheBatch', () => {
       name: 'replace-only.ts',
       path: 'src/replace-only.ts',
       size: 10,
-      sourceRootPath: '/workspace/root',
       createdAt: now,
       updatedAt: now,
       content: 'export const version = 1;',
@@ -634,6 +626,7 @@ describe('applyManagedCacheBatch', () => {
 
     await applyManagedCacheBatch(db, {
       embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
       changes: [
         {
           mode: 'replace',
@@ -642,7 +635,6 @@ describe('applyManagedCacheBatch', () => {
             name: 'replace-only.ts',
             path: 'src/replace-only.ts',
             size: 11,
-            sourceRootPath: '/workspace/root',
             updatedAt: now,
             processedAt: now,
             content: 'export const version = 2;',
@@ -686,6 +678,7 @@ describe('applyManagedCacheBatch', () => {
 
     await applyManagedCacheBatch(db, {
       embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
       changes: [
         {
           mode: 'import',
@@ -694,7 +687,6 @@ describe('applyManagedCacheBatch', () => {
             name: 'import-only.ts',
             path: 'src/import-only.ts',
             size: 12,
-            sourceRootPath: '/workspace/root',
             createdAt: now,
             updatedAt: now,
             processedAt: now,
@@ -722,6 +714,7 @@ describe('applyManagedCacheBatch', () => {
 
     await applyManagedCacheBatch(db, {
       embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
       changes: [
         {
           mode: 'import',
@@ -731,7 +724,6 @@ describe('applyManagedCacheBatch', () => {
             path: 'src/stat.ts',
             size: 128,
             mtimeMs,
-            sourceRootPath: '/workspace/root',
             createdAt: now,
             updatedAt: now,
             processedAt: now,
@@ -764,6 +756,7 @@ describe('applyManagedCacheBatch', () => {
     await expect(
       applyManagedCacheBatch(db, {
         embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
@@ -773,7 +766,6 @@ describe('applyManagedCacheBatch', () => {
               path: 'src/frac.ts',
               size: 64,
               mtimeMs: fractionalMtimeMs,
-              sourceRootPath: '/workspace/root',
               createdAt: now,
               updatedAt: now,
               processedAt: now,
@@ -804,7 +796,6 @@ describe('applyManagedCacheBatch', () => {
       name: 'stat.ts',
       path: 'src/stat.ts',
       size: 10,
-      sourceRootPath: '/workspace/root',
       createdAt: now,
       updatedAt: now,
       content: 'export const version = 1;',
@@ -813,10 +804,16 @@ describe('applyManagedCacheBatch', () => {
       processedAt: now,
       embeddingSetId: 'set-1',
     });
+    // Stamp the managed-cache identity (root_id) — createWithContent does not
+    // set it, and listManagedCacheEntryMetadata only returns root_id-bearing rows.
+    await db.query(
+      "UPDATE file_records SET root_id = 'root-fixture' WHERE id = 'replace-stat-file'"
+    );
 
     const newMtimeMs = 1_800_000_000_000;
     await applyManagedCacheBatch(db, {
       embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
       changes: [
         {
           mode: 'replace',
@@ -826,7 +823,6 @@ describe('applyManagedCacheBatch', () => {
             path: 'src/stat.ts',
             size: 20,
             mtimeMs: newMtimeMs,
-            sourceRootPath: '/workspace/root',
             updatedAt: now,
             processedAt: now,
             content: 'export const version = 2;',
@@ -867,7 +863,6 @@ describe('applyManagedCacheBatch', () => {
             name: 'root-id-import.ts',
             path: 'src/root-id-import.ts',
             size: 10,
-            sourceRootPath: '/workspace/root',
             createdAt: now,
             updatedAt: now,
             processedAt: now,
@@ -886,36 +881,40 @@ describe('applyManagedCacheBatch', () => {
     expect(result.rows[0]?.root_id).toBe('root-db-1');
   });
 
-  it('writes root_id as NULL on import when rootId is omitted from the batch args', async () => {
+  it('THROWS on import when rootId is omitted (no null-root_id cache identity)', async () => {
+    // Managed-cache identity is root_id since the source_root_path retirement.
+    // An import with no root_id has no stable identity and would be re-imported
+    // every sync, so the batch is refused rather than writing an orphan row.
     const now = new Date().toISOString();
 
-    await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      changes: [
-        {
-          mode: 'import',
-          record: {
-            id: 'no-root-id-import-file',
-            name: 'no-root-id.ts',
-            path: 'src/no-root-id.ts',
-            size: 10,
-            sourceRootPath: '/workspace/root',
-            createdAt: now,
-            updatedAt: now,
-            processedAt: now,
-            content: 'export const noRootId = true;',
-            contentHash: 'no-root-id-hash',
-            tokenCount: 5,
+    await expect(
+      applyManagedCacheBatch(db, {
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'no-root-id-import-file',
+              name: 'no-root-id.ts',
+              path: 'src/no-root-id.ts',
+              size: 10,
+              createdAt: now,
+              updatedAt: now,
+              processedAt: now,
+              content: 'export const noRootId = true;',
+              contentHash: 'no-root-id-hash',
+              tokenCount: 5,
+            },
           },
-        },
-      ],
-    });
+        ],
+      })
+    ).rejects.toThrow(/requires a non-null rootId/);
 
-    const result = await db.query<{ root_id: string | null }>(
-      'SELECT root_id FROM file_records WHERE id = $1',
+    const result = await db.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM file_records WHERE id = $1',
       ['no-root-id-import-file']
     );
-    expect(result.rows[0]?.root_id).toBeNull();
+    expect(result.rows[0]?.count).toBe('0');
   });
 
   it('does not change root_id on replacement (UPDATE by id; root never changes on replace)', async () => {
@@ -930,7 +929,6 @@ describe('applyManagedCacheBatch', () => {
       name: 'replace-with-root.ts',
       path: 'src/replace-with-root.ts',
       size: 10,
-      sourceRootPath: '/workspace/root',
       createdAt: now,
       updatedAt: now,
       content: 'export const version = 1;',
@@ -955,7 +953,6 @@ describe('applyManagedCacheBatch', () => {
             name: 'replace-with-root.ts',
             path: 'src/replace-with-root.ts',
             size: 20,
-            sourceRootPath: '/workspace/root',
             updatedAt: now,
             processedAt: now,
             content: 'export const version = 2;',

@@ -84,7 +84,10 @@ export function createDeps(
     })),
     ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     onManagedCollectionMissing: vi.fn(),
-    resolveDbRootId: vi.fn().mockResolvedValue(null),
+    // Non-null by default: managed-cache identity is root_id (source_root_path
+    // retired), and an import with a null root_id is skipped. ROOT_PATH doubles
+    // as the dbRootId so existing-entry fixtures dedup against the scan.
+    resolveDbRootId: vi.fn().mockResolvedValue(ROOT_PATH),
     resolveQosPolicy: vi.fn(async () => BALANCED_QOS_POLICY),
     setImporting: vi.fn(),
     setStatus: vi.fn(),

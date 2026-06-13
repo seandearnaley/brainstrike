@@ -79,7 +79,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: unchangedHash,
             updatedAt: new Date().toISOString(),
@@ -331,7 +331,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: unchangedHash,
             updatedAt: new Date().toISOString(),
@@ -426,7 +426,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: unchangedHash,
             // Pre-migration row: no stored stats yet.
@@ -481,7 +481,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             // Deliberately NOT the file's real hash: proves the skip is purely
             // stat-based and the coverage path is independent of content reads.
@@ -540,7 +540,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: unchangedHash,
             updatedAt: new Date().toISOString(),
@@ -594,7 +594,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: unchangedHash,
             updatedAt: new Date().toISOString(),
@@ -961,7 +961,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: 'old-hash',
             updatedAt: new Date().toISOString(),
@@ -990,7 +990,6 @@ describe('WorkspaceCollectionSyncService', () => {
             record: expect.objectContaining({
               id: 'file-1',
               path: FILE_PATH,
-              sourceRootPath: ROOT_PATH,
             }),
           }),
         ],
@@ -1472,7 +1471,7 @@ describe('WorkspaceCollectionSyncService', () => {
           {
             fileRecordId: 'file-1',
             embeddingSetId: 'set-1',
-            sourceRootPath: ROOT_PATH,
+            rootId: ROOT_PATH,
             relativePath: FILE_PATH,
             contentHash: unchangedHash,
             updatedAt: new Date().toISOString(),
@@ -1907,7 +1906,7 @@ describe('WorkspaceCollectionSyncService', () => {
             {
               fileRecordId: 'file-1',
               embeddingSetId: 'set-1',
-              sourceRootPath: ROOT_PATH,
+              rootId: ROOT_PATH,
               relativePath: FILE_PATH,
               contentHash: unchangedHash,
               updatedAt: new Date().toISOString(),
@@ -2117,7 +2116,10 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('passes null rootId to runRootFolderCacheImport when resolveDbRootId returns null', async () => {
+  it('skips the import (never writes a null-root_id row) when resolveDbRootId returns null', async () => {
+    // Managed-cache identity is root_id (source_root_path retired). A root with
+    // no resolvable db id can't persist a stable identity, so the import is
+    // skipped rather than writing un-dedupable orphan rows.
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -2135,8 +2137,6 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ rootId: null })
-    );
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
   });
 });

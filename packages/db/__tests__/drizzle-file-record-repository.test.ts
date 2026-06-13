@@ -34,6 +34,40 @@ describe('DrizzleFileRecordRepository', () => {
     repository = new DrizzleFileRecordRepository(db);
   });
 
+  // Managed-cache identity is root_id since the source_root_path retirement.
+  // repository.create never writes root_id (only applyManagedCacheBatch does),
+  // so seed a roots row and stamp root_id via the raw PGlite client.
+  async function seedManagedCacheEntry(args: {
+    id: string;
+    embeddingSetId: string;
+    path: string;
+    rootId: string;
+    contentHash?: string;
+  }): Promise<void> {
+    await client.query(
+      `INSERT INTO roots (id, kind, display_name) VALUES ($1, 'path', 'fixture') ON CONFLICT (id) DO NOTHING`,
+      [args.rootId]
+    );
+    const now = new Date().toISOString();
+    await repository.createWithContent({
+      id: args.id,
+      name: 'index.ts',
+      path: args.path,
+      size: 100,
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const value = 1;',
+      contentHash: args.contentHash ?? 'hash-1',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: args.embeddingSetId,
+    });
+    await client.query('UPDATE file_records SET root_id = $1 WHERE id = $2', [
+      args.rootId,
+      args.id,
+    ]);
+  }
+
   afterEach(async () => {
     await client.close();
   });
@@ -66,7 +100,6 @@ describe('DrizzleFileRecordRepository', () => {
         id: '00000000-0000-0000-0000-000000000002',
         name: 'content.ts',
         path: '/src/content.ts',
-        sourceRootPath: '/workspace/a',
         size: 100,
         createdAt: now,
         updatedAt: now,
@@ -83,7 +116,6 @@ describe('DrizzleFileRecordRepository', () => {
       expect(found?.contentHash).toBe('abc123hash');
       expect(found?.content).toBe('const hello = "world";');
       expect(found?.tokenCount).toBe(5);
-      expect(found?.sourceRootPath).toBe('/workspace/a');
     });
 
     it('should return null for non-existent id', async () => {
@@ -152,75 +184,48 @@ describe('DrizzleFileRecordRepository', () => {
   });
 
   describe('managed cache identity', () => {
-    it('should find a managed cache entry by collection, root, and relative path', async () => {
-      const now = new Date().toISOString();
-
-      await repository.create({
+    it('should find a managed cache entry by collection, root id, and relative path', async () => {
+      await seedManagedCacheEntry({
         id: '00000000-0000-0000-0000-000000000011',
-        name: 'index.ts',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/a',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
+        path: 'src/index.ts',
+        rootId: 'root-a',
       });
-
-      await repository.create({
+      // Same relative path under a DIFFERENT root — must stay distinct.
+      await seedManagedCacheEntry({
         id: '00000000-0000-0000-0000-000000000012',
-        name: 'index.ts',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/b',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
+        path: 'src/index.ts',
+        rootId: 'root-b',
       });
 
       const found = await repository.findByManagedCacheIdentity(
         '00000000-0000-0000-0000-000000000101',
-        '/workspace/a',
+        'root-a',
         'src/index.ts'
       );
 
       expect(found?.id).toBe('00000000-0000-0000-0000-000000000011');
-      expect(found?.sourceRootPath).toBe('/workspace/a');
     });
 
     it('should list managed cache entries across roots for a collection', async () => {
-      const now = new Date().toISOString();
-
-      await repository.create({
+      await seedManagedCacheEntry({
         id: '00000000-0000-0000-0000-000000000021',
-        name: 'index.ts',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/a',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
+        path: 'src/index.ts',
+        rootId: 'root-a',
       });
-
-      await repository.create({
+      await seedManagedCacheEntry({
         id: '00000000-0000-0000-0000-000000000022',
-        name: 'index.ts',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/b',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await repository.create({
-        id: '00000000-0000-0000-0000-000000000023',
-        name: 'index.ts',
         path: 'src/index.ts',
-        sourceRootPath: '/workspace/c',
+        rootId: 'root-b',
+      });
+      await seedManagedCacheEntry({
+        id: '00000000-0000-0000-0000-000000000023',
         embeddingSetId: '00000000-0000-0000-0000-000000000202',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
+        path: 'src/index.ts',
+        rootId: 'root-c',
       });
 
       const entries = await repository.listManagedCacheEntries(
@@ -234,21 +239,12 @@ describe('DrizzleFileRecordRepository', () => {
     });
 
     it('should list managed cache metadata without selecting content', async () => {
-      const now = new Date().toISOString();
-
-      await repository.createWithContent({
+      await seedManagedCacheEntry({
         id: '00000000-0000-0000-0000-000000000031',
-        name: 'index.ts',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/a',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
-        content: 'export const value = 1;',
+        path: 'src/index.ts',
+        rootId: 'root-a',
         contentHash: 'hash-1',
-        tokenCount: 5,
-        processedAt: now,
       });
 
       const entries = await repository.listManagedCacheEntryMetadata(
@@ -259,7 +255,7 @@ describe('DrizzleFileRecordRepository', () => {
         expect.objectContaining({
           fileRecordId: '00000000-0000-0000-0000-000000000031',
           embeddingSetId: '00000000-0000-0000-0000-000000000101',
-          sourceRootPath: '/workspace/a',
+          rootId: 'root-a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-1',
         }),
@@ -276,7 +272,6 @@ describe('DrizzleFileRecordRepository', () => {
           name: `${suffix}.ts`,
           path: `src/${suffix}.ts`,
           size: 10,
-          sourceRootPath: '/workspace/a',
           createdAt: now,
           updatedAt: now,
           content: `export const ${suffix} = 1;`,
@@ -285,6 +280,14 @@ describe('DrizzleFileRecordRepository', () => {
           embeddingSetId: '00000000-0000-0000-0000-000000000101',
         });
       }
+      // Stamp the managed-cache identity (root_id) — createWithContent doesn't
+      // set it, and listManagedCacheEntryMetadata only returns root_id rows.
+      await client.query(
+        `INSERT INTO roots (id, kind, display_name) VALUES ('root-stamp', 'path', 'fixture')`
+      );
+      await client.query(
+        "UPDATE file_records SET root_id = 'root-stamp' WHERE embedding_set_id = '00000000-0000-0000-0000-000000000101'"
+      );
 
       // The stamp fires for EVERY pre-migration row on the first post-upgrade
       // sync — thousands of rows on PGlite's single connection — so it must be

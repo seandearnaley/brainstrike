@@ -9,7 +9,7 @@ describe('root-folder-cache-reconciliation', () => {
     const result = planRootFolderCacheReconciliation({
       discoveredFiles: [
         {
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/new.ts',
           contentHash: 'hash-new',
           size: 10,
@@ -28,7 +28,7 @@ describe('root-folder-cache-reconciliation', () => {
     const result = planRootFolderCacheReconciliation({
       discoveredFiles: [
         {
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-1',
           size: 10,
@@ -39,7 +39,7 @@ describe('root-folder-cache-reconciliation', () => {
         {
           fileRecordId: 'file-1',
           embeddingSetId: 'set-1',
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-1',
         },
@@ -50,7 +50,7 @@ describe('root-folder-cache-reconciliation', () => {
       {
         embeddingSetId: 'set-1',
         fileRecordId: 'file-1',
-        sourceRootPath: '/workspace/a',
+        rootId: '/workspace/a',
         relativePath: 'src/index.ts',
         contentHash: 'hash-1',
       },
@@ -61,7 +61,7 @@ describe('root-folder-cache-reconciliation', () => {
     const result = planRootFolderCacheReconciliation({
       discoveredFiles: [
         {
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-new',
           size: 11,
@@ -72,7 +72,7 @@ describe('root-folder-cache-reconciliation', () => {
         {
           fileRecordId: 'file-1',
           embeddingSetId: 'set-1',
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-old',
         },
@@ -82,7 +82,7 @@ describe('root-folder-cache-reconciliation', () => {
     expect(result.toReplace).toHaveLength(1);
     expect(result.toReplace[0]).toMatchObject({
       existingFileRecordId: 'file-1',
-      sourceRootPath: '/workspace/a',
+      rootId: '/workspace/a',
       relativePath: 'src/index.ts',
       previousContentHash: 'hash-old',
       nextContentHash: 'hash-new',
@@ -93,7 +93,7 @@ describe('root-folder-cache-reconciliation', () => {
     const result = planRootFolderCacheReconciliation({
       discoveredFiles: [
         {
-          sourceRootPath: '/workspace/b',
+          rootId: '/workspace/b',
           relativePath: 'src/index.ts',
           contentHash: 'hash-1',
           size: 10,
@@ -104,14 +104,14 @@ describe('root-folder-cache-reconciliation', () => {
         {
           fileRecordId: 'file-1',
           embeddingSetId: 'set-1',
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-1',
         },
       ],
     });
 
-    expect(result.toImport.map((entry) => entry.sourceRootPath)).toEqual(['/workspace/b']);
+    expect(result.toImport.map((entry) => entry.rootId)).toEqual(['/workspace/b']);
     expect(result.unchanged).toHaveLength(0);
     expect(result.toReplace).toHaveLength(0);
   });
@@ -123,7 +123,7 @@ describe('root-folder-cache-reconciliation', () => {
         {
           fileRecordId: 'file-1',
           embeddingSetId: 'set-1',
-          sourceRootPath: '/workspace/a',
+          rootId: '/workspace/a',
           relativePath: 'src/index.ts',
           contentHash: 'hash-1',
         },

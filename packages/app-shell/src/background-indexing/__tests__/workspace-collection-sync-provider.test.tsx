@@ -64,7 +64,10 @@ const {
   resolveDbRootIdMock,
 } = vi.hoisted(() => ({
   registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
-  resolveDbRootIdMock: vi.fn(async (_rootPath: string) => null),
+  // Non-null by default: managed-cache identity is root_id (source_root_path
+  // retired); a null dbRootId now skips the import, which would stall these
+  // integration tests that assert the full sync runs.
+  resolveDbRootIdMock: vi.fn(async (_rootPath: string) => 'db-root-id'),
   runEnhancedImportMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
   processFilesMock: vi.fn(),
