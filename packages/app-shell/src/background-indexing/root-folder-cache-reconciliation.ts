@@ -2,8 +2,8 @@ export interface RootFolderDiscoveredFile {
   contentHash: string;
   name: string;
   relativePath: string;
+  rootId: string;
   size: number;
-  sourceRootPath: string;
 }
 
 export interface RootFolderCachedFileIdentity {
@@ -11,7 +11,7 @@ export interface RootFolderCachedFileIdentity {
   embeddingSetId: string;
   fileRecordId: string;
   relativePath: string;
-  sourceRootPath: string;
+  rootId: string;
 }
 
 export interface RootFolderCacheReplacement extends RootFolderDiscoveredFile {
@@ -44,11 +44,8 @@ export interface RootFolderCacheReconciliationInput {
   existingFiles: RootFolderCachedFileIdentity[];
 }
 
-export function buildRootFolderCacheIdentityKey(
-  sourceRootPath: string,
-  relativePath: string
-): string {
-  return `${sourceRootPath}::${relativePath}`;
+export function buildRootFolderCacheIdentityKey(rootId: string, relativePath: string): string {
+  return `${rootId}::${relativePath}`;
 }
 
 export function validateRootFolderCacheRequest(
@@ -95,7 +92,7 @@ export function planRootFolderCacheReconciliation(
 
   for (const existingFile of input.existingFiles) {
     const cacheIdentity = buildRootFolderCacheIdentityKey(
-      existingFile.sourceRootPath,
+      existingFile.rootId,
       existingFile.relativePath
     );
     cachedByIdentity.set(cacheIdentity, existingFile);
@@ -107,7 +104,7 @@ export function planRootFolderCacheReconciliation(
 
   for (const discoveredFile of input.discoveredFiles) {
     const cacheIdentity = buildRootFolderCacheIdentityKey(
-      discoveredFile.sourceRootPath,
+      discoveredFile.rootId,
       discoveredFile.relativePath
     );
     const existingFile = cachedByIdentity.get(cacheIdentity);

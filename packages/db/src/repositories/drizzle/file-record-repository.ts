@@ -32,7 +32,6 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
-  'sourceRootPath',
   'createdAt',
   'updatedAt',
   'content',
@@ -120,7 +119,6 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
-      sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
       tokenCount: record.tokenCount ?? null,
@@ -136,7 +134,6 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
-      sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
       content: record.content ?? null,
@@ -201,14 +198,14 @@ export class DrizzleFileRecordRepository {
 
   async findByManagedCacheIdentity(
     embeddingSetId: string,
-    sourceRootPath: string,
+    rootId: string,
     relativePath: string
   ): Promise<FileRecord | null> {
     const [row] = await this.db
       .select()
       .from(fileRecords)
       .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} = ${sourceRootPath} AND ${fileRecords.path} = ${relativePath}`
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} = ${rootId} AND ${fileRecords.path} = ${relativePath}`
       )
       .orderBy(sql`${fileRecords.updatedAt} DESC`)
       .limit(1);
@@ -221,7 +218,7 @@ export class DrizzleFileRecordRepository {
       .select()
       .from(fileRecords)
       .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} IS NOT NULL`
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
       )
       .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
@@ -235,7 +232,7 @@ export class DrizzleFileRecordRepository {
       .select({
         fileRecordId: fileRecords.id,
         embeddingSetId: fileRecords.embeddingSetId,
-        sourceRootPath: fileRecords.sourceRootPath,
+        rootId: fileRecords.rootId,
         relativePath: fileRecords.path,
         contentHash: fileRecords.contentHash,
         size: fileRecords.size,
@@ -244,7 +241,7 @@ export class DrizzleFileRecordRepository {
       })
       .from(fileRecords)
       .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} IS NOT NULL`
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
       )
       .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
@@ -252,7 +249,7 @@ export class DrizzleFileRecordRepository {
       if (
         typeof row.fileRecordId !== 'string' ||
         typeof row.embeddingSetId !== 'string' ||
-        typeof row.sourceRootPath !== 'string' ||
+        typeof row.rootId !== 'string' ||
         typeof row.relativePath !== 'string' ||
         !(typeof row.contentHash === 'string' || row.contentHash === null)
       ) {
@@ -262,7 +259,7 @@ export class DrizzleFileRecordRepository {
         {
           fileRecordId: row.fileRecordId,
           embeddingSetId: row.embeddingSetId,
-          sourceRootPath: row.sourceRootPath,
+          rootId: row.rootId,
           relativePath: row.relativePath,
           contentHash: row.contentHash ?? '',
           size: row.size,
@@ -371,9 +368,6 @@ export class DrizzleFileRecordRepository {
         break;
       case 'size':
         updateData.size = validateSize(value);
-        break;
-      case 'sourceRootPath':
-        updateData.sourceRootPath = validateNullableString(value, 'sourceRootPath');
         break;
       case 'createdAt':
         updateData.createdAt = validateDateString(value, 'createdAt');
@@ -563,7 +557,6 @@ export class DrizzleFileRecordRepository {
         name: request.name,
         path: request.path,
         size: request.size,
-        sourceRootPath: request.sourceRootPath ?? null,
         createdAt: now,
         updatedAt: now,
         content: request.content,
@@ -584,7 +577,6 @@ export class DrizzleFileRecordRepository {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         contentHash: hash,
-        ...(request.sourceRootPath ? { sourceRootPath: request.sourceRootPath } : {}),
       });
 
       results[index] = {
@@ -667,10 +659,6 @@ export class DrizzleFileRecordRepository {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
-
-    if (row.sourceRootPath !== null && row.sourceRootPath !== undefined) {
-      record.sourceRootPath = row.sourceRootPath;
-    }
 
     // Add optional fields if they exist
     if (row.content !== null && row.content !== undefined) {

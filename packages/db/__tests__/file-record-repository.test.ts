@@ -22,6 +22,37 @@ function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   };
 }
 
+// Managed-cache identity is root_id since the source_root_path retirement.
+// repo.create/createWithContent never write root_id (only applyManagedCacheBatch
+// does), so seed a roots row and stamp root_id directly for these fixtures.
+async function seedManagedCacheEntry(
+  db: PGlite,
+  repo: FileRecordRepository,
+  args: {
+    id: string;
+    embeddingSetId: string;
+    path: string;
+    rootId: string;
+    content?: string;
+    contentHash?: string;
+    tokenCount?: number;
+  }
+): Promise<void> {
+  await db.query(
+    `INSERT INTO roots (id, kind, display_name) VALUES ($1, 'path', 'fixture') ON CONFLICT (id) DO NOTHING`,
+    [args.rootId]
+  );
+  const now = new Date().toISOString();
+  await repo.createWithContent({
+    ...createTestRecord({ id: args.id, embeddingSetId: args.embeddingSetId, path: args.path }),
+    content: args.content ?? 'export const value = 1;',
+    contentHash: args.contentHash ?? 'hash-1',
+    processedAt: now,
+    tokenCount: args.tokenCount ?? 5,
+  });
+  await db.query('UPDATE file_records SET root_id = $1 WHERE id = $2', [args.rootId, args.id]);
+}
+
 describe('FileRecordRepository', () => {
   let db: PGlite;
   let repo: FileRecordRepository;
@@ -113,23 +144,18 @@ describe('FileRecordRepository', () => {
     expect(found).toEqual({ ...record, name: 'changed' });
   });
 
-  it('round-trips sourceRootPath metadata for managed cache entries', async () => {
-    const record = createTestRecord({
+  it('round-trips root_id metadata for managed cache entries', async () => {
+    await seedManagedCacheEntry(db, repo, {
+      id: 'roundtrip-a',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/index.ts',
-      sourceRootPath: '/workspace/a',
+      rootId: 'root-a',
     });
 
-    await repo.createWithContent({
-      ...record,
-      content: 'export const value = 1;',
-      contentHash: 'hash-1',
-      processedAt: record.createdAt,
-      tokenCount: 5,
-    });
-
-    const found = await repo.findById(record.id);
-    expect(found?.sourceRootPath).toBe('/workspace/a');
+    const entries = await repo.listManagedCacheEntryMetadata(
+      '00000000-0000-0000-0000-000000000101'
+    );
+    expect(entries).toEqual([expect.objectContaining({ fileRecordId: 'roundtrip-a', rootId: 'root-a' })]);
   });
 
   it('preserves empty file content when creating managed cache entries', async () => {
@@ -137,7 +163,6 @@ describe('FileRecordRepository', () => {
       id: 'empty-cache',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/empty.ts',
-      sourceRootPath: '/workspace/a',
     });
 
     await repo.createWithContent({
@@ -153,58 +178,49 @@ describe('FileRecordRepository', () => {
     expect(found?.tokenCount).toBe(0);
   });
 
-  it('finds managed cache entries by embedding set, root path, and relative path', async () => {
-    const primary = createTestRecord({
+  it('finds managed cache entries by embedding set, root id, and relative path', async () => {
+    await seedManagedCacheEntry(db, repo, {
       id: 'cache-a',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/index.ts',
-      sourceRootPath: '/workspace/a',
+      rootId: 'root-a',
     });
-    const sameRelativePathDifferentRoot = createTestRecord({
+    // Same relative path under a DIFFERENT root — must stay distinct.
+    await seedManagedCacheEntry(db, repo, {
       id: 'cache-b',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/index.ts',
-      sourceRootPath: '/workspace/b',
+      rootId: 'root-b',
     });
-
-    await repo.create(primary);
-    await repo.create(sameRelativePathDifferentRoot);
 
     const found = await repo.findByManagedCacheIdentity(
       '00000000-0000-0000-0000-000000000101',
-      '/workspace/a',
+      'root-a',
       'src/index.ts'
     );
 
     expect(found?.id).toBe('cache-a');
-    expect(found?.sourceRootPath).toBe('/workspace/a');
   });
 
   it('lists managed cache entries for a collection across roots', async () => {
-    await repo.create(
-      createTestRecord({
-        id: 'cache-a',
-        embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/a',
-      })
-    );
-    await repo.create(
-      createTestRecord({
-        id: 'cache-b',
-        embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/b',
-      })
-    );
-    await repo.create(
-      createTestRecord({
-        id: 'other-set',
-        embeddingSetId: '00000000-0000-0000-0000-000000000202',
-        path: 'src/index.ts',
-        sourceRootPath: '/workspace/a',
-      })
-    );
+    await seedManagedCacheEntry(db, repo, {
+      id: 'cache-a',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/index.ts',
+      rootId: 'root-a',
+    });
+    await seedManagedCacheEntry(db, repo, {
+      id: 'cache-b',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/index.ts',
+      rootId: 'root-b',
+    });
+    await seedManagedCacheEntry(db, repo, {
+      id: 'other-set',
+      embeddingSetId: '00000000-0000-0000-0000-000000000202',
+      path: 'src/index.ts',
+      rootId: 'root-a',
+    });
 
     const entries = await repo.listManagedCacheEntries('00000000-0000-0000-0000-000000000101');
 
@@ -212,18 +228,12 @@ describe('FileRecordRepository', () => {
   });
 
   it('stamps stat metadata in batch so hash-unchanged rows can join the stat-cache', async () => {
-    const record = createTestRecord({
+    await seedManagedCacheEntry(db, repo, {
       id: 'stamp-a',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/a.ts',
-      sourceRootPath: '/workspace/a',
-    });
-    await repo.createWithContent({
-      ...record,
-      content: 'export const value = 1;',
+      rootId: 'root-a',
       contentHash: 'hash-a',
-      processedAt: record.createdAt,
-      tokenCount: 5,
     });
 
     // Pre-migration rows have NULL mtime_ms; the stamp gives them the scanned
@@ -246,18 +256,12 @@ describe('FileRecordRepository', () => {
   });
 
   it('updateStatMetadata floors fractional mtimes and no-ops on an empty batch', async () => {
-    const record = createTestRecord({
+    await seedManagedCacheEntry(db, repo, {
       id: 'stamp-b',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/b.ts',
-      sourceRootPath: '/workspace/a',
-    });
-    await repo.createWithContent({
-      ...record,
-      content: 'export const value = 2;',
+      rootId: 'root-a',
       contentHash: 'hash-b',
-      processedAt: record.createdAt,
-      tokenCount: 5,
     });
 
     await repo.updateStatMetadata([]);
@@ -278,19 +282,12 @@ describe('FileRecordRepository', () => {
   });
 
   it('lists managed cache metadata without hydrating file content', async () => {
-    const record = createTestRecord({
+    await seedManagedCacheEntry(db, repo, {
       id: 'cache-a',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/index.ts',
-      sourceRootPath: '/workspace/a',
-    });
-
-    await repo.createWithContent({
-      ...record,
-      content: 'export const value = 1;',
+      rootId: 'root-a',
       contentHash: 'hash-1',
-      processedAt: record.createdAt,
-      tokenCount: 5,
     });
 
     const entries = await repo.listManagedCacheEntryMetadata(
@@ -301,7 +298,7 @@ describe('FileRecordRepository', () => {
       expect.objectContaining({
         fileRecordId: 'cache-a',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
-        sourceRootPath: '/workspace/a',
+        rootId: 'root-a',
         relativePath: 'src/index.ts',
         contentHash: 'hash-1',
       }),

@@ -39,7 +39,6 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
-  'sourceRootPath',
   'createdAt',
   'updatedAt',
   'content',
@@ -78,11 +77,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       values.push(record.embeddingSetId);
     }
 
-    if (record.sourceRootPath) {
-      fields.push('source_root_path');
-      values.push(record.sourceRootPath);
-    }
-
     if (record.tokenCount !== undefined) {
       fields.push('token_count');
       values.push(record.tokenCount);
@@ -110,7 +104,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       'name',
       'path',
       'size',
-      'source_root_path',
       'created_at',
       'updated_at',
       'content',
@@ -123,7 +116,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.name,
       record.path,
       record.size,
-      record.sourceRootPath || null,
       record.createdAt,
       record.updatedAt,
       record.content ?? null,
@@ -216,13 +208,13 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   async findByManagedCacheIdentity(
     embeddingSetId: string,
-    sourceRootPath: string,
+    rootId: string,
     relativePath: string
   ): Promise<FileRecord | null> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
+    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
     const result = await this.db.query<Record<string, unknown>>(sql, [
       embeddingSetId,
-      sourceRootPath,
+      rootId,
       relativePath,
     ]);
     const row = result.rows[0];
@@ -235,7 +227,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
     const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
@@ -250,7 +242,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
-    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, size, mtime_ms, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    // Managed-cache dedup identity is root_id since the source_root_path
+    // retirement; rows without a root_id are not part of the managed cache.
+    const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
     const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
@@ -262,14 +256,14 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       .flatMap((row) => {
         const fileRecordId = row['id'];
         const rowEmbeddingSetId = row['embedding_set_id'];
-        const sourceRootPath = row['source_root_path'];
+        const rootId = row['root_id'];
         const relativePath = row['path'];
         const contentHash = row['content_hash'];
         const updatedAt = row['updated_at'];
         if (
           typeof fileRecordId !== 'string' ||
           typeof rowEmbeddingSetId !== 'string' ||
-          typeof sourceRootPath !== 'string' ||
+          typeof rootId !== 'string' ||
           typeof relativePath !== 'string' ||
           !(typeof contentHash === 'string' || contentHash === null) ||
           !(updatedAt instanceof Date || typeof updatedAt === 'string')
@@ -281,7 +275,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
           {
             fileRecordId,
             embeddingSetId: rowEmbeddingSetId,
-            sourceRootPath,
+            rootId,
             relativePath,
             contentHash: contentHash ?? '',
             ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
@@ -509,9 +503,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         tokenCount,
         processedAt: now,
       };
-      if (request.sourceRootPath) {
-        record.sourceRootPath = request.sourceRootPath;
-      }
 
       // Add embedding_set_id if present on request
       if ('embeddingSetId' in request && request.embeddingSetId) {
@@ -588,7 +579,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       'name',
       'path',
       'size',
-      'source_root_path',
       'created_at',
       'updated_at',
       'content',
@@ -617,7 +607,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         record.name,
         record.path,
         record.size,
-        record.sourceRootPath ?? null,
         record.createdAt,
         record.updatedAt,
         record.content,
@@ -675,10 +664,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       updatedAt: String(row['updated_at']),
     };
 
-    if (row['source_root_path'] !== null && row['source_root_path'] !== undefined) {
-      record.sourceRootPath = String(row['source_root_path']);
-    }
-
     // Add optional fields if they exist (check for both null and undefined)
     if (row['content'] !== null && row['content'] !== undefined) {
       record.content = String(row['content']);
@@ -730,8 +715,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         return 'created_at';
       case 'updatedAt':
         return 'updated_at';
-      case 'sourceRootPath':
-        return 'source_root_path';
       case 'contentHash':
         return 'content_hash';
       case 'tokenCount':

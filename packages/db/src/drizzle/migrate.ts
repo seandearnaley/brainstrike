@@ -29,6 +29,7 @@ import { migration036WorkspaceIndexSystemRole } from '../migrations/036-workspac
 import { migration037FileRecordMtimeMs } from '../migrations/037-file-record-mtime-ms.js';
 import { migration038PgTrgmGrepIndex } from '../migrations/038-pg-trgm-grep-index.js';
 import { migration039RootsTable } from '../migrations/039-roots-table.js';
+import { migration040RetireSourceRootPath } from '../migrations/040-retire-source-root-path.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -160,6 +161,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-037-file-record-mtime-ms', migration037FileRecordMtimeMs),
   customMigration('custom-038-pg-trgm-grep-index', migration038PgTrgmGrepIndex),
   customMigration('custom-039-roots-table', migration039RootsTable),
+  customMigration('custom-040-retire-source-root-path', migration040RetireSourceRootPath),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

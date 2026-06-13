@@ -654,7 +654,9 @@ describe('Drizzle Migration Runner', () => {
         expect(columnNames).toContain('content');
         expect(columnNames).toContain('content_hash');
         expect(columnNames).toContain('embedding_set_id');
-        expect(columnNames).toContain('source_root_path');
+        // source_root_path retired (migration 040) — root_id is the identity now.
+        expect(columnNames).toContain('root_id');
+        expect(columnNames).not.toContain('source_root_path');
       },
       MIGRATION_RUN_TIMEOUT_MS
     );
@@ -694,7 +696,7 @@ describe('Drizzle Migration Runner', () => {
     );
 
     it(
-      'creates the managed-cache identity unique index for file records',
+      'creates the root_id managed-cache identity index and drops the retired source_root_path one',
       async () => {
         await runMigrations(db);
 
@@ -702,11 +704,14 @@ describe('Drizzle Migration Runner', () => {
         SELECT indexname FROM pg_indexes
         WHERE schemaname = 'public'
           AND tablename = 'file_records'
-          AND indexname = 'idx_file_records_cache_identity'
       `);
+        const names = indexes.rows.map((r) => r.indexname);
 
-        expect(indexes.rows).toHaveLength(1);
-        expect(indexes.rows[0]?.indexname).toBe('idx_file_records_cache_identity');
+        // Migration 039 added the root_id cache-identity index; migration 040
+        // dropped the source_root_path (029) one.
+        expect(names).toContain('idx_file_records_root_identity');
+        expect(names).not.toContain('idx_file_records_cache_identity');
+        expect(names).not.toContain('idx_file_records_source_root_path');
       },
       MIGRATION_RUN_TIMEOUT_MS
     );

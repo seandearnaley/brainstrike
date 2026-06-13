@@ -57,7 +57,6 @@ interface RootFolderCacheMutableRecord {
   path: string;
   processedAt: string;
   size: number;
-  sourceRootPath: string;
   tokenCount: number;
   updatedAt: string;
 }
@@ -83,8 +82,8 @@ export interface PreparedCacheChange {
   name: string;
   relativePath: string;
   request: FileContentRequest;
+  rootId: string;
   size: number;
-  sourceRootPath: string;
 }
 
 interface FileBatchPreparation {
@@ -121,8 +120,8 @@ interface DiscoveredPreparedFile {
   name: string;
   relativePath: string;
   request: FileContentRequest;
+  rootId: string;
   size: number;
-  sourceRootPath: string;
 }
 
 const INACCESSIBLE_CONTENT_PREFIXES = ['File not accessible', 'File too large:'] as const;
@@ -192,7 +191,6 @@ async function toMutableRecord(
     name: change.name,
     path: change.relativePath,
     size: change.size,
-    sourceRootPath: change.sourceRootPath,
     updatedAt: now,
     processedAt: now,
     content,
@@ -204,7 +202,7 @@ async function toMutableRecord(
 async function collectDiscoveredPreparedFiles(args: {
   fileContents: Record<string, string>;
   metadataByKey: Map<string, FileBatchPreparation>;
-  rootPath: string;
+  rootId: string;
 }): Promise<Array<DiscoveredPreparedFile | null>> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
   for (const [compositeKey, content] of Object.entries(args.fileContents)) {
@@ -230,7 +228,7 @@ async function collectDiscoveredPreparedFiles(args: {
       // time. That is the SAFE direction (extra read, never a false skip) — do
       // not "fix" this by making the comparison tolerate the fallback value.
       size: metadata.size > 0 ? metadata.size : content.length,
-      sourceRootPath: args.rootPath,
+      rootId: args.rootId,
     });
   }
   return discoveredFiles;
@@ -248,10 +246,7 @@ function applyDiscoveredPreparedFiles(args: {
     if (!discovered) {
       continue;
     }
-    const identity = buildRootFolderCacheIdentityKey(
-      discovered.sourceRootPath,
-      discovered.relativePath
-    );
+    const identity = buildRootFolderCacheIdentityKey(discovered.rootId, discovered.relativePath);
     const existing = args.existingByIdentity.get(identity);
     if (!existing) {
       args.changes.push({
@@ -488,13 +483,13 @@ export function partitionPreparationsByStatCache<
 >(args: {
   existingByIdentity: ReadonlyMap<string, ManagedCacheEntryMetadata>;
   preparations: readonly T[];
-  rootPath: string;
+  rootId: string;
 }): { needsRead: T[]; skippedUnchanged: T[] } {
   const needsRead: T[] = [];
   const skippedUnchanged: T[] = [];
   for (const preparation of args.preparations) {
     const existing = args.existingByIdentity.get(
-      buildRootFolderCacheIdentityKey(args.rootPath, preparation.relativePath)
+      buildRootFolderCacheIdentityKey(args.rootId, preparation.relativePath)
     );
     if (isStatCacheHit(preparation, existing)) {
       skippedUnchanged.push(preparation);
@@ -529,6 +524,9 @@ export async function collectPreparedChangesInBatches(args: {
   fileSystemAdapter: FileSystemAdapter;
   onCurrentFile: (path: string | null) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
+  // rootPath drives path normalization / composite keys; rootId is the durable
+  // managed-cache dedup identity (since the source_root_path retirement).
+  rootId: string;
   rootPath: string;
 }): Promise<PreparedChangesSummary> {
   const {
@@ -539,6 +537,7 @@ export async function collectPreparedChangesInBatches(args: {
     fileSystemAdapter,
     onCurrentFile,
     qosPolicy,
+    rootId,
     rootPath,
   } = args;
   if (!qosPolicy.allowNewWork) {
@@ -554,7 +553,7 @@ export async function collectPreparedChangesInBatches(args: {
   const allPreparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
   const existingByIdentity = new Map(
     existingEntries.map((entry) => [
-      buildRootFolderCacheIdentityKey(entry.sourceRootPath, entry.relativePath),
+      buildRootFolderCacheIdentityKey(entry.rootId, entry.relativePath),
       entry,
     ])
   );
@@ -564,7 +563,7 @@ export async function collectPreparedChangesInBatches(args: {
   const { needsRead: preparations, skippedUnchanged } = partitionPreparationsByStatCache({
     existingByIdentity,
     preparations: allPreparations,
-    rootPath,
+    rootId,
   });
   if (skippedUnchanged.length > 0) {
     // One line per scan: without this, a stat-skipped file leaves no trace at
@@ -596,7 +595,7 @@ export async function collectPreparedChangesInBatches(args: {
     const discoveredFiles = await collectDiscoveredPreparedFiles({
       fileContents,
       metadataByKey,
-      rootPath,
+      rootId,
     });
     throwIfAborted(abortSignal);
     unchangedCount = applyDiscoveredPreparedFiles({
