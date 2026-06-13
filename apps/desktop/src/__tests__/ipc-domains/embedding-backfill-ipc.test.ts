@@ -37,7 +37,15 @@ vi.mock('electron', () => ({
 
 vi.mock('../../ipc-embedding-backfill', () => backfillMocks);
 
+// withCorruptionRecovery dynamically imports db-main in its catch path; stub it so an
+// errored backfill does not load the real module (and is classified as non-corruption).
+vi.mock('../../db-main', () => ({
+  handleRuntimeCorruption: vi.fn(),
+  isCorruptionError: vi.fn(() => false),
+}));
+
 import {
+  EMBEDDING_BACKFILL_CANCELED_MESSAGE,
   EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
   EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
@@ -110,5 +118,28 @@ describe('embedding backfill IPC domain', () => {
     unregister();
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL);
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+  });
+
+  it('resolves { canceled: true } for a deliberate cancellation instead of rejecting', async () => {
+    // A deliberate cancellation is a benign state. The handler must swallow it into a
+    // structured result so Electron's ipcMain.handle does not log "Error occurred in
+    // handler" on every background-indexing cancel.
+    backfillMocks.runDesktopEmbeddingBackfill.mockRejectedValueOnce(
+      new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE)
+    );
+
+    await expect(
+      handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)?.({} as IpcMainInvokeEvent, 'set-1')
+    ).resolves.toEqual({ canceled: true });
+  });
+
+  it('still rejects a real backfill failure so it surfaces loudly', async () => {
+    backfillMocks.runDesktopEmbeddingBackfill.mockRejectedValueOnce(
+      new Error('embedding host exploded')
+    );
+
+    await expect(
+      handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)?.({} as IpcMainInvokeEvent, 'set-1')
+    ).rejects.toThrow('embedding host exploded');
   });
 });

@@ -91,7 +91,9 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   enqueueBackfill: (
     embeddingSetId: string,
     options: { signal?: AbortSignal; source: 'background-indexing' }
-  ) => Promise<{ requestId: string }>;
+    // { canceled: true } when the backfill was deliberately canceled before it
+    // started (desktop main resolves this instead of rejecting the IPC call).
+  ) => Promise<{ requestId: string } | { canceled: true }>;
   ensureChunkingWorker: () => Promise<ChunkingWorkerPort>;
   ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
@@ -721,10 +723,20 @@ export class WorkspaceCollectionSyncService {
     };
 
     try {
-      const { requestId } = await this.deps.enqueueBackfill(args.collection.id, {
+      const enqueueResult = await this.deps.enqueueBackfill(args.collection.id, {
         signal: args.abortSignal,
         source: 'background-indexing',
       });
+      if ('canceled' in enqueueResult) {
+        // Desktop main now resolves a benign { canceled: true } for a deliberate
+        // cancellation instead of rejecting the IPC call. Re-raise it locally as an
+        // abort so the existing upstream cancellation handling (isAbortError →
+        // benign, never handleSyncFailure) is byte-identical to the prior
+        // reject-on-cancel behavior; only the spurious main-process handler-error
+        // log is gone.
+        throw createAbortError('Embedding backfill was canceled before it started.');
+      }
+      const { requestId } = enqueueResult;
       resolvedRequestId = requestId;
       this.activeBackfill = {
         embeddingSetId: args.collection.id,

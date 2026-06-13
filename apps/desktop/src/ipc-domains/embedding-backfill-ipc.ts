@@ -2,6 +2,7 @@ import type { DatabaseWorkScheduler } from '@brainstrike/db';
 import { ipcMain } from 'electron';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
+  EMBEDDING_BACKFILL_CANCELED_MESSAGE,
   EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
   EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
@@ -62,18 +63,32 @@ export function registerEmbeddingBackfillIpcHandlers({
   registry.registerInvoke(
     'embeddings',
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
-    async (event, embeddingSetId: unknown) =>
-      withCorruptionRecovery(
-        async () =>
-          await runDesktopEmbeddingBackfill({
-            databaseWorkScheduler: getDatabaseWorkScheduler(),
-            event,
-            flushPendingLiveUpdates,
-            isBackgrounded,
-            ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
-          }),
-        EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
-      )
+    async (event, embeddingSetId: unknown) => {
+      try {
+        return await withCorruptionRecovery(
+          async () =>
+            await runDesktopEmbeddingBackfill({
+              databaseWorkScheduler: getDatabaseWorkScheduler(),
+              event,
+              flushPendingLiveUpdates,
+              isBackgrounded,
+              ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
+            }),
+          EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
+        );
+      } catch (error) {
+        // A deliberate cancellation is a benign STATE, not a handler failure.
+        // runDesktopEmbeddingBackfill still throws it (its contract is unchanged)
+        // and already logs the cancellation at info level; here we resolve a
+        // structured { canceled: true } so Electron's ipcMain.handle does not
+        // surface it as "Error occurred in handler". Every other error — including
+        // corruption that survived recovery — still rejects and is logged loudly.
+        if (error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE) {
+          return { canceled: true } as const;
+        }
+        throw error;
+      }
+    }
   );
 
   registry.registerInvoke('embeddings', EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL, async () =>
