@@ -10,6 +10,7 @@ import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brain
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreSelector,
+  useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
@@ -377,7 +378,8 @@ export function AssistantUiPanelWrapper({
   ]);
 
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
-  const rootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
+  // Focused root handle — reducer-sourced via the FileSystemProvider context.
+  const { rootDirectoryHandle } = useFileSystem();
   const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
   const removeMultipleSelectedFiles = useFileExplorerStoreSelector(

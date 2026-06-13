@@ -172,8 +172,6 @@ describe('useFileExplorer (context)', () => {
       evictOldFileContents: vi.fn(),
       setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
-      rootDirectoryHandle: null,
-      setRootDirectoryHandle: vi.fn(),
       // Selection model actions (BST-142)
       selectionModel: {
         mode: 'explicit' as const,
@@ -551,7 +549,6 @@ describe('useFileExplorer (context)', () => {
 
       storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
       storeState.expandedDirectoryPaths = new Set(['/src']);
-      storeState.rootDirectoryHandle = null;
 
       vi.useFakeTimers();
 

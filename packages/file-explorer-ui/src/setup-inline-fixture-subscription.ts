@@ -24,6 +24,7 @@ import {
 import type { FileExplorerState } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { StoreApi } from 'zustand';
+import { dispatchInjectRootHandle } from './inject-root-handle-event';
 import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
 
 const logger = createLogger('InlineFixtureSubscription');
@@ -64,6 +65,11 @@ export function setupInlineFixtureSubscription(
   const adapter = fileSystemAdapter as FixtureCapableFileSystemAdapter;
   let isProcessing = false;
   let suppressNextSubscription = false;
+  // The handle's render source of truth is the reducer (reached via the inject
+  // event below). This local mirrors the last-DISPATCHED handle so the
+  // synchronous early-return can answer while a load is in flight; E2E awaits the
+  // returned Promise for the committed handle.
+  let lastInjectedHandle: DirectoryHandle | null = null;
 
   const applyFixtureState = async (
     enabled: boolean,
@@ -71,7 +77,7 @@ export function setupInlineFixtureSubscription(
     options?: FixtureLoadOptions
   ): Promise<DirectoryHandle | null> => {
     if (isProcessing) {
-      return enabled ? store.getState().rootDirectoryHandle : null;
+      return enabled ? lastInjectedHandle : null;
     }
     isProcessing = true;
 
@@ -79,13 +85,15 @@ export function setupInlineFixtureSubscription(
       if (enabled) {
         adapter.setInlineFixtureOptions?.(options);
         const handle = await adapter.loadInlineFixture(fixture);
-        store.getState().setRootDirectoryHandle(handle);
+        lastInjectedHandle = handle;
+        dispatchInjectRootHandle(handle);
         logger.info('Inline fixture loaded');
         return handle;
       }
       await adapter.clearInlineFixture();
       adapter.setInlineFixtureOptions?.();
-      store.getState().setRootDirectoryHandle(null);
+      lastInjectedHandle = null;
+      dispatchInjectRootHandle(null);
       logger.info('Inline fixture cleared');
       return null;
     } catch (error) {

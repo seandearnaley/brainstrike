@@ -476,10 +476,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
         });
         return;
       }
-      if (getRootFolderId(currentStoreState.rootDirectoryHandle)) {
-        logger.debug('Skipping stale clearing - root directory handle restored before timer fired');
-        return;
-      }
       const recoverableFolderId = currentStoreState.currentFolderId;
       if (recoverableFolderId && currentStoreState.folderStates[recoverableFolderId]) {
         logger.debug('Skipping stale clearing - persisted folder state can be restored', {

@@ -49,6 +49,7 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
+  useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
 }));
 
 describe('ThreadsPanel', () => {

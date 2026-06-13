@@ -4,6 +4,7 @@ import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 
+import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
 import { setupInlineFixtureSubscription } from '../setup-inline-fixture-subscription';
 
 const loggerMocks = vi.hoisted(() => ({
@@ -51,7 +52,6 @@ function createFixtureStore(initialEnabled: boolean) {
     expandedDirectoryPaths: new Set<string>(),
     selectionModel: createEmptySelectionModel(),
     devInlineFixtureEnabled: initialEnabled,
-    setRootDirectoryHandle: (handle) => set({ rootDirectoryHandle: handle }),
     setDevInlineFixtureEnabled: (value) => set({ devInlineFixtureEnabled: value }),
     setCurrentFolderId: vi.fn(),
     hydrateFolderState: vi.fn(),
@@ -208,6 +208,14 @@ describe('setup-inline-fixture-subscription', () => {
     });
     const store = createFixtureStore(false);
 
+    // The subscription now dispatches brainstrike:inject-root-handle (the reducer
+    // is the render source of truth); it no longer writes the store handle.
+    const injected: InjectRootHandleDetail['handle'][] = [];
+    const onInject = (e: Event): void => {
+      injected.push((e as CustomEvent<InjectRootHandleDetail>).detail.handle);
+    };
+    window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
+
     const unsubscribe = setupInlineFixtureSubscription(store, adapter);
     window.__BRAINSTRIKE_LOAD_FIXTURE__?.({
       name: 'custom-fixture',
@@ -221,7 +229,7 @@ describe('setup-inline-fixture-subscription', () => {
       name: 'custom-fixture',
       tree: { 'hello.txt': 'world' },
     });
-    expect(store.getState().rootDirectoryHandle).toMatchObject({ path: '/fixture' });
+    expect(injected.at(-1)).toMatchObject({ path: '/fixture' });
     expect(loggerMocks.info).toHaveBeenCalledWith('Inline fixture loaded');
 
     window.__BRAINSTRIKE_CLEAR_FIXTURE__?.();
@@ -229,9 +237,10 @@ describe('setup-inline-fixture-subscription', () => {
     await Promise.resolve();
 
     expect(clearInlineFixture).toHaveBeenCalledTimes(1);
-    expect(store.getState().rootDirectoryHandle).toBeNull();
+    expect(injected.at(-1)).toBeNull();
     expect(loggerMocks.info).toHaveBeenCalledWith('Inline fixture cleared');
 
+    window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
     unsubscribe();
     expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeUndefined();
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();

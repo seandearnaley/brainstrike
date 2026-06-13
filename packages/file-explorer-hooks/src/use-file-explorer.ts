@@ -29,6 +29,11 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   const disabledExcludeFilters = useFileExplorerStore((s) => s.disabledExcludeFilters);
   const useRegex = useFileExplorerStore((s) => s.useRegex);
   const setCurrentFolderId = useFileExplorerStore((s) => s.setCurrentFolderId);
+  // Store-sync actions are required by useFileSystem (no silent no-ops). This
+  // legacy single-root hook wires them from the store, same as setCurrentFolderId.
+  const addActiveRoot = useFileExplorerStore((s) => s.addActiveRoot);
+  const removeActiveRoot = useFileExplorerStore((s) => s.removeActiveRoot);
+  const setActiveRoots = useFileExplorerStore((s) => s.setActiveRoots);
 
   // Compute active filters by excluding disabled ones
   const activeIncludeFilters = useMemo(
@@ -42,6 +47,9 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
     setCurrentFolderId,
+    addActiveRoot,
+    removeActiveRoot,
+    setActiveRoots,
   });
   const {
     fileTree: unsafeFileTree,

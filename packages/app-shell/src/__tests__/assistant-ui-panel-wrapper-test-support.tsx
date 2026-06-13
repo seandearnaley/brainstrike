@@ -465,6 +465,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
 
   return {
     useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
+    useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
     useFileExplorerStoreContext: () => store,
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),

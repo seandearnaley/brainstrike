@@ -41,7 +41,6 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
     quickFilter: '',
-    rootDirectoryHandle: null,
     // Ephemeral access loading state (not persisted)
     isAccessLoading: false,
     // Multi-root (Phase 4) initial state
@@ -62,9 +61,6 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     },
     clearQuickFilter: () => {
       set({ quickFilter: '' });
-    },
-    setRootDirectoryHandle: (handle: FileExplorerState['rootDirectoryHandle']) => {
-      set({ rootDirectoryHandle: handle });
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });

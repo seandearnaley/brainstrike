@@ -390,9 +390,6 @@ export interface FileExplorerState extends FileExplorerData {
   removeActiveRoot: (rootId: string) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string, path: string) => void;
-
-  // Ephemeral handle for current root directory. Not serialized.
-  rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
   /**
    * Replace both activeRootIds and rootDescriptors atomically.
    * activeRootIds = roots.map(r => r.rootId) (ordered).
@@ -445,7 +442,6 @@ export interface FileExplorerState extends FileExplorerData {
 
   // UI state actions (ephemeral + lightweight persisted)
   setQuickFilter: (value: string) => void;
-  setRootDirectoryHandle: (handle: import('./file-system').DirectoryHandle | null) => void;
 
   // File selection actions
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;

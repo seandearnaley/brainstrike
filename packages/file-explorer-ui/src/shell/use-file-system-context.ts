@@ -14,6 +14,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
+import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -115,8 +116,6 @@ export function useFileSystemInstance() {
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
   const hydrateFolderState = useFileExplorerStoreSelector((s) => s.hydrateFolderState);
-  const storedRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
-  const setRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.setRootDirectoryHandle);
   const setStoreIsAccessLoading = useFileExplorerStoreSelector((s) => s.setIsAccessLoading);
   // Multi-root store actions: without these the boot restore never populates
   // activeRootIds and focus-by-recency always falls back to handles[0].
@@ -225,7 +224,6 @@ export function useFileSystemInstance() {
   const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
     const handle = await selectDirectoryWithErrorMapping(coreApi);
     if (handle) {
-      setRootDirectoryHandle(handle);
       // v5: currentFolderId is now a RootId UUID (set by coreApi.selectRootDirectory
       // → addRootDirectory → updateCurrentFolderId(rootId)).  Read it from the store
       // rather than using handle.path so the rehydration key matches the store key.
@@ -239,7 +237,6 @@ export function useFileSystemInstance() {
 
   const clearRootDirectory = () => {
     coreApi.clearRootDirectory();
-    setRootDirectoryHandle(null);
   };
 
   /**
@@ -274,14 +271,10 @@ export function useFileSystemInstance() {
         return;
       }
     }
-    const nextFocused = await coreApi.removeRootDirectory(rootId);
-    // Keep the store's handle copy coherent with the core hook (the store
-    // value is the render source of truth for rootDirectoryHandle below).
-    // NOTE: the core hook has already shifted focus internally, so the
-    // updateCurrentFolderId this setter dispatches is intentionally redundant
-    // — the outgoing folder already equals nextFocused, making the second
-    // focus-write an idempotent no-op. Only the handle copy actually changes.
-    setRootDirectoryHandle(nextFocused);
+    // The core hook performs the snapshot → focus-shift → store-purge sequence
+    // internally; the reducer is the sole handle owner, so there is no store
+    // handle to sync here (B3: the redundant second focus-write is dropped).
+    await coreApi.removeRootDirectory(rootId);
     // Token cache: best-effort — a failure must not block the disconnect.
     if (tokenCacheContext) {
       try {
@@ -303,7 +296,6 @@ export function useFileSystemInstance() {
     await coreApi.registerRestoredHandles(handles);
     const first = handles[0];
     if (first) {
-      setRootDirectoryHandle(first);
       // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
       const rootId = store.getState().currentFolderId;
       if (rootId) {
@@ -318,7 +310,6 @@ export function useFileSystemInstance() {
    */
   const setRootHandle = (handle: DirectoryHandle | null) => {
     coreApi.setRootDirectoryHandle(handle);
-    setRootDirectoryHandle(handle);
     if (handle) {
       // v5: prefer the RootId UUID from the store after coreApi has updated currentFolderId.
       // Fall back to handle.path for legacy paths that still write the path as currentFolderId.
@@ -327,22 +318,40 @@ export function useFileSystemInstance() {
     }
   };
 
-  // Sync core hook's restoration to the store (desktop auto-restore)
-  // Initial one-way sync only: if the core restored a handle and the store is empty.
-  // biome-ignore lint/plugin: One-time sync from core hook to store - controlled state restoration
+  // Non-React fixture-injection bridge: the inline-fixture subscription runs
+  // outside React and dispatches brainstrike:inject-root-handle (it cannot reach
+  // the React-only reducer). Route it through the same reducer path a real
+  // set-root uses. Refs keep the listener subscribed ONCE — setRootHandle and
+  // clearRootDirectory are recreated every render.
+  const setRootHandleRef = useRef(setRootHandle);
+  setRootHandleRef.current = setRootHandle;
+  const clearRootDirectoryRef = useRef(clearRootDirectory);
+  clearRootDirectoryRef.current = clearRootDirectory;
+  useEffect(() => {
+    const onInject = (event: Event): void => {
+      const detail = (event as CustomEvent<InjectRootHandleDetail>).detail;
+      if (detail?.handle) {
+        setRootHandleRef.current(detail.handle);
+      } else {
+        clearRootDirectoryRef.current();
+      }
+    };
+    window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
+    return () => window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
+  }, []);
+
+  // On auto-restore (desktop) the core hook restores a handle and sets
+  // currentFolderId; rehydrate the restored folder's persisted selection/expansion
+  // once. The reducer is the sole handle owner — there is no store handle to sync.
+  const hasRehydratedRestoredRootRef = useRef(false);
+  // biome-ignore lint/plugin: one-time rehydrate of the auto-restored root's folder state
   useLayoutEffect(() => {
-    if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
-      setRootDirectoryHandle(coreApi.rootDirectoryHandle);
-      // v5: use the RootId UUID from the store after coreApi's restore has set currentFolderId.
+    if (!hasRehydratedRestoredRootRef.current && coreApi.rootDirectoryHandle) {
+      hasRehydratedRestoredRootRef.current = true;
       const rootId = store.getState().currentFolderId ?? coreApi.rootDirectoryHandle.path;
       rehydrateCurrentFolderStateIfNeeded(rootId);
     }
-  }, [
-    storedRootDirectoryHandle,
-    coreApi.rootDirectoryHandle,
-    setRootDirectoryHandle,
-    rehydrateCurrentFolderStateIfNeeded,
-  ]);
+  }, [coreApi.rootDirectoryHandle, rehydrateCurrentFolderStateIfNeeded, store]);
 
   // CRITICAL: Sync isAccessLoading from core hook to store.
   // The stale state clearing effect in use-file-explorer-context checks the STORE's
@@ -411,7 +420,7 @@ export function useFileSystemInstance() {
   // the actual data values change
   return useMemo(
     () => ({
-      rootDirectoryHandle: storedRootDirectoryHandle ?? coreApi.rootDirectoryHandle,
+      rootDirectoryHandle: coreApi.rootDirectoryHandle,
       /** All active root handles (multi-root, Phase 4+). */
       rootDirectoryHandles: coreApi.rootDirectoryHandles,
       isAccessLoading: coreApi.isAccessLoading,
@@ -437,7 +446,6 @@ export function useFileSystemInstance() {
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope
     [
-      storedRootDirectoryHandle,
       coreApi.rootDirectoryHandle,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
