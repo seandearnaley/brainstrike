@@ -121,6 +121,15 @@ export interface DirectoryHandle {
   name: string;
   path: string;
   platform: 'web' | 'electron';
+  /**
+   * Durable RootId, stamped when the handle becomes a registered root (storage
+   * v5). Makes the handle SELF-IDENTIFYING so two same-named roots don't
+   * collide: on web `path` is only the directory name (the FSA API hides the
+   * absolute path), so two folders both named "project" share a path. Identity
+   * resolution prefers this over `path`. Absent for legacy single-root handles
+   * (the `setRoot`/`restoreLastFolder` path), where `path` is unique anyway.
+   */
+  rootId?: RootId;
 }
 
 /**

@@ -60,7 +60,7 @@ type FileSystemAction =
   | { type: 'setRoot'; handle: DirectoryHandle | null }
   | { type: 'setAccessLoading'; loading: boolean }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
-  | { type: 'removeHandle'; path: string }
+  | { type: 'removeHandle'; rootId: string }
   | {
       type: 'setAllHandles';
       handles: DirectoryHandle[];
@@ -76,17 +76,21 @@ function getCanonicalFolderId(handle: DirectoryHandle): string {
 }
 
 /**
- * Resolve the handle path for a rootId. Legacy roots that never got a
- * rootIdByPath registration use their path AS the id (the getRootFolderId
- * fallback), so the rootId doubles as the path.
+ * Canonical identity for a root handle. Prefers the stamped durable RootId so
+ * two same-named web roots (identical `path` = directory name) stay distinct;
+ * falls back to `path` for legacy single-root handles that were never stamped.
  */
-function resolvePathForRootId(rootIdByPath: ReadonlyMap<string, string>, rootId: string): string {
-  for (const [handlePath, mappedRootId] of rootIdByPath) {
-    if (mappedRootId === rootId) {
-      return handlePath;
-    }
-  }
-  return rootId;
+function rootKeyOf(handle: DirectoryHandle): string {
+  return handle.rootId ?? handle.path;
+}
+
+/**
+ * Stamp the durable RootId onto a handle so it self-identifies downstream
+ * (getRootFolderId, section keys, focus/remove). Returns the handle unchanged
+ * when no rootId is supplied (legacy single-root path).
+ */
+function stampRootId(handle: DirectoryHandle, rootId: string | undefined): DirectoryHandle {
+  return rootId ? { ...handle, rootId } : handle;
 }
 
 /**
@@ -126,12 +130,21 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
       // INVARIANT: rootDirectoryHandle must always be a member of
       // rootDirectoryHandles. Non-null setRoot therefore uses
       // addOrFocusHandle semantics: append when missing, focus always.
+      // This path receives UNSTAMPED handles (legacy single-root setRoot, and
+      // the restore modal which constructs a raw {path,name,kind,platform}).
+      // Match an already-listed STAMPED handle by path too, or rootKeyOf (=path
+      // for the incoming) would never equal the stored UUID and we'd append a
+      // duplicate of an existing root. When matched, focus the STORED handle so
+      // its stamped identity is preserved.
       const handle = action.handle;
-      const alreadyListed = state.rootDirectoryHandles.some((h) => h.path === handle.path);
+      const key = rootKeyOf(handle);
+      const existing = state.rootDirectoryHandles.find(
+        (h) => rootKeyOf(h) === key || h.path === handle.path
+      );
       return {
         ...state,
-        rootDirectoryHandle: handle,
-        rootDirectoryHandles: alreadyListed
+        rootDirectoryHandle: existing ?? handle,
+        rootDirectoryHandles: existing
           ? state.rootDirectoryHandles
           : [...state.rootDirectoryHandles, handle],
       };
@@ -139,25 +152,38 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
     case 'setAccessLoading':
       return { ...state, isAccessLoading: action.loading };
     case 'addOrFocusHandle': {
-      const exists = state.rootDirectoryHandles.some((h) => h.path === action.handle.path);
+      // Stamp the rootId so the stored handle self-identifies — keying by path
+      // would collapse two same-named web roots into one entry.
+      const stamped = stampRootId(action.handle, action.rootId);
+      const key = rootKeyOf(stamped);
+      const exists = state.rootDirectoryHandles.some((h) => rootKeyOf(h) === key);
       const newHandles = exists
-        ? state.rootDirectoryHandles
-        : [...state.rootDirectoryHandles, action.handle];
+        ? // Replace in place so a previously-unstamped entry picks up the stamp.
+          state.rootDirectoryHandles.map((h) => (rootKeyOf(h) === key ? stamped : h))
+        : [...state.rootDirectoryHandles, stamped];
       const newRootIdByPath = action.rootId
         ? new Map([...state.rootIdByPath, [action.handle.path, action.rootId]])
         : state.rootIdByPath;
       return {
         ...state,
-        rootDirectoryHandle: action.handle,
+        rootDirectoryHandle: stamped,
         rootDirectoryHandles: newHandles,
         rootIdByPath: newRootIdByPath,
       };
     }
     case 'removeHandle': {
-      const remaining = state.rootDirectoryHandles.filter((h) => h.path !== action.path);
+      // Match by canonical identity (rootId), never by path — same-named roots
+      // share a path, so a path filter would remove the wrong one.
+      const remaining = state.rootDirectoryHandles.filter((h) => rootKeyOf(h) !== action.rootId);
       const newRootIdByPath = new Map(state.rootIdByPath);
-      newRootIdByPath.delete(action.path);
-      const wasFocused = state.rootDirectoryHandle?.path === action.path;
+      for (const [path, mappedRootId] of state.rootIdByPath) {
+        if (mappedRootId === action.rootId) {
+          newRootIdByPath.delete(path);
+        }
+      }
+      const wasFocused =
+        state.rootDirectoryHandle !== null &&
+        rootKeyOf(state.rootDirectoryHandle) === action.rootId;
       return {
         ...state,
         // Focus shift: when the removed root was focused, focus the first
@@ -230,18 +256,23 @@ async function runMultiRootRestore({
       return;
     }
 
-    const handles = granted.map((d) => d.handle);
+    // Stamp each handle with its durable RootId so it self-identifies (two
+    // same-named web roots otherwise share a path and collapse into one).
+    const handles = granted.map((d) => stampRootId(d.handle, d.rootId));
     const newRootIdByPath = new Map<string, string>(granted.map((d) => [d.handle.path, d.rootId]));
 
-    // Focus: first handle whose path appears in folderAccessOrder; else first handle.
-    // Accessed via ref to avoid making getFolderAccessOrder a reactive dep.
+    // Focus: first handle whose identity appears in folderAccessOrder; else
+    // first handle. folderAccessOrder stores currentFolderId — the RootId in
+    // v5, so match by rootKey first. The path fallback covers legacy (pre-v5)
+    // path entries; those predate same-named-root support, so they can't
+    // collide. Accessed via ref to avoid a reactive dep on getFolderAccessOrder.
     const accessOrder = getFolderAccessOrderRef.current?.() ?? [];
     const focused =
-      accessOrder.reduce<DirectoryHandle | null>((acc, p) => {
+      accessOrder.reduce<DirectoryHandle | null>((acc, id) => {
         if (acc) {
           return acc;
         }
-        return handles.find((h) => h.path === p) ?? null;
+        return handles.find((h) => rootKeyOf(h) === id || h.path === id) ?? null;
       }, null) ??
       handles[0] ??
       null;
@@ -249,9 +280,8 @@ async function runMultiRootRestore({
     dispatch({ type: 'setAllHandles', handles, rootIdByPath: newRootIdByPath, focused });
 
     if (focused) {
-      const focusedPath = getCanonicalFolderId(focused);
       // Prefer the durable RootId UUID when available (storage v5).
-      const focusedRootId = newRootIdByPath.get(focusedPath) ?? focusedPath;
+      const focusedRootId = rootKeyOf(focused);
       if (getPersistedCurrentFolderId?.() !== focusedRootId) {
         updateCurrentFolderId(focusedRootId);
       }
@@ -392,18 +422,17 @@ export function useFileSystem({
    */
   const removeRootDirectory = useCallback(
     async (rootId: string): Promise<DirectoryHandle | null> => {
-      const removedPath = resolvePathForRootId(rootIdByPath, rootId);
-
       // 1) Platform persistence, best-effort: a failure must not block the UI
       //    removal — the UI state wins; the stale stored entry is re-pruned on
       //    the next boot restore.
       await forgetRootInAdapter(fileSystemAdapter, rootId);
 
-      // 2) Remove the handle (+ the path→rootId entry). The reducer shifts
-      //    handle focus to the first remaining root when needed.
-      const remaining = rootDirectoryHandles.filter((h) => h.path !== removedPath);
-      const wasFocused = rootDirectoryHandle?.path === removedPath;
-      dispatch({ type: 'removeHandle', path: removedPath });
+      // 2) Remove the handle by canonical identity (rootId), never by path —
+      //    two same-named roots share a path, so a path match removes the wrong
+      //    one. The reducer shifts handle focus to the first remaining root.
+      const remaining = rootDirectoryHandles.filter((h) => rootKeyOf(h) !== rootId);
+      const wasFocused = rootDirectoryHandle !== null && rootKeyOf(rootDirectoryHandle) === rootId;
+      dispatch({ type: 'removeHandle', rootId });
 
       const nextFocused = wasFocused ? (remaining[0] ?? null) : rootDirectoryHandle;
 
@@ -412,9 +441,7 @@ export function useFileSystem({
       //    removeActiveRoot below then purges that snapshot. The reverse order
       //    would resurrect the removed root's folder state.
       if (wasFocused) {
-        updateCurrentFolderId(
-          nextFocused ? (rootIdByPath.get(nextFocused.path) ?? nextFocused.path) : null
-        );
+        updateCurrentFolderId(nextFocused ? rootKeyOf(nextFocused) : null);
       }
 
       // 4) Atomic store purge.
@@ -428,7 +455,6 @@ export function useFileSystem({
       fileSystemAdapter,
       rootDirectoryHandles,
       rootDirectoryHandle,
-      rootIdByPath,
       updateCurrentFolderId,
       removeActiveRoot,
     ]
@@ -444,24 +470,26 @@ export function useFileSystem({
   );
 
   /**
-   * Switch focus to an already-loaded root by path.
-   * Keeps the path PARAMETER (callers have handles/paths) but resolves to the
-   * durable RootId UUID before writing to the store (storage v5 contract).
-   * No-op if the path is not found in the current handles list.
+   * Switch focus to an already-loaded root by its canonical identity.
+   * Resolves by rootKey (the durable RootId, stamped onto the handle) first so
+   * same-named roots are disambiguated; falls back to a raw path match only for
+   * legacy single-root handles where the path is unique. Callers in multi-root
+   * surfaces MUST pass the RootId, not the (colliding) path. No-op if unknown.
    */
   const setFocusedRoot = useCallback(
-    (path: string) => {
-      const match = rootDirectoryHandles.find((h) => h.path === path);
+    (identity: string) => {
+      const match =
+        rootDirectoryHandles.find((h) => rootKeyOf(h) === identity) ??
+        rootDirectoryHandles.find((h) => h.path === identity);
       if (!match) {
-        logger.debug('setFocusedRoot: unknown path, ignoring', { path });
+        logger.debug('setFocusedRoot: unknown root identity, ignoring', { identity });
         return;
       }
       dispatch({ type: 'addOrFocusHandle', handle: match });
       // Write rootId (not path) to the store — folderStates keys by RootId (storage v5).
-      const rootId = rootIdByPath.get(path) ?? path;
-      updateCurrentFolderId(rootId);
+      updateCurrentFolderId(rootKeyOf(match));
     },
-    [rootDirectoryHandles, rootIdByPath, updateCurrentFolderId]
+    [rootDirectoryHandles, updateCurrentFolderId]
   );
 
   /**
@@ -493,8 +521,15 @@ export function useFileSystem({
         }
       }
 
+      // Remember the rootId assigned to the FIRST handle so the re-focus below
+      // reuses it. The loop mints a fresh crypto.randomUUID() for handles the
+      // adapter map doesn't cover; recomputing the first id from the path would
+      // diverge from that random id, so the re-focus would miss the stamped
+      // entry and append an unstamped duplicate.
+      let firstRootId: string | null = null;
       for (const handle of handles) {
         const rootId = adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
+        firstRootId ??= rootId;
         dispatch({ type: 'addOrFocusHandle', handle, rootId });
         if (typeof addActiveRoot === 'function') {
           addActiveRoot({
@@ -505,12 +540,12 @@ export function useFileSystem({
         }
       }
 
-      // The registration loop leaves the LAST handle focused; re-focus the first.
+      // The registration loop leaves the LAST handle focused; re-focus the first
+      // by its already-assigned rootId so the dedupe matches the stamped entry.
       const first = handles[0];
-      if (first) {
-        dispatch({ type: 'addOrFocusHandle', handle: first });
+      if (first && firstRootId !== null) {
+        dispatch({ type: 'addOrFocusHandle', handle: first, rootId: firstRootId });
         // Write rootId (not path) to the store — folderStates keys by RootId (storage v5).
-        const firstRootId = adapterRootIdByPath.get(first.path) ?? getCanonicalFolderId(first);
         updateCurrentFolderId(firstRootId);
       }
     },
@@ -531,10 +566,13 @@ export function useFileSystem({
     (handle: DirectoryHandle | null) => {
       dispatch({ type: 'setRoot', handle });
       if (handle) {
-        // Storage v5: write the durable RootId when the handle is already
-        // registered. The path fallback covers handles set BEFORE registration
-        // (no id yet) — registerRestoredHandles corrects the id afterwards.
-        updateCurrentFolderId(rootIdByPath.get(handle.path) ?? getCanonicalFolderId(handle));
+        // Storage v5: write the durable RootId when known — prefer the stamped
+        // handle.rootId, then the path→rootId map, then the path. The fallback
+        // covers handles set BEFORE registration (no id yet);
+        // registerRestoredHandles corrects the id afterwards.
+        updateCurrentFolderId(
+          handle.rootId ?? rootIdByPath.get(handle.path) ?? getCanonicalFolderId(handle)
+        );
       } else {
         updateCurrentFolderId(null);
       }

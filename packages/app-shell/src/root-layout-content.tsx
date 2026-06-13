@@ -93,7 +93,11 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
-  const rootId = rootDirectoryHandle ? rootIdByPath?.get(rootDirectoryHandle.path) : undefined;
+  // Prefer the stamped handle.rootId — the path→id map collides for same-named
+  // web roots (it keeps only the last), so it cannot identify the focused one.
+  const rootId = rootDirectoryHandle
+    ? (rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path))
+    : undefined;
   const db = usePGliteDatabase();
   // Cascade-delete seam (Phase 6): file-explorer-ui doesn't own the db, so
   // app-shell injects the deletion. Migration 039: file_records.root_id →
