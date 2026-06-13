@@ -56,7 +56,12 @@ describe('MarkdownText runtime integration', () => {
   it('renders reasoning parts through the real assistant-ui text hook', async () => {
     render(<AssistantReasoningHarness />);
 
-    expect(await screen.findByText('Plan a short reply.')).toBeInTheDocument();
+    // The markdown renderer behind AssistantMessageText is lazy-loaded; on a
+    // loaded CI runner the dynamic import can exceed findByText's default 1s
+    // deadline while the Suspense "Loading message…" placeholder is shown.
+    expect(
+      await screen.findByText('Plan a short reply.', undefined, { timeout: 10_000 })
+    ).toBeInTheDocument();
     expect(screen.getByText('Visible answer.')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
   });

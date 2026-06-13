@@ -136,8 +136,19 @@ export function useRootsReconciliation({
 
   // The settling promise resolves with the path→dbRootId map on success, or an
   // empty map on the already-logged error path — it NEVER rejects or hangs.
-  // Initialized once; the `resolve` function is called exactly once to settle it.
-  const settlingRef = useRef<SettlingMapPromise>(createSettlingMapPromise());
+  // Lazily initialized so renders after the first don't allocate a throwaway
+  // promise; the `resolve` function is called exactly once to settle it.
+  const settlingRef = useRef<SettlingMapPromise | null>(null);
+  if (settlingRef.current === null) {
+    settlingRef.current = createSettlingMapPromise();
+  }
+
+  // True when the boot promise was settled empty because the adapter had no
+  // restoreRoots. If a later adapter identity DOES have it, the effect re-runs
+  // and must re-key the settling promise — promises settle once, so reusing the
+  // already-empty one would leave the real mapping only eventually visible via
+  // pathMapRef instead of deterministically awaited.
+  const settledWithoutRestoreRef = useRef(false);
 
   // The growable path→dbRootId map. Seeded by the boot reconcile result and
   // extended by registerRoot, so later imports see mid-session roots
@@ -160,17 +171,33 @@ export function useRootsReconciliation({
     if (hasRunRef.current) {
       return;
     }
+    let settling = settlingRef.current;
+    if (settling === null) {
+      // Unreachable (the render phase always initializes the ref); recreate
+      // rather than return so the "always settles" contract can't be broken.
+      settling = createSettlingMapPromise();
+      settlingRef.current = settling;
+    }
     if (!adapter.restoreRoots) {
       // Reconciliation can never run on this adapter — settle with an empty
       // map so resolveDbRootId waiters don't hang (adapters without
       // restoreRoots also have no sync consumers needing real ids).
       // hasRunRef is deliberately NOT set here: if the adapter is later
       // replaced by one WITH restoreRoots, the boot reconcile still runs and
-      // seeds pathMapRef. The promise is already settled (resolve is a no-op
-      // the second time), but resolveDbRootId reads through pathMapRef, so
-      // the late mappings remain fully observable.
-      settlingRef.current.resolve(new Map());
+      // seeds pathMapRef.
+      settledWithoutRestoreRef.current = true;
+      settling.resolve(new Map());
       return;
+    }
+    if (settledWithoutRestoreRef.current) {
+      // A previous restoreRoots-less adapter settled the boot promise empty.
+      // Start a fresh settling promise for this capable adapter so waiters
+      // deterministically await its real mapping (pathMapRef read-through
+      // would only make it eventually visible); resolveDbRootId reads the
+      // ref at call time, so new waiters pick up the fresh promise.
+      settling = createSettlingMapPromise();
+      settlingRef.current = settling;
+      settledWithoutRestoreRef.current = false;
     }
     if (!db) {
       // Deliberately NOT settled: db is not ready YET and the effect re-runs
@@ -183,7 +210,7 @@ export function useRootsReconciliation({
     hasRunRef.current = true;
 
     const platformKind = adapter.platform === 'electron' ? 'path' : 'fsa';
-    const { resolve } = settlingRef.current;
+    const { resolve } = settling;
 
     void adapter
       .restoreRoots()
@@ -216,31 +243,44 @@ export function useRootsReconciliation({
       });
   }, [adapter, db]);
 
-  const registerRoot = useCallback(async (descriptor: RootDescriptor): Promise<void> => {
-    const run = async (): Promise<void> => {
-      // Ordering: the boot reconcile wins races — never write before it settles.
-      await settlingRef.current.promise;
-      await performRootRegistration({
-        adapter: adapterRef.current,
-        db: dbRef.current,
-        descriptor,
-        pathMap: pathMapRef.current,
-      });
-    };
-    // Serialize registrations so two adds for the same path cannot interleave
-    // their SELECT/INSERT and double-insert. performRootRegistration never
-    // rejects, so the chain cannot break.
-    const chained = pendingRegistrationsRef.current.then(run);
-    pendingRegistrationsRef.current = chained;
-    return await chained;
-    // Intentionally empty — the callback must be identity-stable so the
-    // provider's registration effect does not loop on it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Reads the settling ref at call time (the effect may have re-keyed it when
+  // a restoreRoots-capable adapter replaced an incapable one). The null case
+  // is unreachable — the render phase initializes the ref before any consumer
+  // can obtain these callbacks — and throwing keeps the "always settles"
+  // contract honest instead of hanging on a fresh promise.
+  const awaitBootSettle = useCallback(async (): Promise<void> => {
+    const settling = settlingRef.current;
+    if (settling === null) {
+      throw new Error('roots reconciliation awaited before settling promise initialization');
+    }
+    await settling.promise;
   }, []);
+
+  const registerRoot = useCallback(
+    async (descriptor: RootDescriptor): Promise<void> => {
+      const run = async (): Promise<void> => {
+        // Ordering: the boot reconcile wins races — never write before it settles.
+        await awaitBootSettle();
+        await performRootRegistration({
+          adapter: adapterRef.current,
+          db: dbRef.current,
+          descriptor,
+          pathMap: pathMapRef.current,
+        });
+      };
+      // Serialize registrations so two adds for the same path cannot interleave
+      // their SELECT/INSERT and double-insert. performRootRegistration never
+      // rejects, so the chain cannot break.
+      const chained = pendingRegistrationsRef.current.then(run);
+      pendingRegistrationsRef.current = chained;
+      return await chained;
+    },
+    [awaitBootSettle]
+  );
 
   const resolveDbRootId = useCallback(
     async (rootPath: string): Promise<string | null> => {
-      await settlingRef.current.promise;
+      await awaitBootSettle();
       // Mid-session registrations enqueued before this call must be visible:
       // a sync pass triggered by the same Add Folder commit would otherwise
       // race the INSERT and write root_id = NULL. The chain only grows
@@ -253,10 +293,7 @@ export function useRootsReconciliation({
       }
       return dbRootId;
     },
-    // Intentionally empty — the callback must be identity-stable so the service
-    // useMemo is not reconstructed when the mapping resolves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [awaitBootSettle]
   );
 
   return { registerRoot, resolveDbRootId };

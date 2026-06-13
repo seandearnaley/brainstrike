@@ -28,6 +28,23 @@ describe('assistant UI panel architecture', () => {
     );
   });
 
+  it('mounts a visible error block on assistant messages', () => {
+    // Transport/init failures reject the run with no message parts; without
+    // this block they render as an EMPTY assistant bubble and the failure is
+    // invisible (the "instant empty reply" bug).
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    expect(source).toContain("from './assistant-message-error'");
+
+    const assistantMessageStart = source.indexOf('const AssistantMessage: FC');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar: FC');
+    const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
+    expect(assistantMessageSource).toContain('<AssistantMessageError />');
+
+    expect(readSource('assistant-ui-panel/assistant-message-error.tsx')).toContain(
+      'ErrorPrimitive.Message'
+    );
+  });
+
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
     const assistantMessageStart = source.indexOf('const AssistantMessage: FC');

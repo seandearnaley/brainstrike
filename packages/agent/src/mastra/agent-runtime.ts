@@ -31,7 +31,11 @@ import type {
   StreamFinishReason,
   StreamIterator,
 } from '../types';
-import { buildContextBudgetNote, buildDefaultInstructions } from './default-instructions';
+import {
+  buildContextBudgetNote,
+  buildDefaultInstructions,
+  buildLocalDefaultInstructions,
+} from './default-instructions';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
@@ -232,7 +236,13 @@ export async function createMastraAgentRuntime(
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
   const budgetNote = buildContextBudgetNote(sanitizedRuntime.agentLoop?.inputTokenLimit);
-  const resolvedInstructions = instructions ?? buildDefaultInstructions(toolNameMap);
+  // The built-in local model gets a compact instruction set: the hosted
+  // playbook overwhelms a 2B on-device model and bloats the WebGPU prefill.
+  const resolvedInstructions =
+    instructions ??
+    (normalizedProvider === 'local'
+      ? buildLocalDefaultInstructions(toolNameMap)
+      : buildDefaultInstructions(toolNameMap));
   const agent = new Agent({
     id: 'brainstrike-assistant',
     name: 'Brainstrike Assistant',

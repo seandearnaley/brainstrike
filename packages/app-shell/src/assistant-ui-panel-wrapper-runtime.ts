@@ -48,7 +48,7 @@ import type {
   AssistantThreadRuntimeKind,
 } from './assistant-memory-repository';
 
-const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
+const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
 
 export function resolveModelNameFromComposite(
   composite: string | null | undefined
@@ -92,13 +92,21 @@ export function getToolDescription(toolId: string): string {
 function resolveSemanticRecallDisabledReason(
   memorySettings: RuntimeAssistantMemorySettings
 ): string | undefined {
-  if (!memorySettings.semanticRecall.enabled) {
+  // Observational-memory vector retrieval embeds with the SAME configured
+  // semantic-recall embedder, so its requirement applies even when the
+  // semantic-recall toggle itself is off.
+  const observationalVectorRetrieval =
+    memorySettings.observationalMemory.enabled &&
+    memorySettings.observationalMemory.retrievalMode === 'vector';
+  if (!(memorySettings.semanticRecall.enabled || observationalVectorRetrieval)) {
     return;
   }
 
   const providerId = memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
   if (!(providerId && SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId))) {
-    return 'Semantic recall requires an OpenAI or Google embedding model. Reconfigure Assistant Memory settings.';
+    return memorySettings.semanticRecall.enabled
+      ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
+      : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
   }
 
   return;

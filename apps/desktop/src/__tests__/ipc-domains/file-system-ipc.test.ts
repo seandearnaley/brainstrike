@@ -379,6 +379,34 @@ describe('fs:addRoot', () => {
     expect(lastRootsList.filter((e) => e.rootId === existingRootId)).toHaveLength(1);
   });
 
+  it('keeps persisted: true when only the addedAt bump fails for an EXISTING entry', async () => {
+    // The root is already durably stored; a failed addedAt bump must not
+    // downgrade the persisted contract (callers would skip DB registration
+    // for a perfectly durable root).
+    const pickedPath = path.resolve('/users/test/already-stored');
+    const existingRootId = 'existing-root-id-123';
+    fileSystem = createFileSystem(pickedPath);
+    storage = createStorage();
+    vi.mocked(storage.getItem).mockImplementation(async (key: string) =>
+      key === 'rootsList'
+        ? JSON.stringify([{ addedAt: 1, path: pickedPath, rootId: existingRootId }])
+        : null
+    );
+    vi.mocked(storage.setItem).mockImplementation(async (key: string) => {
+      if (key === 'rootsList') {
+        throw new Error('disk full');
+      }
+    });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toMatchObject({
+      persisted: true,
+      rootId: existingRootId,
+    });
+  });
+
   it('returns persisted: false and warns (without throwing) when the rootsList write fails', async () => {
     const pickedPath = path.resolve('/users/test/unpersisted-project');
     fileSystem = createFileSystem(pickedPath);

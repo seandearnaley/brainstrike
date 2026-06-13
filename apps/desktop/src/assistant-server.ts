@@ -17,10 +17,12 @@ import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
   createEmbeddingProvider,
+  createLocalHostEmbeddingModel,
   createProvider,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasNonEmptyAssistantPrompt,
   isSupportedProvider,
+  PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
@@ -54,6 +56,10 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
+import {
+  type AssistantLlmHostManager,
+  createMainLlmHostClient,
+} from './assistant-server/local-llm-host-client';
 import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -85,10 +91,16 @@ const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'anthropic',
   'google',
   'openrouter',
+  // Built-in local model: resolved to the llm-host proxy chat model (no API
+  // key); requires the llm-host manager to be injected into the runtime.
+  'local',
 ]);
 const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'google',
+  // Built-in local embedders: proxied to the hidden embedding-host renderer
+  // (no API key); requires the embedding host manager.
+  'local',
 ]);
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
@@ -123,6 +135,7 @@ export interface AssistantServerOptions {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   host?: string;
   listen?: boolean;
+  llmHostManager?: AssistantLlmHostManager | null | undefined;
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
@@ -223,6 +236,7 @@ async function handleAssistantPost(
       toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
+        llmHostManager: options.llmHostManager,
       },
     });
   } catch (error) {
@@ -283,6 +297,7 @@ async function streamAssistantPostResponse({
   readonly toolApprovalAction?: AssistantToolApprovalAction;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   };
 }): Promise<void> {
   const mcpConfig = (await loadMcpConfig()).config;
@@ -758,7 +773,7 @@ function parseObservationalMemoryModelTarget(
     formatLabel: 'Observational memory model target',
     unsupportedProviderLabel: 'observational memory',
     disallowedProviderMessage: (provider) =>
-      `Desktop observational memory requires a hosted model provider; received "${provider}" in "${modelTarget}".`,
+      `Desktop observational memory requires a hosted model provider or the built-in local model; received "${provider}" in "${modelTarget}".`,
   });
 }
 
@@ -770,7 +785,7 @@ function parseSemanticRecallEmbeddingModelTarget(
     formatLabel: 'Semantic recall embedding model target',
     unsupportedProviderLabel: 'semantic recall embedding',
     disallowedProviderMessage: (provider) =>
-      `Desktop Mastra semantic recall currently supports hosted OpenAI and Google embedders; received "${provider}" in "${modelTarget}".`,
+      `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders or the built-in local embedder; received "${provider}" in "${modelTarget}".`,
   });
 }
 
@@ -954,6 +969,81 @@ async function resumeStreamIfAvailable(
   return true;
 }
 
+function isLocalChatProvider(runtimeData: RuntimeData | undefined): boolean {
+  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  return provider.toLowerCase() === 'local';
+}
+
+/** Model id from a 'local/<modelId>' observational-memory target, if active. */
+function resolveLocalObservationalMemoryModelId(
+  runtimeData: RuntimeData | undefined
+): string | undefined {
+  const observationalMemory = runtimeData?.memory?.memorySettings?.observationalMemory;
+  if (!observationalMemory?.enabled) {
+    return;
+  }
+  const target = observationalMemory.modelTarget?.trim() ?? '';
+  if (!target.toLowerCase().startsWith('local/')) {
+    return;
+  }
+  const modelId = target.slice('local/'.length).trim();
+  return modelId.length > 0 ? modelId : undefined;
+}
+
+function resolveLocalLlmHostClient(
+  runtimeData: RuntimeData | undefined,
+  toolDependencies: {
+    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+  }
+): ReturnType<typeof createMainLlmHostClient> | undefined {
+  const needsClient =
+    isLocalChatProvider(runtimeData) ||
+    resolveLocalObservationalMemoryModelId(runtimeData) !== undefined;
+  if (!needsClient) {
+    return;
+  }
+  const manager = toolDependencies.llmHostManager;
+  if (!manager) {
+    throw new Error(
+      'The built-in local model requires the llm-host manager; the assistant server was started without one.'
+    );
+  }
+  return createMainLlmHostClient(manager);
+}
+
+function resolveLocalModelId(runtimeData: RuntimeData | undefined): string {
+  const requested = typeof runtimeData?.model === 'string' ? runtimeData.model.trim() : '';
+  if (requested.length > 0) {
+    return requested;
+  }
+  const fallback = PROVIDER_DEFAULT_MODELS['local'];
+  if (!fallback) {
+    throw new Error('No default model is registered for the local provider.');
+  }
+  return fallback;
+}
+
+/**
+ * Every local model this request will drive (chat and/or memory), deduped.
+ *
+ * SINGLE-ENGINE ASSUMPTION: the llm-host backend holds ONE engine, so warming
+ * model A then model B unloads A. With today's catalog (one Gemma spec) chat
+ * and local-OM targets always dedupe to one id; if the local catalog grows a
+ * second spec, differing chat/OM targets would thrash (warm A → warm B
+ * unloads A → the chat generation reloads A → the OM observation reloads B…).
+ */
+function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): string[] {
+  const modelIds = new Set<string>();
+  if (isLocalChatProvider(runtimeData)) {
+    modelIds.add(resolveLocalModelId(runtimeData));
+  }
+  const memoryModelId = resolveLocalObservationalMemoryModelId(runtimeData);
+  if (memoryModelId) {
+    modelIds.add(memoryModelId);
+  }
+  return [...modelIds];
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   runtimeData: RuntimeData | undefined,
@@ -964,6 +1054,7 @@ async function initializeAgentStream(
   toolApprovalAction: AssistantToolApprovalAction | undefined,
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   }
 ): Promise<AgentStreamResult> {
   // Build runtime context with abort signal for cancellation support
@@ -971,16 +1062,26 @@ async function initializeAgentStream(
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
-  const runtime: RuntimeData = {
-    ...runtimeWithoutMcpConfig,
-    mcpEnabled: true,
-    mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
-    signal, // ← AbortSignal passed here, used by stream iterator
-    ...(mcpConfig ? { mcpConfig } : {}),
-    ...(apiKey ? { apiKey } : {}),
-  };
 
   try {
+    const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    const runtime: RuntimeData = {
+      ...runtimeWithoutMcpConfig,
+      mcpEnabled: true,
+      mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
+      signal, // ← AbortSignal passed here, used by stream iterator
+      ...(mcpConfig ? { mcpConfig } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      ...(localLlmHostClient ? { localLlmHostClient } : {}),
+    };
+    // Cold model loads (multi-GB download) exceed the generate request's hard
+    // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
+    // before the Mastra loop or observational memory issues a generation.
+    if (localLlmHostClient) {
+      for (const modelId of collectLocalLlmWarmupModelIds(runtimeData)) {
+        await localLlmHostClient.warmup(modelId, { signal });
+      }
+    }
     const queuedRunEvents: AssistantRunEvent[] = [];
     const memoryResult = runtime.memory
       ? await getDesktopMastraMemory(
@@ -991,7 +1092,8 @@ async function initializeAgentStream(
                 queuedRunEvents.push({ ...event, runId });
               }
             : undefined,
-          runtime
+          runtime,
+          { embeddingHostManager: toolDependencies.embeddingHostManager }
         )
       : undefined;
     if (toolApprovalAction && !memoryResult?.storage) {
@@ -1033,11 +1135,17 @@ async function initializeAgentStream(
   }
 }
 
+/** Host services memory construction can use (injected from the server options). */
+interface DesktopMemoryDependencies {
+  readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+}
+
 async function getDesktopMastraMemory(
   memorySettings: RuntimeAssistantMemorySettings | undefined,
   runId?: string | undefined,
   eventSink?: ((event: AssistantRunEvent) => void) | undefined,
-  runtimeData?: RuntimeData | undefined
+  runtimeData?: RuntimeData | undefined,
+  memoryDependencies?: DesktopMemoryDependencies | undefined
 ): Promise<DesktopMastraMemoryResult> {
   const memoryOptions = runtimeData?.memory?.memoryOptions;
   const cacheState = createDesktopMastraMemoryCacheState({
@@ -1064,6 +1172,7 @@ async function getDesktopMastraMemory(
     const pendingMemory = createDesktopMastraMemoryFromCacheState({
       cacheState,
       eventSink,
+      memoryDependencies,
       memoryOptions,
       memorySettings,
       runId,
@@ -1081,6 +1190,7 @@ async function getDesktopMastraMemory(
   return createDesktopMastraMemoryFromCacheState({
     cacheState,
     eventSink,
+    memoryDependencies,
     memoryOptions,
     memorySettings,
     runId,
@@ -1149,6 +1259,7 @@ function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheS
 async function createDesktopMastraMemoryFromCacheState({
   cacheState,
   eventSink,
+  memoryDependencies,
   memoryOptions,
   memorySettings,
   runId,
@@ -1156,6 +1267,7 @@ async function createDesktopMastraMemoryFromCacheState({
 }: {
   readonly cacheState: DesktopMastraMemoryCacheState;
   readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
+  readonly memoryDependencies: DesktopMemoryDependencies | undefined;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly runId: string | undefined;
@@ -1181,6 +1293,7 @@ async function createDesktopMastraMemoryFromCacheState({
         )
       : undefined);
   const { embedder, observationalMemoryModel } = createDesktopMastraMemoryProviderBindings({
+    memoryDependencies,
     observationalMemoryTarget,
     runtimeData,
     semanticRecallEmbeddingTarget,
@@ -1246,14 +1359,40 @@ function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
 ): DesktopMemoryModelTargetDescriptor | undefined {
   const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
   const semanticRecallSettings = effectiveSettings.semanticRecall;
-  if (!semanticRecallSettings.enabled) {
+  // Observational-memory vector retrieval embeds observations with the SAME
+  // configured embedder, so it needs the target resolved even when the
+  // semantic-recall toggle itself is off (createPgliteMastraMemory throws
+  // without an embedder in that mode).
+  const observationalVectorRetrieval =
+    effectiveSettings.observationalMemory.enabled &&
+    effectiveSettings.observationalMemory.retrievalMode === 'vector';
+  if (!(semanticRecallSettings.enabled || observationalVectorRetrieval)) {
     return;
   }
   if (!semanticRecallSettings.embeddingModelTarget?.trim()) {
-    throw new Error('Semantic recall requires a configured embedding model target.');
+    throw new Error(
+      semanticRecallSettings.enabled
+        ? 'Semantic recall requires a configured embedding model target.'
+        : 'Observational vector retrieval requires a configured semantic recall embedding model target.'
+    );
   }
 
   return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);
+}
+
+/**
+ * The built-in local provider needs no API key: its memory models are proxied
+ * to the hidden llm-host, so the cache key carries a fixed marker instead of
+ * a key hash.
+ */
+function resolveLocalMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T
+): T & { readonly apiKey: string; readonly cacheKey: string } {
+  return {
+    ...target,
+    apiKey: '',
+    cacheKey: `${target.provider}/${target.model}:local-llm-host`,
+  };
 }
 
 async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
@@ -1262,6 +1401,9 @@ async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTarge
   label: string
 ): Promise<T & { readonly apiKey: string; readonly cacheKey: string }> {
   const { model, provider } = target;
+  if (provider === 'local') {
+    return resolveLocalMemoryModelTarget(target);
+  }
   const runtimeProvider = resolveRequestedProvider(runtimeData);
   const runtimeApiKey =
     runtimeProvider === provider && runtimeData?.apiKey?.trim()
@@ -1286,6 +1428,9 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
   if (!target) {
     return;
   }
+  if (target.provider === 'local') {
+    return resolveLocalMemoryModelTarget(target);
+  }
   const runtimeProvider = resolveRequestedProvider(runtimeData);
   const apiKey =
     runtimeProvider === target.provider && runtimeData?.apiKey?.trim()
@@ -1301,11 +1446,61 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
   };
 }
 
+/**
+ * Build the semantic-recall embedder for a local target: queries are proxied
+ * to the hidden embedding-host renderer, and dimensions resolve lazily from
+ * the models catalog.
+ */
+function createLocalSemanticRecallEmbedder(
+  modelId: string,
+  memoryDependencies: DesktopMemoryDependencies | undefined
+): ReturnType<typeof createEmbeddingProvider> {
+  const embeddingHostManager = memoryDependencies?.embeddingHostManager;
+  if (!embeddingHostManager) {
+    throw new Error(
+      'Local semantic recall requires the embedding host manager; the assistant server was started without one.'
+    );
+  }
+  // Mastra ships an internal copy of the AI SDK v5 types, so the structurally
+  // identical EmbeddingModelV2 needs the same cast provider-factory uses for
+  // MastraModelConfig.
+  return createLocalHostEmbeddingModel({
+    client: embeddingHostManager,
+    modelId,
+    resolveDimensions: () => resolveLocalEmbeddingDimensions(modelId),
+  }) as unknown as ReturnType<typeof createEmbeddingProvider>;
+}
+
+async function resolveLocalEmbeddingDimensions(modelId: string): Promise<number> {
+  const database = await getDatabase();
+  const result = await database.query(
+    'SELECT capabilities FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
+    [modelId, 'local']
+  );
+  const row = (result.rows as Array<{ capabilities?: unknown }>)[0];
+  if (!row) {
+    throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
+  }
+  const capabilities =
+    typeof row.capabilities === 'string'
+      ? (JSON.parse(row.capabilities) as { defaultDimension?: unknown })
+      : (row.capabilities as { defaultDimension?: unknown } | null | undefined);
+  const dimension = capabilities?.defaultDimension;
+  if (typeof dimension !== 'number' || !Number.isSafeInteger(dimension) || dimension <= 0) {
+    throw new Error(
+      `Local embedding model "${modelId}" has no valid defaultDimension in the model catalog.`
+    );
+  }
+  return dimension;
+}
+
 function createDesktopMastraMemoryProviderBindings({
+  memoryDependencies,
   observationalMemoryTarget,
   runtimeData,
   semanticRecallEmbeddingTarget,
 }: {
+  readonly memoryDependencies: DesktopMemoryDependencies | undefined;
   readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
   readonly runtimeData: RuntimeData | undefined;
   readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
@@ -1313,6 +1508,13 @@ function createDesktopMastraMemoryProviderBindings({
   readonly embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
   readonly observationalMemoryModel: ReturnType<typeof createProvider> | undefined;
 } {
+  if (observationalMemoryTarget?.provider === 'local' && !runtimeData?.localLlmHostClient) {
+    // Without the injected client, createProvider would construct the
+    // in-process browser backend, which cannot run in Electron main.
+    throw new Error(
+      'Local observational memory model requires the llm-host proxy client on the runtime.'
+    );
+  }
   const observationalMemoryModel = observationalMemoryTarget
     ? createProvider(
         observationalMemoryTarget.provider,
@@ -1321,13 +1523,17 @@ function createDesktopMastraMemoryProviderBindings({
         runtimeData
       )
     : undefined;
-  const embedder = semanticRecallEmbeddingTarget
-    ? createEmbeddingProvider(
-        semanticRecallEmbeddingTarget.provider,
-        semanticRecallEmbeddingTarget.apiKey,
-        semanticRecallEmbeddingTarget.model
-      )
-    : undefined;
+  let embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
+  if (semanticRecallEmbeddingTarget) {
+    embedder =
+      semanticRecallEmbeddingTarget.provider === 'local'
+        ? createLocalSemanticRecallEmbedder(semanticRecallEmbeddingTarget.model, memoryDependencies)
+        : createEmbeddingProvider(
+            semanticRecallEmbeddingTarget.provider,
+            semanticRecallEmbeddingTarget.apiKey,
+            semanticRecallEmbeddingTarget.model
+          );
+  }
   return { embedder, observationalMemoryModel };
 }
 
@@ -1429,7 +1635,16 @@ export function resetDesktopMastraMemoryCacheForTests(): void {
 
 export async function getDesktopMastraMemoryForTests(
   memorySettings: RuntimeAssistantMemorySettings | undefined,
-  runtimeData?: RuntimeData | undefined
+  runtimeData?: RuntimeData | undefined,
+  memoryDependencies?: {
+    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  }
 ): Promise<DesktopMastraMemoryResult> {
-  return getDesktopMastraMemory(memorySettings, undefined, undefined, runtimeData);
+  return getDesktopMastraMemory(
+    memorySettings,
+    undefined,
+    undefined,
+    runtimeData,
+    memoryDependencies
+  );
 }

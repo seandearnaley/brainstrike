@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildContextBudgetNote, buildDefaultInstructions } from '../default-instructions';
+import {
+  buildContextBudgetNote,
+  buildDefaultInstructions,
+  buildLocalDefaultInstructions,
+} from '../default-instructions';
 
 describe('default assistant instructions', () => {
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
@@ -29,6 +33,30 @@ describe('default assistant instructions', () => {
     expect(instructions).toContain('semantic chunks with persisted source line ranges');
     expect(instructions).toContain('Only run state-changing tools after the user confirms.');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
+  });
+
+  it('keeps the built-in local instruction set compact and tool-name-aware', () => {
+    const toolNameMap = new Map<string, string>([
+      ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+      ['brainstrike_queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+      ['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
+    ]);
+
+    const localInstructions = buildLocalDefaultInstructions(toolNameMap);
+    const hostedInstructions = buildDefaultInstructions(toolNameMap);
+
+    expect(localInstructions).toContain('running fully on this device');
+    expect(localInstructions).toContain('brainstrike_grepSearch');
+    expect(localInstructions).toContain('brainstrike_queryEmbeddingSpace');
+    expect(localInstructions).toContain('brainstrike_readWorkspaceFile');
+    expect(localInstructions).toContain('Only run state-changing tools after the user confirms.');
+    // A 2B on-device model must not get the hosted playbook: keep the local
+    // prompt a small fraction of it (also keeps the WebGPU prefill short).
+    expect(localInstructions.length).toBeLessThan(hostedInstructions.length / 3);
+
+    const withoutSearchTools = buildLocalDefaultInstructions(new Map());
+    expect(withoutSearchTools).not.toContain('brainstrike_grepSearch');
+    expect(withoutSearchTools).toContain('running fully on this device');
   });
 
   it('does not advertise unavailable native tools', () => {
