@@ -67,8 +67,35 @@ jobs:
       - name: Build desktop
         run: pnpm run build --filter @brainstrike/desktop
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+      # Desktop E2E drives the app through Playwright's Electron API
+      # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
+      # binary — NOT a `playwright install chromium` browser. So we only need
+      # the Chromium system libraries (apt), never the browser binary download
+      # from cdn.playwright.dev that was stalling and hanging this job to its
+      # timeout. `install-deps` is apt-only and does not touch the browser CDN.
+      - name: Install Chromium system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      # Provision the Electron binary deterministically. electron/install.js is
+      # unreliable in CI: on an @electron/get cache hit it can exit 0 without
+      # completing extraction, leaving no dist/ or path.txt, so the app throws
+      # "Electron failed to install correctly". Download the prebuilt zip from
+      # GitHub Releases (reliable host, NOT the Playwright CDN), extract it, and
+      # hard-verify the executable exists before the test launches it.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
       # dbus-run-session provides an ephemeral D-Bus session bus so
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
@@ -131,8 +158,35 @@ jobs:
       - name: Build desktop
         run: pnpm run build --filter @brainstrike/desktop
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+      # Desktop E2E drives the app through Playwright's Electron API
+      # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
+      # binary — NOT a `playwright install chromium` browser. So we only need
+      # the Chromium system libraries (apt), never the browser binary download
+      # from cdn.playwright.dev that was stalling and hanging this job to its
+      # timeout. `install-deps` is apt-only and does not touch the browser CDN.
+      - name: Install Chromium system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      # Provision the Electron binary deterministically. electron/install.js is
+      # unreliable in CI: on an @electron/get cache hit it can exit 0 without
+      # completing extraction, leaving no dist/ or path.txt, so the app throws
+      # "Electron failed to install correctly". Download the prebuilt zip from
+      # GitHub Releases (reliable host, NOT the Playwright CDN), extract it, and
+      # hard-verify the executable exists before the test launches it.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
       # dbus-run-session wraps Electron so Chromium's D-Bus connect attempts
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
