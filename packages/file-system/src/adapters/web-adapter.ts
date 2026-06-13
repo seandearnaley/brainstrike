@@ -344,7 +344,16 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       throw new Error('File System Access API not supported');
     }
     const dirHandle = await window.showDirectoryPicker();
-    const rootId = (await this.findExistingRootId(dirHandle)) ?? crypto.randomUUID();
+    // Prefer a rootId the picked handle already carries. A real FileSystemDirectoryHandle
+    // never does, so this is a no-op in production — but the inline-fixture/test handle is
+    // a pre-stamped DirectoryHandle, and reusing its rootId keeps addRoot in agreement with
+    // the fixture's inject (setRoot) so the two reconcile to ONE root. Identity is rootId-only
+    // (no path fallback); a fresh mint here would append a duplicate of the injected root and
+    // render the file tree twice.
+    const rootId =
+      (dirHandle as { readonly rootId?: string }).rootId ??
+      (await this.findExistingRootId(dirHandle)) ??
+      crypto.randomUUID();
     let persisted = true;
     try {
       await this.ensurePersistentStorage();

@@ -78,21 +78,84 @@ function getCanonicalFolderId(handle: DirectoryHandle): string {
 }
 
 /**
- * Canonical identity for a root handle. Prefers the stamped durable RootId so
- * two same-named web roots (identical `path` = directory name) stay distinct;
- * falls back to `path` for legacy single-root handles that were never stamped.
+ * True only in development/test builds (Vite's DEV flag, which Vitest also sets).
+ * Gates the fail-loud throw on an unstamped root handle so dev/CI surface the bug
+ * immediately while production degrades safely. Guarded so a non-Vite context
+ * (where import.meta.env is absent) can never throw here.
+ */
+function isDevBuild(): boolean {
+  try {
+    // Record cast (matching @brainstrike/utils isDevEnv) avoids a named-property
+    // type literal so the linter's naming-convention rule doesn't flag Vite's DEV.
+    return (import.meta as { env?: Record<string, unknown> }).env?.['DEV'] === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Canonical identity for a root handle: the durable RootId, full stop. The forest
+ * is keyed by rootId alone so two same-named web roots (identical `path` = bare
+ * directory name) stay distinct. Every root source stamps a rootId at its boundary
+ * and `ensureStamped` guards the reducer entry, so an unstamped handle here is an
+ * invariant violation — throw in dev to surface it; in production log loudly and
+ * degrade to the path so a rare edge never crashes the explorer (loud, never silent).
  */
 function rootKeyOf(handle: DirectoryHandle): string {
-  return handle.rootId ?? handle.path;
+  if (handle.rootId !== undefined) {
+    return handle.rootId;
+  }
+  if (isDevBuild()) {
+    throw new Error(
+      `rootKeyOf: root handle has no rootId (path=${handle.path}); stamp it at the source`
+    );
+  }
+  logger.error('rootKeyOf received an unstamped handle; degrading to path', {
+    path: handle.path,
+  });
+  return handle.path;
 }
 
 /**
  * Stamp the durable RootId onto a handle so it self-identifies downstream
  * (getRootFolderId, section keys, focus/remove). Returns the handle unchanged
- * when no rootId is supplied (legacy single-root path).
+ * when no rootId is supplied.
  */
 function stampRootId(handle: DirectoryHandle, rootId: string | undefined): DirectoryHandle {
   return rootId ? { ...handle, rootId } : handle;
+}
+
+/**
+ * Guarantee a root handle carries a durable rootId before it enters the reducer.
+ * Every root source (web adapter/picker, restore descriptors, the inline fixture,
+ * the restore modal) stamps at its boundary; this is the last line of defense.
+ * Dev throws so a missed source is caught immediately; production logs a loud
+ * error and recovers by minting a rootId so the user keeps working — never silent,
+ * never a crash.
+ */
+function ensureStamped(handle: DirectoryHandle, source: string): DirectoryHandle {
+  if (handle.rootId !== undefined) {
+    return handle;
+  }
+  const detail = `unstamped root handle reached the reducer via ${source} (path=${handle.path}); every root source must stamp a rootId`;
+  if (isDevBuild()) {
+    throw new Error(`[useFileSystem] ${detail}`);
+  }
+  const mintedRootId = crypto.randomUUID();
+  logger.error('Recovered an unstamped root handle with a minted rootId', {
+    source,
+    path: handle.path,
+    mintedRootId,
+  });
+  return stampRootId(handle, mintedRootId);
+}
+
+/** Find a stored handle by its canonical rootId identity. No path fallback. */
+function findHandleByIdentity(
+  handles: readonly DirectoryHandle[],
+  key: string
+): DirectoryHandle | undefined {
+  return handles.find((handle) => rootKeyOf(handle) === key);
 }
 
 /**
@@ -130,19 +193,13 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
         };
       }
       // INVARIANT: rootDirectoryHandle must always be a member of
-      // rootDirectoryHandles. Non-null setRoot therefore uses
-      // addOrFocusHandle semantics: append when missing, focus always.
-      // This path receives UNSTAMPED handles (legacy single-root setRoot, and
-      // the restore modal which constructs a raw {path,name,kind,platform}).
-      // Match an already-listed STAMPED handle by path too, or rootKeyOf (=path
-      // for the incoming) would never equal the stored UUID and we'd append a
-      // duplicate of an existing root. When matched, focus the STORED handle so
-      // its stamped identity is preserved.
-      const handle = action.handle;
-      const key = rootKeyOf(handle);
-      const existing = state.rootDirectoryHandles.find(
-        (h) => rootKeyOf(h) === key || h.path === handle.path
-      );
+      // rootDirectoryHandles. Non-null setRoot therefore uses addOrFocusHandle
+      // semantics: append when missing, focus always. The handle is stamped at
+      // its source (the setRootDirectoryHandle funnel calls ensureStamped), so
+      // identity is rootId-only — match the stored handle by its rootKey and
+      // focus it so its identity is preserved.
+      const handle = ensureStamped(action.handle, 'setRoot');
+      const existing = findHandleByIdentity(state.rootDirectoryHandles, rootKeyOf(handle));
       return {
         ...state,
         rootDirectoryHandle: existing ?? handle,
@@ -155,18 +212,13 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
       return { ...state, isAccessLoading: action.loading };
     case 'addOrFocusHandle': {
       // Stamp the rootId so the stored handle self-identifies — keying by path
-      // would collapse two same-named web roots into one entry.
-      const stamped = stampRootId(action.handle, action.rootId);
+      // would collapse two same-named web roots into one entry. ensureStamped is
+      // the fail-loud backstop: every caller must supply a rootId (on the handle
+      // or via action.rootId). Identity is rootId-only — no path reconciliation,
+      // because no unstamped handle can reach the reducer (every source stamps).
+      const stamped = ensureStamped(stampRootId(action.handle, action.rootId), 'addOrFocusHandle');
       const key = rootKeyOf(stamped);
-      // Match an existing entry by stamped identity, OR an UNSTAMPED handle at the
-      // same path. The latter reconciles a root first added without a rootId
-      // (e.g. the inline fixture injected via setRoot) that is now being stamped
-      // by the adapter restore of the same path — without it the two become
-      // separate roots and the file tree renders twice. The `rootId === undefined`
-      // guard keeps same-named roots (always stamped) distinct, preserving #1197.
-      const matchesExisting = (h: DirectoryHandle): boolean =>
-        rootKeyOf(h) === key || (h.rootId === undefined && h.path === stamped.path);
-      const matchIndex = state.rootDirectoryHandles.findIndex(matchesExisting);
+      const matchIndex = state.rootDirectoryHandles.findIndex((h) => rootKeyOf(h) === key);
       const newHandles =
         matchIndex >= 0
           ? // Replace in place so the matched entry picks up the stamped identity.
@@ -269,14 +321,22 @@ async function runMultiRootRestore({
 
     // Stamp each handle with its durable RootId so it self-identifies (two
     // same-named web roots otherwise share a path and collapse into one).
-    const handles = granted.map((d) => stampRootId(d.handle, d.rootId));
+    // ensureStamped is the fail-loud backstop: setAllHandles (below) stores
+    // handles verbatim with no guard of its own, and stampRootId is a no-op on a
+    // falsy/empty rootId — so a corrupt descriptor (rootId === '') would otherwise
+    // land an unstamped handle silently. Catch it here at the boundary instead.
+    const handles = granted.map((d) =>
+      ensureStamped(stampRootId(d.handle, d.rootId), 'runMultiRootRestore')
+    );
     const newRootIdByPath = new Map<string, string>(granted.map((d) => [d.handle.path, d.rootId]));
 
     // Focus: first handle whose identity appears in folderAccessOrder; else
-    // first handle. folderAccessOrder stores currentFolderId — the RootId in
-    // v5, so match by rootKey first. The path fallback covers legacy (pre-v5)
-    // path entries; those predate same-named-root support, so they can't
-    // collide. Accessed via ref to avoid a reactive dep on getFolderAccessOrder.
+    // first handle. folderAccessOrder stores currentFolderId — the RootId in v5,
+    // so match by rootKey first. The `h.path === id` arm here is NOT the removed
+    // handle-identity path fallback: it matches a legacy (pre-v5) folderAccessOrder
+    // STRING entry that stored a path against the handle's path. Those predate
+    // same-named-root support, so they can't collide. Retained intentionally;
+    // `handles` are already stamped (line above), so rootKey matching is primary.
     const accessOrder = getFolderAccessOrderRef.current?.() ?? [];
     const focused =
       accessOrder.reduce<DirectoryHandle | null>((acc, id) => {
@@ -471,16 +531,13 @@ export function useFileSystem({
 
   /**
    * Switch focus to an already-loaded root by its canonical identity.
-   * Resolves by rootKey (the durable RootId, stamped onto the handle) first so
-   * same-named roots are disambiguated; falls back to a raw path match only for
-   * legacy single-root handles where the path is unique. Callers in multi-root
-   * surfaces MUST pass the RootId, not the (colliding) path. No-op if unknown.
+   * Resolves by rootKey (the durable RootId stamped onto the handle) so
+   * same-named roots are disambiguated. Callers MUST pass the RootId, not the
+   * (colliding) path. No-op if unknown.
    */
   const setFocusedRoot = useCallback(
     (identity: string) => {
-      const match =
-        rootDirectoryHandles.find((h) => rootKeyOf(h) === identity) ??
-        rootDirectoryHandles.find((h) => h.path === identity);
+      const match = findHandleByIdentity(rootDirectoryHandles, identity);
       if (!match) {
         logger.debug('setFocusedRoot: unknown root identity, ignoring', { identity });
         return;
@@ -528,7 +585,11 @@ export function useFileSystem({
       // entry and append an unstamped duplicate.
       let firstRootId: string | null = null;
       for (const handle of handles) {
-        const rootId = adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
+        // Prefer a rootId the handle already carries (the inline fixture stamps at
+        // its source), then the adapter descriptor by path, then mint. Reusing the
+        // existing stamp is what lets an injected fixture handle and its
+        // auto-restore reconcile to ONE root now that identity is rootId-only.
+        const rootId = handle.rootId ?? adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
         firstRootId ??= rootId;
         dispatch({ type: 'addOrFocusHandle', handle, rootId });
         addActiveRoot({
@@ -562,20 +623,20 @@ export function useFileSystem({
    */
   const setRootDirectoryHandle = useCallback(
     (handle: DirectoryHandle | null) => {
-      dispatch({ type: 'setRoot', handle });
-      if (handle) {
-        // Storage v5: write the durable RootId when known — prefer the stamped
-        // handle.rootId, then the path→rootId map, then the path. The fallback
-        // covers handles set BEFORE registration (no id yet);
-        // registerRestoredHandles corrects the id afterwards.
-        updateCurrentFolderId(
-          handle.rootId ?? rootIdByPath.get(handle.path) ?? getCanonicalFolderId(handle)
-        );
-      } else {
+      if (handle === null) {
+        dispatch({ type: 'setRoot', handle: null });
         updateCurrentFolderId(null);
+        return;
       }
+      // Stamp once at this funnel (the sole non-null setRoot dispatcher) so the
+      // stored handle and currentFolderId share one identity. Every caller (the
+      // inline fixture, the restore modal) now supplies a rootId; ensureStamped is
+      // the fail-loud backstop. Storage v5 keys folderStates by RootId.
+      const stamped = ensureStamped(handle, 'setRootDirectoryHandle');
+      dispatch({ type: 'setRoot', handle: stamped });
+      updateCurrentFolderId(rootKeyOf(stamped));
     },
-    [rootIdByPath, updateCurrentFolderId]
+    [updateCurrentFolderId]
   );
 
   /**

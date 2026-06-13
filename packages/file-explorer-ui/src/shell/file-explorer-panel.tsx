@@ -1110,6 +1110,13 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
                   kind: 'directory' as const,
                   platform: 'web' as const,
                   _internal: handle,
+                  // Stamp the durable rootId (pendingRestore.folderId IS the rootId,
+                  // keyed in the handle cache) so the eager setRootDirectoryHandle and
+                  // the registerRestoredHandles burst below reconcile to ONE root by
+                  // rootKey — identity is rootId-only, no path fallback. Conditional
+                  // spread keeps the field absent (not undefined) under
+                  // exactOptionalPropertyTypes; ensureStamped is the loud backstop.
+                  ...(pendingRestore?.folderId ? { rootId: pendingRestore.folderId } : {}),
                 };
                 // beginRestore's burst seeds its result with already-granted
                 // handles (incl. this one), so registering its FULL return is
