@@ -34,6 +34,20 @@ describe('getAncestorDirectoryPaths', () => {
     expect(getAncestorDirectoryPaths('index.ts')).toEqual([]);
   });
 
+  it('builds deep ancestor chains without recursive stack growth', () => {
+    const directorySegments = Array.from({ length: 12_000 }, (_, index) => `dir-${index}`);
+    const filePath = `/${directorySegments.join('/')}/file.ts`;
+
+    const ancestors = getAncestorDirectoryPaths(filePath, {
+      cache: new Map<string, readonly string[]>(),
+      includeRoot: true,
+    });
+
+    expect(ancestors).toHaveLength(directorySegments.length + 1);
+    expect(ancestors.at(0)).toBe('/');
+    expect(ancestors.at(-1)).toBe(`/${directorySegments.join('/')}`);
+  });
+
   it('accumulates ancestor directory counts for multiple files', () => {
     const counts = accumulateAncestorDirectoryCounts(
       ['/src/a.ts', '/src/nested/b.ts', '/README.md'],
