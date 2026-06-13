@@ -899,6 +899,34 @@ export async function disposeLocalBackend(): Promise<void> {
 }
 
 /**
+ * Whether the desktop hidden llm-host bridge is available in this renderer.
+ * Used to decide whether built-in local chat can route through the assistant
+ * server (Mastra loop) instead of the in-renderer local runtime.
+ */
+export function hasDesktopLlmHost(): boolean {
+  return getDesktopLlmHost() !== null;
+}
+
+/**
+ * Warm the built-in local model on the desktop hidden llm-host with download
+ * progress surfaced to the caller. Reuses the same dedupe/abort machinery as
+ * the in-renderer local runtime, so the data-stream local path shows the same
+ * loading UX before the assistant server starts streaming.
+ */
+export async function warmDesktopLocalModel(args: {
+  modelId: string;
+  onLoadingProgress?: LocalRuntimeLoadingProgressCallback;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const llmHost = getDesktopLlmHost();
+  if (!llmHost) {
+    throw new Error('Desktop llm host bridge is unavailable; cannot warm the local model.');
+  }
+  ensureDesktopHostStateSync(llmHost);
+  await ensureDesktopModelWarmed(llmHost, args.modelId, args.onLoadingProgress, args.signal);
+}
+
+/**
  * Check if local inference is available in the current environment.
  */
 export function isLocalInferenceAvailable(): boolean {

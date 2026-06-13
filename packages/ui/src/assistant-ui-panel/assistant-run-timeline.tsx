@@ -11,7 +11,6 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDashed,
-  Clock3,
   Radio,
 } from 'lucide-react';
 import * as m from 'motion/react-m';
@@ -23,6 +22,8 @@ import { categoryTintClasses, classifyRunEvent } from './tool-visual-classificat
 
 interface AssistantRunTimelineProps {
   data: unknown;
+  /** Number of consecutive identical events this row represents (rendered as ×n). */
+  repeatCount?: number;
   statusOverride?: AssistantRunEventStatus;
 }
 
@@ -36,18 +37,19 @@ const STATUS_LABELS: Record<AssistantRunEventStatus, string> = {
 
 function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus }) {
   if (status === 'completed') {
-    return <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-500" />;
+    return <CheckCircle className="size-3.5 text-emerald-600 dark:text-emerald-500" />;
   }
   if (status === 'failed') {
-    return <AlertCircle className="size-4 text-destructive" />;
+    return <AlertCircle className="size-3.5 text-destructive" />;
   }
   if (status === 'cancelled') {
-    return <AlertCircle className="size-4 text-muted-foreground" />;
+    return <AlertCircle className="size-3.5 text-muted-foreground" />;
   }
   if (status === 'running') {
-    return <CircleDashed className="size-4 text-muted-foreground" />;
+    return <CircleDashed className="size-3.5 text-muted-foreground" />;
   }
-  return <Radio className="size-4 text-sky-600 dark:text-sky-400" />;
+  // Info events inherit the category accent color from the wrapping rail span.
+  return <Radio className="size-3.5" />;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,6 +180,112 @@ function resolveFromLaterRunEvent(
   return null;
 }
 
+/** True when the thread contains a tool-call message part with the event's toolCallId. */
+export function hasToolCallPartForEvent(
+  messages: readonly unknown[],
+  event: AssistantRunEvent
+): boolean {
+  if (!event.kind.startsWith('tool.')) {
+    return false;
+  }
+  const toolCallId = event.metadata?.['toolCallId'];
+  if (typeof toolCallId !== 'string') {
+    return false;
+  }
+  return messages.some((message) =>
+    getMessageParts(message).some(
+      (part) => isRecord(part) && part['type'] === 'tool-call' && part['toolCallId'] === toolCallId
+    )
+  );
+}
+
+function isSameRunEventContent(a: AssistantRunEvent, b: AssistantRunEvent): boolean {
+  return (
+    a.kind === b.kind &&
+    a.label === b.label &&
+    (a.detail ?? '') === (b.detail ?? '') &&
+    a.status === b.status
+  );
+}
+
+/**
+ * True when a later event in the list is the exact terminal counterpart
+ * (completed/failed kind, same run + tool scope) of this `.started` event.
+ * The terminal row carries the label and duration, so the started row is
+ * redundant once it exists.
+ */
+function hasTerminalRowForStartedEvent(
+  events: readonly AssistantRunEvent[],
+  event: AssistantRunEvent,
+  index: number
+): boolean {
+  if (!event.kind.endsWith('.started')) {
+    return false;
+  }
+  const completedKind = getMatchingCompletedKind(event.kind);
+  const failedKind = getMatchingFailedKind(event.kind);
+  return events
+    .slice(index + 1)
+    .some(
+      (candidate) =>
+        (candidate.kind === completedKind || (failedKind && candidate.kind === failedKind)) &&
+        hasSameRunScope(event, candidate) &&
+        hasSameToolScope(event, candidate)
+    );
+}
+
+export interface AssistantRunEventRenderPlan {
+  hidden: boolean;
+  repeatCount: number;
+}
+
+const VISIBLE_ONCE: AssistantRunEventRenderPlan = { hidden: false, repeatCount: 1 };
+const HIDDEN: AssistantRunEventRenderPlan = { hidden: true, repeatCount: 1 };
+
+/**
+ * Decides whether a run-event row should render, and with what repeat count.
+ * Suppresses three kinds of duplication:
+ * 1. tool.* events whose tool call already renders as a ToolFallback card
+ *    (the card is the authoritative status display for that call),
+ * 2. `.started` rows once their terminal (completed/failed) row exists,
+ * 3. consecutive identical rows — the first one renders with a ×n count.
+ */
+export function resolveAssistantRunEventRenderPlan(
+  messages: readonly unknown[],
+  data: unknown
+): AssistantRunEventRenderPlan {
+  const event = isAssistantRunEvent(data) ? data : null;
+  if (!event) {
+    return VISIBLE_ONCE;
+  }
+  if (hasToolCallPartForEvent(messages, event)) {
+    return HIDDEN;
+  }
+
+  const events = getRunEventsFromMessages(messages);
+  const index = events.findIndex((candidate) => candidate.id === event.id);
+  if (index < 0) {
+    return VISIBLE_ONCE;
+  }
+  if (hasTerminalRowForStartedEvent(events, event, index)) {
+    return HIDDEN;
+  }
+
+  const previous = events[index - 1];
+  if (previous && isSameRunEventContent(previous, event)) {
+    return HIDDEN;
+  }
+  let repeatCount = 1;
+  for (let i = index + 1; i < events.length; i++) {
+    const candidate = events[i];
+    if (!(candidate && isSameRunEventContent(candidate, event))) {
+      break;
+    }
+    repeatCount++;
+  }
+  return repeatCount === 1 ? VISIBLE_ONCE : { hidden: false, repeatCount };
+}
+
 export function resolveAssistantRunEventStatus(
   messages: readonly unknown[],
   event: AssistantRunEvent | null
@@ -244,31 +352,24 @@ function formatDuration(durationMs: number | undefined): string | undefined {
 }
 
 function AssistantRunTimelineDetails({
-  detail,
   detailsId,
-  durationLabel,
   kind,
   metadataEntries,
 }: {
-  detail: string | undefined;
   detailsId: string;
-  durationLabel: string | undefined;
   kind: string;
   metadataEntries: [string, AssistantRunEventJson][];
 }) {
   return (
-    <div className="border-t border-dashed px-3 py-2" id={detailsId}>
+    <div
+      className="mx-2 mb-1.5 rounded-md border border-border/50 bg-muted/30 px-3 py-2"
+      id={detailsId}
+    >
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <div className="contents">
           <dt className="font-medium text-muted-foreground">kind</dt>
           <dd className="min-w-0 break-words text-foreground/90">{kind}</dd>
         </div>
-        {durationLabel ? (
-          <div className="contents">
-            <dt className="font-medium text-muted-foreground">duration</dt>
-            <dd className="text-foreground/90">{durationLabel}</dd>
-          </div>
-        ) : null}
         {metadataEntries.map(([key, value]) => (
           <div className="contents" key={key}>
             <dt className="font-medium text-muted-foreground">{key}</dt>
@@ -276,12 +377,15 @@ function AssistantRunTimelineDetails({
           </div>
         ))}
       </dl>
-      {detail ? <p className="mt-2 text-muted-foreground text-xs">{detail}</p> : null}
     </div>
   );
 }
 
-export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimelineProps) {
+export function AssistantRunTimeline({
+  data,
+  repeatCount,
+  statusOverride,
+}: AssistantRunTimelineProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
 
@@ -306,64 +410,83 @@ export function AssistantRunTimeline({ data, statusOverride }: AssistantRunTimel
   const category = classifyRunEvent(event.kind, toolName);
   const tint = categoryTintClasses(category);
 
-  // Expander is always available since kind always provides fold content
-  const hasDetails = true;
-
+  // Run events render as quiet single-line activity rows: tool-call cards are
+  // the visually dominant element in the thread, so lifecycle/memory events
+  // stay compact with status, label, inline detail, and timing on one line.
   return (
     <m.div
-      className={`bs-run-timeline my-1.5 rounded-lg border ${
-        isFailed ? 'border-destructive/50 bg-destructive/5' : tint.card
-      }`}
+      className={`bs-run-timeline rounded-md ${isFailed ? 'bg-destructive/5' : ''}`}
       data-testid="assistant-run-timeline"
       data-tool-category={category}
       layout
       transition={{ duration: 0.16, ease: 'easeOut' }}
     >
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-3 py-2">
-        <div className={`bs-run-timeline-rail ${isFailed ? 'text-destructive' : tint.rail}`}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span aria-label={statusLabel} className="inline-flex" role="img">
-                <AssistantRunStatusIcon status={eventStatus} />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{statusLabel}</TooltipContent>
-          </Tooltip>
-        </div>
-        <div className="min-w-0">
-          <p className={`font-medium text-sm ${isFailed ? 'text-destructive' : ''}`}>
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <Clock3 className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{event.label}</span>
+      <div className="flex min-w-0 items-center gap-2 px-2 py-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              aria-label={statusLabel}
+              className={`inline-flex shrink-0 ${isFailed ? 'text-destructive' : tint.rail}`}
+              role="img"
+            >
+              <AssistantRunStatusIcon status={eventStatus} />
             </span>
-          </p>
-          <p className="mt-0.5 flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
-            {isRunning ? (
-              <AssistantThinkingIndicator markClassName="size-3.5" textClassName="truncate" />
-            ) : null}
-            <span>{formatTimestamp(event.timestamp)}</span>
-          </p>
-        </div>
-        {hasDetails ? (
-          <Button
-            aria-controls={isExpanded ? detailsId : undefined}
-            aria-expanded={isExpanded}
-            aria-label={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
-            className="size-8"
-            onClick={() => setIsExpanded((current) => !current)}
-            size="icon"
-            title={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
-            variant="ghost"
+          </TooltipTrigger>
+          <TooltipContent>{statusLabel}</TooltipContent>
+        </Tooltip>
+        <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+          <span
+            className={`truncate font-medium text-xs ${
+              isFailed ? 'text-destructive' : 'text-foreground/85'
+            }`}
           >
-            {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-          </Button>
+            {event.label}
+          </span>
+          {repeatCount !== undefined && repeatCount > 1 ? (
+            <span
+              className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground tabular-nums"
+              title={`Repeated ${repeatCount} times`}
+            >
+              ×{repeatCount}
+            </span>
+          ) : null}
+          {event.detail ? (
+            <span className="truncate text-[11px] text-muted-foreground" title={event.detail}>
+              {event.detail}
+            </span>
+          ) : null}
+        </span>
+        {isRunning ? (
+          <AssistantThinkingIndicator
+            className="shrink-0 text-xs"
+            markClassName="size-3.5"
+            textClassName="truncate"
+          />
         ) : null}
+        {durationLabel ? (
+          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+            {durationLabel}
+          </span>
+        ) : null}
+        <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">
+          {formatTimestamp(event.timestamp)}
+        </span>
+        <Button
+          aria-controls={isExpanded ? detailsId : undefined}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
+          className="size-6 shrink-0 text-muted-foreground"
+          onClick={() => setIsExpanded((current) => !current)}
+          size="icon"
+          title={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
+          variant="ghost"
+        >
+          {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </Button>
       </div>
-      {hasDetails && isExpanded ? (
+      {isExpanded ? (
         <AssistantRunTimelineDetails
-          detail={event.detail}
           detailsId={detailsId}
-          durationLabel={durationLabel}
           kind={event.kind}
           metadataEntries={metadataEntries}
         />

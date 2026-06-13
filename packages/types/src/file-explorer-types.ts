@@ -166,6 +166,11 @@ export interface SerializedState {
   includeFilters: string[];
   includeProjectTree: boolean;
   /**
+   * Whether the filter chips row is visible inside the view filters section.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  isFilterChipsVisible?: boolean;
+  /**
    * Whether the view filters section is expanded.
    * Optional for backward compatibility with existing persisted state.
    */
@@ -285,6 +290,12 @@ export interface FileExplorerData {
    */
   isAccessLoading: boolean;
   /**
+   * Whether the filter chips row is visible inside the view filters section.
+   * Lets users reclaim vertical space without losing their active filters.
+   * Persisted to remember user's preference across sessions.
+   */
+  isFilterChipsVisible: boolean;
+  /**
    * Whether the view filters section (preset selector + filter chips) is expanded.
    * Persisted to remember user's preference across sessions.
    */
@@ -398,6 +409,9 @@ export interface FileExplorerState extends FileExplorerData {
   // File content actions
   setFileContent: (compositeKey: string, content: string) => void;
 
+  // Filter chips visibility state
+  setFilterChipsVisible: (visible: boolean) => void;
+
   // Filter actions
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
 
@@ -494,4 +508,5 @@ export const DEFAULT_STATE = {
   disabledIncludeFilters: new Set<string>(),
   disabledExcludeFilters: new Set<string>(),
   isFiltersExpanded: true,
+  isFilterChipsVisible: true,
 } as const;

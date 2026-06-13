@@ -98,13 +98,44 @@ function formatAvailableToolNames(names: ModelFacingToolNames): string {
   return available.length > 0 ? available.join(', ') : 'none';
 }
 
+/**
+ * Compact instructions for the built-in LOCAL model (Gemma E2B on-device).
+ *
+ * The hosted default instructions below are a dense multi-thousand-token
+ * playbook tuned for frontier models; on a 2B local model they bury the user
+ * request, degrade tool selection, and inflate the WebGPU prefill (long local
+ * prompts are also where ONNX-WebGPU kernel failures live). Keep this short
+ * and directive.
+ */
+export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
+  const names = getModelFacingToolNames(toolNameMap);
+  const searchLine =
+    names.grepSearch && names.queryEmbeddingSpace
+      ? `To look up project code: use ${names.grepSearch} for exact strings or identifiers, and ${names.queryEmbeddingSpace} for conceptual questions.`
+      : '';
+  const readLine = names.readWorkspaceFile
+    ? `Use ${names.readWorkspaceFile} to read a specific file when needed.`
+    : '';
+
+  return [
+    'You are the Brainstrike IDE assistant, running fully on this device.',
+    'Answer the user directly and concisely.',
+    'Project files are NOT preloaded; only use a tool when the answer needs project context you do not already have.',
+    searchLine,
+    readLine,
+    'If a tool fails, say so plainly. Only run state-changing tools after the user confirms.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}.`
+    ? `First inspect available selected context, token budgets, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}; pass detail: true only when you need per-file Tapestry ranges.`
     : 'Workspace-selection inspection is unavailable in this run.';
   const grepSearchInstruction = names.grepSearch
-    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content and returns path:line matches with context. Prefer it over semantic search whenever you know the exact wording.`
+    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
     : 'Exact-text grep search is unavailable in this run.';
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
@@ -165,6 +196,8 @@ When project or codebase context is needed, use registered Brainstrike native to
 ${curationInstruction}
 ${selectionLine}
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
+Tool results are bounded: when a result has truncated: true, it is a valid partial result — use its hint (offset, filePaths, smaller limits, deeper paths) to fetch exactly what is missing instead of repeating or broadening the same call.
+Independent read-only lookups (searches, directory listings, file reads with no dependency between them) execute in parallel — issue them together in one step instead of one per turn.
 If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
 If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
 Only run state-changing tools after the user confirms.

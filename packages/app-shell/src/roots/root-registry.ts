@@ -60,12 +60,34 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       mapping.set(root.rootId, matched.id);
       continue;
     }
-    await query(
-      `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [root.rootId, platformKind, root.displayName, root.handle.path]
-    );
+    try {
+      await query(
+        `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (id) DO NOTHING`,
+        [root.rootId, platformKind, root.displayName, root.handle.path]
+      );
+    } catch (error) {
+      // ON CONFLICT (id) does not cover the idx_roots_path unique index: a
+      // concurrent writer (another window racing this reconcile) can land a
+      // same-path row between our SELECT and this INSERT. Converge on the
+      // existing row instead of aborting the remaining roots.
+      const existing = await query('SELECT id, path FROM roots WHERE path = $1 LIMIT 1', [
+        root.handle.path,
+      ]);
+      const existingRow = existing.rows.filter(isDbRootRow)[0];
+      if (!existingRow) {
+        // Not the path race — surface the real failure.
+        throw error;
+      }
+      mapping.set(root.rootId, existingRow.id);
+      dbByPath.set(root.handle.path, { id: existingRow.id, path: root.handle.path });
+      logger.warn('Root path registered by a concurrent writer — converged on existing row', {
+        dbRootId: existingRow.id,
+        rootId: root.rootId,
+      });
+      continue;
+    }
     // Keep dbByPath current so a subsequent root with the same path maps to this id
     dbByPath.set(root.handle.path, { id: root.rootId, path: root.handle.path });
     mapping.set(root.rootId, root.rootId);

@@ -463,6 +463,32 @@ describe('state-serialization', () => {
       expect(result.isFiltersExpanded).toBe(true);
     });
 
+    it('should coerce non-boolean isFilterChipsVisible to current default', () => {
+      const current = buildState({ isFilterChipsVisible: true });
+      const persisted = {
+        currentFolderId: null,
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        isFilterChipsVisible: 'nope' as unknown as boolean,
+      } as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.isFilterChipsVisible).toBe(true);
+    });
+
     it('should coerce non-array selectedFilePaths to empty array', () => {
       const current = buildState();
       const persisted = {

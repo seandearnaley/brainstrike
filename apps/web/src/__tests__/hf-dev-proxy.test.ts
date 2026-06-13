@@ -14,6 +14,12 @@ class ResponseSink extends EventEmitter {
   headers: Record<string, string> = {};
   chunks: string[] = [];
   ended = false;
+  destroyed = false;
+
+  destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
 
   writeHead(status: number, headers?: Record<string, string>): this {
     this.statusCode = status;
@@ -56,6 +62,62 @@ function createMockRequest(
     method: options?.method ?? 'GET',
     headers: options?.headers ?? {},
   }) as unknown as http.IncomingMessage;
+}
+
+/**
+ * Streaming fetch mock faithful to real fetch: aborting the request signal
+ * ERRORS the response body stream (that is exactly how a timed-out proxy
+ * truncates a model download in the field).
+ */
+function createStreamingFetchMock(
+  chunks: string[],
+  intervalMs: number,
+  options?: { stayOpen?: boolean }
+): { getSignal: () => AbortSignal | undefined } {
+  let capturedSignal: AbortSignal | undefined;
+  fetchMock.mockImplementation((_url, init) => {
+    capturedSignal = init?.signal ?? undefined;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let settled = false;
+        capturedSignal?.addEventListener(
+          'abort',
+          () => {
+            if (!settled) {
+              settled = true;
+              controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+            }
+          },
+          { once: true }
+        );
+        let index = 0;
+        const pump = (): void => {
+          if (settled) {
+            return;
+          }
+          if (index >= chunks.length) {
+            if (!options?.stayOpen) {
+              settled = true;
+              controller.close();
+            }
+            return;
+          }
+          controller.enqueue(encoder.encode(chunks[index] ?? ''));
+          index += 1;
+          setTimeout(pump, intervalMs);
+        };
+        setTimeout(pump, intervalMs);
+      },
+    });
+    return Promise.resolve(
+      new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'application/octet-stream' },
+      })
+    );
+  });
+  return { getSignal: () => capturedSignal };
 }
 
 describe('hf dev proxy', () => {
@@ -356,6 +418,50 @@ describe('hf dev proxy', () => {
 
       const [, options] = fetchMock.mock.calls[0] ?? [];
       expect((options as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('completes transfers longer than the inactivity window while chunks keep arriving', async () => {
+      // Model shards are multi-GB: a wall-clock ceiling on the whole transfer
+      // truncates them mid-stream, which the browser reports as
+      // ERR_CONTENT_LENGTH_MISMATCH and transformers.js surfaces as an
+      // unhandled "network error". The timeout must be an INACTIVITY window.
+      createStreamingFetchMock(['a;', 'b;', 'c;', 'd;', 'e;'], 25);
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/onnx/decoder_model_merged_q4f16.onnx_data'
+      );
+      const res = new ResponseSink();
+      // Total transfer ~150ms exceeds the 80ms window; each chunk gap (25ms)
+      // stays inside it.
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse, {
+        inactivityTimeoutMs: 80,
+      });
+
+      expect(res.body()).toBe('a;b;c;d;e;');
+      expect(res.ended).toBe(true);
+      expect(res.destroyed).toBe(false);
+    });
+
+    it('aborts upstream and destroys the response when the stream goes silent', async () => {
+      const { getSignal } = createStreamingFetchMock(['first;'], 10, { stayOpen: true });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/onnx/decoder_model_merged_q4f16.onnx_data'
+      );
+      const res = new ResponseSink();
+      await expect(
+        handleHfProxyRequest(req, res as unknown as http.ServerResponse, {
+          inactivityTimeoutMs: 60,
+        })
+      ).rejects.toThrow();
+
+      expect(getSignal()?.aborted).toBe(true);
+      // Headers were already sent: a clean end() would silently truncate the
+      // payload against its content-length; the socket must be killed instead.
+      expect(res.destroyed).toBe(true);
+      expect(res.ended).toBe(false);
     });
 
     it('waits for drain when res.write returns false (backpressure)', async () => {

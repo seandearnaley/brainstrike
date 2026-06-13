@@ -196,6 +196,11 @@ vi.mock('@assistant-ui/react', () => {
         </button>
       ),
     },
+    ErrorPrimitive: {
+      Root: Primitive,
+      // Mirrors the real primitive: renders nothing when the message has no error.
+      Message: () => null,
+    },
     MessagePrimitive: {
       Root: Primitive,
       Parts: ({ components }: PartsProps) => {
@@ -815,7 +820,9 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByText('Gemma')).toBeInTheDocument();
     expect(screen.getByText('Starting')).toBeInTheDocument();
     expect(screen.queryByText('Loading model...')).not.toBeInTheDocument();
-    expect(screen.queryByText('42%')).not.toBeInTheDocument();
+    // Percent stays visible during the loading stage too (continuity with the
+    // download phase avoids the span blinking in and out — layout shift).
+    expect(screen.getByText('42%')).toBeInTheDocument();
 
     act(() => {
       capturedLocalAdapterOptions?.onLoadingProgress?.({

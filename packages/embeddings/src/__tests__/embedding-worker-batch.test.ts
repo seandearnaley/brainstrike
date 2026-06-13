@@ -819,6 +819,111 @@ describe('Embedding Worker Batch Optimization', () => {
     );
   });
 
+  it('rejects malformed EMBED_REINIT_EVERY environment values', async () => {
+    const originalValue = process.env['EMBED_REINIT_EVERY'];
+    process.env['EMBED_REINIT_EVERY'] = '1e3';
+    let controller: { stop: () => Promise<void> } | undefined;
+    let thrown: unknown;
+
+    try {
+      controller = await startEmbeddingWorker({
+        db: db as unknown as IDatabase,
+        concurrency: 1,
+        leaseMs: 5000,
+        log: () => {},
+        modelKey: 'jinaai/jina-embeddings-v2-base-code',
+        service: new FakeEmbeddingService(),
+        statsRefreshCompletedChunkThreshold: 512,
+        statsRefreshMinIntervalMs: 60_000,
+      });
+    } catch (error) {
+      thrown = error;
+    } finally {
+      await controller?.stop();
+      if (originalValue === undefined) {
+        Reflect.deleteProperty(process.env, 'EMBED_REINIT_EVERY');
+      } else {
+        process.env['EMBED_REINIT_EVERY'] = originalValue;
+      }
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'EMBED_REINIT_EVERY must be a positive integer, received "1e3".'
+    );
+  });
+
+  it('allows EMBED_REINIT_EVERY zero to disable scheduled reinitialization', async () => {
+    const originalValue = process.env['EMBED_REINIT_EVERY'];
+    process.env['EMBED_REINIT_EVERY'] = '0';
+    let controller: { stop: () => Promise<void> } | undefined;
+
+    try {
+      controller = await startEmbeddingWorker({
+        db: db as unknown as IDatabase,
+        concurrency: 1,
+        leaseMs: 5000,
+        log: () => {},
+        modelKey: 'jinaai/jina-embeddings-v2-base-code',
+        service: new FakeEmbeddingService(),
+        statsRefreshCompletedChunkThreshold: 512,
+        statsRefreshMinIntervalMs: 60_000,
+      });
+    } finally {
+      await controller?.stop();
+      if (originalValue === undefined) {
+        Reflect.deleteProperty(process.env, 'EMBED_REINIT_EVERY');
+      } else {
+        process.env['EMBED_REINIT_EVERY'] = originalValue;
+      }
+    }
+  });
+
+  it('allows explicit reinitEveryN zero to disable scheduled reinitialization', async () => {
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      reinitEveryN: 0,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    });
+
+    await controller.stop();
+  });
+
+  it('validates metrics interval config before initializing the embedding service', async () => {
+    const originalValue = process.env['WORKER_METRICS_INTERVAL_MS'];
+    process.env['WORKER_METRICS_INTERVAL_MS'] = 'abc';
+    const service = new FakeEmbeddingService();
+    const generateEmbeddingSpy = vi.spyOn(service, 'generateEmbedding');
+
+    try {
+      await expect(
+        startEmbeddingWorker({
+          db: db as unknown as IDatabase,
+          concurrency: 1,
+          leaseMs: 5000,
+          log: () => {},
+          modelKey: 'missing-custom-model',
+          service,
+          statsRefreshCompletedChunkThreshold: 512,
+          statsRefreshMinIntervalMs: 60_000,
+        })
+      ).rejects.toThrow('WORKER_METRICS_INTERVAL_MS must be a positive integer, received "abc".');
+      expect(generateEmbeddingSpy).not.toHaveBeenCalled();
+    } finally {
+      if (originalValue === undefined) {
+        Reflect.deleteProperty(process.env, 'WORKER_METRICS_INTERVAL_MS');
+      } else {
+        process.env['WORKER_METRICS_INTERVAL_MS'] = originalValue;
+      }
+    }
+  });
+
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';

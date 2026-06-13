@@ -6,7 +6,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.readWorkspaceDirectory':
     'List a workspace directory in a compact, token-efficient format',
   'brainstrike.listWorkspaceContext':
-    'Inspect the current workspace root, selected context paths, and workspace index hint without reading file contents',
+    'Inspect the current workspace root, selected context paths, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
   'brainstrike.readWorkspaceContext':
     'Read selected or explicit workspace files under strict file and token budgets after semantic search needs exact source',
   'brainstrike.updateWorkspaceContextSelection':
@@ -18,5 +18,5 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.queryEmbeddingSpace':
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
   'brainstrike.grepSearch':
-    'Grep indexed file content for an exact string or regex, returning path:line matches with context',
+    "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
 };

@@ -232,9 +232,7 @@ export function AssistantMemorySettingsSection() {
               onChange={(event) => setSemanticRecallEmbeddingModelTarget(event.target.value)}
               value={hasEmbeddingModel ? (semanticRecall.embeddingModelTarget ?? '') : ''}
             >
-              {!hasEmbeddingModel && (
-                <option value="">Select an enabled hosted embedding model</option>
-              )}
+              {!hasEmbeddingModel && <option value="">Select an enabled embedding model</option>}
               {embeddingOptions.map((option) => (
                 <option key={option.target} value={option.target}>
                   {option.label}
@@ -242,14 +240,14 @@ export function AssistantMemorySettingsSection() {
               ))}
             </select>
             <p className="text-muted-foreground text-xs">
-              Renderer-only local embedders are intentionally excluded until the Mastra embedder
-              bridge can call the hidden renderer host safely.
+              Local embedding models run in the hidden embedding host on desktop — no API key
+              required.
             </p>
             {hasUnavailableEmbeddingModel && (
               <p className="text-destructive text-xs" role="alert">
                 Configured semantic recall embedder {semanticRecall.embeddingModelTarget} is not
-                available for Mastra semantic recall. Choose an enabled OpenAI or Google embedding
-                model, or turn semantic recall off.
+                available for Mastra semantic recall. Choose an enabled OpenAI, Google, or local
+                embedding model, or turn semantic recall off.
               </p>
             )}
           </div>

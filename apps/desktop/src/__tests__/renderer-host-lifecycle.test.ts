@@ -72,10 +72,15 @@ function createStatus(status: RendererHostStatusShape): RendererHostStatusShape 
 function createFakeWindow(id: number): FakeWindow {
   const listeners: FakeListenerMap = {};
   const webContentsListeners: FakeListenerMap = {};
+  // Mirror Electron: destroy() synchronously flips isDestroyed(), so guarded
+  // double-destroy paths (dispose during in-flight startup) stay single-shot.
+  let destroyed = false;
   return {
-    destroy: vi.fn(),
+    destroy: vi.fn(() => {
+      destroyed = true;
+    }),
     id,
-    isDestroyed: vi.fn(() => false),
+    isDestroyed: vi.fn(() => destroyed),
     listeners,
     loadFile: vi.fn(),
     loadURL: vi.fn(),
@@ -156,6 +161,66 @@ describe('RendererHostLifecycle', () => {
         )
       )
     );
+  });
+
+  it('exposes the in-flight host window during renderer load so early status reports are accepted', async () => {
+    // The host app can mount and send its one-shot 'running' status BEFORE
+    // loadURL's promise settles. Managers gate acceptStatusReport on
+    // getHostWindow(); if the loading window is not visible yet, that report
+    // is dropped and ensureStarted waits out the full ready timeout, then
+    // destroys a healthy host (the first-run "Timed out waiting for llm host
+    // state transition" bug).
+    const hostWindow = createFakeWindow(42);
+    let hostWindowIdDuringLoad: number | undefined;
+    let resolveLoad!: () => void;
+
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'llm-host:stopped',
+        }),
+      mode: 'llm-host',
+      role: 'llm-host',
+      statusEventName: 'llm-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    hostWindow.loadURL.mockImplementation(() => {
+      hostWindowIdDuringLoad = (lifecycle.getHostWindow() as unknown as FakeWindow | null)?.id;
+      // Simulate the host renderer reporting 'running' mid-load (what the
+      // manager's acceptStatusReport does once it can see this window).
+      lifecycle.setStatus(
+        createStatus({
+          state: 'running',
+          active: false,
+          lastError: null,
+          runtimeId: lifecycle.getStatus().runtimeId,
+        })
+      );
+      return new Promise<void>((resolve) => {
+        resolveLoad = resolve;
+      });
+    });
+
+    const ensurePromise = lifecycle.ensureStarted({ waitForRunning: true });
+    await vi.waitFor(() => {
+      expect(hostWindowIdDuringLoad).toBe(42);
+    });
+
+    resolveLoad();
+    const status = await ensurePromise;
+    expect(status.state).toBe('running');
   });
 
   it('keeps hidden renderer hosts unthrottled for background worker runtime liveness', async () => {

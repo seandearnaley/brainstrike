@@ -116,6 +116,11 @@ export type {
 // Local LLM backend for browser-based inference with transformers.js
 export { LocalLlmBackend } from './providers/local';
 export {
+  createLocalHostEmbeddingModel,
+  type LocalEmbeddingHostClient,
+  type LocalEmbeddingHostQuery,
+} from './providers/local/local-host-embedding-model';
+export {
   LOCAL_RUNTIME_IDS,
   type LocalRuntimeAuthRequiredState,
   type LocalRuntimeAvailabilityState,
@@ -241,6 +246,12 @@ export {
   sanitizeStreamChunk,
   toJsonSafe,
 } from './stream/json';
+export {
+  fitItemsToCharBudget,
+  MAX_TOOL_RESULT_TOKENS,
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  NATIVE_TOOL_RESULT_TOKEN_BUDGET,
+} from './stream/tool-output-limits';
 export {
   clearToolRegistry,
   completeToolCall,

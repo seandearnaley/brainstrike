@@ -75,6 +75,9 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     setFiltersExpanded: (expanded: boolean) => {
       set({ isFiltersExpanded: expanded });
     },
+    setFilterChipsVisible: (visible: boolean) => {
+      set({ isFilterChipsVisible: visible });
+    },
   };
 
   // Combine data and actions. Type assertion might be needed if inference fails.

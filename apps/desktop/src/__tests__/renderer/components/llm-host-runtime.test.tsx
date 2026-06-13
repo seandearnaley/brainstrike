@@ -187,4 +187,281 @@ describe('LlmHostRuntime', () => {
       expect(runningIdleStatuses).toHaveLength(2);
     });
   });
+
+  it('retries the generation once after an engine fault and completes it', async () => {
+    // GPU faults usually come from accumulated WebGPU session state — a fresh
+    // engine on the same prompt typically succeeds, so the host retries once
+    // (visibly) instead of failing the user's turn.
+    generateMock
+      .mockRejectedValueOnce(new Error('operation does not support unaligned accesses'))
+      .mockResolvedValueOnce({
+        finishReason: 'stop',
+        text: 'retried result',
+        usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+      });
+    disposeMock.mockResolvedValueOnce(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-retry-success',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-retry-success',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'result',
+          requestId: 'req-retry-success',
+          payload: expect.objectContaining({
+            result: expect.objectContaining({ text: 'retried result' }),
+          }),
+        })
+      );
+    });
+    // The poisoned engine was disposed before the retry.
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+    expect(generateMock).toHaveBeenCalledTimes(2);
+    // The retry is never silent: a stage progress report announces it.
+    expect(reportProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'req-retry-success',
+        payload: expect.objectContaining({
+          kind: 'stage',
+          message: expect.stringContaining('retrying'),
+        }),
+      })
+    );
+    // No error was reported for the recovered request.
+    expect(reportResponseMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', requestId: 'req-retry-success' })
+    );
+  });
+
+  it('resets the engine and reports the failure when the fault survives the retry', async () => {
+    generateMock.mockRejectedValue(new Error('operation does not support unaligned accesses'));
+    disposeMock.mockResolvedValue(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-gpu-fault',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-gpu-fault',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          requestId: 'req-gpu-fault',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('local model engine was reset'),
+          }),
+        })
+      );
+    });
+    // The notice is honest about the automatic retry having been exhausted.
+    const [finalErrorReport] = reportResponseMock.mock.calls.at(-1) ?? [];
+    expect(
+      (finalErrorReport as { payload: { errorMessage: string } }).payload.errorMessage
+    ).toContain('retry failed too');
+    // One automatic retry, no more: two generate attempts total.
+    expect(generateMock).toHaveBeenCalledTimes(2);
+    // Disposed before the retry AND after the persistent fault, so the NEXT
+    // warmup/generate reinitializes cleanly instead of failing forever.
+    expect(disposeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reset the engine when a generation is merely aborted', async () => {
+    generateMock.mockRejectedValueOnce(
+      new DOMException('The operation was aborted.', 'AbortError')
+    );
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-aborted',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-aborted',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', requestId: 'req-aborted' })
+      );
+    });
+    expect(disposeMock).not.toHaveBeenCalled();
+    const [errorReport] = reportResponseMock.mock.calls.at(-1) ?? [];
+    expect(
+      (errorReport as { payload: { errorMessage: string } }).payload.errorMessage
+    ).not.toContain('engine was reset');
+  });
+
+  it('does not reset the engine for non-GPU errors that merely mention generic engine words', async () => {
+    // "tensor"/"session"/"device"/"buffer" appear in tokenizer, template, and
+    // validation errors too — a false-positive reset throws away a warmed
+    // multi-GB model. Only high-signal GPU substrings may trigger recovery.
+    generateMock.mockRejectedValueOnce(
+      new Error('Invalid session options: tensor shape mismatch for input device buffer')
+    );
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-non-gpu-error',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-non-gpu-error',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', requestId: 'req-non-gpu-error' })
+      );
+    });
+    expect(disposeMock).not.toHaveBeenCalled();
+    const [errorReport] = reportResponseMock.mock.calls.at(-1) ?? [];
+    expect(
+      (errorReport as { payload: { errorMessage: string } }).payload.errorMessage
+    ).not.toContain('engine was reset');
+  });
+
+  it('resets the engine when the WebGPU device is lost', async () => {
+    generateMock.mockRejectedValue(new Error('Device lost: the logical device was destroyed'));
+    disposeMock.mockResolvedValue(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-device-lost',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-device-lost',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          requestId: 'req-device-lost',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('local model engine was reset'),
+          }),
+        })
+      );
+    });
+    expect(disposeMock).toHaveBeenCalled();
+  });
+
+  it('reports an error (keyed to the envelope) for requests that fail validation', async () => {
+    render(<LlmHostRuntime />);
+
+    const requestListener = onRequestCallback as unknown as (request: unknown) => void;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      // Missing clientRequestId — must be rejected with a report, not
+      // swallowed (a silent drop leaves the main-process caller waiting out
+      // its full multi-minute timeout).
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'main:bad-warmup-1',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'warmup',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        },
+      });
+    });
+
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(initializeMock).not.toHaveBeenCalled();
+    expect(reportResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        requestId: 'main:bad-warmup-1',
+        payload: expect.objectContaining({
+          errorMessage: expect.stringContaining('clientRequestId'),
+        }),
+      })
+    );
+  });
 });

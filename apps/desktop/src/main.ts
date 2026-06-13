@@ -1101,7 +1101,10 @@ if (singleInstanceLockAcquired) {
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
       try {
-        const { url, stop } = await startAssistantServer(undefined, { embeddingHostManager });
+        const { url, stop } = await startAssistantServer(undefined, {
+          embeddingHostManager,
+          llmHostManager,
+        });
         assistantUrl = url;
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);
