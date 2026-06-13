@@ -313,7 +313,9 @@ export function WorkspaceCollectionSyncProvider({
   const registrationAttemptedRootIdsRef = useRef(new Set<string>());
   useEffect(() => {
     for (const handle of rootDirectoryHandles) {
-      const rootId = rootIdByPath.get(handle.path);
+      // Prefer the stamped handle.rootId — the path→id map collides for
+      // same-named web roots, so it would mis-attribute one root's imports.
+      const rootId = handle.rootId ?? rootIdByPath.get(handle.path);
       if (rootId === undefined || registrationAttemptedRootIdsRef.current.has(rootId)) {
         // No durable identity yet (legacy setRoot path) → nothing to register;
         // the boot reconcile owns identity for restored roots.

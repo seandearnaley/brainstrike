@@ -361,7 +361,9 @@ export function useFileSystemInstance() {
   const watcherRoots = useMemo(
     () =>
       coreApi.rootDirectoryHandles.map((handle) => ({
-        rootId: coreApi.rootIdByPath.get(handle.path) ?? handle.path,
+        // Prefer the stamped handle.rootId — the path→id map collides for
+        // same-named web roots.
+        rootId: handle.rootId ?? coreApi.rootIdByPath.get(handle.path) ?? handle.path,
         handle,
       })),
     [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]

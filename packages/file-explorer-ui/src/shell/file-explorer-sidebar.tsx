@@ -548,14 +548,18 @@ const RootSection: React.FC<RootSectionProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
-  // Storage v5: resolve durable RootId for this root's handle path.
-  const resolvedRootId = rootIdByPath?.get(rootDirectoryHandle.path);
+  // Storage v5: the canonical identity for this root. Prefer the stamped
+  // handle.rootId (collision-proof for same-named roots), then the path→rootId
+  // map, then the path itself (legacy single-root). Focus/remove/keys must all
+  // use THIS, never the raw path — two same-named web roots share a path.
+  const resolvedRootId = rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path);
+  const rootIdentity = resolvedRootId ?? rootDirectoryHandle.path;
 
   const handleToggle = useCallback(() => {
     // Header click: focus this root AND toggle collapse.
-    setFocusedRoot?.(rootDirectoryHandle.path);
+    setFocusedRoot?.(rootIdentity);
     setIsCollapsed((v) => !v);
-  }, [setFocusedRoot, rootDirectoryHandle.path]);
+  }, [setFocusedRoot, rootIdentity]);
 
   const handleDisconnectRequest = useCallback(() => {
     setIsDisconnectDialogOpen(true);
@@ -564,11 +568,11 @@ const RootSection: React.FC<RootSectionProps> = ({
   const handleDisconnectConfirm = useCallback(
     (options: { deleteData: boolean }) => {
       setIsDisconnectDialogOpen(false);
-      // Legacy roots without a rootIdByPath entry use their path AS the id
-      // (matches removeRootDirectory's path-doubles-as-id resolution).
-      void onRemoveRoot?.(resolvedRootId ?? rootDirectoryHandle.path, options);
+      // Legacy roots without a RootId use their path AS the id (matches
+      // removeRootDirectory's path-doubles-as-id resolution).
+      void onRemoveRoot?.(rootIdentity, options);
     },
-    [onRemoveRoot, resolvedRootId, rootDirectoryHandle.path]
+    [onRemoveRoot, rootIdentity]
   );
 
   const handleTreeInteraction = useCallback(() => {
@@ -576,8 +580,8 @@ const RootSection: React.FC<RootSectionProps> = ({
     // switches focused root. This is the per-root-boundary wiring site: bubbled
     // clicks from OptimizedFileTree rows reach this handler which is cheaper
     // than wiring into every individual row's dispatch path.
-    setFocusedRoot?.(rootDirectoryHandle.path);
-  }, [setFocusedRoot, rootDirectoryHandle.path]);
+    setFocusedRoot?.(rootIdentity);
+  }, [setFocusedRoot, rootIdentity]);
 
   return (
     <div className="flex flex-col">
@@ -684,7 +688,10 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {forestHandles.map((handle) => (
               <RootSection
-                key={rootIdByPath?.get(handle.path) ?? handle.path}
+                // Prefer the stamped rootId — same-named web roots share a path,
+                // so a path-keyed key would collide and React would reconcile
+                // the two sections as one.
+                key={handle.rootId ?? rootIdByPath?.get(handle.path) ?? handle.path}
                 onRemoveRoot={onRemoveRoot}
                 rootDirectoryHandle={handle}
                 rootIdByPath={rootIdByPath}
@@ -699,12 +706,11 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
 
     // SINGLE-ROOT LAYOUT (original, golden-path regression safety)
     const hasContent = deferredTree && deferredTree.length > 0;
-    // Storage v5: resolve RootId for single-root mode folderId.
+    // Storage v5: resolve RootId for single-root mode folderId. getRootFolderId
+    // already prefers the stamped handle.rootId, then the path→id map, then the
+    // path — so it is the single canonical resolver here.
     const singleRootFolderId =
-      (rootDirectoryHandle && rootIdByPath?.get(rootDirectoryHandle.path)) ??
-      getRootFolderId(rootDirectoryHandle) ??
-      currentFolderId ??
-      '';
+      getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '';
 
     return (
       <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">

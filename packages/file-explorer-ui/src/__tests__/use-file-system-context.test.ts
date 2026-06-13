@@ -493,8 +493,10 @@ describe('useFileSystem context hook', () => {
     const { result } = renderHook(() => useExposed(), { wrapper });
 
     await waitFor(() => {
-      expect(result.current.fs.rootDirectoryHandle).toEqual(restoredHandle);
-      expect(result.current.store.getState().rootDirectoryHandle).toEqual(restoredHandle);
+      // The restored handle is stamped with a durable RootId (storage v5), so
+      // it's a superset of the input handle — match the known fields.
+      expect(result.current.fs.rootDirectoryHandle).toMatchObject(restoredHandle);
+      expect(result.current.store.getState().rootDirectoryHandle).toMatchObject(restoredHandle);
       // v5: on a true first run (nothing persisted) currentFolderId is a
       // freshly minted durable RootId UUID, not the handle path.
       expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);

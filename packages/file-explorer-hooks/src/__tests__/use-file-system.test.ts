@@ -139,7 +139,14 @@ describe('useFileSystem', () => {
         kind: 'directory',
         platform: 'web',
       });
-      expect(result.current?.rootDirectoryHandle).toEqual(handle);
+      // The stored handle is stamped with a durable RootId (storage v5), so it
+      // is a superset of the returned handle — match the known fields.
+      expect(result.current?.rootDirectoryHandle).toMatchObject({
+        path: 'mock-root',
+        name: 'mock-root',
+        kind: 'directory',
+        platform: 'web',
+      });
       // Since storage v5 the store receives a durable RootId UUID, not the path.
       const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
       expect(typeof calledId).toBe('string');
@@ -367,7 +374,7 @@ describe('useFileSystem', () => {
       );
 
       await waitFor(() =>
-        expect(result.current?.rootDirectoryHandle).toEqual({
+        expect(result.current?.rootDirectoryHandle).toMatchObject({
           path: '/test/restored/path',
           name: 'path',
           kind: 'directory',
@@ -375,7 +382,7 @@ describe('useFileSystem', () => {
         })
       );
       expect(result.current).toBeDefined();
-      expect(result.current?.rootDirectoryHandle).toEqual({
+      expect(result.current?.rootDirectoryHandle).toMatchObject({
         path: '/test/restored/path',
         name: 'path',
         kind: 'directory',
@@ -426,7 +433,7 @@ describe('useFileSystem', () => {
         await result.current?.selectRootDirectory();
       });
 
-      expect(result.current?.rootDirectoryHandle).toEqual({
+      expect(result.current?.rootDirectoryHandle).toMatchObject({
         path: 'mock-root',
         name: 'mock-root',
         kind: 'directory',
@@ -438,7 +445,7 @@ describe('useFileSystem', () => {
       rerender();
 
       await waitFor(() =>
-        expect(result.current?.rootDirectoryHandle).toEqual({
+        expect(result.current?.rootDirectoryHandle).toMatchObject({
           path: 'mock-root',
           name: 'mock-root',
           kind: 'directory',
@@ -446,7 +453,7 @@ describe('useFileSystem', () => {
         })
       );
       // Should still have the manually selected directory, not the restored one
-      expect(result.current?.rootDirectoryHandle).toEqual({
+      expect(result.current?.rootDirectoryHandle).toMatchObject({
         path: 'mock-root',
         name: 'mock-root',
         kind: 'directory',
@@ -499,7 +506,7 @@ describe('useFileSystem', () => {
 
       try {
         await waitFor(() =>
-          expect(result.current?.rootDirectoryHandle).toEqual({
+          expect(result.current?.rootDirectoryHandle).toMatchObject({
             path: '/test/restored/path',
             name: 'path',
             kind: 'directory',
@@ -572,7 +579,7 @@ describe('useFileSystem', () => {
       });
 
       await waitFor(() => {
-        expect(result.current?.rootDirectoryHandle).toEqual(restoredHandle);
+        expect(result.current?.rootDirectoryHandle).toMatchObject(restoredHandle);
       });
 
       // Since storage v5 the store receives a durable RootId UUID, not the path.
@@ -705,7 +712,7 @@ describe('useFileSystem', () => {
       );
 
       await waitFor(() =>
-        expect(result.current?.rootDirectoryHandle).toEqual({
+        expect(result.current?.rootDirectoryHandle).toMatchObject({
           path: '/test/restored/path',
           name: 'path',
           kind: 'directory',
@@ -713,7 +720,7 @@ describe('useFileSystem', () => {
         })
       );
       expect(result.current).toBeDefined();
-      expect(result.current?.rootDirectoryHandle).toEqual({
+      expect(result.current?.rootDirectoryHandle).toMatchObject({
         path: '/test/restored/path',
         name: 'path',
         kind: 'directory',
@@ -786,8 +793,8 @@ describe('useFileSystem', () => {
 
       expect(addRootFn).toHaveBeenCalledTimes(1);
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(result.current?.rootDirectoryHandles[0]).toEqual(descriptor.handle);
-      expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
+      expect(result.current?.rootDirectoryHandles[0]).toMatchObject(descriptor.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(descriptor.handle);
       expect(mockAddActiveRoot).toHaveBeenCalledWith({
         displayName: 'my-root',
         path: '/my/root',
@@ -876,8 +883,8 @@ describe('useFileSystem', () => {
       });
 
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(result.current?.rootDirectoryHandles[0]).toEqual(handle);
-      expect(result.current?.rootDirectoryHandle).toEqual(handle);
+      expect(result.current?.rootDirectoryHandles[0]).toMatchObject(handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(handle);
       // addActiveRoot called with synthetic descriptor (uuid rootId, handle.name as displayName)
       expect(mockAddActiveRoot).toHaveBeenCalledTimes(1);
       // We just verified it was called once above, so the first call exists.
@@ -940,7 +947,7 @@ describe('useFileSystem', () => {
       // Should still have only 1 handle (deduped by path)
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
       // Focus should be set on the existing handle
-      expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(descriptor.handle);
       // Storage v5: store receives the durable rootId UUID, not the path.
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith('root-shared');
     });
@@ -1000,7 +1007,7 @@ describe('useFileSystem', () => {
 
       expect(result.current?.rootDirectoryHandles).toHaveLength(2);
       // Focused is the second one
-      expect(result.current?.rootDirectoryHandle).toEqual(desc2.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(desc2.handle);
 
       // Switch focus back to first
       vi.clearAllMocks();
@@ -1008,7 +1015,7 @@ describe('useFileSystem', () => {
         result.current?.setFocusedRoot('/root/a');
       });
 
-      expect(result.current?.rootDirectoryHandle).toEqual(desc1.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(desc1.handle);
       // Storage v5: setFocusedRoot resolves the rootId from rootIdByPath map.
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith('id-a');
     });
@@ -1079,10 +1086,14 @@ describe('useFileSystem', () => {
 
       await waitFor(() => expect(result.current?.rootDirectoryHandles).toHaveLength(2));
 
-      expect(result.current?.rootDirectoryHandles).toContainEqual(desc1.handle);
-      expect(result.current?.rootDirectoryHandles).toContainEqual(desc2.handle);
+      expect(result.current?.rootDirectoryHandles).toEqual(
+        expect.arrayContaining([expect.objectContaining(desc1.handle)])
+      );
+      expect(result.current?.rootDirectoryHandles).toEqual(
+        expect.arrayContaining([expect.objectContaining(desc2.handle)])
+      );
       // Focused: first in folderAccessOrder = /folder/b = desc2
-      expect(result.current?.rootDirectoryHandle).toEqual(desc2.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(desc2.handle);
       expect(mockSetActiveRoots).toHaveBeenCalledWith([
         { displayName: 'folder-a', path: '/folder/a', rootId: 'rid-a' },
         { displayName: 'folder-b', path: '/folder/b', rootId: 'rid-b' },
@@ -1131,7 +1142,7 @@ describe('useFileSystem', () => {
       await waitFor(() => expect(result.current?.rootDirectoryHandles).toHaveLength(1));
 
       // Only the granted root is populated
-      expect(result.current?.rootDirectoryHandles[0]).toEqual(grantedDesc.handle);
+      expect(result.current?.rootDirectoryHandles[0]).toMatchObject(grantedDesc.handle);
       // setActiveRoots only called with granted root
       expect(mockSetActiveRoots).toHaveBeenCalledWith([
         { displayName: 'granted-folder', path: '/granted', rootId: 'rid-granted' },
@@ -1153,7 +1164,7 @@ describe('useFileSystem', () => {
       );
 
       await waitFor(() =>
-        expect(result.current?.rootDirectoryHandle).toEqual({
+        expect(result.current?.rootDirectoryHandle).toMatchObject({
           path: '/test/legacy/path',
           name: 'path',
           kind: 'directory',
@@ -1285,7 +1296,7 @@ describe('useFileSystem', () => {
 
       expect(addRootFn).toHaveBeenCalledTimes(1);
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(descriptor.handle);
     });
   });
 
@@ -1353,9 +1364,9 @@ describe('useFileSystem', () => {
 
       // Both handles registered (addOrFocusHandle x2)
       expect(result.current?.rootDirectoryHandles).toHaveLength(2);
-      expect(result.current?.rootDirectoryHandles).toEqual([handleA, handleB]);
+      expect(result.current?.rootDirectoryHandles).toMatchObject([handleA, handleB]);
       // handles[0] focused
-      expect(result.current?.rootDirectoryHandle).toEqual(handleA);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(handleA);
       // Storage v5: store receives the durable rootId from the adapter descriptor.
       expect(mockSetCurrentFolderId).toHaveBeenLastCalledWith('root-a');
       // addActiveRoot x2 with descriptor-derived rootIds
@@ -1400,7 +1411,7 @@ describe('useFileSystem', () => {
       });
 
       expect(result.current?.rootDirectoryHandles).toHaveLength(2);
-      expect(result.current?.rootDirectoryHandle).toEqual(handleA);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(handleA);
       expect(mockAddActiveRoot).toHaveBeenCalledTimes(2);
       for (const call of mockAddActiveRoot.mock.calls) {
         const arg = call[0] as { rootId: string };
@@ -1482,7 +1493,7 @@ describe('useFileSystem', () => {
 
       expect(removeRootFn).toHaveBeenCalledExactlyOnceWith('root-id-b');
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(result.current?.rootDirectoryHandles[0]).toEqual(descriptorA.handle);
+      expect(result.current?.rootDirectoryHandles[0]).toMatchObject(descriptorA.handle);
       expect(result.current?.rootIdByPath.has('/roots/b')).toBe(false);
       expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-b');
     });
@@ -1496,14 +1507,14 @@ describe('useFileSystem', () => {
         await result.current?.addRootDirectory();
       });
       // The second addRoot leaves B focused.
-      expect(result.current?.rootDirectoryHandle).toEqual(descriptorB.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(descriptorB.handle);
       mockSetCurrentFolderId.mockClear();
 
       await act(async () => {
         await result.current?.removeRootDirectory('root-id-b');
       });
 
-      expect(result.current?.rootDirectoryHandle).toEqual(descriptorA.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(descriptorA.handle);
       // Focus shift writes the REMAINING root's id via the established action.
       expect(mockSetCurrentFolderId).toHaveBeenCalledExactlyOnceWith('root-id-a');
       // Ordering: focus shift must land BEFORE the store purge so the purge
@@ -1528,7 +1539,7 @@ describe('useFileSystem', () => {
         await result.current?.removeRootDirectory('root-id-a');
       });
 
-      expect(result.current?.rootDirectoryHandle).toEqual(descriptorB.handle);
+      expect(result.current?.rootDirectoryHandle).toMatchObject(descriptorB.handle);
       expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
       expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-a');
     });
@@ -1585,6 +1596,122 @@ describe('useFileSystem', () => {
 
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
       expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-a');
+    });
+  });
+
+  describe('multi-root: same-named roots stay distinct (web path collision)', () => {
+    // On web, DirectoryHandle.path is just the directory name (the FSA API
+    // hides the absolute path), so two folders both named "project" share a
+    // path. Their durable RootIds differ — identity must follow the RootId, not
+    // the path, or add/focus/remove all target the wrong root.
+    const NAME = 'project';
+    const descA: RootDescriptor = {
+      displayName: NAME,
+      handle: { path: NAME, name: NAME, kind: 'directory', platform: 'web' },
+      kind: 'fsa',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'rid-same-a',
+    };
+    const descB: RootDescriptor = {
+      displayName: NAME,
+      handle: { path: NAME, name: NAME, kind: 'directory', platform: 'web' },
+      kind: 'fsa',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'rid-same-b',
+    };
+
+    function renderWithBothRoots() {
+      const addRootFn = vi.fn().mockResolvedValueOnce(descA).mockResolvedValueOnce(descB);
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descA.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: addRootFn,
+        removeRoot: vi.fn().mockResolvedValue(undefined),
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+      const hook = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            removeActiveRoot: mockRemoveActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+      return hook;
+    }
+
+    it('adds BOTH same-named roots instead of collapsing into one', async () => {
+      const { result } = renderWithBothRoots();
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+
+      // The path collides, but the distinct RootIds keep them separate.
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+      const ids = result.current?.rootDirectoryHandles.map((h) => h.rootId);
+      expect(ids).toEqual(['rid-same-a', 'rid-same-b']);
+    });
+
+    it('stamps each stored handle with its own RootId (self-identifying)', async () => {
+      const { result } = renderWithBothRoots();
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+
+      const [a, b] = result.current?.rootDirectoryHandles ?? [];
+      expect(a?.rootId).toBe('rid-same-a');
+      expect(b?.rootId).toBe('rid-same-b');
+      // The currently-focused handle is the second-added root.
+      expect(result.current?.rootDirectoryHandle?.rootId).toBe('rid-same-b');
+    });
+
+    it('removes the correct same-named root by RootId, not path', async () => {
+      const { result } = renderWithBothRoots();
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+
+      await act(async () => {
+        // Remove the FIRST same-named root; the second must survive.
+        await result.current?.removeRootDirectory('rid-same-a');
+      });
+
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandles[0]?.rootId).toBe('rid-same-b');
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('rid-same-a');
+    });
+
+    it('focuses the correct same-named root by RootId via setFocusedRoot', async () => {
+      const { result } = renderWithBothRoots();
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      // B is focused after the second add; switch focus to A by its RootId.
+      mockSetCurrentFolderId.mockClear();
+
+      act(() => {
+        result.current?.setFocusedRoot('rid-same-a');
+      });
+
+      expect(result.current?.rootDirectoryHandle?.rootId).toBe('rid-same-a');
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('rid-same-a');
     });
   });
 });
