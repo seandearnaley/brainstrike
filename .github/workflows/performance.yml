@@ -93,10 +93,15 @@ jobs:
         run: |
           cd apps/web
           unset NO_COLOR
+          # --max-failures=3 makes a broken suite report `failure` fast instead
+          # of grinding through every test (each timing out ~60s + retry) until
+          # the job's own timeout-minutes fires and GitHub mislabels the timeout
+          # `cancelled` — matching the web/desktop lanes. Harmless when green
+          # (never trips at 0 failures).
           if [ -n "$PERF_GREP" ]; then
-            pnpm exec playwright test --project="$PERF_PROJECT" -g "$PERF_GREP"
+            pnpm exec playwright test --project="$PERF_PROJECT" --max-failures=3 -g "$PERF_GREP"
           else
-            pnpm exec playwright test --project="$PERF_PROJECT"
+            pnpm exec playwright test --project="$PERF_PROJECT" --max-failures=3
           fi
 
       - name: Upload blob report
