@@ -231,6 +231,10 @@ export function useFileSystem() {
     const nextFocused = await coreApi.removeRootDirectory(rootId);
     // Keep the store's handle copy coherent with the core hook (the store
     // value is the render source of truth for rootDirectoryHandle below).
+    // NOTE: the core hook has already shifted focus internally, so the
+    // updateCurrentFolderId this setter dispatches is intentionally redundant
+    // — the outgoing folder already equals nextFocused, making the second
+    // focus-write an idempotent no-op. Only the handle copy actually changes.
     setRootDirectoryHandle(nextFocused);
     // Token cache: best-effort — a failure must not block the disconnect.
     if (tokenCacheContext) {
