@@ -86,3 +86,7 @@
 ## 2026-06-11 - Cached file-content handle names avoid split arrays
 **Learning:** `packages/file-explorer-ui/src/use-shared-file-content-loading.ts` prepares cached browser file handles during selected-file content loading. The old `path.split('/').pop() || path` allocated a segment array per cached path and measured 326.20ms over 100k paths x 30 runs on Node 24.16.0; `lastIndexOf('/')` plus `slice()` measured 62.63ms with identical checksums and preserved trailing-slash fallback behavior.
 **Action:** Keep cached file request names on `getCachedFileRequestName()` and avoid reintroducing split/pop in bulk cached handle preparation.
+
+## 2026-06-13 - Ancestor path chains avoid recursive spread
+**Learning:** `packages/utils/src/path-ancestors.ts` builds ancestor directory chains for recursive selection count updates. The recursive `[...buildAncestorDirectoryChain(parent)]` path measured roughly 43-56ms for a 4,000-deep chain after warmup on Node 24.16.0 and throws `RangeError: Maximum call stack size exceeded` at 12,000 nested directories; the iterative parent walk measured roughly 37-44ms for the 4,000-deep case and completed the 12,000-deep case in ~101ms.
+**Action:** Keep ancestor chain construction iterative and avoid reintroducing recursive spread copies in path ancestor utilities.
