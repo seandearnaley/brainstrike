@@ -17,6 +17,7 @@ import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import type React from 'react';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
+import type { SelectAllOptions } from '../hooks/use-recursive-select-all';
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { useLazyFileTree } from './use-lazy-file-tree';
 
@@ -96,7 +97,8 @@ export interface CancellableFileTreeHook {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked,
+    options?: SelectAllOptions
   ) => Promise<{
     success: boolean;
     filePaths: string[];

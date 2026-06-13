@@ -307,4 +307,42 @@ describe('FileTreeIndex', () => {
       expect(result?.webHandle).toBe(newHandle);
     });
   });
+
+  describe('clearFolder (Phase 6 forest sharing)', () => {
+    it('removes only the given folder entries and adjusts stats', () => {
+      const index = new FileTreeIndex();
+      index.addNodes(
+        [
+          createMockDirectoryNode({
+            rootFolderId: 'root-a',
+            path: 'src',
+            children: [
+              createMockFileNode({ rootFolderId: 'root-a', path: 'src/a.ts', name: 'a.ts' }),
+            ],
+          }),
+          createMockFileNode({ rootFolderId: 'root-b', path: 'src/b.ts', name: 'b.ts' }),
+        ],
+        null
+      );
+      expect(index.stats.totalNodes).toBe(3);
+
+      index.clearFolder('root-a');
+
+      expect(index.getNode('root-a', 'src')).toBeUndefined();
+      expect(index.getNode('root-a', 'src/a.ts')).toBeUndefined();
+      // The other root's entries survive.
+      expect(index.getNode('root-b', 'src/b.ts')).toBeDefined();
+      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 1, totalDirectories: 0 });
+    });
+
+    it('is a no-op for a folder with no entries', () => {
+      const index = new FileTreeIndex();
+      index.addNodes([createMockFileNode({ rootFolderId: 'root-b', path: 'b.ts' })], null);
+
+      index.clearFolder('root-a');
+
+      expect(index.stats.totalNodes).toBe(1);
+      expect(index.getNode('root-b', 'b.ts')).toBeDefined();
+    });
+  });
 });

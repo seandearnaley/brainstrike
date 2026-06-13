@@ -8,144 +8,48 @@
  * at the top level with stable dependencies.
  */
 
-import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer';
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { hasPersistApi } from './hooks/recursive-selection-utils';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
+import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
 
 const logger = createLogger('ToolbarPresetSelector');
 
-interface ZustandPersistStorage {
-  getItem: (key: string) => Promise<unknown> | unknown;
-  setItem: (key: string, value: unknown) => Promise<void> | void;
+interface HydratablePersistApi {
+  hasHydrated?: () => boolean;
+  onFinishHydration?: (callback: () => void) => () => void;
 }
 
-interface ZustandPersistOptions {
-  name?: string;
-  partialize?: (state: unknown) => unknown;
-  storage?: ZustandPersistStorage;
-  version?: number;
-}
-
-interface ZustandPersistApi {
-  getOptions?: () => ZustandPersistOptions;
-}
-
-function readPersistedStorageValue(currentValue: unknown): unknown {
-  if (typeof currentValue !== 'string' || currentValue.length === 0) {
-    return currentValue;
-  }
-
-  try {
-    return JSON.parse(currentValue);
-  } catch {
-    return {};
-  }
-}
-
-function unwrapPersistedState(current: unknown): {
-  currentObject: Record<string, unknown>;
-  hasWrapper: boolean;
-  persistedState: Record<string, unknown>;
-} {
-  const currentIsObject = current !== null && typeof current === 'object';
-  const currentObject = currentIsObject ? (current as Record<string, unknown>) : {};
-  const hasWrapper = currentIsObject && 'state' in currentObject;
-  const wrappedState = currentObject['state'];
-  const persistedState =
-    hasWrapper && wrappedState !== null && typeof wrappedState === 'object'
-      ? (wrappedState as Record<string, unknown>)
-      : currentObject;
-
-  return { currentObject, hasWrapper, persistedState };
-}
-
-function resolveLivePersistedState(
-  getState: (() => unknown) | null,
-  partialize: ((state: unknown) => unknown) | null,
-  persistedState: Record<string, unknown>
-): Record<string, unknown> {
-  if (!(getState && partialize)) {
-    return persistedState;
-  }
-
-  const liveState = partialize(getState());
-  return liveState !== null && typeof liveState === 'object'
-    ? (liveState as Record<string, unknown>)
-    : {};
-}
-
-/** Resolve the Zustand persist API from a store reference, or null if unavailable. */
-function resolveStorePersistApi(store: unknown): {
-  getState: (() => unknown) | null;
-  name: string;
-  partialize: ((state: unknown) => unknown) | null;
-  storage: ZustandPersistStorage;
-  version: number;
-} | null {
-  const storeRef = store as {
-    getState?: () => unknown;
-    persist?: ZustandPersistApi;
-  };
-  const persistApi = storeRef.persist;
-  if (!persistApi || typeof persistApi.getOptions !== 'function') {
-    return null;
-  }
-  const opts = persistApi.getOptions();
-  const storage = opts?.storage;
-  if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
-    return null;
-  }
-  return {
-    storage,
-    name: opts?.name ?? FILE_EXPLORER_STORAGE_KEY,
-    version: opts?.version ?? 1,
-    partialize: typeof opts?.partialize === 'function' ? opts.partialize : null,
-    getState: typeof storeRef.getState === 'function' ? storeRef.getState : null,
-  };
-}
-
-/** Merge patch into the Zustand persisted state JSON and write it back. */
-async function mergeAndWriteStoragePatch(
-  storage: ZustandPersistStorage,
-  name: string,
-  version: number,
-  getState: (() => unknown) | null,
-  partialize: ((state: unknown) => unknown) | null,
-  patch: Record<string, unknown>
-): Promise<void> {
-  let currentValue: unknown = null;
-  try {
-    currentValue = await storage.getItem(name);
-  } catch (error) {
-    if (isDevEnv()) {
-      logger.warn('Failed to read preset storage', { error });
+/**
+ * Tracks Zustand persist rehydration. Persisting (or syncing the preset id)
+ * BEFORE rehydration serializes DEFAULT state over the user's stored settings
+ * — the historical "my filters reverted on reload" clobber. Stores without a
+ * persist API (tests) count as hydrated.
+ */
+function useStoreHydrated(store: unknown): boolean {
+  const persist = (store as { persist?: HydratablePersistApi } | null)?.persist;
+  const [hydrated, setHydrated] = useState(() => persist?.hasHydrated?.() ?? true);
+  useEffect(() => {
+    if (hydrated || !persist?.onFinishHydration) {
+      return;
     }
-    return;
-  }
-
-  const current = readPersistedStorageValue(currentValue);
-  const { currentObject, hasWrapper, persistedState } = unwrapPersistedState(current);
-  const liveStateObject = resolveLivePersistedState(getState, partialize, persistedState);
-  const base = { ...persistedState, ...liveStateObject };
-  const merged = { ...base, ...patch };
-  const wrapper = hasWrapper ? { ...currentObject, state: merged } : { version, state: merged };
-
-  try {
-    await storage.setItem(name, wrapper);
-  } catch (error) {
-    if (isDevEnv()) {
-      logger.warn('Failed to persist preset patch', { error });
+    if (persist.hasHydrated?.()) {
+      setHydrated(true);
+      return;
     }
-  }
+    return persist.onFinishHydration(() => setHydrated(true));
+  }, [hydrated, persist]);
+  return hydrated;
 }
 
 interface ToolbarPresetSelectorProps {
@@ -232,7 +136,8 @@ const ToolbarPresetSelectorInner: React.FC<
     setViewFilterPresetId: (id: string | null) => void;
     setFilters: (includes: string[], excludes: string[]) => void;
     setUseRegex: (useRegex: boolean) => void;
-    persistPatch: (patch: Record<string, unknown>) => Promise<void>;
+    isHydrated: boolean;
+    persistNow: () => Promise<void>;
   }
 > = React.memo(
   ({
@@ -245,7 +150,8 @@ const ToolbarPresetSelectorInner: React.FC<
     setViewFilterPresetId,
     setFilters,
     setUseRegex,
-    persistPatch,
+    isHydrated,
+    persistNow,
   }) => {
     // Load presets from database
     const { presets, loading, error, createPreset, updatePreset, deletePreset } =
@@ -293,7 +199,10 @@ const ToolbarPresetSelectorInner: React.FC<
     }, [optimisticPresetId, presets, selectedPreset]);
 
     useEffect(() => {
-      if (loading || error || optimisticPresetId) {
+      // Pre-rehydration the store holds DEFAULT filters — syncing (and
+      // persisting) the preset id against them clobbers the user's stored
+      // settings. Wait for hydration.
+      if (!isHydrated || loading || error || optimisticPresetId) {
         return;
       }
 
@@ -303,16 +212,17 @@ const ToolbarPresetSelectorInner: React.FC<
       }
 
       setViewFilterPresetId(selectedPresetId);
-      void persistPatch({ viewFilterPresetId: selectedPresetId }).catch((error: unknown) => {
+      void persistNow().catch((error: unknown) => {
         if (isDevEnv()) {
           logger.warn('Failed to persist preset sync', { error });
         }
       });
     }, [
       error,
+      isHydrated,
       loading,
       optimisticPresetId,
-      persistPatch,
+      persistNow,
       selectedPreset,
       setViewFilterPresetId,
       viewFilterPresetId,
@@ -335,26 +245,28 @@ const ToolbarPresetSelectorInner: React.FC<
           onFilterChange(preset.includes, preset.excludes, preset.useRegex);
         });
 
-        // Persist to storage (async, doesn't block UI)
+        // Persist the store snapshot immediately (async, doesn't block UI) so
+        // a quick app quit cannot lose the change to the debounce window.
         try {
-          await persistPatch({
-            viewFilterPresetId: preset.id,
-            includeFilters: preset.includes,
-            excludeFilters: preset.excludes,
-            useRegex: preset.useRegex,
-          });
+          await persistNow();
         } catch (error) {
           if (isDevEnv()) {
             logger.warn('Failed to persist preset selection', { error });
           }
         }
       },
-      [setViewFilterPresetId, setFilters, setUseRegex, onFilterChange, persistPatch]
+      [setViewFilterPresetId, setFilters, setUseRegex, onFilterChange, persistNow]
     );
+
+    // Filters are active but match no preset — the trigger must say so
+    // rather than implying nothing is filtered.
+    const hasCustomFilters =
+      !displayedPreset && (includeFilters.length > 0 || excludeFilters.length > 0);
 
     return (
       <ViewFilterPresetDropdown
         className={className}
+        hasCustomFilters={hasCustomFilters}
         loading={loading}
         onCreate={createPreset}
         onDelete={deletePreset}
@@ -378,6 +290,8 @@ ToolbarPresetSelectorInner.displayName = 'ToolbarPresetSelectorInner';
 const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
   ({ onFilterChange, className }) => {
     const store = useFileExplorerStoreContext();
+    const { storageAdapter } = useAdapters();
+    const isHydrated = useStoreHydrated(store);
 
     // Subscribe to each store field independently so preset label updates
     // cannot be dropped by a composite selector equality mismatch.
@@ -389,32 +303,25 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     const setFilters = useFileExplorerStoreSelector((s) => s.setFilters);
     const setUseRegex = useFileExplorerStoreSelector((s) => s.setUseRegex);
 
-    // Create persist helper - stable reference via useCallback
-    const persistPatch = useCallback(
-      async (patch: Record<string, unknown>) => {
-        const resolved = resolveStorePersistApi(store);
-        if (!resolved) {
-          return;
-        }
-        await mergeAndWriteStoragePatch(
-          resolved.storage,
-          resolved.name,
-          resolved.version,
-          resolved.getState,
-          resolved.partialize,
-          patch
-        );
-      },
-      [store]
-    );
+    // ONE writer: the canonical store snapshot (same serializer as the
+    // persist middleware), never a hand-merged patch — a second JSON writer
+    // racing the middleware was the historical settings-clobber source.
+    const persistNow = useCallback(async () => {
+      if (!hasPersistApi(store)) {
+        logger.warn('Preset selection not persisted immediately: store has no persist API');
+        return;
+      }
+      await persistFileExplorerStateImmediately(store, storageAdapter);
+    }, [store, storageAdapter]);
 
     return (
       <ToolbarPresetSelectorInner
         className={className}
         excludeFilters={excludeFilters}
         includeFilters={includeFilters}
+        isHydrated={isHydrated}
         onFilterChange={onFilterChange}
-        persistPatch={persistPatch}
+        persistNow={persistNow}
         setFilters={setFilters}
         setUseRegex={setUseRegex}
         setViewFilterPresetId={setViewFilterPresetId}

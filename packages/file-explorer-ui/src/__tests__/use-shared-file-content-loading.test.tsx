@@ -20,6 +20,17 @@ vi.mock('@brainstrike/workers/file-content-worker', () => ({
   createFileContentWorker: vi.fn(() => vi.fn()),
 }));
 
+// Partially mock the index context hook so the cross-root tests can inject a
+// real FileTreeIndex (the default passthrough keeps every other test on the
+// real implementation, which returns null outside a FileTreeProvider).
+vi.mock('../tree/file-tree-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../tree/file-tree-provider')>();
+  return {
+    ...actual,
+    useOptionalFileTreeIndexContext: vi.fn(actual.useOptionalFileTreeIndexContext),
+  };
+});
+
 function useTestHook(fileTree: IFileNode[]) {
   const store = useFileExplorerStoreContext();
   const loading = useSharedFileContentLoading(fileTree);
@@ -855,6 +866,72 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.loadingFiles.size).toBe(0);
   });
 
+  it('resolves direct-path reads through the root descriptor when folderId is a RootId UUID', async () => {
+    // Storage v5: composite keys carry a RootId UUID, not the root path.
+    // Restored workspace tabs hit this path on reload before the lazy tree
+    // contains the file — the hook must resolve the UUID to the descriptor's
+    // absolute path or desktop tab restoration deadlocks in deferred retries.
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('restored-tab-content');
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const rootId = '11111111-0000-4000-8000-000000000011';
+    const compositeKey = encodeFileSelection(rootId, '/workspace/root/src/restored.ts');
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const request of requests) {
+            results[request.compositeKey] = await readFileByPathSpy(request.path);
+            progressCallback?.({ key: request.compositeKey });
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          rootId,
+          path: '/workspace/root',
+          displayName: 'root',
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await loadPromise;
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/restored.ts' })],
+      expect.any(Function)
+    );
+    expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/restored.ts');
+    expect(result.current.fileContents[compositeKey]).toBe('restored-tab-content');
+    expect(result.current.loadingFiles.size).toBe(0);
+  });
+
   it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();
@@ -912,5 +989,76 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
       'File not found in file tree: /missing.txt'
     );
     vi.useRealTimers();
+  });
+});
+
+describe('useSharedFileContentLoading - cross-root import (Phase 6)', () => {
+  it('loads a NON-focused root file via the shared FileTreeIndex while the tree holds the focused root', async () => {
+    vi.useFakeTimers();
+    const ROOT_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    const ROOT_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
+    const adapter = new MockFileSystemAdapter();
+    const readSpy = vi
+      .spyOn(adapter, 'readFile')
+      .mockImplementation(async (handle) => `content of ${handle.path}`);
+
+    const nodeA = createFileNode({ path: '/a.ts', rootFolderId: ROOT_A });
+    const nodeB = createFileNode({ path: '/b.ts', rootFolderId: ROOT_B });
+    const keyA = encodeFileSelection(ROOT_A, '/a.ts');
+    const keyB = encodeFileSelection(ROOT_B, '/b.ts');
+
+    // The shared forest index carries BOTH roots' nodes (Phase 6 sharing);
+    // the loader's fileTree prop only ever holds the FOCUSED root's tree.
+    const { FileTreeIndex } = await import('../tree/file-tree-index');
+    const { useOptionalFileTreeIndexContext } = await import('../tree/file-tree-provider');
+    const sharedIndex = new FileTreeIndex();
+    sharedIndex.addNodes([nodeA, nodeB], null);
+    vi.mocked(useOptionalFileTreeIndexContext).mockReturnValue({
+      getHandle: (folderId: string, path: string) => sharedIndex.getHandle(folderId, path),
+      getNode: (folderId: string, path: string) => sharedIndex.getNode(folderId, path),
+      stats: sharedIndex.stats,
+      version: 1,
+    });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const req of requests) {
+            results[req.compositeKey] = req.handle
+              ? await adapter.readFile(req.handle)
+              : 'No handle';
+            progressCallback?.({ key: req.compositeKey });
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    try {
+      const wrapper = createWrapper(adapter);
+      // fileTree = focused root A only; root B resolves ONLY via the index.
+      const { result } = renderHook(() => useTestHook([nodeA]), { wrapper });
+
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+
+      await act(async () => {
+        await result.current.handleFileContentLoading([keyA, keyB]);
+      });
+
+      expect(result.current.fileContents[keyA]).toBe('content of /a.ts');
+      expect(result.current.fileContents[keyB]).toBe('content of /b.ts');
+      expect(readSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.mocked(useOptionalFileTreeIndexContext).mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

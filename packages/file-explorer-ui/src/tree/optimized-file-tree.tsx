@@ -1,6 +1,8 @@
+import { getForeignSelectionCount } from '@brainstrike/file-explorer';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useEventCallback } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
 import {
   ActionContextMenu,
   LightweightCheckbox,
@@ -73,6 +75,10 @@ import {
 
 /** Pixel height of one virtualized tree row. */
 const ROW_HEIGHT = 32;
+// Stable empty fallbacks for foreign (non-focused) trees whose folderState
+// does not exist yet — fresh objects per render would defeat memoization.
+const EMPTY_SELECTION_SET = new Set<string>();
+const EMPTY_EXPLICIT_SELECTION_MODEL = createEmptySelectionModel();
 interface IOptimizedFileTreeProps {
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: ((path: string) => void) | undefined;
@@ -347,14 +353,58 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
       (s) => s.removeMultipleSelectedFiles
     );
-    const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
-    const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
-    const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
-    const querySelectionManifest = useFileExplorerStoreSelector((s) => s.querySelectionManifest);
-    const selectedCount = useMemo(
-      () => getSelectionCount(selectionModel, selectedFilePaths, querySelectionManifest),
-      [querySelectionManifest, selectedFilePaths, selectionModel]
+    const topLevelSelectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
+    const storeCurrentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
+    const foreignFolderSelection = useFileExplorerStoreSelector((s) =>
+      folderId && s.currentFolderId !== null && folderId !== s.currentFolderId
+        ? s.folderStates[folderId]?.selectedFilePaths
+        : undefined
     );
+    const foreignFolderModel = useFileExplorerStoreSelector((s) =>
+      folderId && s.currentFolderId !== null && folderId !== s.currentFolderId
+        ? s.folderStates[folderId]?.selectionModel
+        : undefined
+    );
+    // Phase 6 forest hardening: a NON-focused root's tree derives its checks
+    // from ITS folderState — the top-level set holds only the FOCUSED root's
+    // live selection, so reading it here left foreign sections blank (or
+    // flickering through focus switches). The null-focus guard MUST mirror
+    // isForeignFolderMutation in the store: with no focused root, writes land
+    // top-level, so reads must too.
+    const isForeignTree =
+      Boolean(folderId) && storeCurrentFolderId !== null && folderId !== storeCurrentFolderId;
+    const selectedFilePaths = isForeignTree
+      ? (foreignFolderSelection ?? EMPTY_SELECTION_SET)
+      : topLevelSelectedFilePaths;
+    const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
+    const topLevelSelectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
+    const selectionModel = isForeignTree
+      ? (foreignFolderModel ?? EMPTY_EXPLICIT_SELECTION_MODEL)
+      : topLevelSelectionModel;
+    const querySelectionManifest = useFileExplorerStoreSelector((s) => s.querySelectionManifest);
+    // The limit math (wouldExceedLimit) uses the WHOLE-FOREST union — the
+    // cap is a workspace budget, not a per-tree budget. Per-tree display
+    // counts come from selectedDirectoryCounts, not this number.
+    const unionSelectionBase = useFileExplorerStoreSelector((s) =>
+      getForeignSelectionCount({
+        activeRootIds: s.activeRootIds,
+        currentFolderId: s.currentFolderId,
+        folderStates: s.folderStates,
+      })
+    );
+    const selectedCount = useMemo(() => {
+      const focusedEffectiveCount = getSelectionCount(
+        topLevelSelectionModel,
+        topLevelSelectedFilePaths,
+        querySelectionManifest
+      );
+      return focusedEffectiveCount + unionSelectionBase;
+    }, [
+      querySelectionManifest,
+      topLevelSelectedFilePaths,
+      topLevelSelectionModel,
+      unionSelectionBase,
+    ]);
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
@@ -716,12 +766,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
         if (isLoadingForSelection) {
+          logger.warn('selection click ignored: recursive selection in progress', {
+            path: rowData.fileNode.path,
+          });
           return;
         }
 
         const node = rowData.fileNode;
         const selectionState = getNodeSelectionState(rowData);
         if (selectionState.wouldExceedLimit) {
+          logger.warn('selection click ignored: would exceed selection limit', {
+            path: node.path,
+            maxSelectionCount,
+            selectedCount,
+          });
           return;
         }
 
@@ -759,6 +817,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
         const directoryTotalFiles = rowData.directoryTotalFiles;
         if (directoryTotalFiles === 0) {
+          // No-silent-fallbacks: a loaded-but-empty (or fully filtered)
+          // directory checkbox click must be diagnosable.
+          logger.warn('selection click ignored: directory has no selectable files', {
+            path: node.path,
+          });
           return;
         }
 

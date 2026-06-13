@@ -16,7 +16,7 @@ vi.mock('../shell/file-explorer-provider', () => {
     }),
   };
 });
-vi.mock('../shell/use-file-system-context', () => ({
+vi.mock('../shell/file-system-provider', () => ({
   useFileSystem: vi.fn(),
 }));
 vi.mock('../tree/use-file-tree-context', () => ({
@@ -51,8 +51,8 @@ import {
   useFileContentLoading,
 } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { useFileSystem } from '../shell/file-system-provider';
 import { __resetRestorationLock, useFileExplorer } from '../shell/use-file-explorer-context';
-import { useFileSystem } from '../shell/use-file-system-context';
 import { useFileTree } from '../tree/use-file-tree-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
@@ -206,6 +206,7 @@ describe('useFileExplorer (context)', () => {
       addActiveRoot: vi.fn(),
       removeActiveRoot: vi.fn(),
       setActiveRoots: vi.fn(),
+      setFolderSelection: vi.fn(),
       isFilterChipsVisible: true,
       setFilterChipsVisible: vi.fn(),
     };

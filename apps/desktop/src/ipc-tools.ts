@@ -200,6 +200,15 @@ function sanitizeWorkspaceContextFile(input: unknown): RuntimeWorkspaceContextFi
   }
 
   const file: RuntimeWorkspaceContextFile = { path: pathValue };
+  // Multi-root (Phase 6): optional root identity for citation disambiguation.
+  const rootIdValue = input['rootId'];
+  if (typeof rootIdValue === 'string' && rootIdValue.length > 0) {
+    file.rootId = rootIdValue;
+  }
+  const rootDisplayNameValue = input['rootDisplayName'];
+  if (typeof rootDisplayNameValue === 'string' && rootDisplayNameValue.length > 0) {
+    file.rootDisplayName = rootDisplayNameValue;
+  }
   const approxTokens = readOptionalTokenValue(input, 'approxTokens');
   if (approxTokens !== undefined) {
     file.approxTokens = approxTokens;

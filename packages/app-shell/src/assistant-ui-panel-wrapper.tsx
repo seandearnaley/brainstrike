@@ -402,11 +402,23 @@ export function AssistantUiPanelWrapper({
   }, [effectiveSelection]);
 
   const selectionData = useMemo(() => {
+    // MULTI-ROOT PARTITION: the assistant's file tools are single-root —
+    // every path resolves against ONE workspaceRootPath (the focused root).
+    // Mixing other roots' paths into the list misattributes same-relative
+    // paths to the wrong root (or dangles). Only the FOCUSED root's
+    // selections are addressable; the rest are COUNTED so the assistant can
+    // say "N selected files are outside this workspace" instead of silently
+    // ignoring them.
     const filePaths = new Set<string>();
     const folderIds = new Set<string>();
+    let otherRootsCount = 0;
     for (const compositeKey of effectiveSelection) {
       try {
         const decoded = decodeFileSelection(compositeKey);
+        if (currentFolderId !== null && decoded.folderId !== currentFolderId) {
+          otherRootsCount += 1;
+          continue;
+        }
         filePaths.add(decoded.path);
         folderIds.add(decoded.folderId);
       } catch {
@@ -424,6 +436,7 @@ export function AssistantUiPanelWrapper({
     return {
       filePaths: Array.from(filePaths),
       folderId: resolvedFolderId,
+      otherRootsCount,
     };
   }, [effectiveSelection, currentFolderId]);
 

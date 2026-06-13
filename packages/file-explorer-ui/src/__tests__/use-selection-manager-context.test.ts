@@ -32,14 +32,19 @@ const defaultSelectionModel = {
 
 function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
   const setSelectedFiles = vi.fn();
+  const setFolderSelection = vi.fn();
   const mockState = {
     selectedFilePaths: new Set<string>(),
     maxSelectionCount: 10,
     setSelectedFiles,
+    setFolderSelection,
     setQuerySelectionManifest: vi.fn(),
     selectionModel: defaultSelectionModel,
     querySelectionManifest: null,
     currentFolderId: 'root',
+    // Multi-root (Phase 6 union): defaults keep single-root tests unchanged.
+    activeRootIds: [] as string[],
+    folderStates: {} as Record<string, { selectedFilePaths: Set<string> }>,
     ...overrides,
   };
   const mockStore = Object.assign(
@@ -49,6 +54,7 @@ function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     store: mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>,
     setSelectedFiles,
+    setFolderSelection,
   };
 }
 
@@ -230,5 +236,105 @@ describe('useSelectionManager', () => {
     expect(result.current.selectedCount).toBe(600);
     expect(result.current.selectedFilesList).toEqual(['my-folder|@|/src/index.ts']);
     expect(result.current.effectiveSelection).toEqual(new Set(['my-folder|@|/src/index.ts']));
+  });
+
+  describe('cross-root union (Phase 6, explicit mode)', () => {
+    const ROOT_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const ROOT_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const KEY_A = `${ROOT_A}|@|src/a.ts`;
+    const KEY_B = `${ROOT_B}|@|src/b.ts`;
+
+    function createTwoRootStore() {
+      return createMockStore({
+        currentFolderId: ROOT_A,
+        selectedFilePaths: new Set([KEY_A]),
+        activeRootIds: [ROOT_A, ROOT_B],
+        folderStates: {
+          // A's folderState is a STALE snapshot while A is focused — the
+          // top-level set is its live value; the union must NOT read it.
+          [ROOT_A]: { selectedFilePaths: new Set([`${ROOT_A}|@|stale.ts`]) },
+          [ROOT_B]: { selectedFilePaths: new Set([KEY_B]) },
+        },
+      });
+    }
+
+    it('unions non-focused roots into effectiveSelection, count, and list', () => {
+      const { store } = createTwoRootStore();
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      expect(result.current.effectiveSelection).toEqual(new Set([KEY_A, KEY_B]));
+      expect(result.current.selectedCount).toBe(2);
+      expect(result.current.selectedFilesList).toEqual(expect.arrayContaining([KEY_A, KEY_B]));
+      // The focused root's stale folderState snapshot must NOT leak in.
+      expect(result.current.effectiveSelection.has(`${ROOT_A}|@|stale.ts`)).toBe(false);
+    });
+
+    it('keeps set identity when no other root has selections (memo stability)', () => {
+      const selectedFilePaths = new Set([KEY_A]);
+      const { store } = createMockStore({
+        currentFolderId: ROOT_A,
+        selectedFilePaths,
+        activeRootIds: [ROOT_A, ROOT_B],
+        folderStates: { [ROOT_B]: { selectedFilePaths: new Set<string>() } },
+      });
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      expect(result.current.effectiveSelection).toBe(selectedFilePaths);
+    });
+
+    it('partitions write-backs: focused keys to the core, others to setFolderSelection', () => {
+      const { store, setSelectedFiles, setFolderSelection } = createTwoRootStore();
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      // Deselect B's file: keep only A's key.
+      result.current.setSelectedFilesFromList([KEY_A]);
+
+      expect(setFolderSelection).toHaveBeenCalledExactlyOnceWith(ROOT_B, []);
+      const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
+      expect(Array.from(coreCall)).toEqual([KEY_A]);
+    });
+
+    it('routes a non-focused root NEW selection through setFolderSelection', () => {
+      const { store, setSelectedFiles, setFolderSelection } = createTwoRootStore();
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      const KEY_B2 = `${ROOT_B}|@|src/b2.ts`;
+      result.current.setSelectedFilesFromList([KEY_A, KEY_B, KEY_B2]);
+
+      expect(setFolderSelection).toHaveBeenCalledExactlyOnceWith(
+        ROOT_B,
+        expect.arrayContaining([KEY_B, KEY_B2])
+      );
+      const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
+      expect(Array.from(coreCall)).toEqual([KEY_A]);
+    });
+
+    it('drops a key whose rootId is no longer active (no mis-attribution to focused)', () => {
+      const { store, setSelectedFiles, setFolderSelection } = createTwoRootStore();
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      // A lingering key from a disconnected root (rootId not in activeRootIds).
+      const KEY_GONE = 'cccccccc-0000-4000-8000-000000000003|@|src/gone.ts';
+      result.current.setSelectedFilesFromList([KEY_A, KEY_GONE]);
+
+      // The stale key is neither bucketed to a folderState nor funneled into the
+      // focused root's top-level set — it is simply discarded.
+      expect(setFolderSelection).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining([KEY_GONE])
+      );
+      const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
+      expect(Array.from(coreCall)).toEqual([KEY_A]);
+    });
   });
 });

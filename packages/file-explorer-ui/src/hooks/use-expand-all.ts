@@ -379,8 +379,14 @@ async function runPendingUnloadedExpandAll(args: {
   onProgress?: ((loaded: number, total: number) => void) | undefined;
   pathsToExpand: readonly string[];
   rootDirectoryPaths: readonly string[];
+  /**
+   * Optional fast-path executor (worker-backed). Returning null signals the
+   * executor is unavailable (e.g. the worker failed to start) and the
+   * in-renderer session path runs instead — expand-all must never depend on
+   * the worker existing.
+   */
   runUnloadedExpandAll?:
-    | ((args: ExpandAllExecutorArgs) => Promise<ExpandAllExecutorResult>)
+    | ((args: ExpandAllExecutorArgs) => Promise<ExpandAllExecutorResult | null>)
     | undefined;
   sessionId: number;
   sessionIdRef: React.RefObject<number>;
@@ -406,13 +412,17 @@ async function runPendingUnloadedExpandAll(args: {
   } = args;
 
   if (runUnloadedExpandAll) {
-    return runUnloadedExpandAll({
+    const workerResult = await runUnloadedExpandAll({
       committedPaths,
       pathsToExpand,
       pathsToLoad: initialPaths,
       rootDirectoryPaths,
       setExpandedPaths,
     });
+    if (workerResult !== null) {
+      return workerResult;
+    }
+    // Worker unavailable — fall through to the in-renderer session.
   }
 
   return runExpandAllSession({
@@ -469,7 +479,8 @@ export interface UseExpandAllOptions {
   onError?: (error: Error) => void;
   onProgress?: (loaded: number, total: number) => void;
   rootFolderId: string;
-  runUnloadedExpandAll?: (args: ExpandAllExecutorArgs) => Promise<ExpandAllExecutorResult>;
+  /** Optional worker fast path; null result falls back to the renderer session. */
+  runUnloadedExpandAll?: (args: ExpandAllExecutorArgs) => Promise<ExpandAllExecutorResult | null>;
   yieldToBrowser?: () => Promise<void>;
 }
 

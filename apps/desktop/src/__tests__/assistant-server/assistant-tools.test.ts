@@ -386,6 +386,29 @@ describe('assistant-tools', () => {
     });
     expect(JSON.stringify(result)).not.toContain('line 1');
     expect(JSON.stringify(result)).not.toContain('# Test Workspace');
+    // Single-root: no other-roots count key at all.
+    expect(result).not.toHaveProperty('selectedFilesOutsideWorkspace');
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('reports selected files living in OTHER workspace roots (multi-root forest)', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-1',
+      selectionFilePaths: ['/src/main.ts'],
+      // Multi-root: 4 selected files belong to roots the single-root toolset
+      // cannot address — the count must be SURFACED, never silently dropped.
+      selectionFilePathsFromOtherRoots: 4,
+      workspaceIndexingEnabled: false,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.listWorkspaceContext'].execute({ context: {} });
+
+    expect(result.selectedFileCount).toBe(1);
+    expect(result.selectedFilesOutsideWorkspace).toBe(4);
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 

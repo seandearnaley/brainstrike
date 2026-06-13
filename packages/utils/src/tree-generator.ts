@@ -11,7 +11,9 @@ export function compilePatterns(patterns: string[], useRegex: boolean): (RegExp 
   const compiled: (RegExp | Minimatch)[] = [];
   for (const pattern of processed) {
     try {
-      compiled.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern));
+      // dot:true keeps this matcher in lockstep with filter-utils and
+      // hooks/filter-engine — view filters must see dotfiles.
+      compiled.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern, { dot: true }));
     } catch (error) {
       logger.error(`Invalid pattern: ${pattern}`, error);
     }

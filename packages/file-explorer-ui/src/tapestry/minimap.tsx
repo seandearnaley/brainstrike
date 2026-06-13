@@ -462,7 +462,9 @@ export const Minimap = memo(
     );
 
     const isAnyHovered = !!hoveredRangeId;
-    const displayRootFolder = getRootFolderDisplayName(file.rootFolderId);
+    // Storage v5: rootFolderId is a RootId UUID — show the descriptor's
+    // displayName (path-derived fallback only serves legacy path ids).
+    const displayRootFolder = file.rootDisplayName ?? getRootFolderDisplayName(file.rootFolderId);
 
     // Memoize SVG rects to avoid recreating hundreds of React elements per render.
     const structureRects = useMemo(

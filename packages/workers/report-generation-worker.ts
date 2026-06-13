@@ -3,6 +3,7 @@ import {
   type ContextLineRange,
   generateContext,
   generateContextFromAdapter,
+  type RootDisplayInfo,
 } from '@brainstrike/utils';
 
 export interface ReportGenerationRequest {
@@ -12,6 +13,12 @@ export interface ReportGenerationRequest {
   includeFilters: string[];
   includeProjectTree: boolean;
   projectTreeUsesViewFilters?: boolean;
+  /**
+   * RootId UUID → display metadata (storage v5) so `<file path>` attributes
+   * render human-readable paths instead of composite selection keys.
+   * Plain data — the request must stay structured-cloneable.
+   */
+  rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
   selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
@@ -47,11 +54,13 @@ export function createReportGenerationWorker({
       includeProjectTree,
       projectTreeUsesViewFilters,
       folderSummaryThreshold,
+      rootDisplayInfoById,
       selectedLineRangesByFile,
       useTapestryRanges = false,
     } = request;
     const generationOptions = {
       projectTreeUsesViewFilters: projectTreeUsesViewFilters ?? false,
+      ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
       ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
       useTapestryRanges,
     };

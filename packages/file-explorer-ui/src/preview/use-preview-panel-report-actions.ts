@@ -55,6 +55,17 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   // Get fresh file contents from store state when needed (avoids stale closure).
   // The store reference is stable, but we call getState() to get current values.
   const getFileContents = useCallback(() => input.store.getState().fileContents, [input.store]);
+  // Storage v5: selection keys carry RootId UUIDs — give the generator the
+  // descriptor registry so report file paths render human-readably.
+  const getRootDisplayInfoById = useCallback(() => {
+    const descriptors = input.store.getState().rootDescriptors;
+    return Object.fromEntries(
+      Object.entries(descriptors).map(([rootId, descriptor]) => [
+        rootId,
+        { displayName: descriptor.displayName, path: descriptor.path },
+      ])
+    );
+  }, [input.store]);
   // `useReportGeneration` models "no directory" as `undefined`, whereas the rest of the explorer
   // surfaces missing root directory as `null`.
   const rootDirectoryHandleForGeneration =
@@ -74,6 +85,7 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
     folderSummaryThreshold: input.folderSummaryThreshold,
     loadMissingContent: input.loadMultipleFileContents,
     getFileContents,
+    getRootDisplayInfoById,
   });
   const generateContextWithContent = generation.generateContextWithContent;
 

@@ -14,27 +14,39 @@ export interface RootSectionHeaderProps {
   onDisconnect?: (() => void) | undefined;
   /** Called when the header row is clicked to toggle collapse state. */
   onToggleCollapse: () => void;
+  /**
+   * Optional selection control (the root's tristate select-all checkbox)
+   * rendered as a SIBLING of the toggle button so checkbox clicks never
+   * collapse the section (and buttons never nest — invalid HTML).
+   */
+  selectionControl?: React.ReactNode | undefined;
 }
 
 /**
  * Header row for a single root in the forest sidebar.
- * Shows the root's display name, a chevron indicating expand/collapse state,
- * and (when onDisconnect is provided) a disconnect button.
+ * Shows an optional per-root select-all control, the root's display name, a
+ * chevron indicating expand/collapse state, and (when onDisconnect is
+ * provided) a disconnect button.
  *
- * The toggle area and the disconnect button are SIBLING buttons (nesting a
- * button inside a button is invalid HTML and breaks assistive tech).
+ * The toggle area, the selection control, and the disconnect button are
+ * SIBLINGS (nesting interactive elements inside a button is invalid HTML and
+ * breaks assistive tech).
  */
 export const RootSectionHeader: React.FC<RootSectionHeaderProps> = ({
   displayName,
   isCollapsed,
   onDisconnect,
   onToggleCollapse,
+  selectionControl,
 }) => {
   const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown;
   const chevronLabel = isCollapsed ? 'Expand section' : 'Collapse section';
 
   return (
     <div className="group flex w-full items-center hover:bg-muted/40">
+      {selectionControl && (
+        <span className="flex shrink-0 items-center pl-2">{selectionControl}</span>
+      )}
       <button
         aria-expanded={!isCollapsed}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 px-2 py-1 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

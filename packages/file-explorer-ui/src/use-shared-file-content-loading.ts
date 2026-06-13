@@ -393,6 +393,12 @@ async function handleMissingFileNode(args: {
   compositeKey: string;
   handleCache: CachedHandleLookup | null;
   nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>;
+  /**
+   * Absolute root path for direct-path reads. Storage v5 folderIds are RootId
+   * UUIDs, so the caller resolves the path from the root descriptor registry;
+   * legacy keys carried the root path AS the id and pass it through unchanged.
+   */
+  rootPathForDirectRead: string;
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.RefObject<Set<string>>;
   pendingFileLoadsRef: React.RefObject<Set<string>>;
@@ -407,6 +413,7 @@ async function handleMissingFileNode(args: {
     compositeKey,
     handleCache,
     nodeCacheRef,
+    rootPathForDirectRead,
     setFileContent,
     loadingPathsRef,
     pendingFileLoadsRef,
@@ -416,7 +423,7 @@ async function handleMissingFileNode(args: {
   } = args;
 
   if (supportsDirectPathRead(fileSystemAdapter)) {
-    const directReadPath = resolveDirectReadPath(folderId, path);
+    const directReadPath = resolveDirectReadPath(rootPathForDirectRead, path);
     if (directReadPath) {
       clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
       markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
@@ -583,6 +590,10 @@ async function prepareFileReadRequest(
   const handleCache = getHandleCache(fileSystemAdapter);
 
   if (!fileNode) {
+    // Storage v5: folderId is a RootId UUID — resolve the root's absolute
+    // path from the descriptor registry so desktop direct-path reads still
+    // work (restored tabs depend on this before the lazy tree materializes).
+    const rootPathForDirectRead = store.getState().rootDescriptors[folderId]?.path ?? folderId;
     return handleMissingFileNode({
       fileTree,
       folderId,
@@ -590,6 +601,7 @@ async function prepareFileReadRequest(
       compositeKey,
       handleCache,
       nodeCacheRef,
+      rootPathForDirectRead,
       setFileContent,
       loadingPathsRef,
       pendingFileLoadsRef,

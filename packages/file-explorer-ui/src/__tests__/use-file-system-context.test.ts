@@ -5,7 +5,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import { useFileSystem } from '../shell/use-file-system-context';
+import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
+import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 function useExposed() {
@@ -420,6 +421,9 @@ describe('useFileSystem context hook', () => {
       result.current.store.setState({
         currentFolderId: CONTROLLED_ROOT_ID,
         selectedFilePaths: new Set<string>(),
+        // Expansion is WORKSPACE-GLOBAL: persistence keeps it in the
+        // top-level set (folder snapshots are no longer hydrated).
+        expandedDirectoryPaths: new Set<string>(['src']),
         selectionModel: {
           mode: 'explicit',
           explicitPaths: new Set<string>(),
@@ -641,5 +645,105 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     expect(dispatchSpy.mock.calls.length).toBe(dispatchCountBefore);
 
     dispatchSpy.mockRestore();
+  });
+});
+
+describe('useFileSystem — cascade delete (Phase 6)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Isolated storage: the shared wrapper hydrates persisted state leaked by
+  // earlier tests in this file (see the restored-root note above).
+  function makeDeletionWrapper(deleteRootData?: (rootId: string) => Promise<void>) {
+    const storage = new MemoryStorageAdapter();
+    return ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        // biome-ignore lint/correctness/noChildrenProp: createElement's TS overload requires children inside props when the component declares them required (.ts file, no JSX)
+        children: deleteRootData
+          ? createElement(RootDataDeletionProvider, { children, deleteRootData })
+          : children,
+        mockStorageAdapter: storage,
+      });
+  }
+
+  async function addRoot(result: { current: ReturnType<typeof useExposed> }) {
+    const mockHandle: DirectoryHandle = {
+      path: 'mock-root',
+      name: 'mock-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockResolvedValue(
+      mockHandle
+    );
+    await act(async () => {
+      await result.current.fs.selectRootDirectory();
+    });
+    const rootId = result.current.store.getState().currentFolderId;
+    if (!rootId) {
+      throw new Error('Root was not added');
+    }
+    return rootId;
+  }
+
+  it('deleteData: deletion runs and the root disconnects on success', async () => {
+    const deleteRootData = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useExposed(), {
+      wrapper: makeDeletionWrapper(deleteRootData),
+    });
+    const rootId = await addRoot(result);
+
+    await act(async () => {
+      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
+    });
+
+    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(rootId);
+    expect(result.current.fs.rootDirectoryHandles).toHaveLength(0);
+    expect(result.current.store.getState().activeRootIds).not.toContain(rootId);
+  });
+
+  it('deleteData: a FAILED deletion aborts the disconnect (root stays connected)', async () => {
+    const deleteRootData = vi.fn().mockRejectedValue(new Error('db down'));
+    const { result } = renderHook(() => useExposed(), {
+      wrapper: makeDeletionWrapper(deleteRootData),
+    });
+    const rootId = await addRoot(result);
+
+    await act(async () => {
+      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
+    });
+
+    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(rootId);
+    // Disconnect ABORTED: the handle and store registration both survive.
+    expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
+    expect(result.current.store.getState().activeRootIds).toContain(rootId);
+  });
+
+  it('plain disconnect (no deleteData) never touches the deletion seam', async () => {
+    const deleteRootData = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useExposed(), {
+      wrapper: makeDeletionWrapper(deleteRootData),
+    });
+    const rootId = await addRoot(result);
+
+    await act(async () => {
+      await result.current.fs.removeRootDirectory(rootId);
+    });
+
+    expect(deleteRootData).not.toHaveBeenCalled();
+    expect(result.current.fs.rootDirectoryHandles).toHaveLength(0);
+  });
+
+  it('deleteData WITHOUT a mounted provider aborts the disconnect', async () => {
+    const { result } = renderHook(() => useExposed(), { wrapper: makeDeletionWrapper() });
+    const rootId = await addRoot(result);
+
+    await act(async () => {
+      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
+    });
+
+    // No seam → fail loudly and keep the root connected (never silent no-op).
+    expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
   });
 });

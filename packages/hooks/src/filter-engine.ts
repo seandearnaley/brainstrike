@@ -18,7 +18,10 @@ export function compileRegexPatterns(
 }
 
 export function compileGlobPatterns(patterns: string[]): Minimatch[] {
-  return patterns.map((pattern) => new Minimatch(pattern));
+  // dot:true — the tree display must see dotfiles, in lockstep with the scan
+  // matcher (utils/filter-utils createPathFilterMatcher). Without it the
+  // "All Files" preset (include '*') hides every dot-path.
+  return patterns.map((pattern) => new Minimatch(pattern, { dot: true }));
 }
 
 export function matchPath(

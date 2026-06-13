@@ -155,4 +155,56 @@ describe('path-display utilities', () => {
       expect(getRootFolderDisplayName('')).toBe('');
     });
   });
+
+  // Storage v5: rootFolderId is a RootId UUID, never a path. Display helpers
+  // must accept the descriptor's displayName/path so the UUID never renders.
+  describe('multi-root UUID identities (storage v5)', () => {
+    const ROOT_ID = '11111111-0000-4000-8000-000000000011';
+
+    it('formatFilePathSubtitle uses descriptor displayName/path instead of the UUID', () => {
+      expect(
+        formatFilePathSubtitle({
+          filePath: '/Users/sean/project/src/app.ts',
+          rootFolderId: ROOT_ID,
+          rootPath: '/Users/sean/project',
+          rootDisplayName: 'project',
+        })
+      ).toBe('project/src');
+    });
+
+    it('directory group keys carry the displayName and relativize by the root path', () => {
+      const groupKey = getDirectoryGroupKey({
+        filePath: '/Users/sean/project/src/app.ts',
+        rootFolderId: ROOT_ID,
+        rootPath: '/Users/sean/project',
+        rootDisplayName: 'project',
+      });
+
+      expect(getDirectoryGroupDisplayName({ groupKey })).toBe('project/src');
+      // Same relative dir in two roots groups separately (identity = rootId).
+      const otherGroupKey = getDirectoryGroupKey({
+        filePath: '/Users/sean/other/src/app.ts',
+        rootFolderId: '22222222-0000-4000-8000-000000000022',
+        rootPath: '/Users/sean/other',
+        rootDisplayName: 'project',
+      });
+      expect(otherGroupKey).not.toBe(groupKey);
+      // Canonical (disambiguated) label stays readable — displayName plus a
+      // short root id suffix, never the raw UUID alone.
+      const canonical = getDirectoryGroupDisplayName({ groupKey, useCanonicalRootLabel: true });
+      expect(canonical).toContain('project');
+      expect(canonical).not.toContain(ROOT_ID);
+    });
+
+    it('web-style root-name-prefixed paths relativize against the descriptor path', () => {
+      expect(
+        formatFilePathSubtitle({
+          filePath: '/project-b/src/app.ts',
+          rootFolderId: ROOT_ID,
+          rootPath: '/project-b',
+          rootDisplayName: 'project-b',
+        })
+      ).toBe('project-b/src');
+    });
+  });
 });

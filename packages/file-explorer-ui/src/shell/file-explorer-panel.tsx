@@ -9,7 +9,6 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { ChevronDown, ChevronUp, Eye, EyeOff, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
@@ -56,6 +55,7 @@ import { SelectionRulesEditor } from '../selection-rules-editor';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
+import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
 import { computeScanningStatusProps } from '../utils/scanning-status-props';
 import {
   useFileExplorerStoreContext,
@@ -64,84 +64,17 @@ import {
 import FileExplorerSidebar from './file-explorer-sidebar';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
+import {
+  ForestTreeActionsProvider,
+  useOptionalForestTreeActions,
+} from './forest-tree-actions-context';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-
-// Quick filter helpers (factored to keep component complexity low)
-
-/**
- * Check if a node should be included based on filter patterns.
- * IMPORTANT: Both include and exclude patterns match ONLY against the filename
- * to avoid false positives from path components (e.g., "test" matching
- * "test-project/" in the path when only files named "test" should match).
- */
-function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string[]): boolean {
-  const nameText = node.name.toLowerCase();
-  // Excludes only match filename to avoid false positives from path
-  if (excludes.some((e) => nameText.includes(e))) {
-    return false;
-  }
-  // Includes also only match filename for consistent behavior
-  return includes.length === 0 || includes.some((i) => nameText.includes(i));
-}
-
-function filterNodeByPatterns(
-  node: IFileNode,
-  includesLower: string[],
-  excludesLower: string[]
-): IFileNode | null {
-  // CRITICAL: Check if this node is excluded FIRST (before processing children)
-  // This ensures excluded directories like .turbo are completely removed
-  // even if they contain files that would otherwise match include filters
-  const nameText = node.name.toLowerCase();
-  const isExcluded = excludesLower.some((e) => nameText.includes(e));
-  if (isExcluded) {
-    return null;
-  }
-
-  if (node.type === 'directory') {
-    const children = node.children ?? [];
-    const filteredChildren = children
-      .map((c) => filterNodeByPatterns(c, includesLower, excludesLower))
-      .filter(Boolean) as IFileNode[];
-    if (filteredChildren.length > 0) {
-      return { ...node, children: filteredChildren };
-    }
-    // Empty directory - check if it passes include filter
-    if (shouldIncludeNode(node, includesLower, excludesLower)) {
-      return { ...node, children: [] };
-    }
-    return null;
-  }
-  // For files, check include filter (exclude already checked above)
-  return includesLower.length === 0 || includesLower.some((i) => nameText.includes(i))
-    ? node
-    : null;
-}
-
-function filterTreeByPatterns(
-  nodes: IFileNode[],
-  includesLower: string[],
-  excludesLower: string[]
-): IFileNode[] {
-  return nodes
-    .map((n) => filterNodeByPatterns(n, includesLower, excludesLower))
-    .filter(Boolean) as IFileNode[];
-}
-
-function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
-  for (const node of nodes) {
-    if (node.type === 'file' && node.isVisible !== false) {
-      fileSet.add(node.path);
-    } else if (node.type === 'directory' && node.children) {
-      collectVisibleFiles(node.children, fileSet);
-    }
-  }
-}
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
+/** Eye toggle for the filter-chips row (from #1192), extracted for the complexity cap. */
 function FilterChipsToggleButton({
   isFilterChipsVisible,
   setFilterChipsVisible,
@@ -172,11 +105,133 @@ function FilterChipsToggleButton({
   );
 }
 
+/** Forest mode = more than one active root (sections render per root). */
+function isForestModeActive(rootDirectoryHandles: readonly unknown[] | undefined): boolean {
+  return (rootDirectoryHandles?.length ?? 0) > 1;
+}
+
+/**
+ * Aggregate user feedback for a forest-wide select-all sweep (sections run
+ * quiet — per-root toasts would fire once per section). Null = success with
+ * room to spare, no toast needed.
+ */
+function buildForestSelectAllFeedback(
+  summary: { limitReached: boolean; selected: number },
+  maxCount: number
+): { title: string; description: string } | null {
+  if (summary.selected === 0) {
+    return {
+      title: 'No selectable files in any folder',
+      description: summary.limitReached
+        ? `The selection limit (${maxCount}) is already used by existing selections.`
+        : 'Everything is hidden by the current view filters. Adjust the workspace filters to select files.',
+    };
+  }
+  if (summary.limitReached) {
+    return {
+      title: `Selection limit reached (${maxCount})`,
+      description: `Selected ${summary.selected} files before hitting the limit. Raise the limit to select more.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * FOREST MODE toolbar Select All: sweep EVERY root section through its own
+ * tree context — the panel provider's tree is the invisible legacy one and
+ * is empty/stale for non-focused roots ("No selectable files in view" on
+ * roots whose sections clearly show files). The forest-union budget composes
+ * per pass inside selectAllRecursively; this owns the ONE aggregate toast.
+ */
+async function runForestSelectAllSweep(args: {
+  forestActions: ReturnType<typeof useOptionalForestTreeActions>;
+  maxCount: number;
+  showToast: (toast: { title: string; description: string }) => void;
+}): Promise<{
+  success: boolean;
+  filePaths: string[];
+  totalAvailable?: number;
+  limitReached?: boolean;
+  error?: string;
+}> {
+  if (!args.forestActions) {
+    return { success: false, filePaths: [], error: 'Forest registry unavailable' };
+  }
+  const summary = await args.forestActions.runSelectAll();
+  const feedback = buildForestSelectAllFeedback(summary, args.maxCount);
+  if (feedback) {
+    args.showToast(feedback);
+  }
+  return {
+    success: true,
+    filePaths: [],
+    totalAvailable: summary.selected,
+    limitReached: summary.limitReached,
+  };
+}
+
+/**
+ * Toolbar Select All wiring: forest mode swaps in the registry sweep, the
+ * forest-wide quick-filter override, and treats the tree as non-empty
+ * (sections own their trees — the focused panel tree is the invisible
+ * legacy one).
+ */
+function resolveSelectAllWiring<T>(args: {
+  fileTreeLength: number;
+  forestActions: ReturnType<typeof useOptionalForestTreeActions>;
+  forestQuickFilterSelectAll: () => void;
+  forestSelectAll: T;
+  isForestMode: boolean;
+  selectAllRecursively: T;
+}): {
+  hasFilesInTree: boolean;
+  quickFilterSelectAllOverride: (() => void) | undefined;
+  selectAll: T;
+} {
+  if (args.isForestMode && args.forestActions) {
+    return {
+      hasFilesInTree: true,
+      quickFilterSelectAllOverride: args.forestQuickFilterSelectAll,
+      selectAll: args.forestSelectAll,
+    };
+  }
+  return {
+    hasFilesInTree: args.fileTreeLength > 0,
+    quickFilterSelectAllOverride: undefined,
+    selectAll: args.selectAllRecursively,
+  };
+}
+
+/** Single-root path: progressive expand-all over the focused provider's tree. */
+function runFocusedTreeExpandAll(
+  store: ReturnType<typeof useFileExplorerStoreContext>,
+  expandAllProgressively: (
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths: Set<string>
+  ) => unknown,
+  fileTree: IFileNode[] | undefined
+): void {
+  if (!(fileTree && fileTree.length > 0)) {
+    logger.warn('expandAll: no file tree or empty tree');
+    return;
+  }
+  logger.info('expandAll: calling expandAllProgressively');
+  const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
+    const currentPaths = store.getState().expandedDirectoryPaths;
+    const newPaths = updater(currentPaths);
+    if (newPaths === currentPaths) {
+      return;
+    }
+    store.getState().setExpandedPaths(newPaths);
+  };
+  void expandAllProgressively(setExpandedPaths, store.getState().expandedDirectoryPaths);
+}
+
 /**
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
  */
-export const FileExplorerPanel: React.FC = React.memo(() => {
+const FileExplorerPanelInner: React.FC = React.memo(() => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const [
@@ -333,8 +388,13 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   // This allows FileExplorerSidebar to call with just the node
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
-      // Storage v5: use durable RootId UUID when available; fall back to path.
-      const folderId = getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '';
+      // The node carries its OWN root identity (stamped by every tree loader
+      // since storage v5) — the focused root's id is WRONG for clicks inside
+      // another root's tree in forest mode. Focused-root resolution remains
+      // only as the fallback for legacy nodes without a rootFolderId.
+      const folderId =
+        node.rootFolderId ||
+        (getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '');
       const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
         selectionKey.startsWith(`${folderId}|@|${node.path}/`)
       ).length;
@@ -471,21 +531,10 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
   // Workspace filters are already applied in useFileExplorer() which returns
   // fileTree with excluded directories (like .turbo) completely removed.
   // Uses deferredQuickFilter so tree filtering is deferred behind UI updates.
-  const quickFilteredTree = useMemo(() => {
-    if (!stableFileTree) {
-      return null;
-    }
-
-    // Only apply quick filter (search box) if present
-    if (!deferredQuickFilter.trim()) {
-      return stableFileTree;
-    }
-
-    const { includes, excludes } = parseFilterString(deferredQuickFilter);
-    const includesLower = includes.map((value: string) => value.toLowerCase());
-    const excludesLower = excludes.map((value: string) => value.toLowerCase());
-    return filterTreeByPatterns(stableFileTree, includesLower, excludesLower);
-  }, [deferredQuickFilter, stableFileTree]);
+  const quickFilteredTree = useMemo(
+    () => (stableFileTree ? applyQuickFilterToTree(stableFileTree, deferredQuickFilter) : null),
+    [deferredQuickFilter, stableFileTree]
+  );
 
   const visibleFilePaths = useMemo(() => {
     const visible = new Set<string>();
@@ -722,41 +771,78 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     showStaleBanner,
   ]);
 
+  // Forest mode: Expand All must run inside EACH root section's own tree
+  // context — the legacy path below only expands the focused provider's
+  // (invisible) top-level tree when multiple roots are active.
+  const forestActions = useOptionalForestTreeActions();
+  const isForestMode = isForestModeActive(rootDirectoryHandles);
+  const isForestExpandingAll = Boolean(forestActions?.isExpandingAll);
+
   const expandAll = useCallback(() => {
     logger.info('expandAll clicked', {
       isExpandingAll,
+      isForestMode,
       hasFileTree: !!fileTree,
       fileTreeLength: fileTree?.length ?? 0,
     });
 
     // Prevent clicks while expand-all is already running
-    if (isExpandingAll) {
+    if (isExpandingAll || isForestExpandingAll) {
       logger.info('expandAll: blocked - already expanding');
       return;
     }
-    if (fileTree && fileTree.length > 0) {
-      logger.info('expandAll: calling expandAllProgressively');
-      // Use progressive expand-all that loads directories on demand
-      const currentExpandedPaths = store.getState().expandedDirectoryPaths;
-      const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
-        const currentPaths = store.getState().expandedDirectoryPaths;
-        const newPaths = updater(currentPaths);
-        if (newPaths === currentPaths) {
-          return;
-        }
-        store.getState().setExpandedPaths(newPaths);
-      };
-      void expandAllProgressively(setExpandedPaths, currentExpandedPaths);
-    } else {
-      logger.warn('expandAll: no file tree or empty tree');
+
+    if (isForestMode && forestActions) {
+      void forestActions.runExpandAll();
+      return;
     }
-  }, [fileTree, store, expandAllProgressively, isExpandingAll]);
+
+    runFocusedTreeExpandAll(store, expandAllProgressively, fileTree);
+  }, [
+    fileTree,
+    forestActions,
+    isForestExpandingAll,
+    isForestMode,
+    store,
+    expandAllProgressively,
+    isExpandingAll,
+  ]);
 
   const collapseAll = useCallback(() => {
-    // Cancel any in-progress expand-all first
+    // Cancel any in-progress expand-all first (every section + the legacy path),
+    // then clear the workspace-global expansion set — all sections collapse.
+    forestActions?.cancelExpandAll();
     cancelExpandAll();
     store.getState().collapseAllDirectories();
-  }, [store, cancelExpandAll]);
+  }, [forestActions, store, cancelExpandAll]);
+
+  const forestSelectAll = useCallback<typeof selectAllRecursively>(
+    (_filteredTree, _folderId, _addFiles, maxCount) =>
+      runForestSelectAllSweep({ forestActions, maxCount, showToast }),
+    [forestActions, showToast]
+  );
+  // FOREST quick-filter Select All: select the visible search matches across
+  // EVERY section (composite keys through the union-partitioning setter) —
+  // no scanning beyond what the user sees, capped at the selection limit.
+  const forestQuickFilterSelectAll = useCallback(() => {
+    const keys = (forestActions?.collectVisibleQuickFilterKeys() ?? []).slice(0, maxSelectionCount);
+    if (keys.length === 0) {
+      showToast({
+        title: 'No files match the search',
+        description: 'No visible files match the quick filter in any folder.',
+      });
+      return;
+    }
+    setSelectedFilesFromList(keys);
+  }, [forestActions, maxSelectionCount, setSelectedFilesFromList, showToast]);
+  const selectAllWiring = resolveSelectAllWiring({
+    fileTreeLength: fileTree.length,
+    forestActions,
+    forestQuickFilterSelectAll,
+    forestSelectAll,
+    isForestMode,
+    selectAllRecursively,
+  });
 
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
@@ -887,7 +973,7 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
                   onClear={clearQuickFilter}
                   trailing={
                     <TreeActionButtons
-                      isExpandingAll={isExpandingAll}
+                      isExpandingAll={isExpandingAll || isForestExpandingAll}
                       isLoading={isLoading}
                       isRefreshing={isRefreshing}
                       onCollapseAll={collapseAll}
@@ -956,10 +1042,11 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
               encodeFileSelection={encodeFileSelection}
               filteredTree={quickFilteredTree ?? []}
               hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
-              hasFilesInTree={fileTree.length > 0}
+              hasFilesInTree={selectAllWiring.hasFilesInTree}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
-              selectAllRecursively={selectAllRecursively}
+              quickFilterSelectAllOverride={selectAllWiring.quickFilterSelectAllOverride}
+              selectAllRecursively={selectAllWiring.selectAll}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
               visibleFilePaths={visibleFilePaths}
@@ -1144,5 +1231,18 @@ export const FileExplorerPanel: React.FC = React.memo(() => {
     </FileExplorerErrorBoundary>
   );
 });
+
+FileExplorerPanelInner.displayName = 'FileExplorerPanelInner';
+
+/**
+ * Public panel: wraps the inner panel with the forest tree-actions registry
+ * so toolbar Expand All / Collapse All can drive every root section's own
+ * tree context (the inner panel and the sidebar sections both consume it).
+ */
+export const FileExplorerPanel: React.FC = () => (
+  <ForestTreeActionsProvider>
+    <FileExplorerPanelInner />
+  </ForestTreeActionsProvider>
+);
 
 FileExplorerPanel.displayName = 'FileExplorerPanel';

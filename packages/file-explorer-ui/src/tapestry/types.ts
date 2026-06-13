@@ -23,6 +23,9 @@ export interface FileTapestry {
   language: string;
   name: string;
   path: string;
+  /** Human-readable root label (storage v5 descriptor displayName). */
+  rootDisplayName?: string;
+  /** Durable RootId UUID (storage v5) — identity, never display. */
   rootFolderId: string;
   selections: TapestryRange[];
   size?: number;

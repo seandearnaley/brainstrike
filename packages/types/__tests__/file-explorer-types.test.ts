@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_STATE } from '../src/file-explorer-types';
 
 describe('DEFAULT_STATE', () => {
-  it('should have expected includeFilters', () => {
-    expect(DEFAULT_STATE.includeFilters).toEqual(['*.tsx', '*.ts', '*.js', '*.jsx', '*.json']);
+  it('shows everything by default — include filters are opt-in', () => {
+    expect(DEFAULT_STATE.includeFilters).toEqual([]);
+  });
+
+  it('excludes .git by default (dot:true globs would otherwise flood the tree)', () => {
+    expect(DEFAULT_STATE.excludeFilters).toContain('.git');
   });
 
   it('should have includeProjectTree set to true', () => {

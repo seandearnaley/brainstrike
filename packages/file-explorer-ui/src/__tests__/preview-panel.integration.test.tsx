@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview/preview-panel';
+import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 
 // Mock the use-preview-panel-state module with realistic implementation
 vi.mock('../preview/use-preview-panel-state', () => ({
@@ -975,6 +976,30 @@ describe('PreviewPanel Integration Tests', () => {
       // All interactive elements should have proper labels
       const selectAllCheckbox = screen.getByLabelText('Select all files on current page');
       expect(selectAllCheckbox).toHaveAttribute('aria-label', 'Select all files on current page');
+    });
+  });
+
+  describe('workspace context snapshot root identity (Phase 6)', () => {
+    it('publishes each file rootId and resolved display name on the snapshot', async () => {
+      const mockProps = createMockProps(2);
+      const mockState = createMockState(2);
+      mockUsePreviewPanelState.mockReturnValue(mockState);
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          resolveRootDisplayName={(rootId: string) => `name-of-${rootId}`}
+        />
+      );
+
+      await waitFor(() => {
+        const snapshot = useWorkspaceContextCurationStore.getState().contextSnapshot;
+        expect(snapshot?.files.length).toBeGreaterThan(0);
+        // The harness decodes file0/file1 into folder-0 — the snapshot must
+        // carry that root identity for citation disambiguation.
+        expect(snapshot?.files[0]?.rootId).toBe('folder-0');
+        expect(snapshot?.files[0]?.rootDisplayName).toBe('name-of-folder-0');
+      });
     });
   });
 });

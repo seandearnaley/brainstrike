@@ -14,6 +14,8 @@ vi.mock('@brainstrike/hooks', () => ({
   }),
 }));
 
+const showToastMock = vi.fn();
+
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     storageAdapter: {
@@ -24,10 +26,12 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
       getAllKeys: vi.fn(),
     },
   }),
+  useToastManager: () => ({ showToast: showToastMock }),
 }));
 
 vi.mock('../../shell/file-explorer-provider', () => ({
-  useOptionalFileExplorerStoreContext: () => (mockStoreState ? {} : null),
+  useOptionalFileExplorerStoreContext: () =>
+    mockStoreState ? { getState: () => mockStoreState } : null,
   useOptionalFileExplorerStoreSelector: (
     selector: ((state: Record<string, unknown>) => unknown) | unknown,
     fallbackValue: unknown
@@ -121,6 +125,77 @@ describe('useRecursiveSelectAll', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStoreState = null;
+  });
+
+  it('toasts and commits nothing when the view filters exclude every file', async () => {
+    // The historical mystery no-op: include filters (e.g. *.ts) on an
+    // html-only workspace scan to zero matches. Select All must never be a
+    // silent no-op, and an EMPTY query selection must never be committed.
+    const currentTree = [createFileNode({ name: 'index.html', path: '/index.html', type: 'file' })];
+    const fileSystemAdapter = createMockAdapter({});
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+      includeFilters: ['**/*.ts'],
+      excludeFilters: [],
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual([]);
+    expect(setQuerySelection).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(showToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('No selectable files') })
+    );
+  });
+
+  it('uses explicit selection (never top-level query mode) when the target is not the focused root', async () => {
+    // Forest mode: a per-root select-all for a NON-focused root must route
+    // through the store mutators (which write that root's folderState) —
+    // query mode lives on the focused root's top-level model.
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+      currentFolderId: 'other-root',
+      selectionModel: { mode: 'explicit' },
+      selectedFilePaths: new Set<string>(),
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(setQuerySelection).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFiles).toHaveBeenCalledWith('folder-1', [
+      '/src/index.ts',
+      '/src/utils.ts',
+      '/README.md',
+    ]);
   });
 
   it('selects all visible files from loaded roots without adapter reads', async () => {
@@ -531,6 +606,149 @@ describe('useRecursiveSelectAll', () => {
     expect(selectionResult.success).toBe(false);
     expect(selectionResult.error).toBe('Load failed');
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Load failed' }));
+  });
+
+  it('commits EXPLICIT selection (never query mode) in forest mode, even for the focused root', async () => {
+    // FOREST INVARIANT: query selections live on top-level state that focus
+    // switches cannot carry into folderState snapshots — with multiple
+    // active roots every select-all is explicit.
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+      currentFolderId: 'folder-1',
+      activeRootIds: ['folder-1', 'root-b'],
+      selectionModel: { mode: 'explicit' },
+      selectedFilePaths: new Set<string>(),
+      folderStates: {},
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(setQuerySelection).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFiles).toHaveBeenCalledWith('folder-1', [
+      '/src/index.ts',
+      '/src/utils.ts',
+      '/README.md',
+    ]);
+  });
+
+  it('shrinks the scan cap by other roots’ selections (forest-union budget)', async () => {
+    // Whole-forest cap: with max 3 and root-b already holding 2 selections,
+    // a focused-root select-all may take at most 1. The focused root's OWN
+    // current selection does NOT consume budget — select-all replaces it.
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
+    mockStoreState = {
+      setQuerySelection: vi.fn(),
+      currentFolderId: 'folder-1',
+      activeRootIds: ['folder-1', 'root-b'],
+      selectionModel: { mode: 'explicit' },
+      selectedFilePaths: new Set(['folder-1|@|old.ts']),
+      folderStates: {
+        'root-b': { selectedFilePaths: new Set(['root-b|@|x.ts', 'root-b|@|y.ts']) },
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 3)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual(['/src/index.ts']);
+    expect(selectionResult.limitReached).toBe(true);
+  });
+
+  it('subtracts the focused selection from a foreign-root select-all budget', async () => {
+    // A select-all on a NON-focused root keeps the focused root's selection
+    // in place, so both the focused live selection (2) and root-b's
+    // folderState (1) consume budget: max 4 leaves a cap of 1.
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
+    mockStoreState = {
+      setQuerySelection: vi.fn(),
+      currentFolderId: 'other-root',
+      activeRootIds: ['other-root', 'folder-1', 'root-b'],
+      selectionModel: { mode: 'explicit' },
+      selectedFilePaths: new Set(['other-root|@|a.ts', 'other-root|@|b.ts']),
+      folderStates: {
+        'root-b': { selectedFilePaths: new Set(['root-b|@|x.ts']) },
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 4)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual(['/src/index.ts']);
+  });
+
+  it('toasts and skips the scan entirely when the forest budget is exhausted', async () => {
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
+    mockStoreState = {
+      setQuerySelection: vi.fn(),
+      currentFolderId: 'folder-1',
+      activeRootIds: ['folder-1', 'root-b'],
+      selectionModel: { mode: 'explicit' },
+      selectedFilePaths: new Set<string>(),
+      folderStates: {
+        'root-b': { selectedFilePaths: new Set(['root-b|@|x.ts', 'root-b|@|y.ts']) },
+      },
+    };
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 2)
+    );
+
+    expect(selectionResult).toEqual({
+      success: true,
+      filePaths: [],
+      limitReached: true,
+      totalAvailable: 0,
+    });
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(fileSystemAdapter.readDirectory).not.toHaveBeenCalled();
+    expect(showToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('Selection limit reached (2)') })
+    );
   });
 
   it('returns an error for an empty tree before any adapter work', async () => {

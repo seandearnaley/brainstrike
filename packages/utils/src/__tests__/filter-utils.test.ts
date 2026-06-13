@@ -76,5 +76,20 @@ describe('filter-utils', () => {
       expect(matcher.shouldIncludeFile('/src/readme.md')).toBe(true);
       expect(matcher.shouldIncludeFile('/coverage/out.txt')).toBe(false);
     });
+
+    it('matches dotfiles and dot-directories (the "All Files" preset includes *)', () => {
+      const matcher = createPathFilterMatcher(['*'], [], false);
+
+      expect(matcher.shouldIncludeFile('/.gitignore')).toBe(true);
+      expect(matcher.shouldIncludeFile('/.github/workflows/ci.yml')).toBe(true);
+      expect(matcher.shouldIncludeFile('/.devcontainer/devcontainer.json')).toBe(true);
+    });
+
+    it('extension globs reach files inside dot-directories', () => {
+      const matcher = createPathFilterMatcher(['*.json'], [], false);
+
+      expect(matcher.shouldIncludeFile('/.devcontainer/devcontainer.json')).toBe(true);
+      expect(matcher.shouldIncludeFile('/src/app.ts')).toBe(false);
+    });
   });
 });

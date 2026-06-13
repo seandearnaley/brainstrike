@@ -288,6 +288,43 @@ describe('assistant runtime helpers', () => {
     });
   });
 
+  it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
+    const data = buildAssistantRequestData({
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 3 },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    });
+
+    expect(data['selectionFilePathsFromOtherRoots']).toBe(3);
+
+    const dataWithoutOthers = buildAssistantRequestData({
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 0 },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    });
+    expect(dataWithoutOthers).not.toHaveProperty('selectionFilePathsFromOtherRoots');
+  });
+
   it('resolves provider and local runtime model selections', () => {
     const models = [
       { id: 'fast', label: 'Fast', type: 'llm' as const, default: false, contextWindow: 200_000 },

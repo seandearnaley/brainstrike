@@ -17,6 +17,20 @@ import { getAncestorDirectoryPaths } from '@brainstrike/utils/path-ancestors';
 import { defaultCollator } from '../utils/file-node-collator';
 import type { PersistableFileExplorerStore } from '../utils/persist-file-explorer-state';
 
+/**
+ * Multiple active roots = forest mode, the always-explicit selection regime:
+ * query-mode selections live on TOP-LEVEL state that focus switches (every
+ * forest section click) cannot carry into folderState snapshots.
+ */
+export function isForestStore(store: unknown): boolean {
+  const getState = (store as { getState?: unknown } | null | undefined)?.getState;
+  if (typeof getState !== 'function') {
+    return false;
+  }
+  const state = (getState as () => { activeRootIds?: readonly string[] })();
+  return (state.activeRootIds?.length ?? 0) > 1;
+}
+
 export function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);

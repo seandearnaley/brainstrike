@@ -306,9 +306,16 @@ function loadRootChildren(args: {
   rootFolderId?: string;
 }): { request: InFlightRootLoad; started: boolean } {
   const { fileSystemAdapter, rootDirectoryHandle, rootPath, rootFolderId } = args;
-  const existingRequest = inFlightRootLoads.get(rootPath);
+  // Dedup by path AND identity: in forest mode the FOCUSED root is loaded by
+  // BOTH its section loader (rootId = UUID) and the legacy panel loader (no
+  // rootId → path-stamped). Keying by path alone let them share one in-flight
+  // load, so whichever registered first stamped the other's nodes — directory
+  // recursive-select then keyed composite selections by the wrong identity and
+  // the selection vanished into an unread folderState.
+  const loadKey = `${rootPath}::${rootFolderId ?? ''}`;
+  const existingRequest = inFlightRootLoads.get(loadKey);
   if (existingRequest) {
-    logger.debug('loadRoot joined existing in-flight request', { rootPath });
+    logger.debug('loadRoot joined existing in-flight request', { rootPath, loadKey });
     return {
       request: existingRequest,
       started: false,
@@ -356,11 +363,11 @@ function loadRootChildren(args: {
   })();
 
   const request: InFlightRootLoad = { promise };
-  inFlightRootLoads.set(rootPath, request);
+  inFlightRootLoads.set(loadKey, request);
   void promise
     .finally(() => {
-      if (inFlightRootLoads.get(rootPath) === request) {
-        inFlightRootLoads.delete(rootPath);
+      if (inFlightRootLoads.get(loadKey) === request) {
+        inFlightRootLoads.delete(loadKey);
       }
     })
     .catch(() => {});
@@ -1287,10 +1294,13 @@ export function useLazyFileTree(
   }, [cancelAllLoading, commitNormalizedTree, portRef]);
 
   const runWorkerExpandAll = useCallback(
-    async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult> => {
+    async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult | null> => {
       const port = portRef.current;
       if (!port) {
-        throw new Error('File tree worker is unavailable for expand-all');
+        // Worker unavailable (failed to start, or test env) — signal the
+        // caller to run the in-renderer session path instead of erroring.
+        logger.warn('Expand-all worker unavailable — using in-renderer fallback');
+        return null;
       }
       // Storage v5: use durable RootId UUID when available.
       const rootFolderId = rootId ?? getRootFolderId(rootDirectoryHandle);

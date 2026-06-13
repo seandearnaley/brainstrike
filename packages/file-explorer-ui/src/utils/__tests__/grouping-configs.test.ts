@@ -9,6 +9,10 @@ const buildRow = (overrides: Partial<TableRowData>): TableRowData => ({
   type: overrides.type ?? 'ts',
   ...(overrides.size === undefined ? {} : { size: overrides.size }),
   ...(overrides.tokens === undefined ? {} : { tokens: overrides.tokens }),
+  ...(overrides.rootDisplayName === undefined
+    ? {}
+    : { rootDisplayName: overrides.rootDisplayName }),
+  ...(overrides.rootPath === undefined ? {} : { rootPath: overrides.rootPath }),
 });
 
 describe('GROUPING_CONFIGS sort comparators', () => {
@@ -77,6 +81,63 @@ describe('GROUPING_CONFIGS sort comparators', () => {
     const result = groupData(data, GROUPING_CONFIGS.directory);
 
     expect(result.map((group) => group.groupLabel)).toEqual(['BrainStrike', 'BrainStrike/source']);
+  });
+
+  // Storage v5: rootFolderId is a RootId UUID; rows carry the descriptor's
+  // rootDisplayName/rootPath so group labels never render the UUID.
+  it('labels directory groups with the root displayName for UUID root ids', () => {
+    const ROOT_ID = '11111111-0000-4000-8000-000000000011';
+    const data: TableRowData[] = [
+      buildRow({
+        id: 'row-root',
+        compositeKey: `${ROOT_ID}|@|/Users/me/BrainStrike/README.md`,
+        rootFolderId: ROOT_ID,
+        rootDisplayName: 'BrainStrike',
+        rootPath: '/Users/me/BrainStrike',
+        path: '/Users/me/BrainStrike/README.md',
+      }),
+      buildRow({
+        id: 'row-source',
+        compositeKey: `${ROOT_ID}|@|/Users/me/BrainStrike/source/index.ts`,
+        rootFolderId: ROOT_ID,
+        rootDisplayName: 'BrainStrike',
+        rootPath: '/Users/me/BrainStrike',
+        path: '/Users/me/BrainStrike/source/index.ts',
+      }),
+    ];
+
+    const result = groupData(data, GROUPING_CONFIGS.directory);
+
+    expect(result.map((group) => group.groupLabel)).toEqual(['BrainStrike', 'BrainStrike/source']);
+  });
+
+  it('labels root-folder groups with the root displayName for UUID root ids', () => {
+    const ROOT_ID_A = '11111111-0000-4000-8000-000000000011';
+    const ROOT_ID_B = '22222222-0000-4000-8000-000000000022';
+    const data: TableRowData[] = [
+      buildRow({
+        id: 'row-a',
+        compositeKey: `${ROOT_ID_A}|@|/a/file.ts`,
+        rootFolderId: ROOT_ID_A,
+        rootDisplayName: 'alpha',
+        rootPath: '/a',
+        path: '/a/file.ts',
+      }),
+      buildRow({
+        id: 'row-b',
+        compositeKey: `${ROOT_ID_B}|@|/b/file.ts`,
+        rootFolderId: ROOT_ID_B,
+        rootDisplayName: 'beta',
+        rootPath: '/b',
+        path: '/b/file.ts',
+      }),
+    ];
+
+    const result = groupData(data, GROUPING_CONFIGS.rootFolder);
+
+    expect(result.map((group) => group.groupLabel).sort()).toEqual(['alpha', 'beta']);
+    // Identity stays the rootId — same-named roots must never merge.
+    expect(result.map((group) => group.groupKey).sort()).toEqual([ROOT_ID_A, ROOT_ID_B]);
   });
 
   it('disambiguates duplicate directory labels by falling back to canonical root identities', () => {

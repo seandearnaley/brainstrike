@@ -28,7 +28,8 @@ export const TOKEN_THRESHOLDS = {
 
 export interface GroupConfig<T = unknown> {
   getDisambiguatedGroupLabel?: (groupKey: GroupKey) => string;
-  getGroupLabel?: (groupKey: GroupKey) => string;
+  /** Items are the group's members — labels may derive display metadata from them. */
+  getGroupLabel?: (groupKey: GroupKey, items?: T[]) => string;
   groupBy: GroupFunction<T> | GroupBandFunction<T>;
   id: string;
   label: string;
@@ -53,7 +54,15 @@ export interface TableRowData {
   compositeKey: string;
   id: string;
   path: string;
+  /**
+   * Human-readable root label (storage v5 descriptor displayName).
+   * rootFolderId is a RootId UUID — display surfaces must use this instead.
+   */
+  rootDisplayName?: string;
+  /** Durable RootId UUID (storage v5) — identity, never display. */
   rootFolderId: string;
+  /** Absolute root path (storage v5 descriptor) used to relativize `path`. */
+  rootPath?: string;
   size?: number;
   tokens?: number;
   type: string; // File extension
@@ -77,6 +86,8 @@ export const GROUPING_CONFIGS = {
       getDirectoryGroupKey({
         filePath: item.path,
         rootFolderId: item.rootFolderId,
+        rootPath: item.rootPath,
+        rootDisplayName: item.rootDisplayName,
       }),
     getGroupLabel: (groupKey: GroupKey) =>
       getDirectoryGroupDisplayName({
@@ -110,7 +121,10 @@ export const GROUPING_CONFIGS = {
     id: 'rootFolder',
     label: 'By Root Folder',
     groupBy: (item: TableRowData) => item.rootFolderId,
-    getGroupLabel: (groupKey: GroupKey) => getRootFolderDisplayName(String(groupKey)),
+    // Storage v5: groupKey is a RootId UUID — label from the rows' descriptor
+    // displayName; the path-derived fallback only serves legacy path ids.
+    getGroupLabel: (groupKey: GroupKey, items?: TableRowData[]) =>
+      items?.[0]?.rootDisplayName ?? getRootFolderDisplayName(String(groupKey)),
     sortGroups: (a: GroupKey, b: GroupKey) => groupingCollator.compare(String(a), String(b)),
   },
   fileType: {
@@ -219,7 +233,7 @@ export function groupData<T extends { tokens?: number; size?: number }>(
 
   const result: GroupedData<T>[] = Array.from(groups.entries()).map(([groupKey, items]) => ({
     groupKey,
-    groupLabel: config.getGroupLabel ? config.getGroupLabel(groupKey) : String(groupKey),
+    groupLabel: config.getGroupLabel ? config.getGroupLabel(groupKey, items) : String(groupKey),
     items,
     count: items.length,
     totalTokens: items.reduce((sum, item) => sum + (item.tokens || 0), 0),

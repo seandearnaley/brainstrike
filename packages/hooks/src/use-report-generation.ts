@@ -1,8 +1,8 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { ContextLineRange } from '@brainstrike/utils/report-generator';
+import type { ContextLineRange, RootDisplayInfo } from '@brainstrike/utils/report-generator';
 import { useCallback, useRef, useState } from 'react';
 
-export type { ContextLineRange } from '@brainstrike/utils/report-generator';
+export type { ContextLineRange, RootDisplayInfo } from '@brainstrike/utils/report-generator';
 
 export interface ReportGenerationRequest {
   excludeFilters: string[];
@@ -12,6 +12,11 @@ export interface ReportGenerationRequest {
   includeProjectTree: boolean;
   projectTreeUsesViewFilters?: boolean;
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
+  /**
+   * RootId UUID → display metadata (storage v5) so `<file path>` attributes
+   * render human-readable paths instead of composite selection keys.
+   */
+  rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useRegex: boolean;
@@ -52,6 +57,11 @@ interface UseReportGenerationProps {
    * If not provided, the static fileContents prop is used.
    */
   getFileContents?: () => { [path: string]: string };
+  /**
+   * Optional callback returning RootId → display metadata at generation time
+   * (storage v5) so report file paths render human-readably.
+   */
+  getRootDisplayInfoById?: () => Record<string, RootDisplayInfo>;
   includeFilters: string[];
   includeProjectTree: boolean;
   /**
@@ -80,6 +90,7 @@ export function useReportGeneration({
   folderSummaryThreshold,
   loadMissingContent,
   getFileContents,
+  getRootDisplayInfoById,
 }: UseReportGenerationProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
@@ -97,6 +108,7 @@ export function useReportGeneration({
     folderSummaryThreshold,
     loadMissingContent,
     getFileContents,
+    getRootDisplayInfoById,
     createReportGenerator,
   };
   const payloadRef = useRef(payload);
@@ -124,6 +136,7 @@ export function useReportGeneration({
         folderSummaryThreshold: thr,
         loadMissingContent: loadContent,
         getFileContents: getContents,
+        getRootDisplayInfoById: getRootDisplayInfo,
         createReportGenerator: createGenerator,
       } = payloadRef.current;
 
@@ -140,11 +153,13 @@ export function useReportGeneration({
       }
 
       const worker = createGenerator(adapter ? { fileSystemAdapter: adapter } : {});
+      const rootDisplayInfoById = getRootDisplayInfo?.();
       return await worker(
         {
           selectedFiles: s,
           fileContents: finalFileContents,
           rootDirectoryHandle: stableRoot as FileSystemDirectoryHandle | DirectoryHandle,
+          ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
           includeFilters: inc,
           excludeFilters: exc,
           useRegex: rx,

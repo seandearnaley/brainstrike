@@ -406,6 +406,25 @@ export function mergeState(
     }
   }
 
+  // maxSelectionCount is WORKSPACE-GLOBAL. Profiles persisted in the
+  // per-folder era can carry a degraded top-level value (the old default 10,
+  // hydrated from whichever root was focused at save time) alongside a folder
+  // snapshot holding the user's real setting. Heal by taking the most
+  // generous persisted value and writing it through to every folder snapshot
+  // so the copies can never diverge again (setMaxSelectionCount maintains the
+  // same invariant going forward — this is idempotent on healthy profiles).
+  const healedMaxSelectionCount = Object.values(mergedState.folderStates).reduce(
+    (maxSoFar, folderState) => Math.max(maxSoFar, coerceNumber(folderState.maxSelectionCount, 0)),
+    coerceNumber(persistedSerialized.maxSelectionCount, current.maxSelectionCount)
+  );
+  mergedState.maxSelectionCount = healedMaxSelectionCount;
+  for (const key of Object.keys(mergedState.folderStates)) {
+    mergedState.folderStates[key] = {
+      ...(mergedState.folderStates[key] as FolderState),
+      maxSelectionCount: healedMaxSelectionCount,
+    };
+  }
+
   if (shouldLog) {
     // Log summary only to avoid DevTools serialization issues
     logger.debug(

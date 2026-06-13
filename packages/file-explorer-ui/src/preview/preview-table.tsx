@@ -625,11 +625,16 @@ function createGroupedRootFolderColumn({
       }
 
       const item = node.data.item;
-      const displayRootFolder = getRootFolderDisplayName(item.rootFolderId);
+      // Storage v5: rootFolderId is a RootId UUID — show the descriptor's
+      // displayName (path-derived fallback only serves legacy path ids).
+      const displayRootFolder = item.rootDisplayName ?? getRootFolderDisplayName(item.rootFolderId);
       return (
         <div className="flex min-w-0 items-center gap-1.5">
           <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
-          <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
+          <span
+            className="min-w-0 truncate font-mono text-sm"
+            title={item.rootPath ?? item.rootFolderId}
+          >
             {displayRootFolder}
           </span>
         </div>
@@ -683,6 +688,8 @@ function createGroupedPathColumn({
       const displayDirPath = formatFilePathSubtitle({
         filePath: item.path,
         rootFolderId: item.rootFolderId,
+        rootPath: item.rootPath,
+        rootDisplayName: item.rootDisplayName,
       });
 
       return (

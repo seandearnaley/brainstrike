@@ -76,14 +76,22 @@ describe('folder-state-actions hydrateFolderState', () => {
     ) => Partial<FileExplorerState>;
     const updated = updateFn(state);
     expect(updated.selectedFilePaths).toEqual(new Set(['a']));
-    expect(updated.expandedDirectoryPaths).toEqual(new Set(['dir']));
-    expect(updated.includeFilters).toEqual(['*.ts']);
-    expect(updated.excludeFilters).toEqual(['node_modules']);
-    expect(updated.useRegex).toBe(true);
-    expect(updated.includeProjectTree).toBe(false);
-    expect(updated.folderSummaryThreshold).toBe(5);
-    expect(updated.maxSelectionCount).toBe(10);
-    expect(updated.lastActiveTab).toBe('settings');
+    // WORKSPACE-GLOBAL state (expansion, view filters, useRegex,
+    // viewFilterPresetId, maxSelectionCount) must be ABSENT from the
+    // hydration partial — stale per-folder snapshots would silently revert
+    // the user's workspace values.
+    expect(updated.expandedDirectoryPaths).toBeUndefined();
+    expect(updated.includeFilters).toBeUndefined();
+    expect(updated.excludeFilters).toBeUndefined();
+    expect(updated.useRegex).toBeUndefined();
+    expect(updated.viewFilterPresetId).toBeUndefined();
+    expect(updated.maxSelectionCount).toBeUndefined();
+    // Hardening B: the report/tab settings joined the doctrine too — only
+    // the SELECTION is per-root.
+    expect(updated.includeProjectTree).toBeUndefined();
+    expect(updated.tokenBudget).toBeUndefined();
+    expect(updated.folderSummaryThreshold).toBeUndefined();
+    expect(updated.lastActiveTab).toBeUndefined();
   });
 
   it('should do nothing when folder id does not exist', () => {

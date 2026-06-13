@@ -671,6 +671,12 @@ interface ListWorkspaceContextToolResult {
   offset: number;
   selectedFileCount: number;
   selectedFiles: string[];
+  /**
+   * Multi-root forest: selected files in OTHER workspace roots this
+   * single-root toolset cannot address — reported so the model can tell the
+   * user instead of acting as if the selection were complete.
+   */
+  selectedFilesOutsideWorkspace?: number;
   selectionFolderId?: string;
   tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
   truncated: boolean;
@@ -693,6 +699,8 @@ function runListWorkspaceContext(
   );
   const detail = input.detail ?? false;
   const offset = input.offset ?? 0;
+  // Multi-root forest: count of selected files outside this workspace root.
+  const outsideWorkspaceCount = runtimeData?.selectionFilePathsFromOtherRoots ?? 0;
   const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const pagedFiles = selectedFiles.slice(offset);
 
@@ -712,6 +720,9 @@ function runListWorkspaceContext(
       workspaceIndex,
       offset,
       truncated,
+      ...(outsideWorkspaceCount > 0
+        ? { selectedFilesOutsideWorkspace: outsideWorkspaceCount }
+        : {}),
       ...(hint ? { hint } : {}),
       ...(typeof runtimeData?.selectionFolderId === 'string'
         ? { selectionFolderId: runtimeData.selectionFolderId }

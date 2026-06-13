@@ -85,12 +85,16 @@ export function createPathFilterMatcher(
   const excludeRegexes = useRegex
     ? processedExcludeFilters.map((pattern) => createSafeRegex(pattern))
     : [];
+  // dot:true — view filters must see dotfiles (.github/workflows/ci.yml,
+  // .devcontainer/devcontainer.json). Without it the "All Files" preset
+  // (include '*') silently hides every dot-path. Keep in sync with the
+  // display matchers (hooks/filter-engine, utils/tree-generator).
   const includeGlobs = useRegex
     ? []
-    : processedIncludeFilters.map((pattern) => new Minimatch(pattern));
+    : processedIncludeFilters.map((pattern) => new Minimatch(pattern, { dot: true }));
   const excludeGlobs = useRegex
     ? []
-    : processedExcludeFilters.map((pattern) => new Minimatch(pattern));
+    : processedExcludeFilters.map((pattern) => new Minimatch(pattern, { dot: true }));
 
   const matchesInclude = (path: string): boolean => {
     if (useRegex) {

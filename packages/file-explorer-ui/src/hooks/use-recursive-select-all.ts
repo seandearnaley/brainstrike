@@ -2,11 +2,17 @@ import { useOptionalPGliteDatabase } from '@brainstrike/db';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
+  getFocusedSelectionCount,
+  getForeignSelectionCount,
 } from '@brainstrike/file-explorer';
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
-import type { IFileNode } from '@brainstrike/types';
+import type {
+  IFileNode,
+  QuerySelectionManifest,
+  SelectionQueryDescriptor,
+} from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,21 +24,229 @@ import {
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
 import { querySelectableFiles } from '../utils/recursive-selection-query';
-import {
-  selectExcludeFilters,
-  selectIncludeFilters,
-  selectUseRegex,
-} from '../utils/workspace-filter-selectors';
+import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
   type AddMultipleSelectedFilesChunked,
   applyExplicitSelection,
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
   hasPersistApi,
+  isForestStore,
   yieldToBrowser,
 } from './recursive-selection-utils';
 
 const logger = createLogger('RecursiveSelectAll');
+
+/**
+ * Scan budget under the WHOLE-FOREST cap: maxSelectionCount minus the
+ * selection budget already consumed elsewhere. A focused-root select-all
+ * REPLACES the focused selection (only other roots consume budget); a
+ * foreign-root select-all leaves the focused selection in place.
+ * Falls back to the raw cap when no store is available.
+ */
+function computeSelectAllScanCap(
+  store: ReturnType<typeof useOptionalFileExplorerStoreContext>,
+  folderId: string,
+  maxSelectionCount: number
+): number {
+  const getState = (store as { getState?: unknown } | null)?.getState;
+  if (typeof getState !== 'function') {
+    return maxSelectionCount;
+  }
+  const state = (
+    getState as () => Parameters<typeof getForeignSelectionCount>[0] &
+      Parameters<typeof getFocusedSelectionCount>[0]
+  )();
+  // An absent focus (null/undefined) is single-root legacy — the target IS
+  // the focused workspace, matching the selector-default-null convention.
+  const focusedRootId = state.currentFolderId ?? null;
+  const targetsFocusedRoot = focusedRootId === null || focusedRootId === folderId;
+  const othersCount =
+    (targetsFocusedRoot ? 0 : getFocusedSelectionCount(state)) +
+    getForeignSelectionCount(state, folderId);
+  return Math.max(0, maxSelectionCount - othersCount);
+}
+
+/** Commit a full select-all result as a top-level query-mode selection. */
+async function commitSelectAllQuerySelection(args: {
+  db: ReturnType<typeof useOptionalPGliteDatabase>;
+  excludeFilters: string[];
+  filePaths: string[];
+  folderId: string;
+  includeFilters: string[];
+  setQuerySelection: (
+    descriptor: SelectionQueryDescriptor,
+    manifest: QuerySelectionManifest,
+    materializedPaths?: Set<string>
+  ) => void;
+  useRegex: boolean;
+}): Promise<void> {
+  const { db, excludeFilters, filePaths, folderId, includeFilters, setQuerySelection, useRegex } =
+    args;
+  const manifestFingerprint = buildQuerySelectionFingerprint({
+    kind: 'recursive-select-all',
+    folderId,
+    rootPath: null,
+    includeFilters,
+    excludeFilters,
+    useRegex,
+  });
+  const snapshotId = await createQuerySelectionSnapshot(db, filePaths);
+  const manifest = buildQuerySelectionManifest({
+    filePaths,
+    fingerprint: manifestFingerprint,
+    snapshotId,
+  });
+  setQuerySelection(
+    buildQuerySelectionDescriptor({
+      kind: 'recursive-select-all',
+      folderId,
+      rootPath: null,
+      coveredDirectoryPaths: collectAncestorDirectories(filePaths),
+      includeFilters,
+      excludeFilters,
+      useRegex,
+      totalSelectedCount: filePaths.length,
+      manifestFingerprint,
+      manifestSnapshotId: snapshotId,
+      includedPaths: [],
+      excludedPaths: [],
+    }),
+    manifest,
+    new Set(filePaths)
+  );
+}
+
+/**
+ * Commit phase shared by every successful scan: zero-match feedback, the
+ * query-vs-explicit selection decision (query mode is focused-root-only in
+ * forest mode), persistence, and the post-commit tree refresh.
+ */
+async function commitSelectAllResult(args: {
+  abortSignal: AbortSignal;
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked | undefined;
+  currentFolderId: string | null;
+  db: ReturnType<typeof useOptionalPGliteDatabase>;
+  excludeFilters: string[];
+  folderId: string;
+  getCurrentTree: () => IFileNode[];
+  includeFilters: string[];
+  maxSelectionCount: number;
+  onTreeUpdate: (tree: IFileNode[]) => void;
+  quiet?: boolean | undefined;
+  result: Awaited<ReturnType<typeof querySelectableFiles>>;
+  setQuerySelection:
+    | ((
+        descriptor: SelectionQueryDescriptor,
+        manifest: QuerySelectionManifest,
+        materializedPaths?: Set<string>
+      ) => void)
+    | undefined;
+  showToast: ReturnType<typeof useToastManager>['showToast'];
+  storageAdapter: ReturnType<typeof useAdapters>['storageAdapter'];
+  store: ReturnType<typeof useOptionalFileExplorerStoreContext>;
+  useRegex: boolean;
+}): Promise<SelectAllResult> {
+  const { result, folderId, includeFilters, excludeFilters, showToast } = args;
+
+  if (result.filePaths.length === 0) {
+    // Filters that exclude every file make Select All look broken — toast
+    // the cause and commit NOTHING (an empty query selection would clobber
+    // the current selection state). Forest sweeps run quiet (one aggregate
+    // toast at the end) but the warn log always fires.
+    return notifyEmptySelectAllResult({
+      excludeFilters,
+      filesVisited: result.metrics.filesVisited,
+      folderId,
+      includeFilters,
+      quiet: args.quiet === true,
+      showToast,
+    });
+  }
+
+  const fullSelectionResult =
+    args.maxSelectionCount >= result.filePaths.length && !result.limitReached;
+  // FOREST INVARIANT: selections are ALWAYS explicit when multiple roots are
+  // active. Query mode lives on TOP-LEVEL state (manifest + descriptor) that
+  // a focus switch — which forest mode performs on every section click —
+  // cannot carry into a folderState snapshot. Single-root keeps query mode
+  // for very large select-alls.
+  const targetsFocusedRoot = args.currentFolderId === null || args.currentFolderId === folderId;
+  const querySelectionSetter =
+    targetsFocusedRoot && fullSelectionResult && !isForestStore(args.store)
+      ? args.setQuerySelection
+      : undefined;
+
+  if (querySelectionSetter) {
+    await commitSelectAllQuerySelection({
+      db: args.db,
+      excludeFilters,
+      filePaths: result.filePaths,
+      folderId,
+      includeFilters,
+      setQuerySelection: querySelectionSetter,
+      useRegex: args.useRegex,
+    });
+  } else {
+    await applyExplicitSelection(result.filePaths, folderId, args.addMultipleSelectedFiles, {
+      ...(args.addMultipleSelectedFilesChunked
+        ? { addMultipleSelectedFilesChunked: args.addMultipleSelectedFilesChunked }
+        : {}),
+      signal: args.abortSignal,
+    });
+  }
+
+  if (hasPersistApi(args.store)) {
+    await persistFileExplorerStateImmediately(args.store, args.storageAdapter);
+  }
+
+  // Keep the transition boundary for selection-driven row updates without
+  // forcing the selection path to mutate the tree itself.
+  await yieldToBrowser();
+  startTransition(() => {
+    args.onTreeUpdate(args.getCurrentTree());
+  });
+
+  return {
+    success: true,
+    filePaths: result.filePaths,
+    totalAvailable: result.filePaths.length,
+    limitReached: result.limitReached,
+  };
+}
+
+/**
+ * No-silent-fallbacks: a Select All that matches nothing must say why.
+ * Returns the (empty) result so the caller can return it directly.
+ */
+function notifyEmptySelectAllResult(args: {
+  excludeFilters: string[];
+  filesVisited: number;
+  folderId: string;
+  includeFilters: string[];
+  quiet?: boolean;
+  showToast: ReturnType<typeof useToastManager>['showToast'];
+}): SelectAllResult {
+  const { excludeFilters, filesVisited, folderId, includeFilters, quiet, showToast } = args;
+  logger.warn('Select all matched no files', {
+    folderId,
+    includeFilters,
+    excludeFilters,
+    filesVisited,
+  });
+  if (quiet) {
+    return { success: true, filePaths: [], totalAvailable: 0 };
+  }
+  showToast({
+    title: 'No selectable files in view',
+    description:
+      includeFilters.length > 0 || excludeFilters.length > 0
+        ? 'Everything is hidden by the current view filters. Adjust the workspace filters to select files.'
+        : 'There are no files to select.',
+  });
+  return { success: true, filePaths: [], totalAvailable: 0 };
+}
 
 function handleSelectAllError(err: unknown, onError?: (error: Error) => void): SelectAllResult {
   const isCancelled = isAbortError(err);
@@ -94,8 +308,18 @@ export interface UseRecursiveSelectAllReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked,
+    options?: SelectAllOptions
   ) => Promise<SelectAllResult>;
+}
+
+export interface SelectAllOptions {
+  /**
+   * Suppress per-call toasts (zero-match, budget-exhausted). Used by the
+   * forest sweep, which runs one pass per root and owns AGGREGATE feedback —
+   * per-root toasts would fire N times. Warn logs still fire (never silent).
+   */
+  quiet?: boolean;
 }
 
 const RESET_STATE: RecursiveSelectAllState = {
@@ -118,12 +342,18 @@ export function useRecursiveSelectAll(
   const store = useOptionalFileExplorerStoreContext();
   const db = useOptionalPGliteDatabase();
   const { storageAdapter } = useAdapters();
-  const includeFilters = useOptionalFileExplorerStoreSelector(selectIncludeFilters, []);
-  const excludeFilters = useOptionalFileExplorerStoreSelector(selectExcludeFilters, []);
-  const useRegex = useOptionalFileExplorerStoreSelector(selectUseRegex, false);
+  const { showToast } = useToastManager();
+  // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
+  // the same derivation the tree display uses, so scans select exactly what
+  // the trees show.
+  const { includeFilters, excludeFilters, useRegex } = useActiveWorkspaceFilters();
   const setQuerySelection = useOptionalFileExplorerStoreSelector(
     (state) => state.setQuerySelection,
     undefined
+  );
+  const currentFolderId = useOptionalFileExplorerStoreSelector(
+    (state) => state.currentFolderId,
+    null
   );
   const { applyFileFilters } = useFileFilters();
 
@@ -165,7 +395,8 @@ export function useRecursiveSelectAll(
       folderId: string,
       addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
       maxSelectionCount: number,
-      addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
+      addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked,
+      options?: SelectAllOptions
     ): Promise<SelectAllResult> => {
       const validationError = validateSelectAllInput(fileSystemAdapter, filteredTree);
       if (validationError) {
@@ -174,6 +405,20 @@ export function useRecursiveSelectAll(
       const adapter = fileSystemAdapter as FileSystemAdapter;
       if (isOperationInProgressRef.current) {
         return { success: false, filePaths: [], error: 'Operation already in progress' };
+      }
+
+      // Whole-forest cap: the scan budget is what's left after every OTHER
+      // root's selection (and the focused selection, for a foreign target).
+      const scanCap = computeSelectAllScanCap(store, folderId, maxSelectionCount);
+      if (scanCap === 0) {
+        if (!options?.quiet) {
+          showToast({
+            title: `Selection limit reached (${maxSelectionCount})`,
+            description: 'Deselect files in other folders or raise the limit to select more.',
+            variant: 'destructive',
+          });
+        }
+        return { success: true, filePaths: [], limitReached: true, totalAvailable: 0 };
       }
 
       isOperationInProgressRef.current = true;
@@ -192,7 +437,7 @@ export function useRecursiveSelectAll(
           ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
           includeFilters,
           excludeFilters,
-          maxResults: maxSelectionCount,
+          maxResults: scanCap,
           useRegex,
           abortSignal: abortController.signal,
           onProgress: (progress) => {
@@ -206,67 +451,26 @@ export function useRecursiveSelectAll(
           },
         });
 
-        const fullSelectionResult =
-          maxSelectionCount >= result.filePaths.length && !result.limitReached;
-        const canUseQuerySelection = Boolean(setQuerySelection) && fullSelectionResult;
-
-        if (canUseQuerySelection) {
-          const manifestFingerprint = buildQuerySelectionFingerprint({
-            kind: 'recursive-select-all',
-            folderId,
-            rootPath: null,
-            includeFilters,
-            excludeFilters,
-            useRegex,
-          });
-          const snapshotId = await createQuerySelectionSnapshot(db, result.filePaths);
-          const manifest = buildQuerySelectionManifest({
-            filePaths: result.filePaths,
-            fingerprint: manifestFingerprint,
-            snapshotId,
-          });
-          setQuerySelection?.(
-            buildQuerySelectionDescriptor({
-              kind: 'recursive-select-all',
-              folderId,
-              rootPath: null,
-              coveredDirectoryPaths: collectAncestorDirectories(result.filePaths),
-              includeFilters,
-              excludeFilters,
-              useRegex,
-              totalSelectedCount: result.filePaths.length,
-              manifestFingerprint,
-              manifestSnapshotId: snapshotId,
-              includedPaths: [],
-              excludedPaths: [],
-            }),
-            manifest,
-            new Set(result.filePaths)
-          );
-        } else {
-          await applyExplicitSelection(result.filePaths, folderId, addMultipleSelectedFiles, {
-            ...(addMultipleSelectedFilesChunked ? { addMultipleSelectedFilesChunked } : {}),
-            signal: abortController.signal,
-          });
-        }
-
-        if (hasPersistApi(store)) {
-          await persistFileExplorerStateImmediately(store, storageAdapter);
-        }
-
-        // Keep the transition boundary for selection-driven row updates without
-        // forcing the selection path to mutate the tree itself.
-        await yieldToBrowser();
-        startTransition(() => {
-          onTreeUpdate(getCurrentTree());
+        return await commitSelectAllResult({
+          abortSignal: abortController.signal,
+          addMultipleSelectedFiles,
+          addMultipleSelectedFilesChunked,
+          currentFolderId,
+          quiet: options?.quiet,
+          db,
+          excludeFilters,
+          folderId,
+          getCurrentTree,
+          includeFilters,
+          maxSelectionCount: scanCap,
+          onTreeUpdate,
+          result,
+          setQuerySelection,
+          showToast,
+          storageAdapter,
+          store,
+          useRegex,
         });
-
-        return {
-          success: true,
-          filePaths: result.filePaths,
-          totalAvailable: result.filePaths.length,
-          limitReached: result.limitReached,
-        };
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('selectAllRecursively failed', { error: err });
@@ -280,6 +484,7 @@ export function useRecursiveSelectAll(
       }
     },
     [
+      currentFolderId,
       excludeFilters,
       fileSystemAdapter,
       getCurrentTree,
@@ -288,6 +493,7 @@ export function useRecursiveSelectAll(
       onError,
       onTreeUpdate,
       setQuerySelection,
+      showToast,
       storageAdapter,
       store,
       useRegex,

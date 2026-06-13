@@ -109,6 +109,13 @@ export interface RuntimeData {
   providerOptions?: RuntimeProviderOptions;
   /** Optional selection file paths (relative to project root). */
   selectionFilePaths?: readonly string[];
+  /**
+   * Multi-root: count of selected files in ACTIVE roots OTHER than the
+   * assistant's single workspace root — not addressable by the file tools,
+   * surfaced (never silently dropped). Mirrors the assistant-contract
+   * RuntimeData field; keep the two declarations in sync.
+   */
+  selectionFilePathsFromOtherRoots?: number;
   /** Optional folder id for selection/token cache resolution. */
   selectionFolderId?: string;
   /** Optional selection snapshot id to scope retrieval. */
@@ -150,6 +157,10 @@ export interface RuntimeWorkspaceContextFileMetadata {
   outputApproxTokens?: number | null;
   path: string;
   ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
+  /** Display name of the root, for disambiguating the same relative path across roots. */
+  rootDisplayName?: string;
+  /** Durable RootId of the file's root (multi-root); absent for legacy snapshots. */
+  rootId?: string;
 }
 
 export type RuntimeWorkspaceIndexStatusState =

@@ -202,6 +202,7 @@ export function buildAssistantRequestData(args: {
   selectionData: {
     filePaths: string[];
     folderId: string | null | undefined;
+    otherRootsCount?: number;
   };
   workspaceContext: RuntimeData['workspaceContext'] | null;
   workspaceIndex: {
@@ -222,6 +223,12 @@ export function buildAssistantRequestData(args: {
   }
   if (args.selectionData.folderId) {
     data['selectionFolderId'] = args.selectionData.folderId;
+  }
+  if ((args.selectionData.otherRootsCount ?? 0) > 0) {
+    // Multi-root: files selected in OTHER active roots are not addressable
+    // by the single-root assistant workspace — surface the count, never
+    // silently drop them.
+    data['selectionFilePathsFromOtherRoots'] = args.selectionData.otherRootsCount;
   }
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;

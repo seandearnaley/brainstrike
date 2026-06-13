@@ -417,6 +417,13 @@ export interface FileExplorerState extends FileExplorerData {
 
   // View filters expansion state
   setFiltersExpanded: (expanded: boolean) => void;
+  /**
+   * Replace a NON-FOCUSED root's explicit selection in its folderState
+   * (cross-root selection write-back, Phase 6). Never touches the focused
+   * top-level selection or currentFolderId; creates the folderState (reset
+   * shape) when the root has none yet.
+   */
+  setFolderSelection: (folderId: string, compositeKeys: readonly string[]) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setIncludeProjectTree: (value: boolean) => void;
 
@@ -480,8 +487,15 @@ export const DEFAULT_STATE = {
   rootDescriptors: {} as Record<string, StoredRootDescriptor>,
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
-  includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'] as string[],
+  // Show EVERYTHING by default — filtering is opt-in via presets/chips. A
+  // code-glob default silently masquerades as "all files" on fresh profiles
+  // and during the pre-rehydration boot window ("a typescript filter was
+  // applied but the dropdown said All Files").
+  includeFilters: [] as string[],
+  // .git is excluded by default because view filter globs match dot-paths
+  // (dot:true) — without it the repository object store floods the tree.
   excludeFilters: [
+    '.git',
     '.aider*',
     'node_modules',
     '.next',

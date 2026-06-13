@@ -639,6 +639,39 @@ describe('useFileTree (lazy loading version)', () => {
       expect(firstHook.result.current.fileTree.length).toBeGreaterThan(0);
       expect(secondHook.result.current.fileTree.length).toBeGreaterThan(0);
     });
+
+    it('does NOT share a root load between loaders with different rootId (no rootFolderId contamination)', async () => {
+      // The forest focused-root bug: the section loader (rootId = UUID) and the
+      // legacy panel loader (no rootId → path-stamped) load the SAME path. The
+      // in-flight dedup must NOT let them share — otherwise whichever registers
+      // first stamps the other's nodes, and directory recursive-select keys
+      // composite selections by the wrong identity (checkboxes vanish).
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const ROOT_UUID = 'd4e516c5-e91e-4b1d-89ed-cb01cbfec159';
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      // Panel loader (no rootId) mounts first and registers the in-flight load.
+      const panelHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+      // Section loader (rootId = UUID) mounts concurrently for the same path.
+      const sectionHook = renderHook(() => useFileTree(handle, { rootId: ROOT_UUID }), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => {
+        expect(panelHook.result.current.isLoading).toBe(false);
+        expect(sectionHook.result.current.isLoading).toBe(false);
+      });
+
+      // Each loader stamps its OWN identity onto its nodes.
+      const panelRoot = panelHook.result.current.fileTree[0];
+      const sectionRoot = sectionHook.result.current.fileTree[0];
+      expect(panelRoot?.rootFolderId).toBe(handle.path);
+      expect(sectionRoot?.rootFolderId).toBe(ROOT_UUID);
+    });
   });
 
   describe('Lazy loading specific behavior', () => {

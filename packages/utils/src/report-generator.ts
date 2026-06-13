@@ -1,6 +1,7 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { readFullFileTree } from './file-system-utils';
+import { decodeFileSelection } from './selection-utils';
 import { generateProjectTreeText } from './tree-generator';
 
 const logger = createLogger('ContextGenerator');
@@ -21,10 +22,67 @@ export interface ContextLineRange {
   startLine: number;
 }
 
+/** Display metadata for a root, keyed by RootId (storage v5 descriptor). */
+export interface RootDisplayInfo {
+  displayName: string;
+  path: string;
+}
+
 export interface ContextGenerationOptions {
   projectTreeUsesViewFilters?: boolean;
+  /**
+   * Maps RootId UUID → display metadata. When provided, `<file path>`
+   * attributes render `displayName/relative-path` instead of the raw
+   * `${rootId}|@|${path}` composite selection key. Content lookups always
+   * keep the raw key.
+   */
+  rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useTapestryRanges?: boolean;
+}
+
+/**
+ * Render a selection key as a human-readable path for context output.
+ * Storage v5 keys are `${rootId}|@|${path}` with a UUID rootId — resolve the
+ * root's displayName and relativize the path. Legacy/undecodable keys pass
+ * through unchanged.
+ */
+function formatContextFilePath(
+  selectionKey: string,
+  rootDisplayInfoById: Record<string, RootDisplayInfo> | undefined
+): string {
+  if (!rootDisplayInfoById) {
+    return selectionKey;
+  }
+
+  let decoded: { folderId: string; path: string };
+  try {
+    decoded = decodeFileSelection(selectionKey);
+  } catch {
+    return selectionKey;
+  }
+
+  const info = rootDisplayInfoById[decoded.folderId];
+  const normalizedPath = decoded.path.replace(/\\/g, '/');
+  if (!info) {
+    // Unknown root (e.g. disconnected): still never render the UUID.
+    return normalizedPath;
+  }
+
+  const normalizedRoot = info.path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const relativePath =
+    normalizedRoot && normalizedPath.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`)
+      ? normalizedPath.slice(normalizedRoot.length + 1)
+      : normalizedPath.replace(/^\/+/, '');
+
+  if (!relativePath) {
+    return info.displayName;
+  }
+  // Web-style paths already start with the root name segment.
+  if (relativePath === info.displayName || relativePath.startsWith(`${info.displayName}/`)) {
+    return relativePath;
+  }
+  return `${info.displayName}/${relativePath}`;
 }
 
 // File tree processing configuration
@@ -167,13 +225,16 @@ export function normalizeContextLineRanges(
 
 function buildFileContextContent(args: {
   filePath: string;
+  /** Human-readable path for the `path` attribute; defaults to filePath. */
+  displayPath?: string;
   fileContents: Record<string, string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useTapestryRanges: boolean;
 }): string {
-  const { filePath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
-  const escapedFilePath = escapeXmlAttribute(filePath);
-  const content = fileContents[filePath] ?? `Unable to read file content for ${filePath}`;
+  const { filePath, displayPath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
+  const escapedFilePath = escapeXmlAttribute(displayPath ?? filePath);
+  const content =
+    fileContents[filePath] ?? `Unable to read file content for ${displayPath ?? filePath}`;
   const fullFileContextContent = `<file path="${escapedFilePath}">
 ${content}
 </file>`;
@@ -237,6 +298,7 @@ ${Array.from(selectedFiles)
   .map((filePath) =>
     buildFileContextContent({
       filePath,
+      displayPath: formatContextFilePath(filePath, options.rootDisplayInfoById),
       fileContents,
       ...(options.selectedLineRangesByFile
         ? { selectedLineRangesByFile: options.selectedLineRangesByFile }

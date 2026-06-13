@@ -116,7 +116,9 @@ describe('Folder State Actions', () => {
     expect(newState.lastActiveTab).toBe('files');
     expect(newState.lastAccessed).toBeGreaterThan(0);
     expect(state.selectedFilePaths.size).toBe(0);
-    expect(state.expandedDirectoryPaths.size).toBe(0);
+    // expandedDirectoryPaths is WORKSPACE-GLOBAL — switching to a new folder
+    // must not collapse other sections' expansions (forest mode).
+    expect(state.expandedDirectoryPaths).toEqual(new Set(['dir1']));
   });
 
   it('should hydrate state with stored folder state when folder id is provided', () => {
@@ -151,14 +153,19 @@ describe('Folder State Actions', () => {
 
     const state = store.getState();
     expect(state.selectedFilePaths).toEqual(selectedPaths);
-    expect(state.expandedDirectoryPaths).toEqual(expandedPaths);
-    expect(state.includeFilters).toEqual(customFilters);
-    expect(state.excludeFilters).toEqual(customExcludeFilters);
-    expect(state.useRegex).toBe(true);
-    expect(state.includeProjectTree).toBe(false);
-    expect(state.folderSummaryThreshold).toBe(10);
-    expect(state.maxSelectionCount).toBe(50);
-    expect(state.lastActiveTab).toBe('settings');
+    // WORKSPACE-GLOBAL settings (view filters, useRegex, maxSelectionCount,
+    // expandedDirectoryPaths) are never hydrated from folder snapshots — the
+    // top-level values stay.
+    expect(state.expandedDirectoryPaths).toEqual(DEFAULT_STATE.expandedDirectoryPaths);
+    expect(state.includeFilters).toEqual(DEFAULT_STATE.includeFilters);
+    expect(state.excludeFilters).toEqual(DEFAULT_STATE.excludeFilters);
+    expect(state.useRegex).toBe(DEFAULT_STATE.useRegex);
+    expect(state.maxSelectionCount).toBe(DEFAULT_STATE.maxSelectionCount);
+    // Hardening B: tokenBudget/includeProjectTree/folderSummaryThreshold/
+    // lastActiveTab joined the WORKSPACE-GLOBAL doctrine — never hydrated.
+    expect(state.includeProjectTree).toBe(DEFAULT_STATE.includeProjectTree);
+    expect(state.folderSummaryThreshold).toBe(DEFAULT_STATE.folderSummaryThreshold);
+    expect(state.lastActiveTab).toBe(DEFAULT_STATE.lastActiveTab);
   });
 
   it('should not change state if hydrating with a non-existent folder id', () => {
@@ -232,6 +239,40 @@ describe('Folder State Actions', () => {
     }
   });
 
+  it('setFolderSelection writes a non-focused root selection without touching the focused state', () => {
+    const ROOT_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const ROOT_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const KEY_B1 = `${ROOT_B}|@|src/one.ts`;
+    const KEY_B2 = `${ROOT_B}|@|src/two.ts`;
+
+    // Focus root A with a live selection.
+    store.setCurrentFolderId(ROOT_A);
+    store.setState((state: FileExplorerState) => ({
+      ...state,
+      selectedFilePaths: new Set([`${ROOT_A}|@|a.ts`]),
+    }));
+
+    // Write B's selection directly (cross-root deselect/select path) — B has
+    // no folderState yet, so the action must create one from the reset shape.
+    store.setFolderSelection(ROOT_B, [KEY_B1, KEY_B2]);
+
+    const state = store.getState();
+    // Focused state untouched.
+    expect(state.currentFolderId).toBe(ROOT_A);
+    expect(state.selectedFilePaths).toEqual(new Set([`${ROOT_A}|@|a.ts`]));
+    // B's folderState carries the selection in BOTH the set and the model.
+    expect(state.folderStates[ROOT_B]?.selectedFilePaths).toEqual(new Set([KEY_B1, KEY_B2]));
+    expect(state.folderStates[ROOT_B]?.selectionModel.mode).toBe('explicit');
+    expect(state.folderStates[ROOT_B]?.selectionModel.explicitPaths).toEqual(
+      new Set([KEY_B1, KEY_B2])
+    );
+
+    // Overwriting with an empty list clears B without touching A.
+    store.setFolderSelection(ROOT_B, []);
+    expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths).toEqual(new Set());
+    expect(store.getState().selectedFilePaths).toEqual(new Set([`${ROOT_A}|@|a.ts`]));
+  });
+
   it('keeps distinct folder states and composite keys for two same-named roots with different RootIds', () => {
     // Storage v5 regression: two roots can share the same display name
     // (e.g. both folders are called "project"). Their identity is the durable
@@ -250,9 +291,10 @@ describe('Folder State Actions', () => {
     }));
 
     // Switch to root B — A's selection must NOT leak into B.
+    // (Expansion is WORKSPACE-GLOBAL and intentionally persists.)
     store.setCurrentFolderId(ROOT_B);
     expect(store.getState().selectedFilePaths.size).toBe(0);
-    expect(store.getState().expandedDirectoryPaths.size).toBe(0);
+    expect(store.getState().expandedDirectoryPaths).toEqual(new Set(['src']));
     store.setState((state: FileExplorerState) => ({
       ...state,
       selectedFilePaths: new Set([`${ROOT_B}|@|${RELATIVE_PATH}`]),

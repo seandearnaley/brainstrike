@@ -13,6 +13,7 @@ import { createFileContentActions } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
+import { createNewFolderState, getForeignSelectionCount } from '../utils/file-explorer-utils';
 
 // Combine all action interfaces
 type TestActions = ReturnType<typeof createFolderStateActions> &
@@ -303,4 +304,432 @@ describe('useFileExplorerStore Actions Integration', () => {
 
   // Persistence/Rehydration aspects are implicitly tested by setup/initial state checks
   // Folder state switching logic is tested in use-file-explorer-store.folder-state-actions.test.ts
+
+  describe('cross-root selection routing (Phase 6 forest hardening)', () => {
+    const ROOT_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const ROOT_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const keyA = (p: string) => `${ROOT_A}|@|${p}`;
+    const keyB = (p: string) => `${ROOT_B}|@|${p}`;
+
+    beforeEach(() => {
+      store.setCurrentFolderId(ROOT_A);
+      // The forest-union cap counts ACTIVE roots only.
+      store.setState({ activeRootIds: [ROOT_A, ROOT_B] });
+    });
+
+    it('addSelectedFile for a NON-focused root writes its folderState, not the top-level set', () => {
+      store.addSelectedFile(ROOT_B, 'x.ts');
+
+      const s = store.getState();
+      expect(s.selectedFilePaths.has(keyB('x.ts'))).toBe(false);
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
+      expect(s.folderStates[ROOT_B]?.selectionModel.explicitPaths.has(keyB('x.ts'))).toBe(true);
+    });
+
+    it('toggleSelectedFile toggles within the foreign folderState', () => {
+      store.toggleSelectedFile(ROOT_B, 'x.ts');
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
+
+      store.toggleSelectedFile(ROOT_B, 'x.ts');
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.has(keyB('x.ts'))).toBe(
+        false
+      );
+      // The focused top-level set is never touched by foreign toggles.
+      expect(store.getState().selectedFilePaths.size).toBe(0);
+    });
+
+    it('add/removeMultipleSelectedFiles route foreign batches to the foreign folderState', () => {
+      store.addMultipleSelectedFiles(ROOT_B, ['p1.ts', 'p2.ts']);
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths).toEqual(
+        new Set([keyB('p1.ts'), keyB('p2.ts')])
+      );
+
+      store.removeMultipleSelectedFiles(ROOT_B, ['p1.ts']);
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths).toEqual(
+        new Set([keyB('p2.ts')])
+      );
+      expect(store.getState().selectedFilePaths.size).toBe(0);
+    });
+
+    it('write-then-focus-switch keeps the key (checkbox stays checked) and never contaminates the outgoing snapshot', () => {
+      // The forest race: the checkbox handler fires BEFORE the click-bubble
+      // focus switch. The foreign write must be order-independent.
+      store.addSelectedFile(ROOT_A, 'a.ts'); // focused write → top-level
+      store.addSelectedFile(ROOT_B, 'x.ts'); // foreign write → B's folderState
+      store.setCurrentFolderId(ROOT_B); // the bubble's focus switch
+
+      const s = store.getState();
+      // B's key survives the switch into the now-focused top-level set.
+      expect(s.selectedFilePaths.has(keyB('x.ts'))).toBe(true);
+      // A's snapshot holds ONLY A's keys — no cross-root contamination.
+      expect(s.folderStates[ROOT_A]?.selectedFilePaths).toEqual(new Set([keyA('a.ts')]));
+    });
+
+    // maxSelectionCount is a WORKSPACE-GLOBAL setting (P6fix round 2). Stale
+    // per-folder snapshots (default 10) used to hydrate the top-level cap on
+    // every focus switch and clamp foreign writes — in forest mode the
+    // effective limit silently flipped per clicked section, making checkbox
+    // clicks no-ops ("checking folders mostly doesn't work").
+    it('focus switch does NOT hydrate maxSelectionCount from a stale folderState snapshot', () => {
+      store.setMaxSelectionCount(100);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: { ...createNewFolderState(), maxSelectionCount: 10 },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      expect(store.getState().maxSelectionCount).toBe(100);
+    });
+
+    it('hydrateFolderState does NOT hydrate maxSelectionCount from the folderState snapshot', () => {
+      store.setMaxSelectionCount(100);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_A]: { ...createNewFolderState(), maxSelectionCount: 10 },
+        },
+      });
+
+      store.hydrateFolderState(ROOT_A);
+
+      expect(store.getState().maxSelectionCount).toBe(100);
+    });
+
+    // FOREST INVARIANT: folderState selections are ALWAYS explicit. A query
+    // selection lives on TOP-LEVEL state (manifest + descriptor) the focused
+    // root owns — snapshotting the query model verbatim loses the selection
+    // on focus switch (P6fix round 7: "select all works on one root, then
+    // the others stop responding").
+    it('focus switch MATERIALIZES a query-mode selection into the outgoing snapshot', () => {
+      store.setState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+        querySelectionManifest: {
+          directoryCounts: new Map(),
+          errorMessage: null,
+          filePaths: ['/a/x.ts', '/a/y.ts'],
+          fingerprint: 'fp',
+          pathSet: new Set(['/a/x.ts', '/a/y.ts']),
+          snapshotId: null,
+          status: 'ready',
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const snapshot = store.getState().folderStates[ROOT_A];
+      expect(snapshot?.selectionModel.mode).toBe('explicit');
+      expect(snapshot?.selectedFilePaths).toEqual(new Set([keyA('/a/x.ts'), keyA('/a/y.ts')]));
+      expect(snapshot?.selectionModel.explicitPaths).toEqual(
+        new Set([keyA('/a/x.ts'), keyA('/a/y.ts')])
+      );
+    });
+
+    it('focus switch materializes RULES selections into the snapshot keys but KEEPS the rules model', () => {
+      // Rules carry the user's rule set inside the model — destroying it on
+      // focus switch would silently delete their rules. The snapshot keys are
+      // still materialized so foreign counts/budgets/root checkboxes see the
+      // selection (folderState.selectedFilePaths is the counts contract).
+      store.setState({
+        selectionModel: {
+          mode: 'rules',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: '{"include":["*.ts"]}',
+          materializedPaths: new Set(['src/a.ts', 'src/b.ts']),
+          materializedAt: '2026-06-12T00:00:00Z',
+          queryDescriptor: null,
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const snapshot = store.getState().folderStates[ROOT_A];
+      expect(snapshot?.selectionModel.mode).toBe('rules');
+      expect(snapshot?.selectionModel.ruleSetJson).toBe('{"include":["*.ts"]}');
+      expect(snapshot?.selectedFilePaths).toEqual(new Set([keyA('src/a.ts'), keyA('src/b.ts')]));
+      // The foreign budget now SEES the rules selection.
+      expect(
+        getForeignSelectionCount({
+          activeRootIds: [ROOT_A, ROOT_B],
+          currentFolderId: ROOT_B,
+          folderStates: store.getState().folderStates,
+        })
+      ).toBe(2);
+    });
+
+    it('refocusing a root with a rules snapshot restores the RULES model intact', () => {
+      store.setState({
+        selectionModel: {
+          mode: 'rules',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: '{"include":["*.ts"]}',
+          materializedPaths: new Set(['src/a.ts']),
+          materializedAt: '2026-06-12T00:00:00Z',
+          queryDescriptor: null,
+        },
+      });
+      store.setCurrentFolderId(ROOT_B);
+
+      store.setCurrentFolderId(ROOT_A);
+
+      const s = store.getState();
+      expect(s.selectionModel.mode).toBe('rules');
+      expect(s.selectionModel.ruleSetJson).toBe('{"include":["*.ts"]}');
+      expect(s.selectionModel.materializedPaths).toEqual(new Set(['src/a.ts']));
+    });
+
+    it('hydrating a stale query-mode snapshot in forest mode degrades it to explicit', () => {
+      // Pre-invariant profiles persisted query models into folderStates; the
+      // manifest they reference is gone, so restoring them verbatim creates a
+      // phantom selection (counts/checkboxes disagree with the actual keys).
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            selectedFilePaths: new Set([keyB('x.ts')]),
+            selectionModel: {
+              mode: 'query',
+              explicitPaths: new Set<string>(),
+              ruleSetJson: null,
+              materializedPaths: null,
+              materializedAt: null,
+              queryDescriptor: null,
+            },
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.selectionModel.mode).toBe('explicit');
+      expect(s.selectionModel.explicitPaths).toEqual(new Set([keyB('x.ts')]));
+      expect(s.selectedFilePaths).toEqual(new Set([keyB('x.ts')]));
+    });
+
+    // Hardening B: the LAST per-folder hydrated settings join the
+    // WORKSPACE-GLOBAL doctrine. Forest mode focus-switches on every section
+    // click — hydrating these from folder snapshots flips the user's token
+    // budget / project-tree toggle / summary threshold / ACTIVE TAB per
+    // clicked root.
+    it('focus switch does NOT hydrate tokenBudget/includeProjectTree/folderSummaryThreshold/lastActiveTab', () => {
+      store.setState({
+        tokenBudget: 150_000,
+        includeProjectTree: false,
+        folderSummaryThreshold: 42,
+        lastActiveTab: 'curated',
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            tokenBudget: 1000,
+            includeProjectTree: true,
+            folderSummaryThreshold: 7,
+            lastActiveTab: 'files',
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.tokenBudget).toBe(150_000);
+      expect(s.includeProjectTree).toBe(false);
+      expect(s.folderSummaryThreshold).toBe(42);
+      expect(s.lastActiveTab).toBe('curated');
+    });
+
+    it('hydrateFolderState does NOT hydrate the workspace-global report/tab settings', () => {
+      store.setState({
+        tokenBudget: 150_000,
+        includeProjectTree: false,
+        folderSummaryThreshold: 42,
+        lastActiveTab: 'curated',
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_A]: {
+            ...createNewFolderState(),
+            tokenBudget: 1000,
+            includeProjectTree: true,
+            folderSummaryThreshold: 7,
+            lastActiveTab: 'files',
+          },
+        },
+      });
+
+      store.hydrateFolderState(ROOT_A);
+
+      const s = store.getState();
+      expect(s.tokenBudget).toBe(150_000);
+      expect(s.includeProjectTree).toBe(false);
+      expect(s.folderSummaryThreshold).toBe(42);
+      expect(s.lastActiveTab).toBe('curated');
+    });
+
+    // View filters are WORKSPACE-GLOBAL (same contract as maxSelectionCount):
+    // forest mode switches focus on every section click, so per-folder filter
+    // snapshots would silently revert the user's filter change per clicked
+    // root ("I switched to all files and folders still say nothing matches").
+    it('focus switch does NOT hydrate view filters from a stale folderState snapshot', () => {
+      store.setFilters(['*.md'], ['dist']);
+      store.setUseRegex(false);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            includeFilters: ['*.ts'],
+            excludeFilters: ['node_modules'],
+            useRegex: true,
+            viewFilterPresetId: 'stale-preset',
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.includeFilters).toEqual(['*.md']);
+      expect(s.excludeFilters).toEqual(['dist']);
+      expect(s.useRegex).toBe(false);
+      expect(s.viewFilterPresetId).not.toBe('stale-preset');
+    });
+
+    it('hydrateFolderState does NOT hydrate view filters from the folderState snapshot', () => {
+      store.setFilters(['*.md'], []);
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_A]: {
+            ...createNewFolderState(),
+            includeFilters: ['*.ts'],
+            useRegex: true,
+          },
+        },
+      });
+
+      store.hydrateFolderState(ROOT_A);
+
+      expect(store.getState().includeFilters).toEqual(['*.md']);
+      expect(store.getState().useRegex).toBe(false);
+    });
+
+    // Expansion state is WORKSPACE-GLOBAL in forest mode: all section trees
+    // read the one top-level set (paths are globally unique), so a focus
+    // switch must never replace it with a folder snapshot — that collapsed
+    // every other section's expansions on each section click.
+    it('focus switch does NOT replace expandedDirectoryPaths with the folder snapshot', () => {
+      store.setExpandedPaths(new Set(['/project-a/src', '/project-b/lib']));
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            expandedDirectoryPaths: new Set(['/project-b/old-only']),
+          },
+        },
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      expect(store.getState().expandedDirectoryPaths).toEqual(
+        new Set(['/project-a/src', '/project-b/lib'])
+      );
+    });
+
+    it('collapseAllDirectories clears the global expansion set (every section collapses)', () => {
+      store.setExpandedPaths(new Set(['/project-a/src', '/project-b/lib']));
+
+      store.collapseAllDirectories();
+
+      expect(store.getState().expandedDirectoryPaths.size).toBe(0);
+    });
+
+    it('foreign writes clamp against the GLOBAL maxSelectionCount, not the stale folder snapshot', () => {
+      store.setMaxSelectionCount(100);
+      // Seed B's folderState with a stale per-folder cap of 2.
+      store.setState({
+        folderStates: {
+          ...store.getState().folderStates,
+          [ROOT_B]: {
+            ...createNewFolderState(),
+            selectedFilePaths: new Set([keyB('seed.ts')]),
+            maxSelectionCount: 2,
+          },
+        },
+      });
+
+      store.addMultipleSelectedFiles(ROOT_B, ['p1.ts', 'p2.ts', 'p3.ts', 'p4.ts']);
+
+      expect(store.getState().folderStates[ROOT_B]?.selectedFilePaths.size).toBe(5);
+    });
+
+    // maxSelectionCount caps the WHOLE-FOREST UNION, not each tree
+    // independently — otherwise every root could take the full cap.
+    it('top-level adds respect the forest-union cap (foreign selections consume budget)', () => {
+      store.setMaxSelectionCount(5);
+      // Root B (non-focused) already holds 4 selections.
+      store.addMultipleSelectedFiles(ROOT_B, ['b1.ts', 'b2.ts', 'b3.ts', 'b4.ts']);
+
+      // Focused root A tries to add 3 — only 1 slot remains in the union.
+      store.addMultipleSelectedFiles(ROOT_A, ['a1.ts', 'a2.ts', 'a3.ts']);
+
+      const s = store.getState();
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.size).toBe(4);
+      expect(s.selectedFilePaths.size).toBe(1);
+    });
+
+    it('foreign adds respect the forest-union cap (focused selection consumes budget)', () => {
+      store.setMaxSelectionCount(5);
+      // Focused root A holds 4 selections.
+      store.addMultipleSelectedFiles(ROOT_A, ['a1.ts', 'a2.ts', 'a3.ts', 'a4.ts']);
+
+      // Foreign root B tries to add 3 — only 1 slot remains in the union.
+      store.addMultipleSelectedFiles(ROOT_B, ['b1.ts', 'b2.ts', 'b3.ts']);
+
+      const s = store.getState();
+      expect(s.selectedFilePaths.size).toBe(4);
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.size).toBe(1);
+    });
+
+    it('single adds are blocked once the forest union reaches the cap', () => {
+      store.setMaxSelectionCount(2);
+      store.addSelectedFile(ROOT_A, 'a1.ts');
+      store.addSelectedFile(ROOT_B, 'b1.ts');
+
+      // Union is at the cap (1 + 1) — both targets are now blocked.
+      store.addSelectedFile(ROOT_A, 'a2.ts');
+      store.addSelectedFile(ROOT_B, 'b2.ts');
+
+      const s = store.getState();
+      expect(s.selectedFilePaths.size).toBe(1);
+      expect(s.folderStates[ROOT_B]?.selectedFilePaths.size).toBe(1);
+    });
+
+    it('focus-switch snapshot partitions any foreign key that leaked into the top-level set', () => {
+      // Defense in depth: even if a foreign key somehow lands in the focused
+      // set, the switch routes it to ITS root instead of snapshotting it into
+      // the outgoing root's folderState.
+      store.setState({
+        selectedFilePaths: new Set([keyA('a.ts'), keyB('leak.ts')]),
+      });
+
+      store.setCurrentFolderId(ROOT_B);
+
+      const s = store.getState();
+      expect(s.folderStates[ROOT_A]?.selectedFilePaths).toEqual(new Set([keyA('a.ts')]));
+      // The leaked key belongs to B — now focused, it appears in the top-level set.
+      expect(s.selectedFilePaths.has(keyB('leak.ts'))).toBe(true);
+    });
+  });
 });

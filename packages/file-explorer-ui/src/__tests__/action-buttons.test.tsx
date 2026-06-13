@@ -52,6 +52,52 @@ describe('ActionButtons', () => {
     vi.clearAllMocks();
   });
 
+  describe('quick-filter Select All override (forest mode)', () => {
+    it('routes quick-filter Select All through the override and skips the local fallback', async () => {
+      const user = userEvent.setup();
+      const setSelectedFiles = vi.fn();
+      const quickFilterSelectAllOverride = vi.fn();
+      render(
+        <ActionButtons
+          {...getProps({
+            hasActiveQuickFilter: true,
+            quickFilterSelectAllOverride,
+            setSelectedFiles,
+            visibleFilePaths: ['file1.txt'],
+          })}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /Select All/i }));
+
+      expect(quickFilterSelectAllOverride).toHaveBeenCalledTimes(1);
+      // The local fallback (focused-tree-only) must NOT run.
+      expect(setSelectedFiles).not.toHaveBeenCalled();
+    });
+
+    it('keeps Select All clickable with zero local matches when the override is present', async () => {
+      const user = userEvent.setup();
+      const quickFilterSelectAllOverride = vi.fn();
+      render(
+        <ActionButtons
+          {...getProps({
+            displayedFiles: new Set<string>(),
+            hasActiveQuickFilter: true,
+            quickFilterSelectAllOverride,
+            visibleFilePaths: [],
+          })}
+        />
+      );
+
+      // The override owns zero-match feedback — the button must stay live so
+      // matches in OTHER roots are reachable.
+      const button = screen.getByRole('button', { name: /Select All/i });
+      expect(button).toBeEnabled();
+      await user.click(button);
+      expect(quickFilterSelectAllOverride).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Button Text and State', () => {
     it('should show "Select All" when no files are displayed', () => {
       const props = getProps({ displayedFiles: new Set<string>() });

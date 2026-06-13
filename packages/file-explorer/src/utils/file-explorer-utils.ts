@@ -8,15 +8,142 @@ import {
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
 
-// Helper function to save current folder state
+/**
+ * Selection budget consumed by every ACTIVE root OTHER than the focused one
+ * (their selections live in folderStates; the focused root's live selection
+ * is the top-level set). maxSelectionCount caps the WHOLE-FOREST UNION —
+ * the focused effective count + this number — never a single tree.
+ */
+export const getForeignSelectionCount = (
+  state: Pick<FileExplorerData, 'activeRootIds' | 'currentFolderId' | 'folderStates'>,
+  excludeRootId?: string
+): number => {
+  let total = 0;
+  // Tolerate partial states (single-root legacy and test fixtures have no
+  // active-root registry) — no active roots means no foreign budget.
+  for (const rootId of state.activeRootIds ?? []) {
+    if (rootId === state.currentFolderId || rootId === excludeRootId) {
+      continue;
+    }
+    total += state.folderStates[rootId]?.selectedFilePaths.size ?? 0;
+  }
+  return total;
+};
+
+/**
+ * The focused root's effective selection count: the query manifest in query
+ * mode (the explicit top-level set is empty then), the top-level set size
+ * otherwise.
+ */
+export const getFocusedSelectionCount = (
+  state: Pick<FileExplorerData, 'selectedFilePaths' | 'selectionModel'> & {
+    querySelectionManifest?: { filePaths: string[] } | null;
+  }
+): number => {
+  if (state.selectionModel.mode === 'query') {
+    return (
+      state.querySelectionManifest?.filePaths.length ??
+      state.selectionModel.queryDescriptor?.totalSelectedCount ??
+      0
+    );
+  }
+  if (state.selectionModel.mode === 'rules' && state.selectionModel.materializedPaths) {
+    return state.selectionModel.materializedPaths.size;
+  }
+  return state.selectedFilePaths.size;
+};
+
+/** Whole-forest selection count — what maxSelectionCount actually caps. */
+export const getUnionSelectionCount = (
+  state: Pick<
+    FileExplorerData,
+    'activeRootIds' | 'currentFolderId' | 'folderStates' | 'selectedFilePaths' | 'selectionModel'
+  > & { querySelectionManifest?: { filePaths: string[] } | null }
+): number => getFocusedSelectionCount(state) + getForeignSelectionCount(state);
+
+/**
+ * FOREST INVARIANT: folderState.selectedFilePaths ALWAYS carries the
+ * effective composite keys — counts, budgets, and root checkboxes read ONLY
+ * that set for non-focused roots (mutates `ownKeys` in place).
+ *
+ * Query mode: the manifest lives in TOP-LEVEL state owned by the focused
+ * root, so the snapshot would otherwise be an empty key set with a dead
+ * manifest reference — materialize AND degrade the model to explicit.
+ * Rules mode: the model itself carries the rule set + materializedPaths
+ * (relative), so KEEP the model (the user's rules must survive refocus) and
+ * only materialize the keys. Single-root keeps both models untouched: the
+ * query resolver rebuilds its manifest from the persisted snapshotId.
+ */
+function materializeSnapshotSelection(
+  state: FileExplorerData,
+  folderId: string,
+  ownKeys: Set<string>,
+  snapshotModel: FileExplorerData['selectionModel']
+): FileExplorerData['selectionModel'] {
+  const isForest = (state.activeRootIds?.length ?? 0) > 1;
+  if (!isForest) {
+    return snapshotModel;
+  }
+  const mode = state.selectionModel?.mode;
+  if (mode === 'query') {
+    const sourcePaths =
+      state.querySelectionManifest?.filePaths ??
+      (state.selectionModel.materializedPaths
+        ? Array.from(state.selectionModel.materializedPaths)
+        : []);
+    for (const path of sourcePaths) {
+      ownKeys.add(path.includes('|@|') ? path : `${folderId}|@|${path}`);
+    }
+    return { ...createEmptySelectionModel(), explicitPaths: new Set(ownKeys) };
+  }
+  if (mode === 'rules' && state.selectionModel.materializedPaths) {
+    // materializedPaths are RELATIVE — encode them exactly like the selection
+    // manager does (encodeFileSelection shape) so keys are comparable.
+    for (const relativePath of state.selectionModel.materializedPaths) {
+      ownKeys.add(relativePath.includes('|@|') ? relativePath : `${folderId}|@|${relativePath}`);
+    }
+  }
+  return snapshotModel;
+}
+
+// Helper function to save current folder state.
+// Phase 6 forest hardening: the snapshot PARTITIONS the live selection by key
+// identity — only the outgoing folder's OWN composite keys belong in its
+// snapshot. Foreign keys (cross-root writes that raced a focus switch into
+// the top-level set) are routed to THEIR roots' folderStates instead of
+// contaminating the outgoing snapshot, which made checkboxes flicker and
+// selections "arrive late" in forest mode.
 export const saveFolderState = (
   state: FileExplorerData,
   folderId: string,
   now = Date.now()
 ): Record<string, FolderState> => {
+  const ownPrefix = `${folderId}|@|`;
+  const ownKeys = new Set<string>();
+  const foreignByFolder = new Map<string, Set<string>>();
+  for (const key of state.selectedFilePaths) {
+    const separatorIndex = key.indexOf('|@|');
+    if (separatorIndex <= 0 || key.startsWith(ownPrefix)) {
+      // Own keys and legacy separator-less keys stay with the snapshot.
+      ownKeys.add(key);
+      continue;
+    }
+    const keyFolderId = key.slice(0, separatorIndex);
+    const bucket = foreignByFolder.get(keyFolderId) ?? new Set<string>();
+    bucket.add(key);
+    foreignByFolder.set(keyFolderId, bucket);
+  }
+  const baseModel = state.selectionModel ?? createEmptySelectionModel();
+  let snapshotModel =
+    baseModel.mode === 'explicit' && foreignByFolder.size > 0
+      ? { ...baseModel, explicitPaths: new Set(ownKeys) }
+      : baseModel;
+
+  snapshotModel = materializeSnapshotSelection(state, folderId, ownKeys, snapshotModel);
+
   const folderState: FolderState = {
-    selectedFilePaths: state.selectedFilePaths,
-    selectionModel: state.selectionModel ?? createEmptySelectionModel(),
+    selectedFilePaths: ownKeys,
+    selectionModel: snapshotModel,
     expandedDirectoryPaths: state.expandedDirectoryPaths,
     includeFilters: state.includeFilters,
     excludeFilters: state.excludeFilters,
@@ -30,10 +157,31 @@ export const saveFolderState = (
     viewFilterPresetId: state.viewFilterPresetId,
   };
 
-  return {
+  let folderStates: Record<string, FolderState> = {
     ...state.folderStates,
     [folderId]: folderState,
   };
+  for (const [foreignFolderId, keys] of foreignByFolder) {
+    const base = folderStates[foreignFolderId] ?? createNewFolderState(state, now);
+    const merged = new Set(base.selectedFilePaths);
+    for (const key of keys) {
+      merged.add(key);
+    }
+    folderStates = {
+      ...folderStates,
+      [foreignFolderId]: {
+        ...base,
+        lastAccessed: now,
+        selectedFilePaths: merged,
+        selectionModel: {
+          ...base.selectionModel,
+          mode: 'explicit',
+          explicitPaths: new Set(merged),
+        },
+      },
+    };
+  }
+  return folderStates;
 };
 
 // Helper function to clean up old folder states
