@@ -23,10 +23,10 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
 
   return {
     async saveKey(provider: string, value: string): Promise<boolean> {
-      const hasEncryption = Boolean(safeStorage?.isEncryptionAvailable?.());
-      const b64 = hasEncryption
-        ? Buffer.from(safeStorage.encryptString(value)).toString('base64')
-        : Buffer.from(Buffer.from(value, 'utf-8')).toString('base64');
+      if (!safeStorage?.isEncryptionAvailable?.()) {
+        throw new Error('encryption_unavailable');
+      }
+      const b64 = Buffer.from(safeStorage.encryptString(value)).toString('base64');
       const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
       secrets[provider] = b64;
       secretsStore.set('secrets', secrets);
@@ -39,16 +39,10 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
       }
       try {
         const buf = Buffer.from(b64, 'base64');
-        // Prefer secure decrypt when available
-        if (safeStorage?.isEncryptionAvailable?.()) {
-          try {
-            return safeStorage.decryptString(buf);
-          } catch {
-            // fall through to plain decode
-          }
+        if (!safeStorage?.isEncryptionAvailable?.()) {
+          return null;
         }
-        // Plain base64 decode fallback
-        return buf.toString('utf-8');
+        return safeStorage.decryptString(buf);
       } catch {
         return null;
       }

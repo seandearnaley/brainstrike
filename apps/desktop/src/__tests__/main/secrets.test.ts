@@ -47,7 +47,17 @@ describe('secrets', () => {
     expect(value).toBe('decoded');
   });
 
-  it('falls back to base64 decode when decryption fails', async () => {
+  it('rejects saving secrets when platform encryption is unavailable', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
+
+    const store = createStore();
+    const service = createSecretsService(store as never);
+
+    await expect(service.saveKey('openai', 'secret')).rejects.toThrow('encryption_unavailable');
+    expect(store.data['secrets']).toBeUndefined();
+  });
+
+  it('does not fall back to base64 decode when decryption fails', async () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
     safeStorageMock.decryptString.mockImplementation(() => {
       throw new Error('decrypt failed');
@@ -61,11 +71,12 @@ describe('secrets', () => {
     const service = createSecretsService(store as never);
     const value = await service.getKey('openai');
 
-    expect(value).toBe('plain');
+    expect(value).toBeNull();
   });
 
   it('deletes, lists, and clears secrets', async () => {
-    safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+    safeStorageMock.encryptString.mockImplementation((value: string) => Buffer.from(value));
 
     const store = createStore();
     const service = createSecretsService(store as never);
