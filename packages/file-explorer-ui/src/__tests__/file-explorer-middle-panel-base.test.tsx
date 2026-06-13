@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
   return {
     copyContext: vi.fn(async () => {}),
     downloadContext: vi.fn(async () => {}),
-    handleSelectionChange: vi.fn(),
+    setSelectedFilesFromList: vi.fn(),
     loadMultipleFileContents: vi.fn(async () => {}),
     openFileInTab: vi.fn(),
     performUndoableAction: vi.fn(),
@@ -115,7 +115,7 @@ vi.mock('../shell/use-file-explorer-context', () => ({
 vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: () => ({
     selectedFilePaths: new Set([selectedFileKey, 'not-a-selection']),
-    handleSelectionChange: mocks.handleSelectionChange,
+    setSelectedFilesFromList: mocks.setSelectedFilesFromList,
   }),
 }));
 
@@ -123,7 +123,7 @@ describe('FileExplorerMiddlePanelBase', () => {
   beforeEach(() => {
     mocks.copyContext.mockClear();
     mocks.downloadContext.mockClear();
-    mocks.handleSelectionChange.mockClear();
+    mocks.setSelectedFilesFromList.mockClear();
     mocks.loadMultipleFileContents.mockClear();
     mocks.openFileInTab.mockClear();
     mocks.performUndoableAction.mockClear();
@@ -191,5 +191,13 @@ describe('FileExplorerMiddlePanelBase', () => {
     props.onCopyContext?.(exportOptions);
     expect(mocks.downloadContext).toHaveBeenCalledWith(exportOptions);
     expect(mocks.copyContext).toHaveBeenCalledWith(exportOptions);
+
+    // Phase 6 cross-root: the preview's onSelectionChange writes the remaining
+    // UNION back through setSelectedFilesFromList (the per-root partitioner),
+    // NOT the raw core.handleSelectionChange that funnels every root's keys
+    // into the focused root's top-level set.
+    const remaining = new Set([selectedFileKey, 'other-root|@|src/x.ts']);
+    props.onSelectionChange?.(remaining);
+    expect(mocks.setSelectedFilesFromList).toHaveBeenCalledWith([...remaining]);
   });
 });

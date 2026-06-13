@@ -72,7 +72,19 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
       ] as const
   );
 
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager();
+  const { selectedFilePaths, setSelectedFilesFromList } = useSelectionManager();
+  // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active
+  // root's selection. Writing the remaining set back (file removal / undo) must
+  // re-partition per root via setSelectedFilesFromList — the raw
+  // core.handleSelectionChange funnels ALL roots' keys into the focused root's
+  // top-level set, mis-attributing non-focused-root keys on the next focus
+  // switch. In the single-root case this reduces to the same focused-root write.
+  const handlePreviewSelectionChange = useCallback(
+    (next: Set<string>) => {
+      setSelectedFilesFromList([...next]);
+    },
+    [setSelectedFilesFromList]
+  );
   // Multi-root (Phase 6): resolve a RootId to its display name so the context
   // snapshot can label same-relative-path files from different roots.
   const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
@@ -267,7 +279,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
               onIncludeProjectTreeChange={handleIncludeProjectTreeChange}
               onProjectTreeUsesViewFiltersChange={setProjectTreeUsesViewFilters}
               onRequestFileContent={handlePreviewContentRequest}
-              onSelectionChange={handleSelectionChange}
+              onSelectionChange={handlePreviewSelectionChange}
               onTokenBudgetChange={setTokenBudget}
               performUndoableAction={performUndoableActionForPanel}
               projectTreeTokenCount={projectTreeTokenCount}
