@@ -3,12 +3,26 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
+import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
+
+// The 7 supporting types below are byte-identical and dependency-free in both
+// @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
+// contract package owns them, agent re-exports for public-API stability.
+export type {
+  RuntimeAgentLoopSettings,
+  RuntimeModelSettings,
+  RuntimeWorkspaceContextFileMetadata,
+  RuntimeWorkspaceContextMetadata,
+  RuntimeWorkspaceContextRangeMetadata,
+  RuntimeWorkspaceIndexQueueProgress,
+  RuntimeWorkspaceIndexStatusState,
+} from '@brainstrike/assistant-contract';
 
 export interface AgentMessagePartText {
   text: string;
@@ -65,134 +79,39 @@ export interface AssistantUiMessage {
   text?: AssistantUiScalar | undefined;
 }
 
-export interface RuntimeData {
-  /** Optional agent-loop and prompt compaction controls. */
-  agentLoop?: RuntimeAgentLoopSettings;
-  /** API key for the specified provider. Falls back to environment variables if not provided. */
-  apiKey?: string;
-  // Optional tool dispatcher provided by host (desktop main via IPC)
-  callTool?: (
-    name: string,
-    params?: Record<string, unknown>,
-    opts?: { onProgress?: (payload: unknown) => void }
-  ) => Promise<unknown>;
-  /** Approximate context token count from the UI token counter. */
-  contextTokenCount?: number;
-  /** Active embedding set ID for retrieval tools. */
-  embeddingSetId?: string;
-  /** Native tool ids enabled for this run. Undefined preserves host defaults. */
-  enabledNativeToolIds?: readonly string[];
-  /** Include a selected-file report block in assistant context. */
-  includeFileReport?: boolean;
-  /** Include a workspace tree block in assistant context. */
-  includeProjectTree?: boolean;
+/**
+ * Agent runtime data. Extends the dependency-light `assistant-contract`
+ * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
+ * fields that bind to runtime libraries, plus three server-only fields. The 28
+ * shared fields — including `provider` (which now inherits `'local'`) — live in
+ * the contract; this is what removes the old "keep the two declarations in sync"
+ * drift hazard.
+ */
+export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
   /**
    * Host-injected client that proxies built-in local LLM inference to its
    * renderer host (desktop main → hidden llm-host window). Server-side only,
-   * never serialized over IPC/HTTP. When present, provider 'local' resolves to
-   * the proxy chat model instead of in-process inference.
+   * never serialized over IPC/HTTP. Agent-only.
    */
   localLlmHostClient?: LocalLlmHostClient;
+  /** Mastra agent tools registry. Agent-only. */
   mastraTools?: ToolsInput;
+  /** MCP server configuration. Agent-only. */
   mcpConfig?: McpConfig;
-  mcpEnabled?: boolean;
-  /** Mastra memory context for durable thread/resource-scoped conversation state. */
-  memory?: RuntimeMemoryContext;
-  /** Model name to use. Uses provider-specific default if not specified. */
-  model?: string;
-  /** Optional model-level settings (e.g., max output tokens). */
-  modelSettings?: RuntimeModelSettings;
-  projectId?: string;
-  /** AI provider to use. Defaults to 'openai' if not specified. */
-  provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
-  /** Optional provider-specific runtime options. */
-  providerOptions?: RuntimeProviderOptions;
-  /** Optional selection file paths (relative to project root). */
-  selectionFilePaths?: readonly string[];
   /**
-   * Multi-root: count of selected files in ACTIVE roots OTHER than the
-   * assistant's single workspace root — not addressable by the file tools,
-   * surfaced (never silently dropped). Mirrors the assistant-contract
-   * RuntimeData field; keep the two declarations in sync.
+   * Mastra memory context. Agent keeps the Mastra-bound `memoryOptions`
+   * (`AgentMemoryOption['options']`) — it intentionally diverges from the
+   * contract's dependency-free mirror, so the contract package stays free of the
+   * Mastra dependency. Do NOT move this to assistant-contract.
    */
-  selectionFilePathsFromOtherRoots?: number;
-  /** Optional folder id for selection/token cache resolution. */
-  selectionFolderId?: string;
-  /** Optional selection snapshot id to scope retrieval. */
-  selectionSnapshotId?: string;
-  signal?: AbortSignal;
-  /** Optional token budget override for context packing. */
-  tokenBudget?: number | null;
-  /** Token-aware, content-free snapshot of user/assistant curated workspace context. */
-  workspaceContext?: RuntimeWorkspaceContextMetadata;
-  /** Optional reason the workspace index is blocked. */
-  workspaceIndexBlockedReason?: string | null;
-  /** Optional embedding set currently configured as the workspace background index. */
-  workspaceIndexEmbeddingSetId?: string;
-  /** Whether workspace background indexing is enabled in the current workspace. */
-  workspaceIndexingEnabled?: boolean;
-  /** Workspace indexing mode configured for the current workspace. */
-  workspaceIndexingMode?: string;
-  /** Whether workspace background indexing is paused. */
-  workspaceIndexingPaused?: boolean;
-  /** Optional latest workspace index error. */
-  workspaceIndexLastError?: string | null;
-  /** Compact queue progress for the workspace index. */
-  workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
-  /** Live workspace index sync state. */
-  workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
-  /** Optional absolute workspace root path for workspace read tools. */
-  workspaceRootPath?: string;
-}
-
-export interface RuntimeWorkspaceContextRangeMetadata {
-  approxTokens?: number | null;
-  endLine: number;
-  isActive?: boolean;
-  startLine: number;
-}
-
-export interface RuntimeWorkspaceContextFileMetadata {
-  approxTokens?: number | null;
-  outputApproxTokens?: number | null;
-  path: string;
-  ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
-  /** Display name of the root, for disambiguating the same relative path across roots. */
-  rootDisplayName?: string;
-  /** Durable RootId of the file's root (multi-root); absent for legacy snapshots. */
-  rootId?: string;
-}
-
-export type RuntimeWorkspaceIndexStatusState =
-  | 'blocked'
-  | 'disabled'
-  | 'idle'
-  | 'paused'
-  | 'recovering'
-  | 'waiting'
-  | 'scanning'
-  | 'importing'
-  | 'chunking'
-  | 'embedding'
-  | 'error';
-
-export interface RuntimeWorkspaceIndexQueueProgress {
-  failed: number;
-  lastError?: string | null;
-  pending: number;
-  processed: number;
-  totalQueued: number;
-}
-
-export interface RuntimeWorkspaceContextMetadata {
-  files?: readonly RuntimeWorkspaceContextFileMetadata[];
-  includeProjectTree?: boolean;
-  projectTreeApproxTokens?: number | null;
-  projectTreeTokenCountLoading?: boolean;
-  selectedOutputApproxTokens?: number | null;
-  selectedSourceApproxTokens?: number | null;
-  tokenBudget?: number;
-  useTapestryRanges?: boolean;
+  memory?: RuntimeMemoryContext;
+  /**
+   * Provider-specific runtime options. Agent keeps the AI-SDK-bound shape
+   * (`@ai-sdk/provider` SharedV2/V3ProviderOptions) — diverges from the
+   * contract's dependency-free mirror for the same dependency-isolation reason.
+   * Do NOT move this to assistant-contract.
+   */
+  providerOptions?: RuntimeProviderOptions;
 }
 
 export interface RuntimeMemoryContext {
@@ -201,13 +120,6 @@ export interface RuntimeMemoryContext {
   resourceId: string;
   runId?: string;
   threadId: string;
-}
-
-export interface RuntimeAgentLoopSettings {
-  /** Per-step input token limit applied before each model call. */
-  inputTokenLimit?: number;
-  /** Maximum Mastra agent-loop steps. Omit to use Brainstrike's default cap. */
-  maxSteps?: number;
 }
 
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -250,10 +162,6 @@ export interface LocalProviderOptions extends JSONObject {
 export interface LocalRuntimeProviderOptions extends JSONObject {
   apiToken?: string;
   baseUrl?: string;
-}
-
-export interface RuntimeModelSettings {
-  maxOutputTokens?: number;
 }
 
 export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3ProviderOptions) & {
