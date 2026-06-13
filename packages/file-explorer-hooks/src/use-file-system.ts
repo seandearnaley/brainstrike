@@ -11,8 +11,10 @@ interface UseFileSystemParams {
   /**
    * Store action to append a single root (deduped by rootId).
    * Called by addRootDirectory on success (only when descriptor.persisted is true).
+   * REQUIRED: a missing action would silently desync the reducer's handle list
+   * from the store's descriptors (ghost root on reload) — no silent no-ops.
    */
-  addActiveRoot?: FileExplorerState['addActiveRoot'];
+  addActiveRoot: FileExplorerState['addActiveRoot'];
   /**
    * Optional getter for the store's folderAccessOrder array.
    * Used during restoreRoots boot to determine which root to focus.
@@ -29,14 +31,14 @@ interface UseFileSystemParams {
    * activeRootIds/rootDescriptors/folderStates/folderAccessOrder.
    * Called by removeRootDirectory AFTER the focus shift (setCurrentFolderId
    * snapshots the outgoing folder's state back into folderStates, so the
-   * purge must come last).
+   * purge must come last). REQUIRED — see addActiveRoot.
    */
-  removeActiveRoot?: FileExplorerState['removeActiveRoot'];
+  removeActiveRoot: FileExplorerState['removeActiveRoot'];
   /**
    * Store action to replace all active roots atomically.
-   * Called during restoreRoots boot.
+   * Called during restoreRoots boot. REQUIRED — see addActiveRoot.
    */
-  setActiveRoots?: FileExplorerState['setActiveRoots'];
+  setActiveRoots: FileExplorerState['setActiveRoots'];
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
   /**
    * Optional callback to check if store has finished hydrating from persistence.
@@ -215,7 +217,7 @@ interface MultiRootRestoreParams {
   hasAttemptedRestoreRef: { current: boolean };
   isRestoringRef: { current: boolean };
   restoreRoots: () => Promise<RootDescriptor[]>;
-  setActiveRootsRef: { current: FileExplorerState['setActiveRoots'] | undefined };
+  setActiveRootsRef: { current: FileExplorerState['setActiveRoots'] };
   updateCurrentFolderId: (id: string | null) => void;
   // Use explicit union (not ?) to satisfy exactOptionalPropertyTypes.
   waitForHydration: (() => Promise<void>) | undefined;
@@ -288,13 +290,10 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
-    const setActiveRootsCurrent = setActiveRootsRef.current;
-    if (typeof setActiveRootsCurrent === 'function') {
-      const storedDescriptors: StoredRootDescriptor[] = granted
-        .filter((d) => d.persisted)
-        .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
-      setActiveRootsCurrent(storedDescriptors);
-    }
+    const storedDescriptors: StoredRootDescriptor[] = granted
+      .filter((d) => d.persisted)
+      .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
+    setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
     if (!cancelledRef.value) {
       logger.warn('Failed to restore roots', { error });
@@ -338,11 +337,7 @@ export function useFileSystem({
 
   const updateCurrentFolderId = useCallback(
     (folderId: string | null) => {
-      if (typeof setCurrentFolderId === 'function') {
-        setCurrentFolderId(folderId);
-      } else {
-        logger.warn('setCurrentFolderId is unavailable; skipping folder id update', { folderId });
-      }
+      setCurrentFolderId(folderId);
     },
     [setCurrentFolderId]
   );
@@ -383,7 +378,7 @@ export function useFileSystem({
         // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
-        if (persisted && typeof addActiveRoot === 'function') {
+        if (persisted) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
         return handle;
@@ -394,9 +389,7 @@ export function useFileSystem({
       dispatch({ type: 'addOrFocusHandle', handle, rootId });
       // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
       updateCurrentFolderId(rootId);
-      if (typeof addActiveRoot === 'function') {
-        addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
-      }
+      addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
       return handle;
     } catch (error) {
       if (isUserCancellation(error)) {
@@ -445,9 +438,7 @@ export function useFileSystem({
       }
 
       // 4) Atomic store purge.
-      if (typeof removeActiveRoot === 'function') {
-        removeActiveRoot(rootId);
-      }
+      removeActiveRoot(rootId);
 
       return nextFocused;
     },
@@ -531,13 +522,11 @@ export function useFileSystem({
         const rootId = adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
         firstRootId ??= rootId;
         dispatch({ type: 'addOrFocusHandle', handle, rootId });
-        if (typeof addActiveRoot === 'function') {
-          addActiveRoot({
-            displayName: handle.name,
-            path: getCanonicalFolderId(handle),
-            rootId,
-          });
-        }
+        addActiveRoot({
+          displayName: handle.name,
+          path: getCanonicalFolderId(handle),
+          rootId,
+        });
       }
 
       // The registration loop leaves the LAST handle focused; re-focus the first
