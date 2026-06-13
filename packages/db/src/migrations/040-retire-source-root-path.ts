@@ -7,10 +7,16 @@ import type { Migration } from './migration-runner';
  * Sequencing matters for dedup correctness:
  * 1. Backfill any rows that still carry source_root_path but no root_id (writes
  *    that landed between 039 and this migration, before the import path was
- *    guaranteed non-null). Map source_root_path → roots.path → roots.id, the
- *    same join 039 used. Trailing path separators are trimmed to match the
- *    normalized roots.path. Rows whose source_root_path matches no root stay
- *    NULL and drop out of the managed cache (they were un-restorable anyway).
+ *    guaranteed non-null). Map source_root_path → roots.path → roots.id. 039
+ *    stores roots.path as the RAW source_root_path (only display_name is
+ *    trimmed) and its unique index is on the raw path, so '/x' and '/x/' can
+ *    coexist as two distinct roots. The match is therefore EXACT-FIRST
+ *    (deterministic, unique) with a trailing-separator-insensitive fallback,
+ *    tie-broken by roots.id — never an arbitrary `UPDATE ... FROM` pick when
+ *    both a bare and a trailing-slash root exist for the same directory.
+ *    Without the trimmed fallback a trailing-slash root would miss a bare
+ *    source and silently keep root_id NULL. Rows whose source_root_path matches
+ *    no root stay NULL and drop out of the managed cache (un-restorable anyway).
  * 2. Drop the 029 indexes (the source_root_path cache identity), then the
  *    column. The 039 root_id identity index (idx_file_records_root_identity)
  *    stays and becomes the only enforced cache identity.
@@ -22,11 +28,24 @@ export const migration040RetireSourceRootPath: Migration = {
   name: 'retire_source_root_path',
   up: `
     UPDATE file_records
-    SET root_id = roots.id
-    FROM roots
+    SET root_id = (
+      SELECT r.id
+      FROM roots r
+      WHERE regexp_replace(r.path, '[/\\\\]+$', '')
+        = regexp_replace(file_records.source_root_path, '[/\\\\]+$', '')
+      -- Exact raw-path match wins (boolean DESC puts TRUE first); roots.id is a
+      -- stable final tie-break so the pick is never arbitrary.
+      ORDER BY (r.path = file_records.source_root_path) DESC, r.id
+      LIMIT 1
+    )
     WHERE file_records.root_id IS NULL
       AND file_records.source_root_path IS NOT NULL
-      AND roots.path = regexp_replace(file_records.source_root_path, '[/\\\\]+$', '');
+      AND EXISTS (
+        SELECT 1
+        FROM roots r
+        WHERE regexp_replace(r.path, '[/\\\\]+$', '')
+          = regexp_replace(file_records.source_root_path, '[/\\\\]+$', '')
+      );
 
     DROP INDEX IF EXISTS idx_file_records_cache_identity;
     DROP INDEX IF EXISTS idx_file_records_source_root_path;

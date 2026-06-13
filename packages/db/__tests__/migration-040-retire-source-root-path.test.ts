@@ -101,6 +101,71 @@ describe('migration 040: retire source_root_path', () => {
     ]);
   });
 
+  it('backfills when roots.path itself carries a trailing separator (039 stores it raw)', async () => {
+    // 039 inserts roots.path = the RAW source_root_path (only display_name is
+    // trimmed), so a root first seen from '/x/' has roots.path = '/x/'. The
+    // backfill must trim BOTH sides — a one-sided trim leaves these rows with
+    // root_id NULL, silently dropping them from the managed cache.
+    await seedRoot('root-trailing', '/Users/me/trailing/');
+    // Source carries the trailing separator too (matches roots.path verbatim,
+    // but both must still normalize equal).
+    await seedFileRecord({
+      id: 'trailing-both',
+      path: 'src/main.ts',
+      sourceRootPath: '/Users/me/trailing/',
+      rootId: null,
+    });
+    // Source has NO trailing separator while the root was stored WITH one —
+    // only a symmetric trim resolves this.
+    await seedFileRecord({
+      id: 'trailing-root-only',
+      path: 'src/other.ts',
+      sourceRootPath: '/Users/me/trailing',
+      rootId: null,
+    });
+
+    await runner.up([getMigration040()]);
+
+    const rows = await db.query<FileRecordRootRow>(
+      "SELECT id, root_id FROM file_records WHERE id LIKE 'trailing-%' ORDER BY id"
+    );
+    expect(rows.rows).toEqual([
+      { id: 'trailing-both', root_id: 'root-trailing' },
+      { id: 'trailing-root-only', root_id: 'root-trailing' },
+    ]);
+  });
+
+  it('prefers the exact root when both a bare and a trailing-slash root exist (deterministic)', async () => {
+    // 039's unique index is on the RAW path, so '/x' and '/x/' can coexist as
+    // two distinct roots. The trimmed predicate matches both; exact-first
+    // ordering makes the pick deterministic instead of an arbitrary
+    // UPDATE ... FROM choice — each source resolves to its exact-match root.
+    await seedRoot('root-bare', '/Users/me/dup');
+    await seedRoot('root-slash', '/Users/me/dup/');
+    await seedFileRecord({
+      id: 'dup-bare-source',
+      path: 'a.ts',
+      sourceRootPath: '/Users/me/dup',
+      rootId: null,
+    });
+    await seedFileRecord({
+      id: 'dup-slash-source',
+      path: 'b.ts',
+      sourceRootPath: '/Users/me/dup/',
+      rootId: null,
+    });
+
+    await runner.up([getMigration040()]);
+
+    const rows = await db.query<FileRecordRootRow>(
+      "SELECT id, root_id FROM file_records WHERE id LIKE 'dup-%' ORDER BY id"
+    );
+    expect(rows.rows).toEqual([
+      { id: 'dup-bare-source', root_id: 'root-bare' },
+      { id: 'dup-slash-source', root_id: 'root-slash' },
+    ]);
+  });
+
   it('drops the source_root_path column and the 029 indexes, keeps the 039 root_id index', async () => {
     await runner.up([getMigration040()]);
 
