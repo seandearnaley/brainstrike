@@ -50,7 +50,10 @@ function unionSelectionAcrossRoots(
 /**
  * Partition a write-back list by the composite key's rootId. Focused-root
  * keys and legacy (separator-less) keys belong to the core selection manager;
- * every other ACTIVE root's keys are bucketed for setFolderSelection.
+ * every other ACTIVE root's keys are bucketed for setFolderSelection. A key
+ * carrying the rootId of an INACTIVE root (e.g. one lingering from a just-
+ * disconnected root) is DROPPED rather than mis-filed into the focused root's
+ * top-level set under a foreign identity.
  */
 function partitionSelectionByRoot(
   list: readonly string[],
@@ -61,11 +64,18 @@ function partitionSelectionByRoot(
   const byOtherRoot = new Map<string, string[]>();
   for (const key of list) {
     const rootId = key.includes('|@|') ? key.split('|@|')[0] : undefined;
-    if (rootId && rootId !== currentFolderId && activeRootIds.includes(rootId)) {
-      const bucket = byOtherRoot.get(rootId) ?? [];
-      bucket.push(key);
-      byOtherRoot.set(rootId, bucket);
+    if (rootId && rootId !== currentFolderId) {
+      // Foreign-root key: bucket it for its root only if that root is still
+      // active; otherwise drop it (a stale key must not be re-attributed to
+      // the focused root).
+      if (activeRootIds.includes(rootId)) {
+        const bucket = byOtherRoot.get(rootId) ?? [];
+        bucket.push(key);
+        byOtherRoot.set(rootId, bucket);
+      }
     } else {
+      // Focused-root key (rootId === currentFolderId) or a legacy
+      // separator-less key — both belong to the core selection manager.
       focusedKeys.add(key);
     }
   }

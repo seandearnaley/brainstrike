@@ -316,5 +316,25 @@ describe('useSelectionManager', () => {
       const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
       expect(Array.from(coreCall)).toEqual([KEY_A]);
     });
+
+    it('drops a key whose rootId is no longer active (no mis-attribution to focused)', () => {
+      const { store, setSelectedFiles, setFolderSelection } = createTwoRootStore();
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      // A lingering key from a disconnected root (rootId not in activeRootIds).
+      const KEY_GONE = 'cccccccc-0000-4000-8000-000000000003|@|src/gone.ts';
+      result.current.setSelectedFilesFromList([KEY_A, KEY_GONE]);
+
+      // The stale key is neither bucketed to a folderState nor funneled into the
+      // focused root's top-level set — it is simply discarded.
+      expect(setFolderSelection).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining([KEY_GONE])
+      );
+      const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
+      expect(Array.from(coreCall)).toEqual([KEY_A]);
+    });
   });
 });
