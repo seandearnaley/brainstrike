@@ -165,21 +165,67 @@ True collapse is only possible by holding live handles in the store's
 non-persisted in-memory slice and deleting the reducer — large/risky, out of
 scope (§1 non-goals). So we target the achievable, behavior-preserving wins.
 
-### 3.2 Change 1 — reducer is the sole live-handle owner
+### 3.2 Change 1 — reducer is the sole live-handle owner (incl. fixture reroute)
 
-The store *also* caches a focused `rootDirectoryHandle`
-(`file-explorer-types.ts:395`, `store.ts:44/66-67`) — the one genuinely
-duplicated handle, synced one-way from the reducer. The reducer **already**
-tracks the focused handle (`FileSystemState.rootDirectoryHandle`), so the store's
-copy is pure duplication. Remove the store's cached handle (and its
-`setRootDirectoryHandle` setter + the one-way sync that writes it); consumers
-that need the focused handle read it from the reducer via the `FileSystemProvider`
-context. After this, the live handle exists in exactly one place (the reducer).
+The store's `rootDirectoryHandle` (`file-explorer-types.ts:395`, `store.ts:44/66-67`)
+plays **two** roles, only one of which is duplication:
+1. **A render cache of the focused handle** — the context returns
+   `storedRootDirectoryHandle ?? coreApi.rootDirectoryHandle`
+   (`use-file-system-context.ts:414`); the reducer already tracks the focused
+   handle, so this is genuine duplication. Every context op delegates to a
+   `coreApi` method that updates the reducer, so the reducer is always in
+   lockstep → returning `coreApi.rootDirectoryHandle` directly is
+   behavior-preserving.
+2. **A non-React injection seam for the inline-fixture dev/test API.**
+   `setup-inline-fixture-subscription.ts:82/88` runs *outside React* and injects
+   a fixture root via `store.getState().setRootDirectoryHandle(handle)` because
+   it cannot dispatch into the React-only reducer. `window.__BRAINSTRIKE_LOAD_FIXTURE__`
+   (Playwright / E2E / Claude automation) depends on this. **Removing the store
+   handle without rerouting this would break the E2E fixture path.**
 
-Plan-phase task: enumerate every reader of `store.rootDirectoryHandle` /
-`setRootDirectoryHandle` and repoint them to the reducer's focused handle (some
-may be non-React/selector reads that need a different accessor than the context
-hook — flag those in the plan).
+**Verified scope (resolves §6 open question):**
+- The store handle's only readers are the context wrapper (`:118`, returned at
+  `:414`) and the fixture subscription. The React fixture hook
+  (`use-inline-fixture-effect.ts`) is **dead code** — nothing mounts
+  `useInlineFixtureEffect` — so there is exactly **one live fixture path**.
+- Other `setRootDirectoryHandle` references (`file-explorer-panel.tsx`,
+  `use-file-explorer-context.ts`) resolve to the **context method** (the hook's
+  `setRootHandle`, which dispatches into the reducer), NOT the store action —
+  they are unaffected. (Plan task confirms this.)
+
+**Fixture reroute — custom-event bridge** (the codebase's established non-React→React
+idiom: `brainstrike:file-explorer-refreshed`, `:queue-drained`,
+`:embedding-set-updated`, `:queue-progress`):
+- `setup-inline-fixture-subscription.ts`: replace the two `store.getState()
+  .setRootDirectoryHandle(...)` calls with
+  `window.dispatchEvent(new CustomEvent('brainstrike:inject-root-handle',
+  { detail: { handle } }))` (and `{ handle: null }` for clear). The
+  `applyFixtureState` early-return at `:74` (`store.getState().rootDirectoryHandle`)
+  is repointed to track the last injected handle locally.
+- `useFileSystemInstance`: add a listener effect for `brainstrike:inject-root-handle`
+  that calls the context's `setRootHandle(detail.handle)` (→ `coreApi.setRootDirectoryHandle`
+  → reducer dispatch + `currentFolderId` + rehydrate) for a non-null handle, or
+  `coreApi.clearRootDirectory()` for null.
+
+**Then remove the duplication:**
+- Delete `rootDirectoryHandle` from `FileExplorerState` (`file-explorer-types.ts:395`),
+  the initial value (`store.ts:44`), and the `setRootDirectoryHandle` store action
+  (`store.ts:66-68`) + its `FileExplorerState` method type (`file-explorer-types.ts:448`).
+- In `use-file-system-context.ts`: drop the `storedRootDirectoryHandle` /
+  store-`setRootDirectoryHandle` selectors (`:118-119`), the one-way
+  `useLayoutEffect` sync (`:333-345`), and the six store-handle writes
+  (`:228,242,284,306,321,335`); the return (`:414`) becomes
+  `rootDirectoryHandle: coreApi.rootDirectoryHandle` (drop `storedRootDirectoryHandle`
+  from the memo deps). The hook's own `setRootDirectoryHandle` (the reducer
+  dispatch, `use-file-system.ts:565`) and the context's exposed `setRootHandle`
+  STAY.
+
+After this, the live handle exists in exactly one place (the reducer), the store
+holds no handle, and the fixture injects through the same reducer path a real
+"set root" uses.
+
+> **Out of scope (flag only):** `use-inline-fixture-effect.ts` is dead — leave it
+> untouched; note it for a separate cleanup PR.
 
 ### 3.3 Change 2 — required sync dependencies (no silent no-ops)
 
@@ -265,12 +311,19 @@ Process:
 ---
 
 ## 6. Open questions for the plan phase
-- Exact consumer list of `store.rootDirectoryHandle` (for §3.2 repoint).
-- Whether `setCurrentFolderId` (`:341`) is always wired or has a legitimate
-  no-provider path (it may be optional during early boot); confirm before making
-  it required.
-- Where the single focus-shift orchestration point should live (core hook vs
-  context wrapper) given the provider is now the single mount point.
+- ~~Exact consumer list of `store.rootDirectoryHandle`~~ — **RESOLVED** (§3.2):
+  only the context wrapper + the fixture subscription read/write it; the React
+  fixture hook is dead. Rerouted via the `brainstrike:inject-root-handle` event.
+- ~~Whether `setCurrentFolderId` is always wired~~ — **RESOLVED**: it is already
+  required-typed (`use-file-system.ts:40`, no `?`) and the context always passes
+  `store.setCurrentFolderId` (`use-file-system-context.ts:116`). The defensive
+  guard at `:341` (warn + skip) is redundant and is removed with change #2.
+- **Still open:** where the single focus-shift orchestration point should live
+  (core hook `removeRootDirectory` vs context wrapper) — the plan picks the core
+  hook, since the snapshot→remove→purge sequence already lives there and the
+  context wrapper's redundant second focus-write (`:281-283`) can simply be
+  dropped. Confirm during implementation that no consumer depends on the
+  context-level write.
 
 ---
 
