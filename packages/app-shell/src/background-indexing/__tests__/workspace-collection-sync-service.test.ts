@@ -2116,10 +2116,11 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('skips the import (never writes a null-root_id row) when resolveDbRootId returns null', async () => {
+  it('skips the import AND the scan (never writes a null-root_id row) when resolveDbRootId returns null', async () => {
     // Managed-cache identity is root_id (source_root_path retired). A root with
-    // no resolvable db id can't persist a stable identity, so the import is
-    // skipped rather than writing un-dedupable orphan rows.
+    // no resolvable db id can't persist a stable identity, so the pass
+    // short-circuits BEFORE the scan — no tree walk, no content hashing — rather
+    // than scanning everything only to skip the write of un-dedupable orphans.
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -2137,6 +2138,9 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
+    // Reading the managed-cache metadata is the first DB touch inside the scan;
+    // if the short-circuit fired before the scan it was never called.
+    expect(deps.fileRecordRepository.listManagedCacheEntryMetadata).not.toHaveBeenCalled();
     expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
   });
 });

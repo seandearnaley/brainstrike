@@ -546,9 +546,9 @@ export class WorkspaceCollectionSyncService {
         },
         qosPolicy,
         // rootId is the managed-cache dedup identity (source_root_path retired).
-        // A null dbRootId yields an identity that matches no stored row, so every
-        // file becomes a fresh import — which the import phase then skips (an
-        // unregistered root has no place to persist root_id-keyed rows).
+        // runSyncPass short-circuits a null dbRootId BEFORE the scan, so this is
+        // effectively non-null here; `?? ''` is only a typed floor for the
+        // string | null field (an empty id would match no stored row anyway).
         rootId: context.dbRootId ?? '',
         rootPath: context.activeRootPath,
         ...(this.deps.fileContentProcessor
@@ -945,6 +945,23 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
     runId: number;
   }): Promise<void> {
+    // Cache identity is the durable root_id (source_root_path is retired): an
+    // import with no resolvable root_id would persist rows with no stable
+    // identity — un-dedupable orphans the next sync re-imports forever. Skip
+    // BEFORE the scan: collectPreparedChanges walks the tree and reads+hashes
+    // every changed file (identity key on an empty root_id matches nothing, so
+    // all files become "changes"), and the import is then skipped anyway — a
+    // null root would pay full content-read cost every sync to persist nothing.
+    // resolveDbRootId already warned once. Unregistered roots (session-only /
+    // storage-failed) are the only ones that land here.
+    if (args.context.dbRootId === null) {
+      this.setIdleStatus({
+        collection: args.context.collection,
+        rootPath: args.context.rootPath,
+      });
+      return;
+    }
+
     const scanQosPolicy = await this.resolveQosPolicyForNewWork({
       abortSignal: args.abortSignal,
       context: args.context,
@@ -979,21 +996,6 @@ export class WorkspaceCollectionSyncService {
           return;
         }
       }
-      this.setIdleStatus({
-        collection: args.context.collection,
-        rootPath: args.context.rootPath,
-        summary: prepared,
-      });
-      return;
-    }
-
-    // Cache identity is the durable root_id (source_root_path is retired): an
-    // import with no resolvable root_id would persist rows with no stable
-    // identity — un-dedupable orphans that the next sync re-imports forever.
-    // resolveDbRootId already warned once for this path; skip the import write
-    // and report idle rather than write identity-less rows. Unregistered roots
-    // (session-only / storage-failed) are the only ones that land here.
-    if (args.context.dbRootId === null) {
       this.setIdleStatus({
         collection: args.context.collection,
         rootPath: args.context.rootPath,
