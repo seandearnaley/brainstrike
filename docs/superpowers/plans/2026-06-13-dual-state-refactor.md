@@ -405,3 +405,41 @@ Run the web E2E smoke (or a targeted fixture test) that exercises `window.__BRAI
 **4. Scope check:** Two coherent parts in one PR (per user decision). Part 1 can be reverted independently (separate commit) if needed.
 
 **Ordering invariant:** B4 (fixture reroute) MUST land before B5 (store-handle removal) — removing the store handle before the event bridge is wired would break the E2E fixture path.
+
+---
+
+## Plan deltas from adversarial verification (5-lens workflow)
+
+Confirmed sound: **Part 1** (the 7 supporting types ARE byte-identical; `extends Omit<ContractRuntimeData,'providerOptions'|'memory'>` type-checks; `provider` gains `'local'`). Apply these corrections during implementation:
+
+**D1 — B4 Step 3 listener must be ref-based (BLOCKER).** `setRootHandle`/`clearRootDirectory` are recreated each render, so an effect depending on them re-subscribes every render. Use stable refs + an empty-dep effect that subscribes ONCE:
+```ts
+const setRootHandleRef = useRef(setRootHandle);
+setRootHandleRef.current = setRootHandle;
+const clearRootDirectoryRef = useRef(clearRootDirectory);
+clearRootDirectoryRef.current = clearRootDirectory;
+useEffect(() => {
+  const onInject = (event: Event): void => {
+    const detail = (event as CustomEvent<InjectRootHandleDetail>).detail;
+    if (detail?.handle) { setRootHandleRef.current(detail.handle); }
+    else { clearRootDirectoryRef.current(); }
+  };
+  window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
+  return () => window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
+}, []);
+```
+
+**D2 — B5 missed store-handle consumers (MAJOR, outside file-explorer/ui).** Add to B5 Step 4:
+- `packages/app-shell/src/threads-panel.tsx:954` — reads `store.rootDirectoryHandle`; repoint to the context handle (`useFileSystem().rootDirectoryHandle`) or the relevant reducer-sourced value.
+- `packages/file-explorer-ui/src/shell/use-file-explorer-context.ts:118` (selector) and `:479` (read inside the stale-state-clearing timeout) — repoint to `coreApi.rootDirectoryHandle` / the context's reducer handle (they're in lockstep, so the guard result is unchanged).
+
+**D3 — B5 Step 5 verification must include app-shell.** Add `cd packages/app-shell && pnpm type-check` (and re-confirm file-explorer-ui) so the missed consumers surface as compile errors. Also `git grep -n "rootDirectoryHandle" packages apps | grep -v "coreApi\." | grep -v "\.claude/"` and confirm every remaining hit is the reducer/context handle, not the removed store field.
+
+**D4 — Test-fixture updates (MAJOR), make them explicit tasks:**
+- B2: `use-file-system.test.ts` — the ~20 single-root cases (≈ lines 42–730) pass only `setCurrentFolderId`. Add stub `addActiveRoot`/`removeActiveRoot`/`setActiveRoots` (a shared `makeParams(overrides)` helper is cleanest). The multi-root cases (≈ 757+) already pass all three.
+- B4/B5: `setup-inline-fixture-subscription.test.ts` — currently mocks `store.setRootDirectoryHandle` / reads `store.rootDirectoryHandle`; update to assert a `brainstrike:inject-root-handle` dispatch (and drop store-handle assertions).
+- B5: `use-file-system-context.test.ts:499` — asserts `store.getState().rootDirectoryHandle`; change to assert the context's `rootDirectoryHandle` (reducer-sourced).
+
+**D5 — B4 intermediate state is benign (clarification).** Between B4 and B5 the listener writes the store handle (via `setRootHandle`) AND the one-way `useLayoutEffect` (`:333`) still exists; both end with the store written (the `!storedRootDirectoryHandle && coreApi.rootDirectoryHandle` guard just skips when the listener already wrote). No partial-load. B5 then removes the layout effect's store sync entirely (keep only its `isAccessLoading` sync — verify that effect, `:352`, is separate and untouched).
+
+**D6 — minors/nits:** the 3 of 7 unified types not previously in `agent/index.ts` (`RuntimeAgentLoopSettings`, `RuntimeWorkspaceIndexStatusState`, `RuntimeWorkspaceIndexQueueProgress`) become harmless new public re-exports — `git grep` to confirm no agent-internal name reference breaks. Verify the exact `file-explorer-types.ts` field line (`:395` field vs `:394` comment) at edit time. Document at `setup-inline-fixture-subscription.ts:73-74` that the synchronous return is "last dispatched intent" (E2E awaits the Promise). `use-inline-fixture-effect.ts` confirmed dead — Phase C grep-asserts no active mount; cleanup deferred.
