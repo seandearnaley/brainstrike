@@ -4,7 +4,7 @@ import {
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import {
   Bug,
@@ -951,7 +951,9 @@ export function ThreadsPanel(): ReactElement {
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
-  const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
+  // Focused root handle — reducer-sourced via the FileSystemProvider context
+  // (the store no longer caches the handle; the reducer is the sole owner).
+  const { rootDirectoryHandle } = useFileSystem();
   const resourceId = rootDirectoryHandle?.path ?? null;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),

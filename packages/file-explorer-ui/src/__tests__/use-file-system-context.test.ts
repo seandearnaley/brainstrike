@@ -4,6 +4,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { INJECT_ROOT_HANDLE_EVENT } from '../inject-root-handle-event';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
@@ -55,8 +56,11 @@ describe('useFileSystem context hook', () => {
 
     handle = result.current.fs.rootDirectoryHandle;
 
-    expect(handle).toEqual(mockHandle);
-    expect(result.current.fs.rootDirectoryHandle).toEqual(mockHandle);
+    // The reducer is the sole handle owner; the focused handle is stamped with a
+    // durable RootId (storage v5), so it is a superset of the raw mock handle.
+    expect(handle).toMatchObject(mockHandle);
+    expect(handle?.rootId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.current.fs.rootDirectoryHandle).toMatchObject(mockHandle);
     // v5: currentFolderId is a durable RootId UUID, not the handle path.
     expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
     expect(result.current.fs.isAccessLoading).toBe(false);
@@ -467,7 +471,7 @@ describe('useFileSystem context hook', () => {
     expect(result.current.store.getState().expandedDirectoryPaths).toEqual(new Set(['src']));
   });
 
-  it('syncs an auto-restored root handle into the store', async () => {
+  it('surfaces an auto-restored root handle (reducer is the sole owner)', async () => {
     const restoredHandle: DirectoryHandle = {
       path: 'restored-root',
       name: 'restored-root',
@@ -496,10 +500,36 @@ describe('useFileSystem context hook', () => {
       // The restored handle is stamped with a durable RootId (storage v5), so
       // it's a superset of the input handle — match the known fields.
       expect(result.current.fs.rootDirectoryHandle).toMatchObject(restoredHandle);
-      expect(result.current.store.getState().rootDirectoryHandle).toMatchObject(restoredHandle);
       // v5: on a true first run (nothing persisted) currentFolderId is a
       // freshly minted durable RootId UUID, not the handle path.
       expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
+    });
+  });
+
+  it('injects a root handle from the brainstrike:inject-root-handle event (fixture bridge)', async () => {
+    const injectedHandle: DirectoryHandle = {
+      path: 'fixture-root',
+      name: 'fixture-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(INJECT_ROOT_HANDLE_EVENT, { detail: { handle: injectedHandle } })
+      );
+    });
+    await waitFor(() => {
+      expect(result.current.fs.rootDirectoryHandle).toMatchObject(injectedHandle);
+    });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(INJECT_ROOT_HANDLE_EVENT, { detail: { handle: null } }));
+    });
+    await waitFor(() => {
+      expect(result.current.fs.rootDirectoryHandle).toBeNull();
     });
   });
 });

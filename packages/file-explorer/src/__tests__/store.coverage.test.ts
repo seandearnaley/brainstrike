@@ -81,7 +81,6 @@ describe('store coverage', () => {
 
     state.setQuickFilter('ts only');
     state.clearQuickFilter();
-    state.setRootDirectoryHandle({ name: 'root' } as FileSystemDirectoryHandle);
     state.setDevInlineFixtureEnabled(true);
     state.setIsAccessLoading(true);
     state.setFiltersExpanded(true);
@@ -89,12 +88,9 @@ describe('store coverage', () => {
 
     expect(set).toHaveBeenNthCalledWith(1, { quickFilter: 'ts only' });
     expect(set).toHaveBeenNthCalledWith(2, { quickFilter: '' });
-    expect(set).toHaveBeenNthCalledWith(3, {
-      rootDirectoryHandle: { name: 'root' },
-    });
-    expect(set).toHaveBeenNthCalledWith(4, { devInlineFixtureEnabled: true });
-    expect(set).toHaveBeenNthCalledWith(5, { isAccessLoading: true });
-    expect(set).toHaveBeenNthCalledWith(6, { isFiltersExpanded: true });
-    expect(set).toHaveBeenNthCalledWith(7, { isFilterChipsVisible: false });
+    expect(set).toHaveBeenNthCalledWith(3, { devInlineFixtureEnabled: true });
+    expect(set).toHaveBeenNthCalledWith(4, { isAccessLoading: true });
+    expect(set).toHaveBeenNthCalledWith(5, { isFiltersExpanded: true });
+    expect(set).toHaveBeenNthCalledWith(6, { isFilterChipsVisible: false });
   });
 });
