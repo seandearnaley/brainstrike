@@ -515,6 +515,8 @@ describe('FileExplorerPanel', () => {
         kind: 'directory',
         platform: 'web',
         _internal: rawHandle,
+        // The restore modal now stamps the durable rootId (pendingRestore.folderId).
+        rootId: 'brainstrike',
       })
     );
     expect(beginRestoreMock).toHaveBeenCalledTimes(1);

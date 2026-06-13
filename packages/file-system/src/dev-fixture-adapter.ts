@@ -117,11 +117,17 @@ function buildFixtureState(
 
   const rootPath = definition.name;
 
+  // Stamp a durable rootId ONCE at the fixture boundary. loadInlineFixture (inject
+  // → setRoot) and restoreLastFolder (auto-restore → addOrFocusHandle) both return
+  // this same rootHandle object, so the inject and restore share one rootId and the
+  // reducer reconciles them to a SINGLE root (identity is rootId-only — an unstamped
+  // handle would be minted twice and render the file tree as two roots).
   const rootHandle: DirectoryHandle = {
     path: rootPath,
     name: definition.name,
     kind: 'directory',
     platform,
+    rootId: crypto.randomUUID(),
   };
 
   const createDirectoryHandle = (path: string, name: string) => ({

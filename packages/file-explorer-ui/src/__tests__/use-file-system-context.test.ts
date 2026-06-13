@@ -329,6 +329,9 @@ describe('useFileSystem context hook', () => {
       name: 'restored-root',
       kind: 'directory',
       platform: 'web',
+      // Identity is rootId-only: the restored handle's rootId IS the already-current
+      // folder id, so restoring it rehydrates the persisted folder state.
+      rootId: 'restored-root',
     } as DirectoryHandle;
 
     const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
@@ -512,6 +515,9 @@ describe('useFileSystem context hook', () => {
       name: 'fixture-root',
       kind: 'directory',
       platform: 'web',
+      // The inline fixture stamps a durable rootId at its source (buildFixtureState),
+      // so the injected handle carries one — identity is rootId-only.
+      rootId: 'fixture-root-id',
     } as DirectoryHandle;
 
     const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });

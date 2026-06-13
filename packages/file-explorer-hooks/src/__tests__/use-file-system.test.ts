@@ -923,14 +923,14 @@ describe('useFileSystem', () => {
       // Focused is the second one
       expect(result.current?.rootDirectoryHandle).toMatchObject(desc2.handle);
 
-      // Switch focus back to first
+      // Switch focus back to first — callers pass the durable RootId, not the path.
       vi.clearAllMocks();
       await act(async () => {
-        result.current?.setFocusedRoot('/root/a');
+        result.current?.setFocusedRoot('id-a');
       });
 
       expect(result.current?.rootDirectoryHandle).toMatchObject(desc1.handle);
-      // Storage v5: setFocusedRoot resolves the rootId from rootIdByPath map.
+      // Storage v5: setFocusedRoot resolves the focused root by its RootId.
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith('id-a');
     });
 
@@ -1102,33 +1102,36 @@ describe('useFileSystem', () => {
       });
 
       vi.clearAllMocks();
+      // The restore caller stamps the durable RootId onto the handle before
+      // handing it to setRootDirectoryHandle (identity is rootId-only).
       await act(async () => {
-        result.current?.setRootDirectoryHandle(descriptor.handle);
+        result.current?.setRootDirectoryHandle({ ...descriptor.handle, rootId: descriptor.rootId });
       });
 
-      // Storage v5: the durable RootId is resolved from rootIdByPath, not the path.
+      // Storage v5: the durable RootId is written, never the path.
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith('rid-registered');
       expect(mockSetCurrentFolderId).not.toHaveBeenCalledWith('/reg/root');
     });
 
-    it('falls back to the canonical path for handles set before registration', async () => {
+    it('throws on an unstamped root handle instead of silently falling back to the path', async () => {
       const { result } = renderHook(() => useFileSystem(makeFsParams()), {
         wrapper: AdaptersTestWrapper,
       });
 
-      const unregistered: DirectoryHandle = {
+      const unstamped: DirectoryHandle = {
         path: '/never/registered',
         name: 'never-registered',
         kind: 'directory',
         platform: 'web',
       };
 
-      await act(async () => {
-        result.current?.setRootDirectoryHandle(unregistered);
-      });
-
-      // No rootId known yet — path fallback (registerRestoredHandles corrects it later).
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/never/registered');
+      // The legacy path fallback is gone: every root source must stamp a rootId.
+      // An unstamped handle reaching the reducer fails loud in dev (no silent path
+      // fallback that would collide same-named roots).
+      expect(() => result.current?.setRootDirectoryHandle(unstamped)).toThrow(
+        /unstamped root handle/
+      );
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
     });
   });
 
@@ -1570,11 +1573,11 @@ describe('useFileSystem', () => {
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith('rid-same-a');
     });
 
-    it('setRootDirectoryHandle with an unstamped raw handle re-focuses the stamped root (no duplicate)', async () => {
-      // The restore modal constructs a raw {path,name,kind,platform} handle with
-      // no rootId and routes it through setRoot. Keying only by rootKeyOf (= the
-      // raw path) would never match the already-stamped root's UUID and would
-      // append a duplicate; setRoot must match by path and keep the stamped one.
+    it('setRootDirectoryHandle with the stamped restore handle re-focuses the root (no duplicate)', async () => {
+      // The restore modal now stamps the durable RootId (from pendingRestore) onto
+      // the handle before routing it through setRoot. Identity is rootId-only, so
+      // the stamped handle matches the already-stored root by rootKey and re-focuses
+      // it instead of appending a duplicate.
       const { result } = renderWithBothRoots();
 
       await act(async () => {
@@ -1588,6 +1591,7 @@ describe('useFileSystem', () => {
           name: NAME,
           path: NAME,
           platform: 'web',
+          rootId: 'rid-same-a',
         });
       });
 
@@ -1596,37 +1600,39 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandle?.rootId).toBe('rid-same-a');
     });
 
-    it('reconciles an unstamped injected handle with a later stamped restore of the same path (no duplicate root)', async () => {
-      // The inline-fixture event bridge injects an UNSTAMPED handle via setRoot,
-      // then the adapter auto-restore stamps the SAME path. addOrFocusHandle must
-      // match the unstamped entry by path and replace it — otherwise the same
-      // logical root becomes two entries and the file tree renders twice (forest
-      // mode for what is really one root). Regression for the Web E2E
-      // "2 treegrids" failure introduced by the fixture event-bridge reroute.
+    it('reconciles an injected fixture handle with its later restore of the same rootId (no duplicate root)', async () => {
+      // The inline fixture now stamps a stable rootId at its source, so the SAME
+      // stamped handle object flows through both the inject (event → setRoot) and
+      // the auto-restore (registerRestoredHandles). Identity is rootId-only, so the
+      // two reconcile to ONE root by rootKey — otherwise the same logical root
+      // becomes two entries and the file tree renders twice (the Web E2E
+      // "2 treegrids" regression). registerRestoredHandles reuses handle.rootId.
+      const rootId = crypto.randomUUID();
       const handle: DirectoryHandle = {
         kind: 'directory',
         name: 'fixture-root',
         path: '/fixture-root',
         platform: 'web',
+        rootId,
       };
       const { result } = renderHook(() => useFileSystem(makeFsParams()), {
         wrapper: AdaptersTestWrapper,
       });
 
-      // 1) Inject the unstamped handle (mirrors the fixture event → setRoot).
+      // 1) Inject the stamped fixture handle (mirrors the fixture event → setRoot).
       act(() => {
         result.current?.setRootDirectoryHandle(handle);
       });
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
 
-      // 2) Stamped restore of the SAME path (mirrors the adapter auto-restore).
+      // 2) Auto-restore of the SAME stamped handle (mirrors the adapter restore).
       await act(async () => {
         await result.current?.registerRestoredHandles([handle]);
       });
 
-      // Reconciled to ONE stamped root, not two.
+      // Reconciled to ONE root keyed by the fixture's stable rootId, not two.
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(result.current?.rootDirectoryHandles[0]?.rootId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.current?.rootDirectoryHandles[0]?.rootId).toBe(rootId);
     });
   });
 });
