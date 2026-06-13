@@ -130,14 +130,21 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
       // INVARIANT: rootDirectoryHandle must always be a member of
       // rootDirectoryHandles. Non-null setRoot therefore uses
       // addOrFocusHandle semantics: append when missing, focus always.
-      // Legacy single-root path — handle carries no rootId, so rootKeyOf = path.
+      // This path receives UNSTAMPED handles (legacy single-root setRoot, and
+      // the restore modal which constructs a raw {path,name,kind,platform}).
+      // Match an already-listed STAMPED handle by path too, or rootKeyOf (=path
+      // for the incoming) would never equal the stored UUID and we'd append a
+      // duplicate of an existing root. When matched, focus the STORED handle so
+      // its stamped identity is preserved.
       const handle = action.handle;
       const key = rootKeyOf(handle);
-      const alreadyListed = state.rootDirectoryHandles.some((h) => rootKeyOf(h) === key);
+      const existing = state.rootDirectoryHandles.find(
+        (h) => rootKeyOf(h) === key || h.path === handle.path
+      );
       return {
         ...state,
-        rootDirectoryHandle: handle,
-        rootDirectoryHandles: alreadyListed
+        rootDirectoryHandle: existing ?? handle,
+        rootDirectoryHandles: existing
           ? state.rootDirectoryHandles
           : [...state.rootDirectoryHandles, handle],
       };

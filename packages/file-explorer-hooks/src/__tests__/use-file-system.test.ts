@@ -1713,5 +1713,31 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandle?.rootId).toBe('rid-same-a');
       expect(mockSetCurrentFolderId).toHaveBeenCalledWith('rid-same-a');
     });
+
+    it('setRootDirectoryHandle with an unstamped raw handle re-focuses the stamped root (no duplicate)', async () => {
+      // The restore modal constructs a raw {path,name,kind,platform} handle with
+      // no rootId and routes it through setRoot. Keying only by rootKeyOf (= the
+      // raw path) would never match the already-stamped root's UUID and would
+      // append a duplicate; setRoot must match by path and keep the stamped one.
+      const { result } = renderWithBothRoots();
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+
+      act(() => {
+        result.current?.setRootDirectoryHandle({
+          kind: 'directory',
+          name: NAME,
+          path: NAME,
+          platform: 'web',
+        });
+      });
+
+      // No duplicate, and the stored handle keeps its stamped identity.
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandle?.rootId).toBe('rid-same-a');
+    });
   });
 });
