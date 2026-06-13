@@ -332,4 +332,122 @@ describe('FileExplorerSidebar', () => {
     await user.click(headers.at(1) as HTMLElement);
     expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');
   });
+
+  // -------------------------------------------------------------------------
+  // Disconnect flow (Phase 5)
+  // -------------------------------------------------------------------------
+  describe('disconnect flow (forest mode)', () => {
+    const handleA = {
+      name: 'project-a',
+      kind: 'directory' as const,
+      path: '/project-a',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const handleB = {
+      name: 'project-b',
+      kind: 'directory' as const,
+      path: '/project-b',
+      platform: 'web' as const,
+      _internal: {} as FileSystemDirectoryHandle,
+    };
+    const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const rootIdByPath = new Map([
+      ['/project-a', ROOT_ID_A],
+      ['/project-b', ROOT_ID_B],
+    ]);
+
+    function renderForest(onRemoveRoot?: (rootId: string) => Promise<void>) {
+      act(() => {
+        renderWithProviders(
+          <FileExplorerSidebar
+            {...defaultProps}
+            onRemoveRoot={onRemoveRoot}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={rootIdByPath}
+            setFocusedRoot={vi.fn()}
+          />
+        );
+      });
+    }
+
+    it('does NOT render disconnect buttons when onRemoveRoot is absent', () => {
+      renderForest(undefined);
+
+      expect(screen.getAllByTestId('root-section-header')).toHaveLength(2);
+      expect(screen.queryByLabelText('Disconnect folder')).toBeNull();
+    });
+
+    it('renders one disconnect button per root when onRemoveRoot is provided', () => {
+      renderForest(vi.fn().mockResolvedValue(undefined));
+
+      expect(screen.getAllByLabelText('Disconnect folder')).toHaveLength(2);
+    });
+
+    it('confirm flow: X on root B → dialog → Disconnect calls onRemoveRoot with B RootId', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      const onRemoveRoot = vi.fn().mockResolvedValue(undefined);
+
+      renderForest(onRemoveRoot);
+
+      const disconnectButtons = screen.getAllByLabelText('Disconnect folder');
+      await user.click(disconnectButtons.at(1) as HTMLElement);
+
+      // Dialog states the data-kept semantics and names the root.
+      expect(screen.getByText('Disconnect project-b?')).toBeInTheDocument();
+      expect(screen.getByText(/indexed data is kept/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+
+      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B);
+    });
+
+    it('cancel flow: dialog closes without calling onRemoveRoot', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      const onRemoveRoot = vi.fn().mockResolvedValue(undefined);
+
+      renderForest(onRemoveRoot);
+
+      const disconnectButtons = screen.getAllByLabelText('Disconnect folder');
+      await user.click(disconnectButtons.at(0) as HTMLElement);
+      expect(screen.getByText('Disconnect project-a?')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(onRemoveRoot).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(screen.queryByText('Disconnect project-a?')).toBeNull();
+      });
+    });
+
+    it('falls back to the handle path as the id for roots without a rootIdByPath entry', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      const onRemoveRoot = vi.fn().mockResolvedValue(undefined);
+
+      act(() => {
+        renderWithProviders(
+          <FileExplorerSidebar
+            {...defaultProps}
+            onRemoveRoot={onRemoveRoot}
+            rootDirectoryHandle={handleA}
+            rootDirectoryHandles={[handleA, handleB]}
+            rootIdByPath={new Map()}
+            setFocusedRoot={vi.fn()}
+          />
+        );
+      });
+
+      const disconnectButtons = screen.getAllByLabelText('Disconnect folder');
+      await user.click(disconnectButtons.at(0) as HTMLElement);
+      await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+
+      // Legacy roots: path doubles as the id (matches removeRootDirectory).
+      expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith('/project-a');
+    });
+  });
 });

@@ -8,6 +8,14 @@ export interface ActiveRootActions {
    */
   addActiveRoot: (root: StoredRootDescriptor) => void;
   /**
+   * Disconnect a root: atomically purge it from activeRootIds, rootDescriptors,
+   * folderStates, and folderAccessOrder in ONE setState. Does NOT touch
+   * currentFolderId — the hook layer shifts focus via setCurrentFolderId
+   * BEFORE calling this (setCurrentFolderId snapshots the outgoing folder's
+   * live state back into folderStates, so the purge must come last).
+   */
+  removeActiveRoot: (rootId: string) => void;
+  /**
    * Replace both activeRootIds and rootDescriptors atomically.
    * activeRootIds = roots.map(r => r.rootId) (ordered).
    * rootDescriptors = keyed by rootId.
@@ -37,6 +45,19 @@ export const createActiveRootActions = (
           ...state.rootDescriptors,
           [root.rootId]: root,
         },
+      };
+    });
+  },
+
+  removeActiveRoot: (rootId: string) => {
+    set((state: FileExplorerState) => {
+      const { [rootId]: _removedDescriptor, ...remainingDescriptors } = state.rootDescriptors;
+      const { [rootId]: _removedFolderState, ...remainingFolderStates } = state.folderStates;
+      return {
+        activeRootIds: state.activeRootIds.filter((id) => id !== rootId),
+        folderAccessOrder: state.folderAccessOrder.filter((id) => id !== rootId),
+        folderStates: remainingFolderStates,
+        rootDescriptors: remainingDescriptors,
       };
     });
   },

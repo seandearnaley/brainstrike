@@ -23,9 +23,10 @@ describe('store version/type guard', () => {
     expect(anyStore.foo).toBeUndefined();
   });
 
-  it('FILE_EXPLORER_STORAGE_VERSION is pinned at 4 (storage v4 greenfield reset)', () => {
+  it('FILE_EXPLORER_STORAGE_VERSION is pinned at 5 (storage v5 root identity re-key)', () => {
     // This assertion intentionally pins the version to catch accidental bumps.
-    // The v3→v4 bump was intentional (phase 4 forest-UI greenfield reset).
-    expect(FILE_EXPLORER_STORAGE_VERSION).toBe(4);
+    // The v4→v5 bump is intentional: currentFolderId/folderStates keys/composite
+    // folderId all become RootId UUIDs (not paths) as of phase 5 root identity.
+    expect(FILE_EXPLORER_STORAGE_VERSION).toBe(5);
   });
 });

@@ -21,7 +21,7 @@ import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { canLoadNode, sortTreeNodes } from '@brainstrike/utils/tree-operations';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   useAbortControllers,
@@ -302,8 +302,10 @@ function loadRootChildren(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   rootDirectoryHandle: DirectoryHandle;
   rootPath: string;
+  /** Storage v5: durable RootId UUID to stamp on loaded nodes. Falls back to rootPath. */
+  rootFolderId?: string;
 }): { request: InFlightRootLoad; started: boolean } {
-  const { fileSystemAdapter, rootDirectoryHandle, rootPath } = args;
+  const { fileSystemAdapter, rootDirectoryHandle, rootPath, rootFolderId } = args;
   const existingRequest = inFlightRootLoads.get(rootPath);
   if (existingRequest) {
     logger.debug('loadRoot joined existing in-flight request', { rootPath });
@@ -326,6 +328,7 @@ function loadRootChildren(args: {
         },
         {
           sortFileNodes,
+          ...(rootFolderId !== undefined && { rootFolderId }),
         }
       );
 
@@ -343,6 +346,7 @@ function loadRootChildren(args: {
 
     const children = await loadRootDirectory(fileSystemAdapter, rootDirectoryHandle, {
       sortFileNodes,
+      ...(rootFolderId !== undefined && { rootFolderId }),
     });
     logger.debug('loadRoot completed - handle map built', {
       childrenCount: children.length,
@@ -729,6 +733,17 @@ export interface UseLazyFileTreeOptions {
    * @param parentPath - The parent path, or null for root-level nodes
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
+
+  /**
+   * Durable RootId UUID for this root (storage v5).
+   * When provided, nodes are stamped with this value as their `rootFolderId`
+   * instead of `handle.path`. The FileTreeIndex and selection composite keys
+   * therefore carry the UUID, satisfying the linchpin equality:
+   * `fileNode.rootFolderId === folderId` in use-shared-file-content-loading.
+   * Falls back to `handle.path` when absent (pre-v5 handles / tests that have
+   * not threaded the identity yet).
+   */
+  rootId?: string;
 }
 
 /**
@@ -745,7 +760,7 @@ export function useLazyFileTree(
   rootDirectoryHandle: DirectoryHandle | null,
   options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
-  const { filterTreeFn, onNodesIndexed } = options;
+  const { filterTreeFn, onNodesIndexed, rootId } = options;
   const { fileSystemAdapter } = useAdapters();
   const rootDirectoryPath = rootDirectoryHandle?.path ?? null;
 
@@ -834,6 +849,16 @@ export function useLazyFileTree(
     removeChildController,
   } = useAbortControllers();
 
+  /**
+   * Storage v5: durable RootId UUID when provided, otherwise the root path.
+   * Pre-computed outside loadRoot to avoid adding a ?? branch inside the
+   * already-complex callback (Biome noExcessiveCognitiveComplexity limit = 20).
+   */
+  const resolvedRootFolderId = useMemo(
+    () => rootId ?? rootDirectoryHandle?.path ?? '',
+    [rootId, rootDirectoryHandle?.path]
+  );
+
   // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
     fileSystemAdapter,
@@ -841,10 +866,12 @@ export function useLazyFileTree(
     onError: handleWorkerError,
   });
 
-  // Keep root handle ref in sync
+  // Keep root handle ref in sync. The RootId is threaded alongside so that
+  // worker-loaded (expand-all) subtree nodes carry the durable identity
+  // instead of the path (storage v5).
   useEffect(() => {
-    setRootHandle(rootDirectoryHandle);
-  }, [rootDirectoryHandle, setRootHandle]);
+    setRootHandle(rootDirectoryHandle, resolvedRootFolderId);
+  }, [rootDirectoryHandle, resolvedRootFolderId, setRootHandle]);
 
   useEffect(() => {
     isUnmountedRef.current = false;
@@ -940,6 +967,7 @@ export function useLazyFileTree(
         fileSystemAdapter,
         rootDirectoryHandle,
         rootPath,
+        rootFolderId: resolvedRootFolderId,
       });
 
       if (rootLoadRequest.started) {
@@ -968,7 +996,9 @@ export function useLazyFileTree(
           portRef,
           setState,
           initializedRootRef,
-          rootPath,
+          // Storage v5: worker init uses the resolved RootId so that worker-
+          // side composite keys match the store's identity.
+          resolvedRootFolderId,
           onNodesIndexedRef
         );
         syncNormalizedTree(children);
@@ -989,6 +1019,7 @@ export function useLazyFileTree(
     handleMapRef,
     portRef,
     syncNormalizedTree,
+    resolvedRootFolderId,
   ]);
 
   /**
@@ -1261,7 +1292,8 @@ export function useLazyFileTree(
       if (!port) {
         throw new Error('File tree worker is unavailable for expand-all');
       }
-      const rootFolderId = getRootFolderId(rootDirectoryHandle);
+      // Storage v5: use durable RootId UUID when available.
+      const rootFolderId = rootId ?? getRootFolderId(rootDirectoryHandle);
       if (!rootFolderId) {
         throw new Error('Cannot expand all without a root folder id');
       }
@@ -1282,6 +1314,7 @@ export function useLazyFileTree(
       onNodesIndexedRef,
       portRef,
       rootDirectoryHandle,
+      rootId,
       setNormalizedTreeVersion,
     ]
   );
@@ -1333,7 +1366,8 @@ export function useLazyFileTree(
     onProgress: (loaded: number, total: number) => {
       handleProgress(loaded, total, '');
     },
-    rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
+    // Storage v5: use durable RootId UUID when available.
+    rootFolderId: rootId ?? getRootFolderId(rootDirectoryHandle) ?? '',
     runUnloadedExpandAll: runWorkerExpandAll,
   });
 

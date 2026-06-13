@@ -21,12 +21,24 @@ export interface SelectionQueryDescriptor {
   coveredDirectoryPaths: string[];
   excludedPaths: string[];
   excludeFilters: string[];
+  /**
+   * RootId UUID (since storage v5); never a path.
+   * This is the durable identity of the root — use it for composite keys,
+   * folderStates lookups, and equality checks. It does NOT change when a
+   * root directory is re-added after being disconnected.
+   */
   folderId: string;
   includedPaths: string[];
   includeFilters: string[];
   kind: 'recursive-folder' | 'recursive-select-all';
   manifestFingerprint: string | null;
   manifestSnapshotId: string | null;
+  /**
+   * Absolute root path for query scoping/display — NOT identity.
+   * Used by recursive-selection-query to scope file enumeration and
+   * by the UI to display the folder name. Do NOT use for equality or
+   * composite-key construction; use `folderId` (the RootId) for identity.
+   */
   rootPath: string | null;
   totalSelectedCount: number;
   useRegex: boolean;
@@ -234,6 +246,12 @@ export interface FileExplorerData {
    * Phase-4 initial state is empty (single-root compat).
    */
   activeRootIds: string[];
+  /**
+   * RootId UUID of the currently focused root (since storage v5); never a path.
+   * Null when no root is focused (e.g., on first boot before any folder is opened).
+   * Use this for identity comparisons and folderStates lookups — it corresponds
+   * directly to the keys of `folderStates` and `rootDescriptors`.
+   */
   currentFolderId: string | null;
   /** Whether the inline dev fixture should be used instead of native FS access. */
   devInlineFixtureEnabled: boolean;
@@ -251,6 +269,12 @@ export interface FileExplorerData {
   expandedDirectoryPaths: Set<string>;
   fileContents: Record<string, string>;
   folderAccessOrder: string[];
+  /**
+   * Per-root state keyed by RootId UUID (since storage v5); never keyed by path.
+   * Each entry holds the selection, expansion, filter, and tab state for that root.
+   * The keys here are the same RootId values used in `activeRootIds`, `currentFolderId`,
+   * and `SelectionQueryDescriptor.folderId`.
+   */
   folderStates: Record<string, FolderState>;
   /**
    * Number of files displayed before summarizing a folder in the generated
@@ -356,6 +380,14 @@ export interface FileExplorerState extends FileExplorerData {
   getFileContent: (compositeKey: string) => string | undefined;
   getFileContentCacheStats: () => CacheStats;
   hydrateFolderState: (folderId: string) => void;
+  /**
+   * Disconnect a root: atomically purge it from activeRootIds, rootDescriptors,
+   * folderStates, and folderAccessOrder (single setState). Does NOT touch
+   * currentFolderId — focus shift is orchestrated by the hook layer BEFORE
+   * this purge (setCurrentFolderId snapshots the outgoing folder's state back
+   * into folderStates, so purging must come last).
+   */
+  removeActiveRoot: (rootId: string) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string, path: string) => void;
 

@@ -289,6 +289,15 @@ export interface FileSystemAdapter {
    * @throws Error if the file doesn't exist or cannot be read
    */
   readFileByPath?(absolutePath: string): Promise<string>;
+  /**
+   * Multi-root: forget a persisted root by its RootId.
+   *
+   * Disconnect ≠ delete: this removes ONLY the platform persistence for the
+   * root (stored handle / rootsList entry). It NEVER touches the DB — all
+   * roots/file_records/file_chunks rows are deliberately KEPT so re-adding the
+   * same folder resumes without re-indexing.
+   */
+  removeRoot?(rootId: string): Promise<void>;
   requestDirectoryAccess(): Promise<DirectoryHandle>;
   /**
    * Resolve the bytes the background token indexer needs for a given absolute

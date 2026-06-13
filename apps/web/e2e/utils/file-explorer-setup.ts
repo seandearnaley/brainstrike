@@ -66,7 +66,7 @@ export async function bootstrapFileExplorer(
 
   const keysToClear = new Set(clearStorageKeys);
   if (resetSettings) {
-    keysToClear.add('file-explorer-storage-v4');
+    keysToClear.add('file-explorer-storage-v5');
     keysToClear.add('fileExplorerSettings');
     keysToClear.add('previewPanelPreferences.v1');
   }

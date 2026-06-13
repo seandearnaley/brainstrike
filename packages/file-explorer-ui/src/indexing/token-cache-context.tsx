@@ -117,6 +117,78 @@ export function __resetTokenCacheWorkerInitErrorsForTests(): void {
   terminalWorkerInitErrorsByUrl.clear();
 }
 
+/**
+ * Storage v5 re-keyed folder identity from filesystem paths to RootId UUIDs.
+ * Token cache rows written before the re-key are keyed by paths and therefore
+ * unreachable dead weight. This is a greenfield app (no back-compat), so we
+ * wipe once per profile instead of migrating.
+ */
+export const TOKEN_CACHE_REKEY_V5_MARKER = 'token-cache-rekey-v5-done';
+
+let rekeyWipePromise: Promise<void> | null = null;
+
+export function __resetTokenCacheRekeyWipeForTests(): void {
+  rekeyWipePromise = null;
+}
+
+async function performTokenCacheRekeyWipe(store: {
+  clearAll: () => Promise<number>;
+}): Promise<void> {
+  if (typeof localStorage === 'undefined') {
+    // Without storage we cannot gate the wipe; skip rather than re-wiping
+    // fresh v5 data on every boot.
+    logger.debug('Token cache re-key wipe skipped: localStorage unavailable');
+    return;
+  }
+
+  let marker: string | null;
+  try {
+    marker = localStorage.getItem(TOKEN_CACHE_REKEY_V5_MARKER);
+  } catch (error) {
+    logger.warn('Token cache re-key wipe skipped: marker unreadable', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  if (marker !== null) {
+    return;
+  }
+
+  try {
+    const removed = await store.clearAll();
+    logger.info('Token cache wiped for RootId re-key (storage v5)', { removed });
+  } catch (error) {
+    // Do NOT set the marker — the wipe retries on the next boot.
+    logger.warn('Token cache re-key wipe failed; will retry next boot', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    rekeyWipePromise = null;
+    return;
+  }
+
+  try {
+    localStorage.setItem(TOKEN_CACHE_REKEY_V5_MARKER, 'true');
+  } catch (error) {
+    logger.warn('Token cache re-key marker write failed; wipe may repeat next boot', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * One-time (per profile) token cache wipe for the v5 RootId re-key.
+ * Concurrent calls (e.g. StrictMode double-effects) coalesce onto a single
+ * in-flight clear; the localStorage marker gates across boots.
+ */
+export function runTokenCacheRekeyWipeOnce(store: {
+  clearAll: () => Promise<number>;
+}): Promise<void> {
+  if (!rekeyWipePromise) {
+    rekeyWipePromise = performTokenCacheRekeyWipe(store);
+  }
+  return rekeyWipePromise;
+}
+
 function getResolvedTokenCacheWorkerUrl(workerUrl: string | undefined): string {
   return workerUrl ?? resolveTokenCacheWorkerUrlHref();
 }
@@ -418,6 +490,16 @@ export function TokenCacheProvider({
   }, [db, inMemoryStore]);
   const store = storeState.store;
   const hasPersistentStore = storeState.hasPersistentStore;
+
+  // One-time hygiene wipe for the storage v5 RootId re-key. Only the
+  // persistent store matters — in-memory stores are born empty, and wiping
+  // one must not consume the once-per-profile marker.
+  useEffect(() => {
+    if (!hasPersistentStore) {
+      return;
+    }
+    void runTokenCacheRekeyWipeOnce(store);
+  }, [hasPersistentStore, store]);
 
   // Initialize hasher once
   useEffect(() => {

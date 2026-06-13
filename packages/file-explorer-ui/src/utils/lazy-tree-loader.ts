@@ -28,6 +28,13 @@ export interface LazyLoadOptions {
   abortSignal?: AbortSignal;
   /** Whether to include file metadata (size, lastModified) */
   includeMetadata?: boolean;
+  /**
+   * Override the rootFolderId stamped on loaded nodes.
+   * Since storage v5 this is the durable RootId UUID; when absent the
+   * loader falls back to `rootHandle.path` (pre-v5 behaviour preserved for
+   * callers that have not yet threaded the identity).
+   */
+  rootFolderId?: string;
   /** Custom sort function for nodes */
   sortFileNodes?: (nodes: IFileNode[]) => IFileNode[];
 }
@@ -84,7 +91,12 @@ export async function loadRootDirectory(
   rootHandle: DirectoryHandle,
   options: LazyLoadOptions = {}
 ): Promise<IFileNode[]> {
-  const { abortSignal, includeMetadata = false, sortFileNodes = defaultSortFileNodes } = options;
+  const {
+    abortSignal,
+    includeMetadata = false,
+    rootFolderId: rootFolderIdOverride,
+    sortFileNodes = defaultSortFileNodes,
+  } = options;
 
   // Check for cancellation
   if (abortSignal?.aborted) {
@@ -94,6 +106,10 @@ export async function loadRootDirectory(
   if (!rootHandle.path) {
     throw new Error('Root directory handle is missing its canonical path');
   }
+
+  // Storage v5: prefer the durable RootId UUID when provided; fall back to
+  // handle.path for callers that have not yet threaded the identity.
+  const resolvedRootFolderId = rootFolderIdOverride ?? rootHandle.path;
 
   // Read immediate children only
   const children = await adapter.readDirectory(rootHandle, {
@@ -116,7 +132,7 @@ export async function loadRootDirectory(
         return {
           ...rest,
           depth: 0,
-          rootFolderId: rootHandle.path,
+          rootFolderId: resolvedRootFolderId,
           loadState: 'unloaded' as const,
         };
       }
@@ -124,7 +140,7 @@ export async function loadRootDirectory(
       return {
         ...child,
         depth: 0,
-        rootFolderId: rootHandle.path,
+        rootFolderId: resolvedRootFolderId,
       };
     });
 
@@ -391,9 +407,13 @@ export async function loadRootDirectoryStreaming(
   const {
     abortSignal,
     includeMetadata = false,
+    rootFolderId: rootFolderIdOverride,
     sortFileNodes = defaultSortFileNodes,
     batchSize = 50,
   } = options;
+
+  // Storage v5: prefer the durable RootId UUID when provided.
+  const resolvedRootFolderId = rootFolderIdOverride ?? rootHandle.path;
 
   // Check for cancellation
   if (abortSignal?.aborted) {
@@ -408,8 +428,8 @@ export async function loadRootDirectoryStreaming(
     await adapter.readDirectoryStreaming(
       rootHandle,
       (nodes, meta) => {
-        // Transform nodes for lazy loading (depth 0, rootFolderId from handle)
-        const transformed = transformNodesForLazyLoading(nodes, 0, rootHandle.path);
+        // Transform nodes for lazy loading (depth 0, rootFolderId from RootId)
+        const transformed = transformNodesForLazyLoading(nodes, 0, resolvedRootFolderId);
 
         // In-place accumulation avoids per-batch array reallocation
         for (const node of transformed) {

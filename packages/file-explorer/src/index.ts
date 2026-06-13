@@ -6,6 +6,10 @@ export * from './actions/selection-model-actions';
 export * from './actions/settings-actions';
 export * from './constants';
 export * from './persistence/file-explorer-persistence';
+export {
+  FILE_EXPLORER_STORAGE_KEY,
+  FILE_EXPLORER_STORAGE_VERSION,
+} from './persistence/persistence-constants';
 export * from './persistence/tab-persistence';
 export { resolveWorkerStorageUrl } from './persistence/worker-storage';
 export * from './store';

@@ -127,6 +127,12 @@ export interface ElectronFileSystemAPI {
    * Useful for loading persisted file tabs before the file tree is available.
    */
   readFileByPath: (absolutePath: string) => Promise<string>;
+  /**
+   * Multi-root: forget a persisted root by its RootId (removes the rootsList
+   * entry and a matching lastFolderPath). Disconnect ≠ delete — DB rows are
+   * deliberately KEPT so re-adding the same folder resumes without re-indexing.
+   */
+  removeRoot: (rootId: string) => Promise<void>;
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
   /**

@@ -232,6 +232,44 @@ describe('Folder State Actions', () => {
     }
   });
 
+  it('keeps distinct folder states and composite keys for two same-named roots with different RootIds', () => {
+    // Storage v5 regression: two roots can share the same display name
+    // (e.g. both folders are called "project"). Their identity is the durable
+    // RootId UUID, so their folderStates entries and `<rootId>|@|<path>`
+    // composite selection keys must never collide.
+    const ROOT_A = 'aaaaaaaa-0000-0000-0000-000000000001'; // display name "project"
+    const ROOT_B = 'bbbbbbbb-0000-0000-0000-000000000002'; // display name "project" (same)
+    const RELATIVE_PATH = 'src/index.ts'; // identical relative path in both roots
+
+    // Activate root A and select a file under it.
+    store.setCurrentFolderId(ROOT_A);
+    store.setState((state: FileExplorerState) => ({
+      ...state,
+      selectedFilePaths: new Set([`${ROOT_A}|@|${RELATIVE_PATH}`]),
+      expandedDirectoryPaths: new Set(['src']),
+    }));
+
+    // Switch to root B — A's selection must NOT leak into B.
+    store.setCurrentFolderId(ROOT_B);
+    expect(store.getState().selectedFilePaths.size).toBe(0);
+    expect(store.getState().expandedDirectoryPaths.size).toBe(0);
+    store.setState((state: FileExplorerState) => ({
+      ...state,
+      selectedFilePaths: new Set([`${ROOT_B}|@|${RELATIVE_PATH}`]),
+    }));
+
+    // Switch back to A — distinct entries, per-root state restored intact.
+    store.setCurrentFolderId(ROOT_A);
+    const state = store.getState();
+    expect(Object.keys(state.folderStates).sort()).toEqual([ROOT_A, ROOT_B].sort());
+    expect(state.selectedFilePaths).toEqual(new Set([`${ROOT_A}|@|${RELATIVE_PATH}`]));
+    expect(state.expandedDirectoryPaths).toEqual(new Set(['src']));
+    // B's saved state keeps ITS composite key — same relative path, different identity.
+    expect(state.folderStates[ROOT_B]?.selectedFilePaths).toEqual(
+      new Set([`${ROOT_B}|@|${RELATIVE_PATH}`])
+    );
+  });
+
   it('should reset current state fields when setting current folder ID to null', () => {
     // Arrange - set some state values and a current folder
     const folderToSave = 'someFolder';

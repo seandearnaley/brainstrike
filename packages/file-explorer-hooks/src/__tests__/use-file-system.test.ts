@@ -18,6 +18,7 @@ import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
 const mockAddActiveRoot = vi.fn();
+const mockRemoveActiveRoot = vi.fn();
 const mockSetActiveRoots = vi.fn();
 vi.mock('@brainstrike/file-explorer', () => ({
   useFileExplorerStore: vi.fn(() => ({
@@ -90,7 +91,7 @@ describe('useFileSystem', () => {
   });
 
   describe('selectRootDirectory', () => {
-    it('uses the canonical path as the folder id when name and path differ', async () => {
+    it('uses a RootId UUID (not path) as the folder id when name and path differ', async () => {
       const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
       MockFileSystemAdapter.prototype.requestDirectoryAccess = vi.fn().mockResolvedValue({
         path: '/projects/shared-name',
@@ -109,7 +110,13 @@ describe('useFileSystem', () => {
         await result.current?.selectRootDirectory();
       });
 
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/projects/shared-name');
+      // Since storage v5 the store receives a durable RootId UUID, not the path.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledTimes(1);
+      const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(typeof calledId).toBe('string');
+      expect(calledId).not.toBe('/projects/shared-name');
+      // Verify it is a UUID (36-char hyphenated)
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
 
       MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
     });
@@ -133,7 +140,10 @@ describe('useFileSystem', () => {
         platform: 'web',
       });
       expect(result.current?.rootDirectoryHandle).toEqual(handle);
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('mock-root');
+      // Since storage v5 the store receives a durable RootId UUID, not the path.
+      const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(typeof calledId).toBe('string');
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
     });
 
     it('throws error when File System Access API is not supported', async () => {
@@ -371,7 +381,10 @@ describe('useFileSystem', () => {
         kind: 'directory',
         platform: 'web',
       });
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/restored/path');
+      // Since storage v5 the store receives a durable RootId UUID, not the path.
+      const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(typeof calledId).toBe('string');
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
     });
 
     it('should not restore when no last folder is available', async () => {
@@ -494,7 +507,10 @@ describe('useFileSystem', () => {
           })
         );
 
-        expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/restored/path');
+        // Since storage v5 the store receives a durable RootId UUID, not the path.
+        const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+        expect(typeof calledId).toBe('string');
+        expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
       } finally {
         MockFileSystemAdapter.prototype.restoreLastFolder = originalRestoreLastFolder;
       }
@@ -559,7 +575,10 @@ describe('useFileSystem', () => {
         expect(result.current?.rootDirectoryHandle).toEqual(restoredHandle);
       });
 
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/restored/path');
+      // Since storage v5 the store receives a durable RootId UUID, not the path.
+      const retryCalledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(typeof retryCalledId).toBe('string');
+      expect(retryCalledId).toMatch(/^[0-9a-f-]{36}$/);
     });
 
     it('does not update folder state after unmount while restore is in-flight', async () => {
@@ -624,6 +643,54 @@ describe('useFileSystem', () => {
       expect(loadingStates).toContain(true);
       // And that it eventually becomes false after completion
       expect(result.current.isAccessLoading).toBe(false);
+    });
+
+    it('reuses the persisted currentFolderId as the rootId on legacy single-root restore', async () => {
+      // Branch B (no restoreRoots): a per-boot crypto.randomUUID() could never
+      // equal a persisted id, so the persisted currentFolderId must be REUSED
+      // as the RootId for the single restored root (storage v5 contract).
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      // Stable identity — the hook treats getPersistedCurrentFolderId as a
+      // reactive dep of the auto-restore effect; an inline arrow would re-fire
+      // (and cancel) the restore on every render.
+      const getPersistedCurrentFolderId = vi.fn(() => 'persisted-root-uuid');
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            getPersistedCurrentFolderId,
+          }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      await waitFor(() => expect(result.current?.rootDirectoryHandle).not.toBeNull());
+
+      // rootIdByPath carries the persisted identity, not a fresh UUID.
+      expect(result.current?.rootIdByPath.get('/test/restored/path')).toBe('persisted-root-uuid');
+      // The store already holds this id; no redundant (and state-clobbering) write.
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+    });
+
+    it('mints a fresh UUID on legacy restore only when nothing was persisted', async () => {
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      // Stable identity — see note in the reuse test above.
+      const getPersistedCurrentFolderId = vi.fn(() => null);
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            getPersistedCurrentFolderId,
+          }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      await waitFor(() => expect(result.current?.rootDirectoryHandle).not.toBeNull());
+
+      const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.current?.rootIdByPath.get('/test/restored/path')).toBe(calledId);
     });
 
     it('should handle setCurrentFolderId being undefined gracefully', async () => {
@@ -726,7 +793,8 @@ describe('useFileSystem', () => {
         path: '/my/root',
         rootId: 'root-id-1',
       });
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/my/root');
+      // Storage v5: store receives the durable rootId UUID, not the path.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('root-id-1');
     });
 
     it('does not add non-persisted descriptor to store (persisted:false)', async () => {
@@ -768,7 +836,8 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
       // addActiveRoot should NOT be called for non-persisted roots
       expect(mockAddActiveRoot).not.toHaveBeenCalled();
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/ephemeral');
+      // Storage v5: store receives the durable rootId UUID, not the path.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('ephemeral-id');
     });
   });
 
@@ -821,7 +890,10 @@ describe('useFileSystem', () => {
       expect(calledWith.path).toBe('/fallback/path');
       expect(typeof calledWith.rootId).toBe('string');
       expect(calledWith.rootId.length).toBeGreaterThan(0);
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/fallback/path');
+      // Storage v5: fallback path generates a synthetic uuid as rootId.
+      const fallbackCalledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(typeof fallbackCalledId).toBe('string');
+      expect(fallbackCalledId).toMatch(/^[0-9a-f-]{36}$/);
     });
   });
 
@@ -869,7 +941,8 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
       // Focus should be set on the existing handle
       expect(result.current?.rootDirectoryHandle).toEqual(descriptor.handle);
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/shared/root');
+      // Storage v5: store receives the durable rootId UUID, not the path.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('root-shared');
     });
   });
 
@@ -936,7 +1009,8 @@ describe('useFileSystem', () => {
       });
 
       expect(result.current?.rootDirectoryHandle).toEqual(desc1.handle);
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/root/a');
+      // Storage v5: setFocusedRoot resolves the rootId from rootIdByPath map.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('id-a');
     });
 
     it('is a no-op for unknown path', async () => {
@@ -1091,7 +1165,79 @@ describe('useFileSystem', () => {
       expect(mockSetActiveRoots).not.toHaveBeenCalled();
       // rootDirectoryHandles should have the single root
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/legacy/path');
+      // Storage v5: legacy single-root path generates a synthetic uuid as rootId.
+      const legacyCalledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
+      expect(typeof legacyCalledId).toBe('string');
+      expect(legacyCalledId).toMatch(/^[0-9a-f-]{36}$/);
+    });
+  });
+
+  describe('setRootDirectoryHandle (storage v5)', () => {
+    it('writes the registered RootId (not the path) to the store', async () => {
+      const descriptor: RootDescriptor = {
+        displayName: 'reg-root',
+        handle: { path: '/reg/root', name: 'reg-root', kind: 'directory', platform: 'web' },
+        kind: 'fsa',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: 'rid-registered',
+      };
+      const storageAdapter = createStorageAdapter('web');
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+      };
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+
+      // Register the root (populates rootIdByPath with rid-registered).
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+
+      vi.clearAllMocks();
+      await act(async () => {
+        result.current?.setRootDirectoryHandle(descriptor.handle);
+      });
+
+      // Storage v5: the durable RootId is resolved from rootIdByPath, not the path.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('rid-registered');
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalledWith('/reg/root');
+    });
+
+    it('falls back to the canonical path for handles set before registration', async () => {
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      const unregistered: DirectoryHandle = {
+        path: '/never/registered',
+        name: 'never-registered',
+        kind: 'directory',
+        platform: 'web',
+      };
+
+      await act(async () => {
+        result.current?.setRootDirectoryHandle(unregistered);
+      });
+
+      // No rootId known yet — path fallback (registerRestoredHandles corrects it later).
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/never/registered');
     });
   });
 
@@ -1210,7 +1356,8 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandles).toEqual([handleA, handleB]);
       // handles[0] focused
       expect(result.current?.rootDirectoryHandle).toEqual(handleA);
-      expect(mockSetCurrentFolderId).toHaveBeenLastCalledWith('Root A');
+      // Storage v5: store receives the durable rootId from the adapter descriptor.
+      expect(mockSetCurrentFolderId).toHaveBeenLastCalledWith('root-a');
       // addActiveRoot x2 with descriptor-derived rootIds
       expect(mockAddActiveRoot).toHaveBeenCalledTimes(2);
       expect(mockAddActiveRoot).toHaveBeenCalledWith({
@@ -1260,6 +1407,184 @@ describe('useFileSystem', () => {
         expect(typeof arg.rootId).toBe('string');
         expect(arg.rootId.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe('multi-root: removeRootDirectory (disconnect)', () => {
+    const descriptorA: RootDescriptor = {
+      displayName: 'root-a',
+      handle: { path: '/roots/a', name: 'root-a', kind: 'directory', platform: 'web' },
+      kind: 'fsa',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-id-a',
+    };
+    const descriptorB: RootDescriptor = {
+      displayName: 'root-b',
+      handle: { path: '/roots/b', name: 'root-b', kind: 'directory', platform: 'web' },
+      kind: 'fsa',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-id-b',
+    };
+
+    function createMultiRootAdapter(options: { withRemoveRoot?: boolean } = {}): {
+      adapter: FileSystemAdapter;
+      addRootFn: ReturnType<typeof vi.fn>;
+      removeRootFn: ReturnType<typeof vi.fn>;
+    } {
+      const { withRemoveRoot = true } = options;
+      const addRootFn = vi
+        .fn()
+        .mockResolvedValueOnce(descriptorA)
+        .mockResolvedValueOnce(descriptorB);
+      const removeRootFn = vi.fn().mockResolvedValue(undefined);
+      const adapter: FileSystemAdapter = {
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptorA.handle),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        exists: vi.fn().mockResolvedValue(true),
+        addRoot: addRootFn,
+        ...(withRemoveRoot ? { removeRoot: removeRootFn } : {}),
+      };
+      return { adapter, addRootFn, removeRootFn };
+    }
+
+    function renderMultiRootHook(adapter: FileSystemAdapter) {
+      const storageAdapter = createStorageAdapter('web');
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+      return renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: mockSetCurrentFolderId,
+            addActiveRoot: mockAddActiveRoot,
+            removeActiveRoot: mockRemoveActiveRoot,
+            setActiveRoots: mockSetActiveRoots,
+          }),
+        { wrapper }
+      );
+    }
+
+    it('calls adapter.removeRoot, removes the handle + rootId mapping, and purges the store', async () => {
+      const { adapter, removeRootFn } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-b');
+      });
+
+      expect(removeRootFn).toHaveBeenCalledExactlyOnceWith('root-id-b');
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandles[0]).toEqual(descriptorA.handle);
+      expect(result.current?.rootIdByPath.has('/roots/b')).toBe(false);
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-b');
+    });
+
+    it('shifts focus to the first remaining root when the focused root is removed', async () => {
+      const { adapter } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      // The second addRoot leaves B focused.
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptorB.handle);
+      mockSetCurrentFolderId.mockClear();
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-b');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptorA.handle);
+      // Focus shift writes the REMAINING root's id via the established action.
+      expect(mockSetCurrentFolderId).toHaveBeenCalledExactlyOnceWith('root-id-a');
+      // Ordering: focus shift must land BEFORE the store purge so the purge
+      // removes the snapshot setCurrentFolderId writes back for the outgoing root.
+      const focusOrder = mockSetCurrentFolderId.mock.invocationCallOrder[0] ?? 0;
+      const purgeOrder = mockRemoveActiveRoot.mock.invocationCallOrder[0] ?? 0;
+      expect(focusOrder).toBeLessThan(purgeOrder);
+    });
+
+    it('does not change focus when a non-focused root is removed', async () => {
+      const { adapter } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+      mockSetCurrentFolderId.mockClear();
+
+      await act(async () => {
+        // B is focused; remove A.
+        await result.current?.removeRootDirectory('root-id-a');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toEqual(descriptorB.handle);
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-a');
+    });
+
+    it('clears currentFolderId (null) when the last root is removed', async () => {
+      const { adapter } = createMultiRootAdapter();
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+      });
+      mockSetCurrentFolderId.mockClear();
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-a');
+      });
+
+      expect(result.current?.rootDirectoryHandle).toBeNull();
+      expect(result.current?.rootDirectoryHandles).toHaveLength(0);
+      expect(mockSetCurrentFolderId).toHaveBeenCalledExactlyOnceWith(null);
+    });
+
+    it('proceeds with UI removal when adapter.removeRoot rejects (UI state wins)', async () => {
+      const { adapter, removeRootFn } = createMultiRootAdapter();
+      removeRootFn.mockRejectedValue(new Error('storage unavailable'));
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-b');
+      });
+
+      expect(removeRootFn).toHaveBeenCalledWith('root-id-b');
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-b');
+    });
+
+    it('proceeds with UI removal when the adapter has no removeRoot method', async () => {
+      const { adapter } = createMultiRootAdapter({ withRemoveRoot: false });
+      const { result } = renderMultiRootHook(adapter);
+
+      await act(async () => {
+        await result.current?.addRootDirectory();
+        await result.current?.addRootDirectory();
+      });
+
+      await act(async () => {
+        await result.current?.removeRootDirectory('root-id-a');
+      });
+
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-a');
     });
   });
 });

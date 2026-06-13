@@ -10,11 +10,15 @@ import {
   useFileSystemWatcher,
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
+
+const logger = createLogger('FileSystemContext');
 
 /**
  * Type guard to check if the store has the Zustand persist API.
@@ -105,7 +109,12 @@ export function useFileSystem() {
   // Multi-root store actions: without these the boot restore never populates
   // activeRootIds and focus-by-recency always falls back to handles[0].
   const addActiveRoot = useFileExplorerStoreSelector((s) => s.addActiveRoot);
+  const removeActiveRoot = useFileExplorerStoreSelector((s) => s.removeActiveRoot);
   const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
+  // Token cache seam: the core hook does not own the token cache, so the
+  // disconnect wrapper below clears the removed root's cached token counts via
+  // the (optional) TokenCacheProvider context.
+  const tokenCacheContext = useOptionalTokenCacheContext();
 
   const rehydrateCurrentFolderStateIfNeeded = useCallback(
     (folderId: string) => {
@@ -183,6 +192,7 @@ export function useFileSystem() {
     waitForHydration,
     getPersistedCurrentFolderId,
     addActiveRoot,
+    removeActiveRoot,
     setActiveRoots,
     getFolderAccessOrder,
   });
@@ -193,7 +203,13 @@ export function useFileSystem() {
     const handle = await selectDirectoryWithErrorMapping(coreApi);
     if (handle) {
       setRootDirectoryHandle(handle);
-      rehydrateCurrentFolderStateIfNeeded(handle.path);
+      // v5: currentFolderId is now a RootId UUID (set by coreApi.selectRootDirectory
+      // → addRootDirectory → updateCurrentFolderId(rootId)).  Read it from the store
+      // rather than using handle.path so the rehydration key matches the store key.
+      const rootId = store.getState().currentFolderId;
+      if (rootId) {
+        rehydrateCurrentFolderStateIfNeeded(rootId);
+      }
     }
     return handle;
   };
@@ -201,6 +217,33 @@ export function useFileSystem() {
   const clearRootDirectory = () => {
     coreApi.clearRootDirectory();
     setRootDirectoryHandle(null);
+  };
+
+  /**
+   * Disconnect a root by RootId (multi-root, Phase 5).
+   *
+   * Delegates the orchestration (adapter forget, handle removal, focus shift,
+   * store purge) to the core hook, then syncs the store's handle copy and
+   * clears the root's cached token counts. Disconnect ≠ delete: indexed DB
+   * rows are deliberately KEPT so re-adding the folder resumes instantly.
+   */
+  const removeRootDirectory = async (rootId: string): Promise<void> => {
+    const nextFocused = await coreApi.removeRootDirectory(rootId);
+    // Keep the store's handle copy coherent with the core hook (the store
+    // value is the render source of truth for rootDirectoryHandle below).
+    // NOTE: the core hook has already shifted focus internally, so the
+    // updateCurrentFolderId this setter dispatches is intentionally redundant
+    // — the outgoing folder already equals nextFocused, making the second
+    // focus-write an idempotent no-op. Only the handle copy actually changes.
+    setRootDirectoryHandle(nextFocused);
+    // Token cache: best-effort — a failure must not block the disconnect.
+    if (tokenCacheContext) {
+      try {
+        await tokenCacheContext.store.clearFolder(rootId);
+      } catch (error) {
+        logger.warn('removeRootDirectory: token cache clearFolder failed', { error, rootId });
+      }
+    }
   };
 
   /**
@@ -215,7 +258,11 @@ export function useFileSystem() {
     const first = handles[0];
     if (first) {
       setRootDirectoryHandle(first);
-      rehydrateCurrentFolderStateIfNeeded(first.path);
+      // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
+      const rootId = store.getState().currentFolderId;
+      if (rootId) {
+        rehydrateCurrentFolderStateIfNeeded(rootId);
+      }
     }
   };
 
@@ -227,7 +274,10 @@ export function useFileSystem() {
     coreApi.setRootDirectoryHandle(handle);
     setRootDirectoryHandle(handle);
     if (handle) {
-      rehydrateCurrentFolderStateIfNeeded(handle.path);
+      // v5: prefer the RootId UUID from the store after coreApi has updated currentFolderId.
+      // Fall back to handle.path for legacy paths that still write the path as currentFolderId.
+      const rootId = store.getState().currentFolderId ?? handle.path;
+      rehydrateCurrentFolderStateIfNeeded(rootId);
     }
   };
 
@@ -237,7 +287,9 @@ export function useFileSystem() {
   useLayoutEffect(() => {
     if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
-      rehydrateCurrentFolderStateIfNeeded(coreApi.rootDirectoryHandle.path);
+      // v5: use the RootId UUID from the store after coreApi's restore has set currentFolderId.
+      const rootId = store.getState().currentFolderId ?? coreApi.rootDirectoryHandle.path;
+      rehydrateCurrentFolderStateIfNeeded(rootId);
     }
   }, [
     storedRootDirectoryHandle,
@@ -324,8 +376,15 @@ export function useFileSystem() {
       addRootDirectory: coreApi.addRootDirectory,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
+      /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
+      removeRootDirectory,
       /** Switch focused root to the given path (multi-root, Phase 4+). */
       setFocusedRoot: coreApi.setFocusedRoot,
+      /**
+       * Maps handle.path → RootId UUID (storage v5).
+       * Consumers use this to resolve the durable identity for a given handle path.
+       */
+      rootIdByPath: coreApi.rootIdByPath,
     }),
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope
@@ -334,6 +393,7 @@ export function useFileSystem() {
       coreApi.rootDirectoryHandle,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
+      coreApi.rootIdByPath,
     ]
   );
 }

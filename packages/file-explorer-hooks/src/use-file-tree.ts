@@ -35,6 +35,14 @@ export interface LoadingProgressState {
 
 export interface UseFileTreeOptions {
   batchSize?: number;
+  /**
+   * Durable RootId UUID for this root (storage v5). When provided, every
+   * loaded node is stamped with this value as its `rootFolderId` instead of
+   * `rootHandle.path`, so selection composite keys and the linchpin equality
+   * `fileNode.rootFolderId === folderId` carry the durable identity.
+   * Defaults to `rootHandle.path` (legacy behaviour).
+   */
+  rootFolderId?: string;
 }
 
 interface ProcessingStats {
@@ -77,6 +85,7 @@ export function useFileTree(
 ) {
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+  const rootFolderIdOption = options.rootFolderId;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
@@ -435,7 +444,9 @@ export function useFileTree(
       if (!rootHandle.path) {
         throw new Error('Root directory handle is missing its canonical path');
       }
-      const rootFolderId = rootHandle.path;
+      // Storage v5: stamp nodes with the durable RootId when threaded in;
+      // fall back to the canonical path (legacy behaviour).
+      const rootFolderId = rootFolderIdOption ?? rootHandle.path;
       const stats: ProcessingStats = { successCount: 0, failCount: 0 };
 
       if (abortSignal?.aborted) {
@@ -487,6 +498,7 @@ export function useFileTree(
       batchSize,
       processFile,
       processDirectory,
+      rootFolderIdOption,
     ]
   );
 

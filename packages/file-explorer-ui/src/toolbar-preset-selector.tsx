@@ -8,6 +8,7 @@
  * at the top level with stable dependencies.
  */
 
+import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -105,7 +106,7 @@ function resolveStorePersistApi(store: unknown): {
   }
   return {
     storage,
-    name: opts?.name ?? 'file-explorer-storage-v4',
+    name: opts?.name ?? FILE_EXPLORER_STORAGE_KEY,
     version: opts?.version ?? 1,
     partialize: typeof opts?.partialize === 'function' ? opts.partialize : null,
     getState: typeof storeRef.getState === 'function' ? storeRef.getState : null,

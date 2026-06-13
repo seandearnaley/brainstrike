@@ -62,7 +62,7 @@ describe('file-explorer-persistence', () => {
     it('should create persist options with the correct configuration', async () => {
       const persistOptions = await getFreshPersistOptions();
 
-      expect(persistOptions.name).toBe('file-explorer-storage-v4');
+      expect(persistOptions.name).toBe('file-explorer-storage-v5');
       expect(persistOptions.version).toBe(FILE_EXPLORER_STORAGE_VERSION);
       expect(persistOptions.storage).toBeDefined();
       expect(persistOptions.partialize).toBeDefined();

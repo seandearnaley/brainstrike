@@ -286,16 +286,66 @@ export function WorkspaceCollectionSyncProvider({
   children,
 }: WorkspaceCollectionSyncProviderProps) {
   const { fileSystemAdapter } = useAdapters();
-  const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles } = useFileSystem();
+  const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } =
+    useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
 
   // Root registry: ensure a DB roots row exists for every adapter root.
   // Runs once per boot, before the first sync cycle writes file records.
   // Errors are logged and swallowed — must never block boot.
-  // The returned callback is ref-stable: identity does not change when the
+  // The returned callbacks are ref-stable: identity does not change when the
   // reconciliation map resolves, so the service useMemo is not reconstructed.
-  const { resolveDbRootId } = useRootsReconciliation({ adapter: fileSystemAdapter, db });
+  const { registerRoot, resolveDbRootId } = useRootsReconciliation({
+    adapter: fileSystemAdapter,
+    db,
+  });
+
+  // Mid-session root registration (phase 5): roots added via Add Folder get
+  // their DB roots row at add time, so their imports write real root_id values
+  // immediately instead of NULL-until-next-boot. registerRoot awaits the boot
+  // settle and no-ops on already-mapped paths, so calling it for boot-restored
+  // handles is safe — this ref only prevents duplicate CALLS per rootId.
+  //
+  // NOTE: this effect is declared BEFORE the triggerSync effect below so the
+  // registration is enqueued before the sync loop starts; resolveDbRootId
+  // awaits enqueued registrations, so the new root's first import sees its id.
+  const registrationAttemptedRootIdsRef = useRef(new Set<string>());
+  useEffect(() => {
+    for (const handle of rootDirectoryHandles) {
+      const rootId = rootIdByPath.get(handle.path);
+      if (rootId === undefined || registrationAttemptedRootIdsRef.current.has(rootId)) {
+        // No durable identity yet (legacy setRoot path) → nothing to register;
+        // the boot reconcile owns identity for restored roots.
+        continue;
+      }
+      registrationAttemptedRootIdsRef.current.add(rootId);
+      // Fire-and-forget: registerRoot never rejects (failures are logged and
+      // swallowed inside the hook). The cost of a failed registration is that
+      // THIS session's imports for the root write root_id = NULL (no retry —
+      // the rootId stays in the attempted set above); the boot reconcile
+      // self-heals it next launch, since it reconciles ALL adapter roots.
+      void registerRoot({
+        displayName: handle.name,
+        handle,
+        kind: fileSystemAdapter.platform === 'electron' ? 'path' : 'fsa',
+        // The handle is live in this session: the only routes into
+        // rootDirectoryHandles are addRoot / restoreRoots-driven flows the
+        // user has just granted.
+        permissionState: 'granted',
+        // The useFileSystem surface does not expose per-root persisted state,
+        // so reconstruct it: handles reach this list via addRoot or the
+        // restore flows, and both persist the handle to the backing store in
+        // the normal case. The one exception — web addRoot returning
+        // persisted:false after a failed IndexedDB write — is invisible here,
+        // so such a root may be registered even though its id won't survive
+        // reload (worst case: one orphaned roots row, no cascade impact).
+        // Accepted tradeoff per the phase 5 plan.
+        persisted: true,
+        rootId,
+      });
+    }
+  }, [fileSystemAdapter, registerRoot, rootDirectoryHandles, rootIdByPath]);
 
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
   const waitForBackgroundPermit = useMemo(

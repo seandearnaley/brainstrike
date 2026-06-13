@@ -289,16 +289,62 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
+   * Dedupe scan: find an already-stored root whose handle points at the same
+   * directory as `dirHandle` (FSA `isSameEntry`). Mirrors the desktop adapter's
+   * path-keyed upsert so re-picking a folder REUSES its existing RootId instead
+   * of minting a new identity — a new identity would orphan the user's
+   * persisted selections (folderStates are keyed by RootId) and accumulate
+   * duplicate entries in the IndexedDB handle cache.
+   *
+   * `isSameEntry` can throw on dead/stale stored handles; a throw means "not a
+   * match" and scanning continues (debug-logged, never aborts addRoot). The
+   * cache read itself is also best-effort — on failure we fall back to minting
+   * a fresh RootId, matching the cache layer's established best-effort
+   * semantics.
+   */
+  private async findExistingRootId(dirHandle: FileSystemDirectoryHandle): Promise<string | null> {
+    let stored: StoredRootHandle[];
+    try {
+      stored = await this.handleCache.getAllRootHandles();
+    } catch (err) {
+      logger.debug('findExistingRootId: best-effort cache scan failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+    for (const record of stored) {
+      try {
+        if (
+          typeof record.handle.isSameEntry === 'function' &&
+          (await record.handle.isSameEntry(dirHandle))
+        ) {
+          return record.folderId;
+        }
+      } catch (err) {
+        logger.debug('findExistingRootId: isSameEntry threw for stored handle, skipping', {
+          folderId: record.folderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return null;
+  }
+
+  /**
    * Multi-root: pick a directory, persist it under a generated RootId, and
    * return a `RootDescriptor`. `requestDirectoryAccess()` is the legacy shim
    * over this method.
+   *
+   * Re-picking a directory that is already stored reuses its existing RootId
+   * (see `findExistingRootId`) and refreshes the stored handle object; only a
+   * never-before-seen directory mints a new UUID.
    */
   async addRoot(): Promise<RootDescriptor> {
     if (!('showDirectoryPicker' in window)) {
       throw new Error('File System Access API not supported');
     }
     const dirHandle = await window.showDirectoryPicker();
-    const rootId = crypto.randomUUID();
+    const rootId = (await this.findExistingRootId(dirHandle)) ?? crypto.randomUUID();
     let persisted = true;
     try {
       await this.ensurePersistentStorage();
@@ -351,6 +397,23 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       });
     }
     return descriptors;
+  }
+
+  /**
+   * Multi-root: disconnect a root by RootId. Forgets the stored handle in the
+   * IndexedDB handle cache and clears the in-memory `lastRootFolderId` when it
+   * pointed at the removed root.
+   *
+   * Disconnect ≠ delete: this NEVER touches the DB — all
+   * roots/file_records/file_chunks rows are deliberately KEPT so re-adding the
+   * same folder (isSameEntry dedupe in addRoot reuses the rootId) resumes
+   * without re-indexing.
+   */
+  async removeRoot(rootId: string): Promise<void> {
+    await this.handleCache.removeRootHandle(rootId);
+    if (this.lastRootFolderId === rootId) {
+      this.lastRootFolderId = null;
+    }
   }
 
   async readDirectory(

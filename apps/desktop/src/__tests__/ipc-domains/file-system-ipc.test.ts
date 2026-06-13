@@ -558,3 +558,66 @@ describe('fs:saveLastFolder (legacy shim)', () => {
     ).toBe(true);
   });
 });
+
+describe('fs:removeRoot', () => {
+  let fileSystem: ElectronFileSystemAdapter;
+  let storage: ElectronStorageAdapter;
+
+  const pathA = path.resolve('/users/test/project-a');
+  const pathB = path.resolve('/users/test/project-b');
+  const entryA = { addedAt: 1000, path: pathA, rootId: 'root-id-a' };
+  const entryB = { addedAt: 2000, path: pathB, rootId: 'root-id-b' };
+
+  beforeEach(() => {
+    handlers.clear();
+    removeHandler.mockClear();
+    fileSystem = createFileSystem();
+  });
+
+  it('removes the matching rootsList entry and leaves the others intact', async () => {
+    storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
+
+    expect(storage.setItem).toHaveBeenCalledWith('rootsList', JSON.stringify([entryB]));
+    // Disconnect ≠ delete: nothing DB-related is touched by this handler;
+    // the file system adapter is never consulted either.
+    expect(fileSystem.exists).not.toHaveBeenCalled();
+  });
+
+  it('clears lastFolderPath when it equals the removed root path', async () => {
+    storage = createStorage({
+      lastFolderPath: pathA,
+      rootsList: JSON.stringify([entryA, entryB]),
+    });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
+
+    expect(storage.removeItem).toHaveBeenCalledWith('lastFolderPath');
+  });
+
+  it('leaves lastFolderPath untouched when it points at a different root', async () => {
+    storage = createStorage({
+      lastFolderPath: pathB,
+      rootsList: JSON.stringify([entryA, entryB]),
+    });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a');
+
+    expect(storage.removeItem).not.toHaveBeenCalled();
+    expect(await storage.getItem('lastFolderPath')).toBe(pathB);
+  });
+
+  it('is a no-op (no write) when the rootId is not in rootsList', async () => {
+    storage = createStorage({ rootsList: JSON.stringify([entryA]) });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'unknown-root-id');
+
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.removeItem).not.toHaveBeenCalled();
+  });
+});

@@ -70,10 +70,10 @@ describe('file-explorer-persistence coverage', () => {
       });
     });
 
-    expect(values.get('file-explorer-storage-v4')).toBe('{"legacy":true}');
+    expect(values.get('file-explorer-storage-v5')).toBe('{"legacy":true}');
     expect(values.get('fileExplorerSettings')).toBeUndefined();
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrating settings from legacy key "fileExplorerSettings" to "file-explorer-storage-v4"'
+      'Migrating settings from legacy key "fileExplorerSettings" to "file-explorer-storage-v5"'
     );
   });
 

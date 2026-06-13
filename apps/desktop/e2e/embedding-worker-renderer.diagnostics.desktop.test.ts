@@ -171,14 +171,20 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       });
       expect(fixtureSummaryAfterSelection?.readDirectoryCalls).toEqual(['/mock/stress-import']);
       expect(fileExplorerSnapshotAfterSelection).not.toBeNull();
+      // Storage v5: the live pick yields a durable RootId (UUID) as the
+      // identity key, never the filesystem path. The path lives only in
+      // rootDirectoryPath; selection keys are composited from the RootId.
+      const currentFolderId = fileExplorerSnapshotAfterSelection?.currentFolderId;
+      expect(typeof currentFolderId).toBe('string');
+      expect(currentFolderId).toBeTruthy();
+      expect(currentFolderId).not.toBe('/mock/stress-import');
       expect(fileExplorerSnapshotAfterSelection).toMatchObject({
-        currentFolderId: '/mock/stress-import',
         rootDirectoryPath: '/mock/stress-import',
         selectedFilePathCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
       });
       expect(
         fileExplorerSnapshotAfterSelection?.selectedFilePathSamples.every((key) =>
-          key.startsWith('/mock/stress-import|@|')
+          key.startsWith(`${currentFolderId}|@|`)
         )
       ).toBe(true);
 

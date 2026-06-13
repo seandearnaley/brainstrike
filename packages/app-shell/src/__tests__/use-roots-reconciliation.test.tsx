@@ -288,4 +288,108 @@ describe('useRootsReconciliation', () => {
     const resolved = await result.current.resolveDbRootId(rootPath);
     expect(resolved).toBe(dbId);
   });
+
+  describe('registerRoot (mid-session registration)', () => {
+    function countRootInserts(query: ReturnType<typeof vi.fn>): number {
+      return query.mock.calls.filter(([sql]) => (sql as string).includes('INSERT INTO roots'))
+        .length;
+    }
+
+    // (a) registerRoot adds a mapping visible via resolveDbRootId
+    it('adds a mapping immediately visible through resolveDbRootId', async () => {
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const { db } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
+
+      await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+    });
+
+    // (b) exactly one INSERT for a new path — including a repeated call
+    it('issues exactly one INSERT for a new path, even when called twice', async () => {
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const { db, query } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const descriptor = grantedRootWithPath('root-new', 'docs', '/workspace/new');
+
+      await result.current.registerRoot(descriptor);
+      expect(countRootInserts(query)).toBe(1);
+
+      await result.current.registerRoot(descriptor);
+      expect(countRootInserts(query)).toBe(1);
+    });
+
+    // (c) skips unregistrable descriptors — same filter as reconcileRoots
+    it('skips session-only and dead descriptors without writing to the DB', async () => {
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const { db, query } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      const sessionOnly: RootDescriptor = {
+        ...grantedRootWithPath('root-session', 'session', '/workspace/session'),
+        persisted: false,
+      };
+      const deadHandle: RootDescriptor = {
+        ...grantedRootWithPath('root-dead', 'dead', '/workspace/dead'),
+        permissionState: 'unknown',
+      };
+
+      await result.current.registerRoot(sessionOnly);
+      await result.current.registerRoot(deadHandle);
+
+      expect(countRootInserts(query)).toBe(0);
+      await expect(result.current.resolveDbRootId('/workspace/session')).resolves.toBeNull();
+      await expect(result.current.resolveDbRootId('/workspace/dead')).resolves.toBeNull();
+    });
+
+    // Boot reconcile wins races: a path the boot pass already mapped is never
+    // re-inserted, and the boot mapping is preserved.
+    it('does not re-insert a path the boot reconcile already mapped', async () => {
+      const rootPath = '/workspace/docs';
+      const dbId = 'db-root-id';
+      const restoreRoots = vi.fn(
+        async (): Promise<RootDescriptor[]> => [
+          grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+        ]
+      );
+      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const { db, query } = makeDbWithRootRow(rootPath, dbId);
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await result.current.registerRoot(grantedRootWithPath('other-id', 'docs', rootPath));
+
+      expect(countRootInserts(query)).toBe(0);
+      await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe(dbId);
+    });
+
+    // The Add Folder commit fires registration and the sync loop in the same
+    // render pass: a resolveDbRootId issued right after an UNAWAITED
+    // registerRoot must still observe the new mapping (no NULL root_id race).
+    it('resolveDbRootId issued right after an unawaited registerRoot sees the new mapping', async () => {
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const { db } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      void result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
+
+      await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+    });
+
+    // Mirrors the boot no-op: on adapters without restoreRoots the registered
+    // id could never be restored next session, so registering would orphan rows.
+    it('no-ops on adapters without restoreRoots', async () => {
+      const adapter = makeAdapter();
+      const { db, query } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
+
+      expect(query).not.toHaveBeenCalled();
+    });
+  });
 });
