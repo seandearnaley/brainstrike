@@ -1595,5 +1595,38 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandles).toHaveLength(1);
       expect(result.current?.rootDirectoryHandle?.rootId).toBe('rid-same-a');
     });
+
+    it('reconciles an unstamped injected handle with a later stamped restore of the same path (no duplicate root)', async () => {
+      // The inline-fixture event bridge injects an UNSTAMPED handle via setRoot,
+      // then the adapter auto-restore stamps the SAME path. addOrFocusHandle must
+      // match the unstamped entry by path and replace it — otherwise the same
+      // logical root becomes two entries and the file tree renders twice (forest
+      // mode for what is really one root). Regression for the Web E2E
+      // "2 treegrids" failure introduced by the fixture event-bridge reroute.
+      const handle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'fixture-root',
+        path: '/fixture-root',
+        platform: 'web',
+      };
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      // 1) Inject the unstamped handle (mirrors the fixture event → setRoot).
+      act(() => {
+        result.current?.setRootDirectoryHandle(handle);
+      });
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+
+      // 2) Stamped restore of the SAME path (mirrors the adapter auto-restore).
+      await act(async () => {
+        await result.current?.registerRestoredHandles([handle]);
+      });
+
+      // Reconciled to ONE stamped root, not two.
+      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
+      expect(result.current?.rootDirectoryHandles[0]?.rootId).toMatch(/^[0-9a-f-]{36}$/);
+    });
   });
 });

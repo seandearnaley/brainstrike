@@ -158,11 +158,20 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
       // would collapse two same-named web roots into one entry.
       const stamped = stampRootId(action.handle, action.rootId);
       const key = rootKeyOf(stamped);
-      const exists = state.rootDirectoryHandles.some((h) => rootKeyOf(h) === key);
-      const newHandles = exists
-        ? // Replace in place so a previously-unstamped entry picks up the stamp.
-          state.rootDirectoryHandles.map((h) => (rootKeyOf(h) === key ? stamped : h))
-        : [...state.rootDirectoryHandles, stamped];
+      // Match an existing entry by stamped identity, OR an UNSTAMPED handle at the
+      // same path. The latter reconciles a root first added without a rootId
+      // (e.g. the inline fixture injected via setRoot) that is now being stamped
+      // by the adapter restore of the same path — without it the two become
+      // separate roots and the file tree renders twice. The `rootId === undefined`
+      // guard keeps same-named roots (always stamped) distinct, preserving #1197.
+      const matchesExisting = (h: DirectoryHandle): boolean =>
+        rootKeyOf(h) === key || (h.rootId === undefined && h.path === stamped.path);
+      const matchIndex = state.rootDirectoryHandles.findIndex(matchesExisting);
+      const newHandles =
+        matchIndex >= 0
+          ? // Replace in place so the matched entry picks up the stamped identity.
+            state.rootDirectoryHandles.map((h, i) => (i === matchIndex ? stamped : h))
+          : [...state.rootDirectoryHandles, stamped];
       const newRootIdByPath = action.rootId
         ? new Map([...state.rootIdByPath, [action.handle.path, action.rootId]])
         : state.rootIdByPath;
