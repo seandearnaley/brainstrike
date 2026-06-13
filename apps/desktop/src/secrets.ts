@@ -13,6 +13,13 @@ interface SecretsSchema {
   secrets: Record<string, string>; // base64-encoded encrypted strings
 }
 
+function hasUsableSafeStorageEncryption(): boolean {
+  return (
+    Boolean(safeStorage?.isEncryptionAvailable?.()) &&
+    safeStorage.getSelectedStorageBackend?.() !== 'basic_text'
+  );
+}
+
 export function createSecretsService(store?: ElectronStore<SecretsSchema>): SecretsService {
   const _store = store ?? new ElectronStore<SecretsSchema>({ name: 'brainstrike-secrets' });
   // Work around ElectronStore Conf typings in TS builds
@@ -23,7 +30,7 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
 
   return {
     async saveKey(provider: string, value: string): Promise<boolean> {
-      if (!safeStorage?.isEncryptionAvailable?.()) {
+      if (!hasUsableSafeStorageEncryption()) {
         throw new Error('encryption_unavailable');
       }
       const b64 = Buffer.from(safeStorage.encryptString(value)).toString('base64');
@@ -39,7 +46,7 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
       }
       try {
         const buf = Buffer.from(b64, 'base64');
-        if (!safeStorage?.isEncryptionAvailable?.()) {
+        if (!hasUsableSafeStorageEncryption()) {
           return null;
         }
         return safeStorage.decryptString(buf);

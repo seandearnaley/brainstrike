@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const safeStorageMock = vi.hoisted(() => ({
   isEncryptionAvailable: vi.fn(),
+  getSelectedStorageBackend: vi.fn(),
   encryptString: vi.fn(),
   decryptString: vi.fn(),
 }));
@@ -27,7 +28,7 @@ const createStore = () => {
 
 describe('secrets', () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it('stores and retrieves encrypted secrets when available', async () => {
@@ -55,6 +56,19 @@ describe('secrets', () => {
 
     await expect(service.saveKey('openai', 'secret')).rejects.toThrow('encryption_unavailable');
     expect(store.data['secrets']).toBeUndefined();
+  });
+
+  it('rejects Electron basic_text secret storage', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+    safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
+
+    const store = createStore();
+    const service = createSecretsService(store as never);
+
+    await expect(service.saveKey('openai', 'secret')).rejects.toThrow('encryption_unavailable');
+    expect(await service.getKey('openai')).toBeNull();
+    expect(safeStorageMock.encryptString).not.toHaveBeenCalled();
+    expect(safeStorageMock.decryptString).not.toHaveBeenCalled();
   });
 
   it('does not fall back to base64 decode when decryption fails', async () => {
