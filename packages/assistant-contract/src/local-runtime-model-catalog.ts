@@ -1129,11 +1129,9 @@ export class LocalRuntimeModelCatalogService {
     });
 
     // Surface the first catalog failure so "empty model dropdown while runtime
-    // is reachable" is diagnosable without DevTools — but only when the runtime
-    // was actually REACHABLE. When the probe already found it unreachable
-    // (not installed / not running), the probe logged it and this catalog
-    // failure is a redundant second warn for the same benign cause, so demote
-    // it to debug. Stale-cache and repeat failures stay at debug too.
+    // is reachable" is diagnosable without DevTools. Demote stale-cache and
+    // repeated failures because unavailable local runtimes are normal when the
+    // user does not run Ollama or LM Studio.
     const catalogFailurePayload = {
       runtime,
       state: nextStatus.state,
@@ -1141,8 +1139,7 @@ export class LocalRuntimeModelCatalogService {
       availability: availability.state,
       consecutiveFailures: nextFailures,
     };
-    const isRedundantUnreachableFailure = !isReachableRuntimeState(availability.state);
-    if (nextStatus.state === 'stale_cached' || nextFailures > 1 || isRedundantUnreachableFailure) {
+    if (nextStatus.state === 'stale_cached' || nextFailures > 1) {
       this.logger.debug('local runtime model catalog failed', catalogFailurePayload);
     } else {
       this.logger.warn('local runtime model catalog failed', catalogFailurePayload);

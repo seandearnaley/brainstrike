@@ -843,6 +843,54 @@ describe('useVectorQueueState', () => {
     );
   });
 
+  it('treats a desktop { canceled: true } enqueue result as cancellation, not completion', async () => {
+    const controller = createMockController();
+    // Desktop main resolves { canceled: true } (instead of rejecting) for a
+    // deliberate cancellation. The hook must re-raise it as an abort and log it
+    // as canceled — never dispatch queue-drained or log "completed".
+    controller.enqueueBackfillMock.mockResolvedValueOnce({ canceled: true });
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    try {
+      await act(async () => {
+        await expect(result.current.backfillActiveSet()).rejects.toMatchObject({
+          name: 'AbortError',
+        });
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.INFO,
+          message: 'backfillActiveSet: backfill canceled',
+        }),
+      ])
+    );
+    expect(records).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.INFO,
+          message: 'backfillActiveSet: backfill completed',
+        }),
+      ])
+    );
+  });
+
   it('does not let an older backfill invocation clear newer backfill state', async () => {
     vi.useFakeTimers();
     const controller = createMockController();
