@@ -49,12 +49,13 @@ function buildAncestorDirectoryChain(
   let cachedParentChain: readonly string[] | undefined;
 
   while (currentPath) {
-    cachedParentChain = cache?.get(currentPath);
+    const normalizedCurrentPath = normalizePath(currentPath);
+    cachedParentChain = cache?.get(normalizedCurrentPath);
     if (cachedParentChain) {
       break;
     }
-    missingPaths.push(currentPath);
-    currentPath = getParentDirectoryPath(currentPath);
+    missingPaths.push(normalizedCurrentPath);
+    currentPath = getParentDirectoryPath(normalizedCurrentPath);
   }
 
   // Avoid recursive spread copies for deep trees; recursive selection can ask for
