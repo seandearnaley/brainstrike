@@ -623,10 +623,15 @@ export class LocalRuntimeDiscoveryService {
     const nextStatus = stale ?? result;
     const nextFailures = consecutiveFailures + 1;
 
-    // Surface the first non-available result so Settings → Local Runtimes
-    // "Unavailable" is never silent. Demote repeated failures to debug while
-    // the backoff cache remains authoritative; unavailable local runtimes are
-    // normal when users do not run Ollama or LM Studio.
+    // Surface the first ACTIONABLE failure so Settings → Local Runtimes is never
+    // silent, but keep the benign "not installed / not running" case quiet.
+    // `state: 'unavailable'` means the endpoint was unreachable (connection
+    // refused) — the normal state when the user simply does not run Ollama or
+    // LM Studio, so it must not warn-spam at startup. The reachable-but-erroring
+    // states (auth_required, blocked_web, incompatible — the daemon answered but
+    // needs attention) warn once; everything else, and every repeat failure,
+    // stays at debug while the backoff cache remains authoritative. Settings
+    // still shows "Unavailable" for the quiet case.
     const probeFailurePayload = {
       runtime,
       endpoint:
@@ -638,7 +643,8 @@ export class LocalRuntimeDiscoveryService {
       hint: 'hint' in result ? result.hint : undefined,
       consecutiveFailures: nextFailures,
     };
-    if (nextFailures === 1) {
+    const isActionableFailure = result.state !== 'unavailable';
+    if (nextFailures === 1 && isActionableFailure) {
       this.logger.warn('local runtime probe did not reach available state', probeFailurePayload);
     } else {
       this.logger.debug('local runtime probe did not reach available state', probeFailurePayload);
