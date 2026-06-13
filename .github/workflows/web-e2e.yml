@@ -31,7 +31,9 @@ jobs:
     # NO download from cdn.playwright.dev at job time. That CDN browser download
     # was stalling at ~100% and hanging this job to its timeout every night
     # (GitHub reports the timeout as "cancelled"). Mirrors the web smoke job in
-    # test.yml. The image tag MUST match the installed @playwright/test version.
+    # test.yml. KEEP IN SYNC: the image tag MUST equal @playwright/test (^1.59.1);
+    # the same pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,
+    # performance.yml} — bump all three together on a Playwright upgrade.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is

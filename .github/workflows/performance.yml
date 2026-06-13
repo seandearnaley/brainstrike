@@ -39,10 +39,12 @@ jobs:
     # was stalling at ~100% and hanging this job to its timeout every night
     # (GitHub reports the timeout as "cancelled"). The browser-cache guard could
     # not self-heal: the cache-populating run is the one that hung, so the cache
-    # was never written and every run was a cold miss. Mirrors web-e2e.yml. The
-    # image tag MUST match the installed @playwright/test version. The container
-    # runs on the same runner hardware and the same Chrome-for-Testing build, so
-    # performance measurements are unaffected.
+    # was never written and every run was a cold miss. Mirrors web-e2e.yml.
+    # KEEP IN SYNC: the image tag MUST equal @playwright/test (^1.59.1); the same
+    # pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,performance.yml}
+    # — bump all three together on a Playwright upgrade. The container runs on the
+    # same runner hardware and the same Chrome-for-Testing build, so performance
+    # measurements are unaffected.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
