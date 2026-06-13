@@ -806,7 +806,9 @@ describe('applyManagedCacheBatch', () => {
     });
     // Stamp the managed-cache identity (root_id) — createWithContent does not
     // set it, and listManagedCacheEntryMetadata only returns root_id-bearing rows.
-    await db.query("UPDATE file_records SET root_id = 'root-fixture' WHERE id = 'replace-stat-file'");
+    await db.query(
+      "UPDATE file_records SET root_id = 'root-fixture' WHERE id = 'replace-stat-file'"
+    );
 
     const newMtimeMs = 1_800_000_000_000;
     await applyManagedCacheBatch(db, {

@@ -62,7 +62,10 @@ describe('DrizzleFileRecordRepository', () => {
       processedAt: now,
       embeddingSetId: args.embeddingSetId,
     });
-    await client.query('UPDATE file_records SET root_id = $1 WHERE id = $2', [args.rootId, args.id]);
+    await client.query('UPDATE file_records SET root_id = $1 WHERE id = $2', [
+      args.rootId,
+      args.id,
+    ]);
   }
 
   afterEach(async () => {

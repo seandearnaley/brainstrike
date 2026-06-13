@@ -155,7 +155,9 @@ describe('FileRecordRepository', () => {
     const entries = await repo.listManagedCacheEntryMetadata(
       '00000000-0000-0000-0000-000000000101'
     );
-    expect(entries).toEqual([expect.objectContaining({ fileRecordId: 'roundtrip-a', rootId: 'root-a' })]);
+    expect(entries).toEqual([
+      expect.objectContaining({ fileRecordId: 'roundtrip-a', rootId: 'root-a' }),
+    ]);
   });
 
   it('preserves empty file content when creating managed cache entries', async () => {

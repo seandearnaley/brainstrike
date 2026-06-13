@@ -45,10 +45,11 @@ describe('migration 040: retire source_root_path', () => {
   }
 
   async function seedRoot(id: string, path: string): Promise<void> {
-    await db.query(
-      `INSERT INTO roots (id, kind, display_name, path) VALUES ($1, 'path', $2, $3)`,
-      [id, path.split('/').pop() ?? path, path]
-    );
+    await db.query(`INSERT INTO roots (id, kind, display_name, path) VALUES ($1, 'path', $2, $3)`, [
+      id,
+      path.split('/').pop() ?? path,
+      path,
+    ]);
   }
 
   async function seedFileRecord(args: {
@@ -60,7 +61,14 @@ describe('migration 040: retire source_root_path', () => {
     await db.query(
       `INSERT INTO file_records (id, name, path, size, source_root_path, root_id, embedding_set_id, created_at, updated_at)
        VALUES ($1, $2, $3, 0, $4, $5, NULL, $6, $6)`,
-      [args.id, args.path.split('/').pop() ?? args.path, args.path, args.sourceRootPath, args.rootId, SEED_TS]
+      [
+        args.id,
+        args.path.split('/').pop() ?? args.path,
+        args.path,
+        args.sourceRootPath,
+        args.rootId,
+        SEED_TS,
+      ]
     );
   }
 
