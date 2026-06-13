@@ -1412,6 +1412,34 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('treats a desktop { canceled: true } enqueue result as a benign cancellation, not a failure', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      // Desktop main resolves { canceled: true } for a deliberate cancellation
+      // instead of rejecting. The service must re-raise it as an abort and handle
+      // it benignly (isAbortError → no handleSyncFailure), never surfacing an
+      // error status for what is a cancellation, not a failure.
+      enqueueBackfill: vi.fn(async () => ({ canceled: true }) as const),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await expect(
+      service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      })
+    ).resolves.toBeUndefined();
+
+    expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'error' }));
+  });
+
   it('re-checks cancellation before applying a batched managed-cache mutation', async () => {
     const deps = createDeps({
       fileContentProcessor: {
