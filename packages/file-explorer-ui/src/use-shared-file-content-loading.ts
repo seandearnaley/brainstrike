@@ -220,6 +220,13 @@ function isWindowsAbsolutePathLike(value: string): boolean {
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith('//');
 }
 
+function shouldComparePathsCaseInsensitive(absolutePath: string, folderId: string): boolean {
+  if (isWindowsAbsolutePathLike(absolutePath) && isWindowsAbsolutePathLike(folderId)) {
+    return true;
+  }
+  return absolutePath.startsWith('/') && folderId.startsWith('/');
+}
+
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
@@ -227,8 +234,10 @@ function trimTrailingSlashes(value: string): string {
 function isPathWithinFolder(absolutePath: string, folderId: string): boolean {
   const normalizedPath = trimTrailingSlashes(normalizePathSeparators(absolutePath));
   const normalizedFolder = trimTrailingSlashes(normalizePathSeparators(folderId));
-  const compareCaseInsensitive =
-    isWindowsAbsolutePathLike(normalizedPath) && isWindowsAbsolutePathLike(normalizedFolder);
+  const compareCaseInsensitive = shouldComparePathsCaseInsensitive(
+    normalizedPath,
+    normalizedFolder
+  );
   const comparablePath = compareCaseInsensitive ? normalizedPath.toLowerCase() : normalizedPath;
   const comparableFolder = compareCaseInsensitive
     ? normalizedFolder.toLowerCase()
