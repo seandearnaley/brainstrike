@@ -37,6 +37,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService } from '../secrets';
+import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantRetrievalTool');
 
@@ -111,6 +112,10 @@ interface FileRecordRow {
   id: string;
   name: string;
   path: string;
+  /** Owning workspace root id; null for legacy/unrooted files. */
+  rootId: string | null;
+  /** Owning workspace root display name; null when unrooted. */
+  rootName: string | null;
   tokenCount: number | null;
 }
 
@@ -329,7 +334,12 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   }
   return chunks
     .map((chunk, index) => {
-      const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const rootName = chunk.metadata?.['rootName'];
+      const path = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      // Prefix the path with its root so the model can tell apart same-named
+      // files across multiple open folders.
+      const location =
+        typeof rootName === 'string' && rootName.length > 0 ? `[${rootName}] ${path}` : path;
       const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
       return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
@@ -446,6 +456,8 @@ function toContextChunks(
         chunkType: result.chunk.chunkType,
         rank: result.rank,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        rootId: fileInfo?.rootId ?? undefined,
+        rootName: fileInfo?.rootName ?? undefined,
       },
     };
     if (fileInfo?.path !== undefined) {
@@ -459,8 +471,36 @@ function toContextChunks(
   return { chunks, skippedSourceRangeChunks };
 }
 
+interface RootLabel {
+  rootId: string | null;
+  rootName: string | null;
+}
+
+/**
+ * Resolve each file's owning workspace root (id + display name) in one query.
+ * Kept separate from `findByIds` (which loads the base record) so retrieved
+ * chunks can be disambiguated across roots that share a relative path. LEFT
+ * JOIN so legacy/unrooted files still resolve (root id/name null).
+ */
+async function loadRootLabels(db: PGlite, ids: readonly string[]): Promise<Map<string, RootLabel>> {
+  const result = (await db.query(
+    `SELECT fr.id, fr.root_id AS "rootId", r.display_name AS "rootName"
+       FROM file_records fr
+       LEFT JOIN roots r ON r.id = fr.root_id
+      WHERE fr.id = ANY($1::text[])`,
+    [Array.from(ids)]
+  )) as QueryResult<{ id: string; rootId: string | null; rootName: string | null }>;
+  return new Map(
+    result.rows.map((row) => [
+      row.id,
+      { rootId: row.rootId ?? null, rootName: row.rootName ?? null },
+    ])
+  );
+}
+
 async function buildFileRecordMap(
   repository: FileRecordRepository,
+  db: PGlite,
   ids: readonly string[]
 ): Promise<Map<string, FileRecordRow>> {
   const map = new Map<string, FileRecordRow>();
@@ -469,12 +509,16 @@ async function buildFileRecordMap(
   }
   const uniqueIds = Array.from(new Set(ids));
   const records = await repository.findByIds(uniqueIds);
+  const rootLabels = await loadRootLabels(db, uniqueIds);
   for (const record of records) {
+    const label = rootLabels.get(record.id);
     map.set(record.id, {
       id: record.id,
       name: record.name,
       path: record.path,
       tokenCount: record.tokenCount ?? null,
+      rootId: label?.rootId ?? null,
+      rootName: label?.rootName ?? null,
     });
   }
   return map;
@@ -587,7 +631,8 @@ async function searchForChunks(
   embedding: number[],
   embeddingSetId: string,
   input: RetrievalContextInput,
-  selection: RetrievalSelectionState
+  selection: RetrievalSelectionState,
+  rootId: string | undefined
 ): Promise<ChunkSearchResult[]> {
   const chunkRepository = new FileChunkRepository(db);
   const limit = input.limit ?? DEFAULT_LIMIT;
@@ -601,6 +646,7 @@ async function searchForChunks(
     ...(selection.selectionSnapshotId
       ? { selectionSnapshotId: selection.selectionSnapshotId }
       : {}),
+    ...(rootId === undefined ? {} : { rootId }),
   });
 }
 
@@ -628,7 +674,7 @@ async function packRetrievedContext(
 }> {
   const recordRepository = new FileRecordRepository(db);
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
-  const fileMap = await buildFileRecordMap(recordRepository, fileIds);
+  const fileMap = await buildFileRecordMap(recordRepository, db, fileIds);
   const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
   if (searchResults.length > 0 && skippedSourceRangeChunks.length === searchResults.length) {
     logger.warn('All retrieved chunks are missing source ranges', {
@@ -676,7 +722,19 @@ async function runRetrieval(
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
-  const searchResults = await searchForChunks(db, embedding, embeddingSetId, input, selectionState);
+  // An explicit `root` scopes retrieval to one open folder; resolving throws a
+  // clear "Open folders: ..." error for an unknown/ambiguous name. Omitting it
+  // searches every root (results stay labelled with their owning root).
+  const rootId =
+    input.root === undefined ? undefined : resolveWorkspaceRoot(runtimeData, input.root).rootId;
+  const searchResults = await searchForChunks(
+    db,
+    embedding,
+    embeddingSetId,
+    input,
+    selectionState,
+    rootId
+  );
   const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
     db,
     searchResults,

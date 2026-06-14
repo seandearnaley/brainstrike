@@ -390,6 +390,12 @@ export const RetrievalContextInputSchema = z
     embeddingSetId: z.string().min(1).optional(),
     filePaths: z.array(z.string().min(1)).max(5000).optional(),
     selectionSnapshotId: z.string().min(1).optional(),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: scope retrieval to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are labelled with their root.'
+      ),
   })
   .strict();
 
