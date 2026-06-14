@@ -42,7 +42,7 @@ test.describe('Panel State Preservation', () => {
     // Wait for the file explorer to be ready
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
-    await expect(page.getByText('No directory selected')).toBeVisible();
+    await expect(page.getByText('No folders in your workspace')).toBeVisible();
 
     // Verify explorer panel is initially visible
     const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
@@ -56,7 +56,7 @@ test.describe('Panel State Preservation', () => {
     await expect(
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
     ).toBeVisible();
-    await expect(page.getByText('No directory selected')).not.toBeVisible();
+    await expect(page.getByText('No folders in your workspace')).not.toBeVisible();
     await expect(getFileTree(page)).toBeVisible();
 
     // Verify we have some files in the tree

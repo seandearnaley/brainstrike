@@ -73,7 +73,7 @@ test.describe('Navigation Panel State Preservation', () => {
     // Verify initial state — sidebar nav marks Context Explorer as the active page.
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
-    await expect(page.getByText('No directory selected')).toBeVisible();
+    await expect(page.getByText('No folders in your workspace')).toBeVisible();
   });
 
   test('should preserve expanded folders, selected items, and scroll position when toggling navigation panel', async ({

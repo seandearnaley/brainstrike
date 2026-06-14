@@ -23,7 +23,9 @@ test.describe('File System Integration', () => {
   }
 
   async function selectMockRoot(window: Page): Promise<void> {
-    const selectRootButton = window.getByRole('button', { name: /select root|browse/i }).first();
+    const selectRootButton = window
+      .getByRole('button', { name: /add folder to workspace|browse/i })
+      .first();
     await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
     await selectRootButton.click();
   }
@@ -36,9 +38,11 @@ test.describe('File System Integration', () => {
 
   test('should handle file system access permissions', { tag: '@smoke' }, async ({ window }) => {
     test.setTimeout(30_000); // Increase timeout to 30s for this test
-    // The button text comes from FileExplorerStrings.selectRoot ('Select Root')
-    // but we keep 'browse' for backward compatibility if needed
-    const fileSystemButton = window.getByRole('button', { name: /select root|browse/i });
+    // The button text comes from FileExplorerStrings.addFolderToWorkspace
+    // ('Add Folder to Workspace'); we keep 'browse' for backward compatibility.
+    const fileSystemButton = window.getByRole('button', {
+      name: /add folder to workspace|browse/i,
+    });
 
     // Wait for the button to be actionable before interacting
     await fileSystemButton.first().waitFor({ state: 'visible', timeout: 10_000 });

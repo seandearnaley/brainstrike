@@ -68,7 +68,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await expect(
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
     ).toBeVisible();
-    await expect(page.getByText('No directory selected')).not.toBeVisible();
+    await expect(page.getByText('No folders in your workspace')).not.toBeVisible();
     await expect(getFileTree(page)).toBeVisible();
 
     // Step 4: Verify file tree structure is loaded

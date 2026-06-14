@@ -1,4 +1,3 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { screen } from '@testing-library/react';
@@ -16,7 +15,6 @@ function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToo
   return {
     onDirectorySelect: vi.fn().mockResolvedValue(undefined),
     isLoading: false,
-    rootDirectoryHandle: null,
     ...overrides,
   };
 }
@@ -26,50 +24,47 @@ describe('FileExplorerToolbar', () => {
     vi.clearAllMocks();
   });
 
-  it('renders select root button', () => {
-    const props = getProps();
-    renderWithProviders(<FileExplorerToolbar {...props} />);
+  it('renders a single "Add Folder to Workspace" action button', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     expect(
-      screen.getByRole('button', { name: FileExplorerStrings.selectRoot })
+      screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
     ).toBeInTheDocument();
+    // Multi-root: the label no longer flips between "Select Root" and "Add Folder".
+    expect(screen.queryByText('Select Root')).not.toBeInTheDocument();
+    expect(screen.queryByText('Add Folder')).not.toBeInTheDocument();
   });
 
-  it('disables select root button based on loading state', () => {
-    const props = getProps({ isLoading: true });
-    renderWithProviders(<FileExplorerToolbar {...props} />);
-    expect(screen.getByRole('button', { name: FileExplorerStrings.selectRoot })).toBeDisabled();
+  it('preserves the data-testid that desktop E2E depends on', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps()} />);
+    expect(screen.getByTestId('select-root-button')).toBeInTheDocument();
   });
 
-  it('invokes callback when select root button is clicked', async () => {
+  it('disables the action button while loading', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps({ isLoading: true })} />);
+    expect(
+      screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
+    ).toBeDisabled();
+  });
+
+  it('invokes onDirectorySelect when the action button is clicked', async () => {
     const props = getProps();
     const user = userEvent.setup();
     renderWithProviders(<FileExplorerToolbar {...props} />);
-    await user.click(screen.getByRole('button', { name: FileExplorerStrings.selectRoot }));
+    await user.click(
+      screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
+    );
     expect(props.onDirectorySelect).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the active folder badge in the toolbar when a root handle exists', () => {
-    const rootDirectoryHandle: DirectoryHandle = {
-      path: '/root',
-      name: 'root',
-      kind: 'directory',
-      platform: 'web',
-    };
-
-    renderWithProviders(<FileExplorerToolbar {...getProps({ rootDirectoryHandle })} />);
-
-    expect(screen.getByText('root')).toBeInTheDocument();
+  it('does not render the focused-root folder badge (removed for multi-root)', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps()} />);
+    const toolbar = screen.getByTestId('file-explorer-toolbar');
+    // Exactly one interactive control: the Add Folder action. No badge alongside it.
+    expect(toolbar.querySelectorAll('button')).toHaveLength(1);
   });
 
-  it('shows "Add Folder" label and keeps data-testid="select-root-button" when hasRoots is true', () => {
-    renderWithProviders(<FileExplorerToolbar {...getProps({ hasRoots: true })} />);
-    expect(screen.getByTestId('select-root-button')).toBeInTheDocument();
-    expect(screen.getByText('Add Folder')).toBeInTheDocument();
-  });
-
-  it('shows "Select Root" label when hasRoots is false (no roots yet)', () => {
-    renderWithProviders(<FileExplorerToolbar {...getProps({ hasRoots: false })} />);
-    expect(screen.getByTestId('select-root-button')).toBeInTheDocument();
-    expect(screen.getByText(FileExplorerStrings.selectRoot)).toBeInTheDocument();
+  it('centers the action within the toolbar', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps()} />);
+    expect(screen.getByTestId('file-explorer-toolbar')).toHaveClass('justify-center');
   });
 });

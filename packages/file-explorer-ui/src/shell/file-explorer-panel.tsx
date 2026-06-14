@@ -882,10 +882,8 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
         {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
           <FileExplorerToolbar
-            hasRoots={(rootDirectoryHandles?.length ?? 0) > 0}
             isLoading={isLoading}
             onDirectorySelect={handleToolbarDirectorySelect}
-            rootDirectoryHandle={rootDirectoryHandle}
           />
           {/* Filter section: Collapsible view filters + Quick filter input */}
           {rootDirectoryHandle && (

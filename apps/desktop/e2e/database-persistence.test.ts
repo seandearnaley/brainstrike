@@ -420,7 +420,7 @@ test.describe('Database Persistence', () => {
       await explorerTab.click();
       await page.waitForTimeout(1000);
 
-      const selectRootButton = page.locator('button:has-text("Select Root")');
+      const selectRootButton = page.locator('button:has-text("Add Folder to Workspace")');
       if (await selectRootButton.isVisible()) {
         await selectRootButton.click();
         await page.waitForTimeout(2000);

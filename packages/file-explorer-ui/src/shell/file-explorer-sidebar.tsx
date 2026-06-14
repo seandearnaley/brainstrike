@@ -19,11 +19,13 @@ import {
 import { useOptionalForestTreeActions } from './forest-tree-actions-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
-const NoFilesSelected = () => (
+// Shown when the workspace has no active roots. Multi-root: the workspace can
+// hold many folders, so this prompts adding one rather than "selecting a root".
+const NoWorkspaceFolders = () => (
   <EmptyState
-    description="Connect a directory to browse your project and select files"
+    description="Add a folder to browse and select its files."
     icon={<FolderOpen />}
-    title="No directory selected"
+    title="No folders in your workspace"
   />
 );
 
@@ -742,7 +744,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
           </div>
         ) : (
           <div className="flex-1">
-            <NoFilesSelected />
+            <NoWorkspaceFolders />
           </div>
         )}
       </div>

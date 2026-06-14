@@ -90,15 +90,13 @@ describe('FileExplorerSidebar', () => {
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
   });
 
-  it('displays "No directory selected" when rootDirectoryHandle is null', () => {
+  it('shows the empty-workspace prompt when no roots are active', () => {
     act(() => {
       renderWithProviders(<FileExplorerSidebar {...defaultProps} rootDirectoryHandle={null} />);
     });
 
-    expect(screen.getByText('No directory selected')).toBeInTheDocument();
-    expect(
-      screen.getByText('Connect a directory to browse your project and select files')
-    ).toBeInTheDocument();
+    expect(screen.getByText('No folders in your workspace')).toBeInTheDocument();
+    expect(screen.getByText('Add a folder to browse and select its files.')).toBeInTheDocument();
   });
 
   it('displays error message when treeError exists', () => {
