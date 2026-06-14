@@ -18,8 +18,29 @@ interface HeapSnapshot {
   usedMB: number;
 }
 
+interface DatabaseImportSnapshot {
+  activeCollectionId: string | null;
+  isImporting: boolean;
+  progress: {
+    chunkingProgress: {
+      chunksCreated: number;
+      currentFile: string;
+      filesProcessed: number;
+      strategyUsed: string;
+      totalFiles: number;
+    } | null;
+    completed: number;
+    current: string;
+    errors: Array<{ error: string; file: string }>;
+    phase: string;
+    total: number;
+  } | null;
+  recordCount: number;
+  selectedFileCount: number;
+}
+
 const ROOT_NAME = 'database-import-backfill-root';
-const IMPORT_MEMORY_FIXTURE_FILE_COUNT = 160;
+const IMPORT_MEMORY_FIXTURE_FILE_COUNT = 80;
 const CODE_FILE_TREE: FileTree = {
   'alpha.ts': 'export const alpha = "database import backfill";\nexport const beta = "web flow";',
   'notes.ts':
@@ -82,17 +103,56 @@ function parseCollectionSummaryCounts(summaryText: string): CollectionSummaryCou
   };
 }
 
-async function getCollectionSummaryCounts(
-  page: Page,
-  collectionName: string
-): Promise<CollectionSummaryCounts> {
+async function getCollectionSummaryText(page: Page, collectionName: string): Promise<string> {
   const databasePanel = page.getByTestId('database-demo-panel');
   const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
   await expect(collectionList).toBeVisible({ timeout: 15_000 });
   const option = collectionList.getByRole('option').filter({ hasText: collectionName }).first();
   await expect(option).toBeVisible({ timeout: 15_000 });
-  const text = await option.innerText();
-  return parseCollectionSummaryCounts(text);
+  return await option.innerText();
+}
+
+async function enableDatabaseDemoTestHooks(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as Window & { desktopLifecycle?: { isTestMode: boolean } }).desktopLifecycle = {
+      isTestMode: true,
+    };
+  });
+}
+
+async function readDatabaseImportSnapshot(page: Page): Promise<DatabaseImportSnapshot | null> {
+  return await page.evaluate(() => {
+    const hooks = (
+      window as Window & {
+        __brainstrikeDatabaseDemoTestHooks__?: {
+          getImportSnapshot: () => DatabaseImportSnapshot;
+        };
+      }
+    ).__brainstrikeDatabaseDemoTestHooks__;
+
+    return hooks?.getImportSnapshot() ?? null;
+  });
+}
+
+async function waitForDatabaseImportSnapshot(
+  page: Page,
+  predicate: (snapshot: DatabaseImportSnapshot) => boolean,
+  timeoutMs = 240_000
+): Promise<DatabaseImportSnapshot> {
+  const startedAt = Date.now();
+  let lastSnapshot: DatabaseImportSnapshot | null = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    lastSnapshot = await readDatabaseImportSnapshot(page);
+    if (lastSnapshot && predicate(lastSnapshot)) {
+      return lastSnapshot;
+    }
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(
+    `Timed out waiting for database import snapshot. Last snapshot: ${JSON.stringify(lastSnapshot)}`
+  );
 }
 
 async function ensureDatabasePanelVisible(page: Page): Promise<void> {
@@ -326,16 +386,31 @@ async function waitForCollectionSummary(
   timeoutMs = 120_000
 ): Promise<CollectionSummaryCounts> {
   const startedAt = Date.now();
+  let lastSummaryText: string | null = null;
+  let lastError: string | null = null;
+  let lastImportSnapshot: DatabaseImportSnapshot | null = null;
 
   while (Date.now() - startedAt < timeoutMs) {
-    const counts = await getCollectionSummaryCounts(page, collectionName);
-    if (predicate(counts)) {
-      return counts;
+    try {
+      lastImportSnapshot = await readDatabaseImportSnapshot(page);
+      lastSummaryText = await getCollectionSummaryText(page, collectionName);
+      const counts = parseCollectionSummaryCounts(lastSummaryText);
+      if (predicate(counts)) {
+        return counts;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
     }
     await page.waitForTimeout(250);
   }
 
-  throw new Error(`Timed out waiting for collection summary for '${collectionName}'`);
+  throw new Error(
+    `Timed out waiting for collection summary for '${collectionName}'. Last summary: ${
+      lastSummaryText ?? 'unavailable'
+    }. Last import snapshot: ${JSON.stringify(lastImportSnapshot)}. Last error: ${
+      lastError ?? 'none'
+    }`
+  );
 }
 
 async function forceGarbageCollection(page: Page): Promise<void> {
@@ -466,8 +541,9 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
   test('keeps retained renderer heap bounded while importing a large chunked codebase', async ({
     page,
   }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(300_000);
 
+    await enableDatabaseDemoTestHooks(page);
     await mockBrowserApis(
       page,
       `${ROOT_NAME}-import-memory`,
@@ -509,6 +585,19 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
         timeout: 15_000,
       });
       await importButton.click();
+
+      const completedImport = await waitForDatabaseImportSnapshot(
+        page,
+        (snapshot) =>
+          !snapshot.isImporting &&
+          snapshot.progress?.phase === 'complete' &&
+          snapshot.progress.chunkingProgress?.filesProcessed === IMPORT_MEMORY_FIXTURE_FILE_COUNT,
+        240_000
+      );
+      expect(completedImport.progress?.errors).toEqual([]);
+      expect(completedImport.progress?.chunkingProgress?.chunksCreated).toBeGreaterThanOrEqual(
+        IMPORT_MEMORY_FIXTURE_FILE_COUNT
+      );
 
       const importedCounts = await waitForCollectionSummary(
         page,

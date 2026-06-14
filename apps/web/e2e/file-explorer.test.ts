@@ -351,7 +351,10 @@ test.describe('File Explorer', () => {
       const presetTrigger = page
         .locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)
         .locator('button')
-        .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
+        .filter({
+          hasText:
+            /custom filters|select filter|source files|documentation|typescript\/javascript/i,
+        })
         .first();
 
       await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
@@ -684,9 +687,8 @@ test.describe('File Explorer', () => {
         name: 'caps selections when Max Selection Count is reduced',
         tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ explorer, page }) => {
-          await setMaxSelectionCount(page, 1);
-
           await explorer.selectRoot();
+          await setMaxSelectionCount(page, 1);
 
           const fileTree = explorer.fileTree;
           const first = fileTree.getByRole('checkbox', { name: 'Select a.ts' });

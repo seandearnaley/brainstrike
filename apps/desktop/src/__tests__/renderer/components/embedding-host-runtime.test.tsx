@@ -11,10 +11,12 @@ const {
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
   createEmbeddingCacheRepositoryMock,
+  detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
@@ -35,17 +37,24 @@ const {
   embeddingQueueBootstrapMock: vi.fn(),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   createEmbeddingCacheRepositoryMock: vi.fn(),
+  detectDeviceCapabilitiesMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
   },
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
+  setDetectedDevicePrefMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
   stopMock: vi.fn(),
   storeState: {
     hasHydrated: false,
     devicePref: 'webgpu' as 'wasm' | 'webgpu',
+    devicePrefConfigured: true,
+    setDetectedDevicePref: vi.fn((devicePref: 'wasm' | 'webgpu') => {
+      storeState.devicePref = devicePref;
+      setDetectedDevicePrefMock(devicePref);
+    }),
   },
 }));
 
@@ -56,8 +65,16 @@ vi.mock('@brainstrike/db', () => ({
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
-  useVectorPreferencesStore: (selector: (state: typeof storeState) => unknown) =>
-    selector(storeState),
+  useVectorPreferencesStore: Object.assign(
+    (selector: (state: typeof storeState) => unknown) => selector(storeState),
+    {
+      getState: () => storeState,
+    }
+  ),
+}));
+
+vi.mock('@brainstrike/embeddings', () => ({
+  detectDeviceCapabilities: detectDeviceCapabilitiesMock,
 }));
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
@@ -102,6 +119,19 @@ describe('EmbeddingHostRuntime', () => {
     currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
+    storeState.devicePrefConfigured = true;
+    setDetectedDevicePrefMock.mockClear();
+    detectDeviceCapabilitiesMock.mockResolvedValue({
+      recommendedDevice: 'webgpu',
+      recommendationReason: 'test default',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: true,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: true,
+      webgpuUnavailableReason: null,
+      webWorkersAvailable: true,
+      detectedAt: 1,
+    });
     ensureVectorPreferencesHydratedMock.mockImplementation(async () => {
       if (!storeState.hasHydrated) {
         throw new Error('Vector preferences store failed to hydrate.');
@@ -173,6 +203,34 @@ describe('EmbeddingHostRuntime', () => {
     });
     expect(embeddingQueueBootstrapMock).toHaveBeenCalledTimes(1);
     expect(getEmbeddingQueueMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses detected WASM when vector preference is not user-configured', async () => {
+    storeState.hasHydrated = true;
+    storeState.devicePref = 'webgpu';
+    storeState.devicePrefConfigured = false;
+    detectDeviceCapabilitiesMock.mockResolvedValueOnce({
+      recommendedDevice: 'wasm',
+      recommendationReason: 'WASM fallback (WebGPU not available)',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: false,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: false,
+      webgpuUnavailableReason: 'WebGPU API not available in this browser',
+      webWorkersAvailable: true,
+      detectedAt: 1,
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device: 'wasm',
+        })
+      );
+    });
+    expect(setDetectedDevicePrefMock).toHaveBeenCalledWith('wasm');
   });
 
   it('passes an embedding cache repository to the worker', async () => {

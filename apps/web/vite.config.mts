@@ -56,6 +56,28 @@ function resolveVendorChunk(id: string): string | undefined {
   return 'vendor';
 }
 
+const WORKER_PROCESS_EXIT_CODE_BINDING = '__brainstrikeWorkerProcessExitCode';
+
+function browserWorkerProcessExitCodePlugin() {
+  return {
+    name: 'brainstrike-browser-worker-process-exit-code',
+    enforce: 'post' as const,
+    transform(code: string) {
+      if (!code.includes('process.exitCode')) {
+        return null;
+      }
+
+      return {
+        code: `let ${WORKER_PROCESS_EXIT_CODE_BINDING};\n${code.replaceAll(
+          'process.exitCode',
+          WORKER_PROCESS_EXIT_CODE_BINDING
+        )}`,
+        map: null,
+      };
+    },
+  };
+}
+
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '.vite'),
   server: {
@@ -298,7 +320,7 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [],
+    plugins: () => [browserWorkerProcessExitCodePlugin()],
   },
   optimizeDeps: {
     entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],

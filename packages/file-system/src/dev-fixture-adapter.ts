@@ -109,7 +109,8 @@ async function waitForFixtureDelay(delayMs: number): Promise<void> {
 
 function buildFixtureState(
   definition: FixtureDefinition,
-  platform: DirectoryHandle['platform']
+  platform: DirectoryHandle['platform'],
+  rootId: string
 ): FixtureState {
   const directories = new Map<string, IFileNode[]>();
   const fileContents = new Map<string, { content: string; size: number; lastModified: number }>();
@@ -127,7 +128,7 @@ function buildFixtureState(
     name: definition.name,
     kind: 'directory',
     platform,
-    rootId: crypto.randomUUID(),
+    rootId,
   };
 
   const createDirectoryHandle = (path: string, name: string) => ({
@@ -200,6 +201,32 @@ function buildFixtureState(
   return { rootHandle, directories, fileContents };
 }
 
+function resolveFixtureLookupPath(fixtureState: FixtureState, path: string): string {
+  if (fixtureState.directories.has(path) || fixtureState.fileContents.has(path)) {
+    return path;
+  }
+
+  const { rootHandle } = fixtureState;
+  if (!rootHandle.rootId) {
+    return path;
+  }
+
+  if (path === rootHandle.rootId) {
+    return rootHandle.path;
+  }
+
+  const rootIdPrefix = `${rootHandle.rootId}/`;
+  if (path.startsWith(rootIdPrefix)) {
+    const remainder = path.slice(rootIdPrefix.length);
+    if (remainder === rootHandle.path || remainder.startsWith(`${rootHandle.path}/`)) {
+      return remainder;
+    }
+    return joinPath(rootHandle.path, remainder);
+  }
+
+  return path;
+}
+
 export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   adapter: T,
   options: FixtureAdapterOptions
@@ -208,6 +235,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const defaultFixture = options.defaultFixture ?? DEV_INLINE_FIXTURE;
   let fixtureState: FixtureState | null = null;
   let fixtureLoadOptions: FixtureLoadOptions = {};
+  const fixtureRootIdsByName = new Map<string, string>();
 
   const originalRequestDirectoryAccess = adapter.requestDirectoryAccess.bind(adapter);
   const originalReadDirectory = adapter.readDirectory.bind(adapter);
@@ -237,9 +265,10 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   ): Promise<IFileNode[]> {
     if (fixtureState) {
       await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
+      const lookupPath = resolveFixtureLookupPath(fixtureState, handle.path);
       // When fixture is active, only serve data from the fixture
-      if (fixtureState.directories.has(handle.path)) {
-        return cloneNodes(fixtureState.directories.get(handle.path) ?? []);
+      if (fixtureState.directories.has(lookupPath)) {
+        return cloneNodes(fixtureState.directories.get(lookupPath) ?? []);
       }
       // Path not found in fixture - this shouldn't happen if fixture is properly built
       logger.warn('Path not found in fixture', {
@@ -253,7 +282,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
 
   async function readFile(handle: FileHandle): Promise<string> {
     if (fixtureState) {
-      const record = fixtureState.fileContents.get(handle.path);
+      const record = fixtureState.fileContents.get(
+        resolveFixtureLookupPath(fixtureState, handle.path)
+      );
       if (record) {
         return record.content;
       }
@@ -264,18 +295,18 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
 
   async function exists(path: string): Promise<boolean> {
-    if (
-      fixtureState &&
-      (fixtureState.directories.has(path) || fixtureState.fileContents.has(path))
-    ) {
-      return true;
+    if (fixtureState) {
+      const lookupPath = resolveFixtureLookupPath(fixtureState, path);
+      if (fixtureState.directories.has(lookupPath) || fixtureState.fileContents.has(lookupPath)) {
+        return true;
+      }
     }
     return originalExists(path);
   }
 
   async function readFileByPath(path: string): Promise<string> {
     if (fixtureState) {
-      const record = fixtureState.fileContents.get(path);
+      const record = fixtureState.fileContents.get(resolveFixtureLookupPath(fixtureState, path));
       if (record) {
         return record.content;
       }
@@ -296,7 +327,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   // exercises the same FileToIndex.content code path that Electron uses.
   async function resolveFileForIndexing(path: string): Promise<FileForIndexingResolution> {
     if (fixtureState) {
-      const record = fixtureState.fileContents.get(path);
+      const record = fixtureState.fileContents.get(resolveFixtureLookupPath(fixtureState, path));
       if (!record) {
         throw new Error(`File not found in fixture: ${path}`);
       }
@@ -344,7 +375,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   async function loadInlineFixture(
     fixture: FixtureDefinition = defaultFixture
   ): Promise<DirectoryHandle> {
-    fixtureState = buildFixtureState(fixture, platform);
+    const rootId = fixtureRootIdsByName.get(fixture.name) ?? crypto.randomUUID();
+    fixtureRootIdsByName.set(fixture.name, rootId);
+    fixtureState = buildFixtureState(fixture, platform, rootId);
     return fixtureState.rootHandle;
   }
 

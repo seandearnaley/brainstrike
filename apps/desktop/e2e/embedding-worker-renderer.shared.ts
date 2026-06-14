@@ -3005,9 +3005,6 @@ export async function prepareRealWorldMixedStateScenario(
       requestDirectoryAccessCount: 1,
       rootHandlePath: '/mock/real-world-import',
     });
-  await expect(activeWindow.getByText('mock-stress-directory')).toBeVisible({
-    timeout: 15_000,
-  });
 
   const selectAllButton = activeWindow.getByRole('button', { name: /^Select All$/i }).first();
   await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
@@ -3128,11 +3125,19 @@ export async function prepareRealWorldMixedStateScenario(
     .toBeGreaterThan(0);
 
   const fileExplorerSnapshotBeforeChecks = await getFileExplorerTestSnapshot(activeWindow);
+  const currentFolderId = fileExplorerSnapshotBeforeChecks?.currentFolderId;
+  expect(typeof currentFolderId).toBe('string');
+  expect(currentFolderId).toBeTruthy();
+  expect(currentFolderId).not.toBe('/mock/real-world-import');
   expect(fileExplorerSnapshotBeforeChecks).toMatchObject({
-    currentFolderId: '/mock/real-world-import',
     rootDirectoryPath: '/mock/real-world-import',
     selectedFilePathCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
   });
+  expect(
+    fileExplorerSnapshotBeforeChecks?.selectedFilePathSamples.every((key) =>
+      key.startsWith(`${currentFolderId}|@|`)
+    )
+  ).toBe(true);
 
   return {
     activeWindow,

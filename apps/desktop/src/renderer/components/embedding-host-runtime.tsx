@@ -1,5 +1,10 @@
 import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
-import type { EmbeddingResult, ModelConfig } from '@brainstrike/embeddings';
+import {
+  detectDeviceCapabilities,
+  type EmbeddingDeviceType,
+  type EmbeddingResult,
+  type ModelConfig,
+} from '@brainstrike/embeddings';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import {
   createForegroundEmbeddingGate,
@@ -9,7 +14,10 @@ import {
   runCoordinatedQueryEmbedding,
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
-import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
+import {
+  ensureVectorPreferencesHydrated,
+  useVectorPreferencesStore,
+} from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createLogger } from '@brainstrike/utils/logger';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
@@ -207,6 +215,22 @@ interface QueryEmbeddingServiceState {
   readonly service: SimpleEmbeddingService;
 }
 
+async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceType> {
+  const vectorPreferences = await ensureVectorPreferencesHydrated({
+    forceReload: true,
+  });
+  if (vectorPreferences.devicePrefConfigured) {
+    return vectorPreferences.devicePref;
+  }
+
+  const detected = await detectDeviceCapabilities();
+  const detectedDevice = detected.recommendedDevice;
+  if (vectorPreferences.devicePref !== detectedDevice) {
+    useVectorPreferencesStore.getState().setDetectedDevicePref(detectedDevice);
+  }
+  return detectedDevice;
+}
+
 function parseRecord(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') {
     try {
@@ -325,9 +349,7 @@ async function getQueryEmbeddingService(
   }
   await disposeQueryEmbeddingService(runtimeIdRef, serviceStateRef);
   const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
-  const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
-    forceReload: true,
-  });
+  const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
   const service = new SimpleEmbeddingService({
     streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
   });
@@ -470,9 +492,7 @@ async function startEmbeddingHostWorkerRuntime({
 
   try {
     await ensureEmbeddingQueueBootstrapLoaded();
-    const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
-      forceReload: true,
-    });
+    const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
     const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
       ...workerConfig,

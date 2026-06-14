@@ -62,6 +62,8 @@ const {
 } = shared;
 
 test.describe('Embedding Host Renderer - memory', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test('@desktop-embedding-memory keeps visible renderer heap bounded while the hidden host enqueues and processes a large backfill', async ({
     window,
   }) => {

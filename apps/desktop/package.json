@@ -145,7 +145,7 @@
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test",
+    "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --workers=1 --retries=0",
     "test:e2e:all": "pnpm test:e2e:main && pnpm test:e2e:persistence",
     "test:e2e:backgrounding": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING=1 -- xvfb-maybe pnpm exec playwright test e2e/embedding-worker-renderer.test.ts --project=regression --grep=\"crash repro test [23]\"",
     "test:e2e:clean": "pnpm clean:db && pnpm test:e2e:all",

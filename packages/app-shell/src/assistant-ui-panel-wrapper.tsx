@@ -107,6 +107,18 @@ function resolveProviderFromComposite(
   return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
+function hasDesktopRuntimeBridge(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const desktopWindow = window as Window & {
+    desktopLifecycle?: unknown;
+  };
+  return (
+    typeof desktopWindow.desktopLifecycle === 'object' && desktopWindow.desktopLifecycle !== null
+  );
+}
+
 function hasDesktopAssistantBackend(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -688,7 +700,9 @@ export function AssistantUiPanelWrapper({
   // Mastra loop with persistence/run events; inference proxied to the hidden
   // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
   const localChatTransport: 'data-stream' | 'local-runtime' =
-    desktopAssistantBackendAvailable && hasDesktopLlmHost() ? 'data-stream' : 'local-runtime';
+    hasDesktopRuntimeBridge() && desktopAssistantBackendAvailable && hasDesktopLlmHost()
+      ? 'data-stream'
+      : 'local-runtime';
 
   useEffect(() => {
     if (!(assistantThreadRepository && memoryResourceId)) {

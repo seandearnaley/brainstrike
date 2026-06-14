@@ -751,6 +751,39 @@ describe('useRecursiveSelectAll', () => {
     );
   });
 
+  it('toasts when Select All commits a partial selection at the max limit', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    const fileSystemAdapter = createMockAdapter({
+      '/src': [
+        createFileNode({ name: 'index.ts', path: '/src/index.ts', type: 'file', depth: 1 }),
+        createFileNode({ name: 'utils.ts', path: '/src/utils.ts', type: 'file', depth: 1 }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 2)
+    );
+
+    expect(selectionResult).toMatchObject({
+      success: true,
+      limitReached: true,
+      filePaths: ['/notes.md', '/src/index.ts'],
+    });
+    expect(showToastMock).toHaveBeenCalledWith({
+      title: 'Selection limit reached (2)',
+      description: 'Selected 2 files before hitting the limit. Raise the limit to select more.',
+      variant: 'destructive',
+    });
+  });
+
   it('returns an error for an empty tree before any adapter work', async () => {
     const fileSystemAdapter = createMockAdapter({});
     const { result } = renderHook(() =>
