@@ -40,6 +40,10 @@ describe('AssistantUiPanelWrapper', () => {
       configurable: true,
       value: { url: 'http://127.0.0.1:51234' },
     });
+    Object.defineProperty(window, 'desktopLifecycle', {
+      configurable: true,
+      value: { isTestMode: false },
+    });
     hasDesktopLlmHostMock.mockReturnValue(true);
     try {
       await renderAssistantPanel(['openai'], () =>
@@ -49,6 +53,20 @@ describe('AssistantUiPanelWrapper', () => {
       );
     } finally {
       Object.defineProperty(window, 'assistant', { configurable: true, value: undefined });
+      Reflect.deleteProperty(window, 'desktopLifecycle');
+      hasDesktopLlmHostMock.mockReturnValue(false);
+    }
+  });
+
+  test('keeps the in-renderer local transport for web llm-host test doubles', async () => {
+    hasDesktopLlmHostMock.mockReturnValue(true);
+    try {
+      await renderAssistantPanel(['openai'], () =>
+        waitFor(() => {
+          expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('local-runtime');
+        })
+      );
+    } finally {
       hasDesktopLlmHostMock.mockReturnValue(false);
     }
   });
