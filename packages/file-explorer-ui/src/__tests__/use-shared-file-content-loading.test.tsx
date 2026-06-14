@@ -932,6 +932,132 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.loadingFiles.size).toBe(0);
   });
 
+  it('treats Windows direct-path reads as inside the root when only casing differs', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('windows-direct-content');
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const rootId = '22222222-0000-4000-8000-000000000022';
+    const selectedPath = 'c:/work/repo/src/restored.ts';
+    const compositeKey = encodeFileSelection(rootId, selectedPath);
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const request of requests) {
+            results[request.compositeKey] = await readFileByPathSpy(request.path);
+            progressCallback?.({ key: request.compositeKey });
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          rootId,
+          path: 'C:/Work/Repo',
+          displayName: 'Repo',
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await loadPromise;
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey, path: selectedPath })],
+      expect.any(Function)
+    );
+    expect(readFileByPathSpy).toHaveBeenCalledWith(selectedPath);
+    expect(result.current.fileContents[compositeKey]).toBe('windows-direct-content');
+    expect(result.current.loadingFiles.size).toBe(0);
+  });
+
+  it('treats POSIX direct-path reads as inside the root when the live root only differs by case', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('posix-direct-content');
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const rootId = '33333333-0000-4000-8000-000000000033';
+    const selectedPath = '/users/sean/work/repo/src/restored.ts';
+    const compositeKey = encodeFileSelection(rootId, selectedPath);
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const request of requests) {
+            results[request.compositeKey] = await readFileByPathSpy(request.path);
+            progressCallback?.({ key: request.compositeKey });
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          rootId,
+          path: '/Users/Sean/Work/Repo',
+          displayName: 'Repo',
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await loadPromise;
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey, path: selectedPath })],
+      expect.any(Function)
+    );
+    expect(readFileByPathSpy).toHaveBeenCalledWith(selectedPath);
+    expect(result.current.fileContents[compositeKey]).toBe('posix-direct-content');
+    expect(result.current.loadingFiles.size).toBe(0);
+  });
+
   it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();

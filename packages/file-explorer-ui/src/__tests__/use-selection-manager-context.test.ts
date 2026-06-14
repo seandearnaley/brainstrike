@@ -33,11 +33,13 @@ const defaultSelectionModel = {
 function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
   const setSelectedFiles = vi.fn();
   const setFolderSelection = vi.fn();
+  const clearSelectionRules = vi.fn();
   const mockState = {
     selectedFilePaths: new Set<string>(),
     maxSelectionCount: 10,
     setSelectedFiles,
     setFolderSelection,
+    clearSelectionRules,
     setQuerySelectionManifest: vi.fn(),
     selectionModel: defaultSelectionModel,
     querySelectionManifest: null,
@@ -53,6 +55,7 @@ function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
   );
   return {
     store: mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>,
+    clearSelectionRules,
     setSelectedFiles,
     setFolderSelection,
   };
@@ -335,6 +338,34 @@ describe('useSelectionManager', () => {
       );
       const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
       expect(Array.from(coreCall)).toEqual([KEY_A]);
+    });
+
+    it('clears foreign-root selections when deselecting all from rules mode', () => {
+      const { clearSelectionRules, setFolderSelection, setSelectedFiles, store } = createMockStore({
+        activeRootIds: [ROOT_A, ROOT_B],
+        currentFolderId: ROOT_A,
+        folderStates: {
+          [ROOT_B]: { selectedFilePaths: new Set([KEY_B]) },
+        },
+        selectionModel: {
+          mode: 'rules' as const,
+          explicitPaths: new Set<string>(),
+          ruleSetJson: '{}',
+          materializedPaths: new Set(['/src/a.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: null,
+        },
+      });
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+      const { result } = renderHook(() => useSelectionManager());
+
+      result.current.setSelectedFilesFromList([]);
+
+      expect(clearSelectionRules).toHaveBeenCalledOnce();
+      expect(setFolderSelection).toHaveBeenCalledExactlyOnceWith(ROOT_B, []);
+      const coreCall = setSelectedFiles.mock.calls.at(-1)?.[0] as Set<string>;
+      expect(Array.from(coreCall)).toEqual([]);
     });
   });
 });
