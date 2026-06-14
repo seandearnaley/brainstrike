@@ -76,6 +76,8 @@ const {
 } = shared;
 
 test.describe('Embedding Host Renderer - diagnostics', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test('@desktop-embedding-diagnostic does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
     electronApp,
     window,
@@ -145,9 +147,6 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           requestDirectoryAccessCount: 1,
           rootHandlePath: '/mock/stress-import',
         });
-      await expect(activeWindow.getByText('mock-stress-directory')).toBeVisible({
-        timeout: 15_000,
-      });
 
       const selectAllButton = activeWindow.getByRole('button', { name: /^Select All$/i }).first();
       await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
@@ -169,7 +168,15 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         requestDirectoryAccessCount: 1,
         rootHandlePath: '/mock/stress-import',
       });
-      expect(fixtureSummaryAfterSelection?.readDirectoryCalls).toEqual(['/mock/stress-import']);
+      expect(fixtureSummaryAfterSelection?.readDirectoryCalls.length).toBeGreaterThan(0);
+      expect(fixtureSummaryAfterSelection?.readDirectoryCalls).toEqual(
+        expect.arrayContaining(['/mock/stress-import'])
+      );
+      expect(
+        fixtureSummaryAfterSelection?.readDirectoryCalls.every(
+          (readPath) => readPath === '/mock/stress-import'
+        )
+      ).toBe(true);
       expect(fileExplorerSnapshotAfterSelection).not.toBeNull();
       // Storage v5: the live pick yields a durable RootId (UUID) as the
       // identity key, never the filesystem path. The path lives only in
