@@ -155,7 +155,7 @@ function resolveWorkspaceRootPath(runtimeData: RuntimeData | undefined): string 
   const rootPath = normalizeWorkspaceRootPath(runtimeData?.workspaceRootPath);
   if (!rootPath) {
     throw new Error(
-      'No workspace root is available. Open/select a folder in the left file tree first.'
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }
   return rootPath;

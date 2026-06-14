@@ -13,7 +13,7 @@ export const FileExplorerStrings = {
   success: {
     title: 'Success',
     refreshSuccess: 'File tree refreshed successfully.',
-    rootDirectorySelected: 'Successfully set the root directory.',
+    rootDirectorySelected: 'Folder added to the workspace.',
     contextCopied: 'The context has been copied to your clipboard.',
     contextDownloaded: 'The context has been downloaded.',
     // Deprecated report-named keys intentionally reuse context wording for UX consistency during migration.
@@ -26,9 +26,9 @@ export const FileExplorerStrings = {
   error: {
     title: 'Error',
     browserCompatibility: 'Browser Compatibility Error',
-    noRootDirectory: 'No root directory selected.',
+    noRootDirectory: 'No folder selected.',
     refreshFailed: 'Failed to refresh file tree',
-    rootDirectoryFailed: 'Failed to select root directory',
+    rootDirectoryFailed: 'Failed to add folder',
     contextGenerationFailed: 'Failed to generate context',
     contextCopyFailed: 'Failed to generate or copy context',
     /** @deprecated Use `contextGenerationFailed`. */
@@ -41,8 +41,8 @@ export const FileExplorerStrings = {
 
   loading: {
     title: 'Please Wait',
-    rootDirectory: 'Loading root directory...',
-    selectingRoot: 'Selecting Root Directory...',
+    rootDirectory: 'Loading folder...',
+    selectingRoot: 'Adding folder...',
     generatingContext: 'Generating Context...',
     /** @deprecated Use `generatingContext`. */
     generatingReport: 'Generating Context...',
@@ -50,7 +50,7 @@ export const FileExplorerStrings = {
   },
 
   prompts: {
-    chooseDirectory: 'Please choose a directory from the file picker',
+    chooseDirectory: 'Please choose a folder from the file picker',
     waitForContext: 'Please wait while we prepare your context',
     /** @deprecated Use `waitForContext`. */
     waitForReport: 'Please wait while we prepare your context',
@@ -83,7 +83,7 @@ export const FileExplorerStrings = {
   status: {
     noFilesFound: 'No matching files found',
     noFilesWithFilters: 'No files match the current filters',
-    noRootSelected: 'Please select a root directory to begin',
+    noRootSelected: 'Add a folder to your workspace to begin',
     currentDirectory: 'Current Directory:',
     activeFilters: 'Active Filters:',
     includeFilters: 'Include:',

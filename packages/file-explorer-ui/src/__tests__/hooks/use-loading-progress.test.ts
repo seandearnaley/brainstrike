@@ -18,10 +18,10 @@ describe('useProgressMessage', () => {
     expect(result.current).toBe('Custom loading message');
   });
 
-  it('should return root directory message for initial load without progress state', () => {
+  it('should return folder-loading message for initial load without progress state', () => {
     const { result } = renderHook(() => useProgressMessage(false, undefined, true, undefined));
 
-    expect(result.current).toBe('Loading root directory...');
+    expect(result.current).toBe('Loading folder...');
   });
 
   it('should return refreshing message when not initial load and no progress state', () => {

@@ -995,7 +995,7 @@ describe('assistant-tools', () => {
         path: '/',
       })
     ).rejects.toThrow(
-      'No workspace root is available. Open/select a folder in the left file tree first.'
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   });
 
