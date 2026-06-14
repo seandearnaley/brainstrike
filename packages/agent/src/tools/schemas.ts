@@ -124,9 +124,13 @@ export const ReembedCollectionInputSchema = z
 // Workspace Tool Schemas
 // ============================================================================
 
+const ROOT_QUALIFIER_DESCRIPTION =
+  'Which open folder the path is in: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one.';
+
 export const ReadWorkspaceFileInputSchema = z
   .object({
     path: z.string().min(1).describe('Workspace-relative file path'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     startLine: z.number().int().positive().optional().describe('Optional starting line (1-based)'),
     endLine: z.number().int().positive().optional().describe('Optional ending line (1-based)'),
     maxChars: z
@@ -144,6 +148,7 @@ export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
     path: z.string().optional().describe('Directory path (defaults to root)'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     depth: z.number().int().min(0).max(5).optional().describe('Maximum traversal depth'),
     maxEntries: z
       .number()
@@ -174,6 +179,7 @@ export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryI
 export const FindWorkspaceSymbolInputSchema = z
   .object({
     path: z.string().min(1).describe('Workspace-relative file path'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     query: z.string().min(1).describe('Symbol name or substring to find'),
     maxMatches: z.number().int().positive().max(20).optional().describe('Max matches (default 5)'),
     contextLines: z
