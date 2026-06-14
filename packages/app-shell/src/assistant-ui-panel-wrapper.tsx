@@ -10,6 +10,7 @@ import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brain
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreSelector,
+  useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
@@ -27,6 +28,7 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
+import { hasElectronAPI } from '@brainstrike/ui';
 import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
@@ -111,17 +113,10 @@ function hasDesktopAssistantBackend(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
-  if (!hasElectronRendererBridge()) {
+  if (!hasElectronAPI()) {
     return false;
   }
   return Boolean(window.assistant?.url || window.assistant?.getUrl);
-}
-
-function hasElectronRendererBridge(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  return Boolean((window as Window & { electronAPI?: unknown }).electronAPI);
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
@@ -388,8 +383,8 @@ export function AssistantUiPanelWrapper({
   ]);
 
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
-  const rootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
   const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  const { rootDirectoryHandle, rootDirectoryHandles } = useFileSystem();
   const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
   const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
@@ -449,8 +444,9 @@ export function AssistantUiPanelWrapper({
       filePaths: Array.from(filePaths),
       folderId: resolvedFolderId,
       otherRootsCount,
+      rootPath: resolvedFolderId ? (rootDirectoryHandle?.path ?? null) : null,
     };
-  }, [effectiveSelection, currentFolderId]);
+  }, [effectiveSelection, currentFolderId, rootDirectoryHandle?.path]);
 
   const handleSelectionUpdate = useCallback(
     (
@@ -639,6 +635,10 @@ export function AssistantUiPanelWrapper({
   });
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const workspaceRootPaths = useMemo(
+    () => rootDirectoryHandles.map((handle) => handle.path),
+    [rootDirectoryHandles]
+  );
   const workspaceIndexEmbeddingSetId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
@@ -687,6 +687,7 @@ export function AssistantUiPanelWrapper({
   const defaultMemoryResourceId = resolveAssistantWorkspaceResourceId({
     activeRootIds,
     rootDirectoryPath: workspaceRootPath,
+    rootDirectoryPaths: workspaceRootPaths,
   });
   const memoryResourceId = memoryResourceIdOverride ?? defaultMemoryResourceId ?? undefined;
   const selectedMemoryThreadId = memoryResourceId

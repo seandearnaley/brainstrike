@@ -1,26 +1,31 @@
 const MULTI_ROOT_RESOURCE_PREFIX = 'assistant-workspace:roots:';
 
-function normalizeRootIds(activeRootIds: readonly string[] | null | undefined): string[] {
-  const rootIds = new Set<string>();
-  if (!activeRootIds) {
+function normalizeValues(values: readonly string[] | null | undefined): string[] {
+  const normalized = new Set<string>();
+  if (!values) {
     return [];
   }
-  for (const rootId of activeRootIds) {
-    const trimmed = rootId.trim();
+  for (const value of values) {
+    const trimmed = value.trim();
     if (trimmed.length > 0) {
-      rootIds.add(trimmed);
+      normalized.add(trimmed);
     }
   }
-  return Array.from(rootIds).sort();
+  return Array.from(normalized).sort();
 }
 
 export function resolveAssistantWorkspaceResourceId(args: {
   activeRootIds: readonly string[] | null | undefined;
   rootDirectoryPath: string | null | undefined;
+  rootDirectoryPaths?: readonly string[] | null | undefined;
 }): string | null {
-  const normalizedRootIds = normalizeRootIds(args.activeRootIds);
+  const normalizedRootIds = normalizeValues(args.activeRootIds);
   if (normalizedRootIds.length > 1) {
-    return `${MULTI_ROOT_RESOURCE_PREFIX}${normalizedRootIds.map(encodeURIComponent).join('|')}`;
+    const normalizedRootPaths = normalizeValues(args.rootDirectoryPaths);
+    if (normalizedRootPaths.length !== normalizedRootIds.length) {
+      return null;
+    }
+    return `${MULTI_ROOT_RESOURCE_PREFIX}${normalizedRootPaths.map(encodeURIComponent).join('|')}`;
   }
   return args.rootDirectoryPath ?? null;
 }

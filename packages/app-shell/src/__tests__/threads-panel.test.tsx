@@ -19,6 +19,12 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     } as { name: string; path: string } | null,
+    rootDirectoryHandles: [
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ] as { name: string; path: string }[],
   },
   mockDb: {
     exec: vi.fn(() => Promise.resolve()),
@@ -50,6 +56,10 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
+  useFileSystem: () => ({
+    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+    rootDirectoryHandles: fileExplorerMocks.rootDirectoryHandles,
+  }),
 }));
 
 describe('ThreadsPanel', () => {
@@ -58,6 +68,12 @@ describe('ThreadsPanel', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    fileExplorerMocks.rootDirectoryHandles = [
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ];
     fileExplorerMocks.activeRootIds = [];
     dbMocks.database = undefined;
     dbMocks.deleteFailureThreadId = null;
@@ -263,8 +279,18 @@ describe('ThreadsPanel', () => {
   });
 
   it('lists threads under a stable multi-root forest resource id', async () => {
-    const forestResourceId = 'assistant-workspace:roots:root-a|root-b';
+    const forestResourceId = 'assistant-workspace:roots:%2Ftmp%2Fworkspace-a|%2Ftmp%2Fworkspace-b';
     fileExplorerMocks.activeRootIds = ['root-b', 'root-a'];
+    fileExplorerMocks.rootDirectoryHandles = [
+      {
+        name: 'workspace-b',
+        path: '/tmp/workspace-b',
+      },
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ];
     threadRows.splice(0, threadRows.length, {
       id: 'thread-forest',
       resourceId: forestResourceId,

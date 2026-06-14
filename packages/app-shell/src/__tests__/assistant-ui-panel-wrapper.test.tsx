@@ -1070,6 +1070,7 @@ describe('AssistantUiPanelWrapper', () => {
         const contextMenu = readPanelContextMenu();
         expect(requestData['selectionFilePaths']).toEqual(['/alpha.ts', '/beta.ts']);
         expect(requestData['selectionFolderId']).toBe('test-folder');
+        expect(requestData['selectionRootPath']).toBe('/tmp/test-workspace');
         expect(requestData['workspaceRootPath']).toBe('/tmp/test-workspace');
         expect(requestData['workspaceIndexEmbeddingSetId']).toBe('managed-set-1');
         expect(requestData['workspaceIndexingEnabled']).toBe(true);
