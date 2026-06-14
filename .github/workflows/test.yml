@@ -113,15 +113,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Build workspace deps first. The previous `turbo run test --affected`
-      # got its build dependency via turbo.jsonc's `dependsOn: ["^build"]`,
-      # but pnpm's filter doesn't traverse that graph — workspace deps with
-      # exports maps pointing at `dist/` would otherwise fail to resolve at
-      # test time. Use turbo for build (cache makes this fast); use pnpm
-      # for affected test selection (turbo's --affected over-selects on
-      # merge commits, see commit message).
+      # Build workspace deps first, for BOTH test paths below. The previous
+      # `turbo run test --affected` got its build dependency via turbo.jsonc's
+      # `dependsOn: ["^build"]`, but pnpm's filter doesn't traverse that graph
+      # — workspace deps with exports maps pointing at `dist/` would otherwise
+      # fail to resolve at test time.
+      # MUST stay unconditional (no `if: pull_request`): the
+      # `Push and manual unit tests` step runs the full suite on push/main and
+      # workflow_dispatch, and hits the same unbuilt-`dist` resolution failure
+      # (e.g. @brainstrike/indexing-contract importing @brainstrike/types).
+      # A PR-only guard here left push-to-main Unit red for ~3 weeks invisibly.
+      # Use turbo for build (cache makes this fast); use pnpm for affected
+      # test selection (turbo's --affected over-selects on merge commits).
       - name: Build workspace dependencies
-        if: github.event_name == 'pull_request'
         run: pnpm turbo run build --concurrency=4
 
       # PR-affected unit tests via pnpm's documented filter syntax.
