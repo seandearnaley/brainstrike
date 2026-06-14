@@ -844,6 +844,94 @@ describe('PreviewTable grouped columns memo stability', () => {
   });
 });
 
+// Correctness contract (companion to the columns-stability test above). The
+// checkbox cells read selection via refs and live in MEMOIZED TreeTable rows,
+// so a pure-selection change must rebuild the NODES (fresh identities) to force
+// those rows to re-render. Without this, a grouped select-all leaves both item
+// AND group-heading checkboxes stale (files select, "N selected" shows, boxes
+// stay unchecked) — reproduced live in the app. A component render of the
+// checkbox can't catch this (RTL's rerender forces fresh nodes regardless), so
+// we lock the node-identity mechanism in via a TreeTable mock that captures the
+// `nodes` prop per render. Columns stay stable (test above); nodes must not.
+describe('PreviewTable grouped nodes rebuild on selection', () => {
+  const nodesCaptures: unknown[] = [];
+
+  beforeEach(() => {
+    nodesCaptures.length = 0;
+    vi.doMock('@brainstrike/ui', async () => {
+      const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
+      return {
+        ...actual,
+        TreeTable: ((props: { nodes: unknown }) => {
+          nodesCaptures.push(props.nodes);
+          return (actual.TreeTable as FC<{ nodes: unknown }>)(props);
+        }) as typeof actual.TreeTable,
+      };
+    });
+  });
+
+  afterEach(() => {
+    vi.doUnmock('@brainstrike/ui');
+    vi.resetModules();
+  });
+
+  const stableGroupedData = [DEFAULT_GROUP];
+  const stableVisibleFiles = [FILE_ONE, FILE_TWO];
+  const stableCollapsedGroups = new Set<string>();
+  const stableCurrentPageData: TableRowData[] = [];
+  const stableHandlers = {
+    handleGroupDeselectAll: vi.fn(),
+    handleGroupSelectAll: vi.fn(),
+    onDeselectAll: vi.fn(),
+    onFileClick: vi.fn(),
+    onSelectAllOnPage: vi.fn(),
+    onSort: vi.fn(),
+    onToggleSelection: vi.fn(),
+    toggleGroupCollapse: vi.fn(),
+  };
+  const stablePagination = { startIndex: 0, endIndex: 20 };
+
+  function makeProps(previewSelections: Set<string>) {
+    return {
+      collapsedGroups: stableCollapsedGroups,
+      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
+      currentPageData: stableCurrentPageData,
+      groupedData: stableGroupedData,
+      groupingConfig: 'directory',
+      ...stableHandlers,
+      isAllSelected: () => false,
+      isGroupFullySelected: (group: GroupedData<TableRowData>) =>
+        group.items.every((item) => previewSelections.has(item.compositeKey)),
+      isGroupPartiallySelected: () => false,
+      pagination: stablePagination,
+      previewSelections,
+      sortDirection: 'asc' as const,
+      sortField: 'path' as const,
+      visibleFilesOnPage: stableVisibleFiles,
+    };
+  }
+
+  it('rebuilds the grouped tree nodes when only the selection changes', async () => {
+    vi.resetModules();
+    const { PreviewTable: MockedPreviewTable } = await import('../preview/preview-table');
+
+    const { rerender } = render(<MockedPreviewTable {...makeProps(new Set<string>())} />);
+    expect(nodesCaptures.length).toBeGreaterThan(0);
+    const initialNodes = nodesCaptures.at(-1);
+
+    // Stable groupedData/collapsed/pagination — ONLY previewSelections changes.
+    // The nodes reference must change so the memoized rows (and their ref-backed
+    // checkbox cells) re-render and reflect the new selection.
+    rerender(
+      <MockedPreviewTable
+        {...makeProps(new Set<string>([FILE_ONE.compositeKey, FILE_TWO.compositeKey]))}
+      />
+    );
+
+    expect(nodesCaptures.at(-1)).not.toBe(initialNodes);
+  });
+});
+
 describe('PreviewTable file path display', () => {
   it('shows the root folder name instead of "." for desktop root files', () => {
     render(

@@ -181,6 +181,43 @@ test.describe('File Explorer', () => {
       await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
     });
 
+    test('reflects a grouped per-group select-all on the group heading checkbox', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      // Two root-level files in context so the grouped preview has a group with
+      // multiple selectable items.
+      await explorer.fileTree
+        .getByRole('checkbox', { name: 'Select test.ts' })
+        .click({ force: true });
+      await explorer.fileTree
+        .getByRole('checkbox', { name: 'Select test2.ts' })
+        .click({ force: true });
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+
+      // Enable the checkbox column, then group by directory.
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
+
+      // Regression (multi-root): clicking a group's heading checkbox selected the
+      // files but the heading checkbox stayed unchecked because the memoized
+      // TreeTable rows never re-rendered. It must now reflect checked.
+      // Trailing space targets the per-group heading ("…in group <id>/…"), not
+      // the header "Select all files in grouped results".
+      const groupHeadingCheckbox = page
+        .getByRole('checkbox', { name: /^Select all files in group / })
+        .first();
+      await expect(groupHeadingCheckbox).not.toBeChecked();
+
+      await groupHeadingCheckbox.click();
+
+      await expect(groupHeadingCheckbox).toBeChecked();
+    });
+
     test('renders the summary mode controls above the tabs without footer resize chrome', async ({
       page,
     }) => {

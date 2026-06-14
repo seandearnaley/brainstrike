@@ -1000,7 +1000,13 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         collapsedGroups,
         pagination,
       }),
-    [groupedData, collapsedGroups, pagination]
+    // previewSelections is a deliberate re-render trigger, not read here: the
+    // checkbox cells read selection via refs and live in MEMOIZED rows, so a
+    // pure-selection change would otherwise leave both item AND group-heading
+    // checkboxes stale (files select, "N selected" shows, but boxes stay
+    // unchecked). Rebuilding node identities on selection forces those rows to
+    // re-render. Columns stay stable (see the columns-memo perf contract).
+    [groupedData, collapsedGroups, pagination, previewSelections]
   );
 
   const stableExpandedGroupNodeIds = useMemo(() => {
@@ -1136,7 +1142,10 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
   const ungroupedTreeNodes = useMemo(
     () => buildUngroupedTreeNodes(currentPageData),
-    [currentPageData]
+    // previewSelections is a deliberate re-render trigger (see groupedTree): a
+    // selection change rebuilds node identities so the memoized rows re-render
+    // and the ref-backed checkbox cells re-run.
+    [currentPageData, previewSelections]
   );
 
   const rowClassName = useCallback((node: TreeNode<PreviewTreeNodeData>) => {
