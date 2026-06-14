@@ -53,6 +53,24 @@ describe('AssistantUiPanelWrapper', () => {
     }
   });
 
+  test('keeps browser local chat on the in-renderer transport when assistant shims exist without Electron', async () => {
+    Reflect.deleteProperty(window, 'electronAPI');
+    Object.defineProperty(window, 'assistant', {
+      configurable: true,
+      value: { getUrl: async () => 'http://127.0.0.1:0', url: 'http://127.0.0.1:0' },
+    });
+    hasDesktopLlmHostMock.mockReturnValue(true);
+    try {
+      await renderAssistantPanel(['openai'], () =>
+        waitFor(() => {
+          expect(screen.getByTestId('local-chat-transport')).toHaveTextContent('local-runtime');
+        })
+      );
+    } finally {
+      hasDesktopLlmHostMock.mockReturnValue(false);
+    }
+  });
+
   test('keeps the in-renderer local transport without the desktop llm-host bridge', async () => {
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {

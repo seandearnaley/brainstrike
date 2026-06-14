@@ -936,6 +936,10 @@ beforeEach(() => {
     configurable: true,
     value: { url: 'http://127.0.0.1:9876' },
   });
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: { db: {} },
+  });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
@@ -947,6 +951,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
   Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'electronAPI');
   Reflect.deleteProperty(window, 'desktopLifecycle');
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });

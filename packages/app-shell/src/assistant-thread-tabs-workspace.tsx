@@ -14,6 +14,7 @@ import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-t
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
+import { resolveAssistantWorkspaceResourceId } from './assistant-workspace-resource-id';
 
 interface TabScrollState {
   readonly canScrollBack: boolean;
@@ -39,7 +40,11 @@ export function AssistantThreadTabsWorkspace({
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
-  const resourceId = rootDirectoryHandle?.path ?? null;
+  const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  const resourceId = resolveAssistantWorkspaceResourceId({
+    activeRootIds,
+    rootDirectoryPath: rootDirectoryHandle?.path,
+  });
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]

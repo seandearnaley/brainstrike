@@ -12,6 +12,7 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     providerError: null as Error | null,
   },
   fileExplorerMocks: {
+    activeRootIds: [] as string[],
     rootDirectoryHandle: {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
@@ -40,11 +41,16 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 
 vi.mock('../assistant-ui-panel-wrapper', () => ({
   AssistantUiPanelWrapper: ({
+    memoryResourceId,
     memoryThreadId,
   }: {
     memoryResourceId?: string;
     memoryThreadId?: string;
-  }) => <div data-testid="assistant-thread-wrapper">{memoryThreadId}</div>,
+  }) => (
+    <div data-resource-id={memoryResourceId} data-testid="assistant-thread-wrapper">
+      {memoryThreadId}
+    </div>
+  ),
 }));
 
 describe('AssistantThreadTabsWorkspace', () => {
@@ -53,6 +59,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    fileExplorerMocks.activeRootIds = [];
     dbMocks.database = undefined;
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
@@ -120,6 +127,31 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
       'aria-selected',
       'true'
+    );
+  });
+
+  it('uses a stable multi-root forest resource id for assistant thread tabs', async () => {
+    const forestResourceId = 'assistant-workspace:roots:root-a|root-b';
+    fileExplorerMocks.activeRootIds = ['root-b', 'root-a'];
+    threadRows.splice(0, threadRows.length, {
+      id: 'thread-forest',
+      resourceId: forestResourceId,
+      title: 'Forest-scoped thread',
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      updatedAt: new Date('2026-04-22T11:00:00Z'),
+    });
+
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Forest-scoped thread/ })).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
+      forestResourceId,
+    ]);
+    expect(screen.getByTestId('assistant-thread-wrapper')).toHaveAttribute(
+      'data-resource-id',
+      forestResourceId
     );
   });
 

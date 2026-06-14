@@ -37,6 +37,7 @@ import {
 } from './assistant-memory-repository';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
+import { resolveAssistantWorkspaceResourceId } from './assistant-workspace-resource-id';
 
 type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
@@ -952,7 +953,11 @@ export function ThreadsPanel(): ReactElement {
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
-  const resourceId = rootDirectoryHandle?.path ?? null;
+  const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  const resourceId = resolveAssistantWorkspaceResourceId({
+    activeRootIds,
+    rootDirectoryPath: rootDirectoryHandle?.path,
+  });
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]

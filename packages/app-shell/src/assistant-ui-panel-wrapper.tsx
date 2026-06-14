@@ -70,6 +70,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { resolveAssistantWorkspaceResourceId } from './assistant-workspace-resource-id';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
@@ -110,7 +111,17 @@ function hasDesktopAssistantBackend(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
+  if (!hasElectronRendererBridge()) {
+    return false;
+  }
   return Boolean(window.assistant?.url || window.assistant?.getUrl);
+}
+
+function hasElectronRendererBridge(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return Boolean((window as Window & { electronAPI?: unknown }).electronAPI);
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
@@ -378,6 +389,7 @@ export function AssistantUiPanelWrapper({
 
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
   const rootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
+  const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
   const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
   const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
@@ -672,7 +684,11 @@ export function AssistantUiPanelWrapper({
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const memoryResourceId = memoryResourceIdOverride ?? workspaceRootPath ?? undefined;
+  const defaultMemoryResourceId = resolveAssistantWorkspaceResourceId({
+    activeRootIds,
+    rootDirectoryPath: workspaceRootPath,
+  });
+  const memoryResourceId = memoryResourceIdOverride ?? defaultMemoryResourceId ?? undefined;
   const selectedMemoryThreadId = memoryResourceId
     ? (memoryThreadId ?? selectedThreadByResourceId[memoryResourceId])
     : undefined;
