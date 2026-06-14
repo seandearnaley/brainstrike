@@ -601,7 +601,7 @@ export class FileChunkRepository {
    * fullTextSearch/searchSimilar).
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
-    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit } = options;
+    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit, rootId } = options;
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -613,6 +613,10 @@ export class FileChunkRepository {
     if (embeddingSetId !== undefined) {
       params.push(embeddingSetId);
       conditions.push(`fc.embedding_set_id = $${params.length}`);
+    }
+    if (rootId !== undefined) {
+      params.push(rootId);
+      conditions.push(`fr.root_id = $${params.length}`);
     }
     if (filePaths !== undefined) {
       if (filePaths.length === 0) {
@@ -629,23 +633,35 @@ export class FileChunkRepository {
     params.push(limit);
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // LEFT JOIN roots so legacy/unrooted files (root_id NULL) still appear; the
+    // root id + display name travel with every candidate so matches stay
+    // unambiguous across workspace roots that share a relative path.
     const result = await this.db.query(
-      `SELECT fc.content, fc.start_line, fr.path
+      `SELECT fc.content, fc.start_line, fr.path, fr.root_id, r.display_name
          FROM file_chunks fc
          JOIN file_records fr ON fr.id = fc.file_record_id
+         LEFT JOIN roots r ON r.id = fr.root_id
          ${whereClause}
         ORDER BY fr.path, fc.chunk_index
         LIMIT $${params.length}`,
       params
     );
 
-    return (result.rows as Array<{ content: string; path: string; start_line: number | null }>).map(
-      (row) => ({
-        content: row.content,
-        filePath: row.path,
-        startLine: row.start_line,
-      })
-    );
+    return (
+      result.rows as Array<{
+        content: string;
+        path: string;
+        root_id: string | null;
+        display_name: string | null;
+        start_line: number | null;
+      }>
+    ).map((row) => ({
+      content: row.content,
+      filePath: row.path,
+      rootId: row.root_id,
+      rootName: row.display_name,
+      startLine: row.start_line,
+    }));
   }
 
   /**

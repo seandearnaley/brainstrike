@@ -420,6 +420,12 @@ export const GrepSearchInputSchema = z
       .max(1000)
       .optional()
       .describe('Restrict the search to specific indexed file paths'),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: scope the search to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are always labelled with their root.'
+      ),
     contextLines: z
       .number()
       .int()

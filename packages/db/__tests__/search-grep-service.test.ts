@@ -120,4 +120,55 @@ describe('GrepSearchService', () => {
     const service = new GrepSearchService(stubRepository([]));
     await expect(service.search({ pattern: 'x' })).rejects.toThrow(/at least 2 characters/);
   });
+
+  it('carries rootId and rootName from the candidate onto each match', async () => {
+    const rooted: GrepCandidate[] = [
+      {
+        filePath: 'src/x.ts',
+        startLine: 1,
+        content: 'needle here',
+        rootId: 'r1',
+        rootName: 'Alpha',
+      },
+    ];
+    const service = new GrepSearchService(stubRepository(rooted));
+    const result = await service.search({ pattern: 'needle' });
+    expect(result.matches[0]?.rootId).toBe('r1');
+    expect(result.matches[0]?.rootName).toBe('Alpha');
+  });
+
+  it('dedupes per (root, path, line) so same-path files in different roots both match', async () => {
+    // Two roots each have README.md with an identical line — the multi-root bug
+    // is that a (path, line) dedupe key collapses these into one match.
+    const sameRelativePath: GrepCandidate[] = [
+      {
+        filePath: 'README.md',
+        startLine: 1,
+        content: 'needle',
+        rootId: 'root-a',
+        rootName: 'ProjectA',
+      },
+      {
+        filePath: 'README.md',
+        startLine: 1,
+        content: 'needle',
+        rootId: 'root-b',
+        rootName: 'ProjectB',
+      },
+    ];
+    const service = new GrepSearchService(stubRepository(sameRelativePath));
+    const result = await service.search({ pattern: 'needle' });
+    expect(result.matches).toHaveLength(2);
+    expect(result.matches.map((m) => `${m.rootName}:${m.path}:${m.line}`)).toEqual([
+      'ProjectA:README.md:1',
+      'ProjectB:README.md:1',
+    ]);
+  });
+
+  it('forwards an optional rootId filter to the candidate query', async () => {
+    const calls: GrepCandidateOptions[] = [];
+    const service = new GrepSearchService(stubRepository([], calls));
+    await service.search({ pattern: 'needle', rootId: 'root-a' });
+    expect(calls[0]?.rootId).toBe('root-a');
+  });
 });

@@ -144,3 +144,100 @@ describe('grep search (integration)', () => {
     expect(result.matches[0]?.line).toBe(2);
   });
 });
+
+describe('grep search multi-root (integration)', () => {
+  let db: PGlite;
+  let service: GrepSearchService;
+
+  beforeAll(async () => {
+    db = await wasmLoader.createPGlite('memory://grep-search-multiroot');
+    await migrate(db);
+
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path, status, created_at)
+       VALUES ($1, 'path', $2, $3, 'live', $4), ($5, 'path', $6, $7, 'live', $8)`,
+      ['root-a', 'ProjectA', '/work/ProjectA', now, 'root-b', 'ProjectB', '/work/ProjectB', now]
+    );
+    // Same RELATIVE path in two different roots — the multi-root disambiguation case.
+    await db.query(
+      `INSERT INTO file_records (id, name, path, root_id, size, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)`,
+      [
+        'fr-a-readme',
+        'README.md',
+        'README.md',
+        'root-a',
+        100,
+        now,
+        now,
+        'fr-b-readme',
+        'README.md',
+        'README.md',
+        'root-b',
+        100,
+        now,
+        now,
+      ]
+    );
+
+    const baseChunk = {
+      tokenCount: 10,
+      chunkType: 'code' as const,
+      chunkSize: 50,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const repo = new FileChunkRepository(db);
+    await repo.insertMany([
+      {
+        ...baseChunk,
+        id: 'mc-a',
+        contentHash: 'mha',
+        fileRecordId: 'fr-a-readme',
+        chunkIndex: 0,
+        content: 'shared marker token',
+        startLine: 1,
+        endLine: 1,
+      },
+      {
+        ...baseChunk,
+        id: 'mc-b',
+        contentHash: 'mhb',
+        fileRecordId: 'fr-b-readme',
+        chunkIndex: 0,
+        content: 'shared marker token',
+        startLine: 1,
+        endLine: 1,
+      },
+    ]);
+    service = new GrepSearchService(repo);
+  });
+
+  afterAll(async () => {
+    await db.close();
+  });
+
+  it('labels each match with its root id and display name', async () => {
+    const result = await service.search({ pattern: 'marker' });
+    expect(result.matches).toHaveLength(2);
+    const byRoot = new Map(result.matches.map((m) => [m.rootName, m.rootId]));
+    expect(byRoot.get('ProjectA')).toBe('root-a');
+    expect(byRoot.get('ProjectB')).toBe('root-b');
+  });
+
+  it('keeps same-relative-path matches from different roots distinct', async () => {
+    // Both files are README.md:1 — a non-root-qualified dedupe would drop one.
+    const result = await service.search({ pattern: 'marker' });
+    expect(result.matches.map((m) => `${m.rootName}/${m.path}:${m.line}`)).toEqual([
+      'ProjectA/README.md:1',
+      'ProjectB/README.md:1',
+    ]);
+  });
+
+  it('scopes results to a single root when rootId is provided', async () => {
+    const result = await service.search({ pattern: 'marker', rootId: 'root-b' });
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]?.rootName).toBe('ProjectB');
+  });
+});
