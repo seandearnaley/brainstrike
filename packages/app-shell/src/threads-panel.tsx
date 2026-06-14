@@ -4,7 +4,6 @@ import {
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import {
   Bug,
@@ -35,6 +34,7 @@ import {
   type AssistantThreadRepository,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 
@@ -849,7 +849,6 @@ function ThreadsPanelContent({
   onSelectThread,
   onUpdateThreadMetadata,
   repository,
-  resourceId,
   selectedThreadId,
   threads,
 }: {
@@ -864,19 +863,9 @@ function ThreadsPanelContent({
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
   readonly repository: AssistantThreadRepository | null;
-  readonly resourceId: string | null;
   readonly selectedThreadId: string | undefined;
   readonly threads: readonly AssistantMemoryThread[];
 }): ReactElement {
-  if (!resourceId) {
-    return (
-      <ThreadStateCard
-        description="Open a workspace to load its Mastra memory threads."
-        testId="threads-placeholder-card"
-        title="No workspace open"
-      />
-    );
-  }
   if (!repository && databaseStartupLoading) {
     return (
       <ThreadStateCard
@@ -951,10 +940,11 @@ export function ThreadsPanel(): ReactElement {
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
-  // Focused root handle — reducer-sourced via the FileSystemProvider context
-  // (the store no longer caches the handle; the reducer is the sole owner).
-  const { rootDirectoryHandle } = useFileSystem();
-  const resourceId = rootDirectoryHandle?.path ?? null;
+  // Assistant memory is workspace-global: one stable resource id, never the
+  // focused root path. Keying on the focused root wiped threads on focus change
+  // (e.g. adding a folder) and gated the assistant behind "open a folder first".
+  // See assistant-memory-resource.ts.
+  const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
@@ -976,13 +966,10 @@ export function ThreadsPanel(): ReactElement {
   const renameThread = useAssistantThreadStore((state) => state.renameThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
-  const selectedThreadId = resourceId ? selectedThreadByResourceId[resourceId] : undefined;
-  const threads = resourceId ? (threadsByResourceId[resourceId] ?? []) : [];
-  const loadState = resourceId ? (loadStateByResourceId[resourceId] ?? { status: 'idle' }) : null;
+  const selectedThreadId = selectedThreadByResourceId[resourceId];
+  const threads = threadsByResourceId[resourceId] ?? [];
+  const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const handleSelectThread = (threadId: string): void => {
-    if (!resourceId) {
-      return;
-    }
     selectThread(resourceId, threadId);
   };
   const handleRenameThread = async (threadId: string, title: string): Promise<void> => {
@@ -1050,9 +1037,9 @@ export function ThreadsPanel(): ReactElement {
           }}
           size="sm"
           title={
-            repository && resourceId
+            repository
               ? 'Create a new Mastra memory thread for this workspace.'
-              : 'Open a workspace with an initialized database to create threads.'
+              : 'The assistant memory database is still initializing.'
           }
           type="button"
           variant="secondary"
@@ -1072,7 +1059,6 @@ export function ThreadsPanel(): ReactElement {
           onSelectThread={handleSelectThread}
           onUpdateThreadMetadata={handleUpdateThreadMetadata}
           repository={repository}
-          resourceId={resourceId}
           selectedThreadId={selectedThreadId}
           threads={threads}
         />

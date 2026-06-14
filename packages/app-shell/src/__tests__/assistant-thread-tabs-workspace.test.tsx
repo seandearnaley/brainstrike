@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
@@ -63,14 +64,14 @@ describe('AssistantThreadTabsWorkspace', () => {
       threadRows.length,
       {
         id: 'thread-a',
-        resourceId: '/tmp/workspace-a',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Purchasing app search log',
         createdAt: new Date('2026-04-22T09:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
       {
         id: 'thread-b',
-        resourceId: '/tmp/workspace-a',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Amazon Bedrock Converse',
         createdAt: new Date('2026-04-22T09:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
@@ -112,7 +113,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     });
 
     act(() => {
-      useAssistantThreadStore.getState().openThreadTab('/tmp/workspace-a', 'thread-b');
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
     });
 
     expect(screen.getAllByTestId('assistant-thread-wrapper')).toHaveLength(2);
@@ -145,7 +146,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect.stringContaining('INSERT INTO mastra_threads'),
       expect.arrayContaining([
         'thread-00000000-0000-4000-8000-00000000000e',
-        '/tmp/workspace-a',
+        WORKSPACE_MEMORY_RESOURCE_ID,
         'New Thread',
       ])
     );
@@ -177,32 +178,28 @@ describe('AssistantThreadTabsWorkspace', () => {
     ).toBeNull();
   });
 
-  it('shows explicit workspace and load-error states without mounting assistant tabs', async () => {
+  it('mounts assistant threads even when no folder is open', async () => {
+    // Multi-root: assistant memory is workspace-global; zero roots is fine and
+    // the "open a workspace first" gate is gone.
     fileExplorerMocks.rootDirectoryHandle = null;
-    const noWorkspaceView = render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
 
-    expect(screen.getByText('No workspace open')).toBeInTheDocument();
-    expect(
-      screen.getByText('Open a workspace before starting assistant threads.')
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-thread-workspace-state')).toHaveAttribute(
-      'data-variant',
-      'muted'
-    );
-    expect(
-      screen.queryByRole('tablist', { name: 'Open assistant threads' })
-    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+    expect(screen.queryByText('No workspace open')).not.toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Open assistant threads' })).toBeInTheDocument();
+  });
 
-    noWorkspaceView.unmount();
-    fileExplorerMocks.rootDirectoryHandle = {
-      name: 'workspace-a',
-      path: '/tmp/workspace-a',
-    };
+  it('shows the load-error state without mounting assistant tabs', () => {
     render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
     act(() => {
       useAssistantThreadStore.setState({
         loadStateByResourceId: {
-          '/tmp/workspace-a': { status: 'error', error: 'PGlite failed to initialize.' },
+          [WORKSPACE_MEMORY_RESOURCE_ID]: {
+            status: 'error',
+            error: 'PGlite failed to initialize.',
+          },
         },
       });
     });
@@ -349,7 +346,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
     });
     act(() => {
-      useAssistantThreadStore.getState().openThreadTab('/tmp/workspace-a', 'thread-b');
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
     });
     await user.click(screen.getByRole('button', { name: 'Close thread Amazon Bedrock Converse' }));
 
@@ -357,10 +354,9 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect.stringContaining('DELETE FROM mastra_threads'),
       expect.anything()
     );
-    expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
-      'thread-a',
-      'thread-b',
-    ]);
+    expect(
+      useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual(['thread-a', 'thread-b']);
     expect(screen.queryByTestId('assistant-thread-panel-thread-b')).not.toBeInTheDocument();
   });
 });

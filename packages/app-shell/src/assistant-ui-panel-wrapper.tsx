@@ -41,6 +41,7 @@ import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
+import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   addValuesToSet,
@@ -686,13 +687,11 @@ export function AssistantUiPanelWrapper({
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const memoryResourceId = memoryResourceIdOverride ?? workspaceRootPath ?? undefined;
-  const selectedMemoryThreadId = memoryResourceId
-    ? (memoryThreadId ?? selectedThreadByResourceId[memoryResourceId])
-    : undefined;
-  const memoryLoadState = memoryResourceId
-    ? (loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const })
-    : null;
+  // Workspace-global assistant memory: a stable resource id (or an explicit
+  // override), never the focused root path. See assistant-memory-resource.ts.
+  const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
+  const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
+  const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable =
     selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
@@ -705,7 +704,7 @@ export function AssistantUiPanelWrapper({
       : 'local-runtime';
 
   useEffect(() => {
-    if (!(assistantThreadRepository && memoryResourceId)) {
+    if (!assistantThreadRepository) {
       return;
     }
     ensureResourceThreads(assistantThreadRepository, memoryResourceId).catch(() => {
@@ -714,7 +713,7 @@ export function AssistantUiPanelWrapper({
   }, [assistantThreadRepository, ensureResourceThreads, memoryResourceId]);
 
   const historyAdapter = useMemo(() => {
-    if (!(assistantThreadRepository && memoryResourceId && selectedMemoryThreadId)) {
+    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
       return;
     }
     return createAssistantThreadHistoryAdapter({

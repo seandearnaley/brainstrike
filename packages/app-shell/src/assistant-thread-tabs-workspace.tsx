@@ -4,12 +4,12 @@ import {
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
 import type { ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
@@ -38,9 +38,9 @@ export function AssistantThreadTabsWorkspace({
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
-  // Focused root handle — reducer-sourced via the FileSystemProvider context.
-  const { rootDirectoryHandle } = useFileSystem();
-  const resourceId = rootDirectoryHandle?.path ?? null;
+  // Workspace-global assistant memory: one stable resource id, never the focused
+  // root path. See assistant-memory-resource.ts.
+  const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]
@@ -65,14 +65,14 @@ export function AssistantThreadTabsWorkspace({
   const openThreadTab = useAssistantThreadStore((state) => state.openThreadTab);
   const closeThreadTab = useAssistantThreadStore((state) => state.closeThreadTab);
 
-  const loadState = resourceId ? (loadStateByResourceId[resourceId] ?? { status: 'idle' }) : null;
-  const threads = resourceId ? (threadsByResourceId[resourceId] ?? []) : [];
+  const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
+  const threads = threadsByResourceId[resourceId] ?? [];
   const threadById = useMemo(
     () => new Map(threads.map((thread) => [thread.id, thread])),
     [threads]
   );
-  const openThreadIds = resourceId ? (openThreadIdsByResourceId[resourceId] ?? []) : [];
-  const activeThreadId = resourceId ? activeThreadIdByResourceId[resourceId] : undefined;
+  const openThreadIds = openThreadIdsByResourceId[resourceId] ?? [];
+  const activeThreadId = activeThreadIdByResourceId[resourceId];
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabScrollState, setTabScrollState] = useState<TabScrollState>(EMPTY_TAB_SCROLL_STATE);
 
@@ -165,22 +165,13 @@ export function AssistantThreadTabsWorkspace({
   );
 
   useEffect(() => {
-    if (!(repository && resourceId)) {
+    if (!repository) {
       return;
     }
     ensureResourceThreads(repository, resourceId).catch(() => {
       // The store records the explicit error state; the assistant remains unavailable.
     });
   }, [ensureResourceThreads, repository, resourceId]);
-
-  if (!resourceId) {
-    return (
-      <ThreadWorkspaceState
-        description="Open a workspace before starting assistant threads."
-        title="No workspace open"
-      />
-    );
-  }
 
   if (!repository && databaseStartupLoading) {
     return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
