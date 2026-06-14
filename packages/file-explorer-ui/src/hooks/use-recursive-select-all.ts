@@ -136,6 +136,7 @@ async function commitSelectAllResult(args: {
   onTreeUpdate: (tree: IFileNode[]) => void;
   quiet?: boolean | undefined;
   result: Awaited<ReturnType<typeof querySelectableFiles>>;
+  selectionLimit: number;
   setQuerySelection:
     | ((
         descriptor: SelectionQueryDescriptor,
@@ -208,6 +209,15 @@ async function commitSelectAllResult(args: {
     args.onTreeUpdate(args.getCurrentTree());
   });
 
+  if (result.limitReached) {
+    notifyCappedSelectAllResult({
+      fileCount: result.filePaths.length,
+      quiet: args.quiet === true,
+      selectionLimit: args.selectionLimit,
+      showToast,
+    });
+  }
+
   return {
     success: true,
     filePaths: result.filePaths,
@@ -246,6 +256,22 @@ function notifyEmptySelectAllResult(args: {
         : 'There are no files to select.',
   });
   return { success: true, filePaths: [], totalAvailable: 0 };
+}
+
+function notifyCappedSelectAllResult(args: {
+  fileCount: number;
+  quiet?: boolean;
+  selectionLimit: number;
+  showToast: ReturnType<typeof useToastManager>['showToast'];
+}): void {
+  if (args.quiet) {
+    return;
+  }
+  args.showToast({
+    title: `Selection limit reached (${args.selectionLimit})`,
+    description: `Selected ${args.fileCount} files before hitting the limit. Raise the limit to select more.`,
+    variant: 'destructive',
+  });
 }
 
 function handleSelectAllError(err: unknown, onError?: (error: Error) => void): SelectAllResult {
@@ -465,6 +491,7 @@ export function useRecursiveSelectAll(
           maxSelectionCount: scanCap,
           onTreeUpdate,
           result,
+          selectionLimit: maxSelectionCount,
           setQuerySelection,
           showToast,
           storageAdapter,

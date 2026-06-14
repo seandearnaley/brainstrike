@@ -250,6 +250,30 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     await expect(adapter.readFileByPath('outside.txt')).resolves.toBe('base:outside.txt');
   });
 
+  it('resolves fixture files for indexing through the stamped rootId alias', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), {
+      platform: 'web',
+    });
+    const root = await adapter.loadInlineFixture(FIXTURE);
+
+    if (!root.rootId) {
+      throw new Error('Expected fixture root to be stamped with a rootId');
+    }
+
+    await expect(adapter.resolveFileForIndexing?.(`${root.rootId}/src/a.ts`)).resolves.toEqual({
+      kind: 'content',
+      content: 'export const a = 1;',
+      fileSize: 'export const a = 1;'.length,
+    });
+    await expect(
+      adapter.resolveFileForIndexing?.(`${root.rootId}/${root.path}/src/a.ts`)
+    ).resolves.toEqual({
+      kind: 'content',
+      content: 'export const a = 1;',
+      fileSize: 'export const a = 1;'.length,
+    });
+  });
+
   it('treats null file leaves as fixture files with stable default content', async () => {
     const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
     await adapter.loadInlineFixture(NULL_SHORTHAND_FIXTURE);
@@ -319,6 +343,27 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       platform: 'electron',
     });
     expect(baseRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the same rootId when reloading the same fixture root name', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+
+    const first = await adapter.loadInlineFixture(FIXTURE);
+    const reloaded = await adapter.loadInlineFixture({
+      name: FIXTURE.name,
+      tree: {
+        'new-file.ts': 'export const refreshed = true;',
+      },
+    });
+    const other = await adapter.loadInlineFixture({
+      name: 'other-root',
+      tree: {
+        'new-file.ts': 'export const other = true;',
+      },
+    });
+
+    expect(reloaded.rootId).toBe(first.rootId);
+    expect(other.rootId).not.toBe(first.rootId);
   });
 
   it('does not add streaming API when base adapter has no streaming support', async () => {

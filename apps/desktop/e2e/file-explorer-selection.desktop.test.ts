@@ -230,10 +230,15 @@ test.describe('Desktop file explorer selection', () => {
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
     await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
-    const limitToast = window
-      .getByText('Cannot select more files. Maximum selection limit reached.', { exact: true })
-      .first();
+    const limitToast = window.getByText('Selection limit reached (2)', { exact: true }).first();
     await expect(limitToast).toBeVisible({ timeout: 15_000 });
+    await expect(
+      window
+        .getByText('Selected 2 files before hitting the limit. Raise the limit to select more.', {
+          exact: true,
+        })
+        .first()
+    ).toBeVisible();
     await expect(limitToast).not.toBeVisible({ timeout: 10_000 });
 
     const deselectAllButton = window.getByRole('button', { name: /^Deselect All$/i }).first();

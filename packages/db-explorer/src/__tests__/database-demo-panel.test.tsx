@@ -702,6 +702,42 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
+    it('disables manual import when the loaded active collection is the managed collection', async () => {
+      useBackgroundIndexingPreferencesStore.setState({
+        enabled: true,
+        managedCollectionId: TEST_COLLECTION_ID,
+        mode: 'root-folder-cache',
+        hasHydrated: true,
+      });
+      useVectorStatusUIStoreDirect.getState().setCachedCollections([
+        {
+          id: TEST_COLLECTION_ID,
+          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          modelId: 'Xenova/all-MiniLM-L6-v2',
+          dimensions: 384,
+          distance: 'cosine',
+          createdAt: '2026-06-07T00:00:00Z',
+          name: 'Managed Import Guard',
+          description: null,
+          tags: null,
+          category: null,
+          fileCount: 0,
+          chunkCount: 0,
+          embeddingCount: 0,
+          systemRole: null,
+        },
+      ]);
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
+    });
+
     it('disables manual import when the active collection has the workspace index system role', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {

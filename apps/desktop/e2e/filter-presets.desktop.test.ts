@@ -362,7 +362,9 @@ async function resolvePresetTrigger(window: Page): Promise<Locator> {
   const explorerPanel = getContextExplorerFileExplorerPanel(window);
   const presetTrigger = explorerPanel
     .locator('button')
-    .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
+    .filter({
+      hasText: /custom filters|select filter|source files|documentation|typescript\/javascript/i,
+    })
     .first();
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
   await expect(presetTrigger).toBeEnabled({ timeout: 10_000 });

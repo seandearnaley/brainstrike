@@ -315,7 +315,8 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await page.getByTestId('hide-threads-panel').click();
     await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
-    await expect(page.getByText('6 files', { exact: true })).toBeVisible();
+    await expect(page.getByText('7 files', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'README.md' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
 
@@ -324,7 +325,8 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await srcCheckbox.click({ force: true });
 
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(page.getByText('2 files', { exact: true })).toBeVisible();
+    await expect(page.getByText('3 files', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'README.md' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
   });

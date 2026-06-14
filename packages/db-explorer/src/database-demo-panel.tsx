@@ -211,7 +211,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const isManagedCollection = Boolean(
     activeCollectionId &&
       (activeCollection?.systemRole === 'workspace-index' ||
-        (activeCollection === null && activeCollectionId === managedCollectionId))
+        activeCollectionId === managedCollectionId)
   );
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
@@ -408,6 +408,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 file: entry.file,
                 error: entry.error,
               })),
+              chunkingProgress: importFlow.progress.chunkingProgress
+                ? {
+                    filesProcessed: importFlow.progress.chunkingProgress.filesProcessed,
+                    totalFiles: importFlow.progress.chunkingProgress.totalFiles,
+                    chunksCreated: importFlow.progress.chunkingProgress.chunksCreated,
+                    currentFile: importFlow.progress.chunkingProgress.currentFile ?? '',
+                    strategyUsed: importFlow.progress.chunkingProgress.strategyUsed ?? '',
+                  }
+                : null,
             }
           : null,
       }),

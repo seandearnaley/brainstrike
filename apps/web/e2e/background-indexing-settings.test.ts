@@ -72,7 +72,7 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  test('surfaces a blocking error when background indexing is enabled without a root folder', async ({
+  test('surfaces Workspace Index setup state when enabled without a root folder', async ({
     page,
   }) => {
     const collectionName = `Managed Cache ${Date.now()}`;
@@ -84,10 +84,12 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
 
     await openSearchIndexingSettings(page);
     await selectManagedCollection(page, collectionName);
-    await page.getByRole('switch', { name: /background indexing/i }).click();
 
-    await expect(page.getByText('No root folder selected.')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('indexing-status-item')).toContainText('Blocked');
+    const settingsSection = page.getByTestId('settings-category-search-indexing');
+    await expect(page.getByRole('switch', { name: 'Workspace Index' })).toBeChecked();
+    await expect(settingsSection.getByText('Disabled')).toBeVisible({ timeout: 15_000 });
+    await expect(settingsSection.getByText('None selected')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('indexing-status-item')).toContainText('Idle');
   });
 
   test('disables manual DB import when the collection is marked as managed', async ({ page }) => {
