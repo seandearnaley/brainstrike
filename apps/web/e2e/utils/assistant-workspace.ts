@@ -168,7 +168,7 @@ export async function openAssistantWorkspace(
   await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page, { waitForDatabase: true });
 
-  const selectRootButton = page.getByRole('button', { name: /^Select Root$/i });
+  const selectRootButton = page.getByRole('button', { name: /^Add Folder to Workspace$/i });
   if (await selectRootButton.isVisible().catch(() => false)) {
     await selectRootButton.click();
   }

@@ -21,7 +21,7 @@ async function openSelectionSettings(page: Page) {
     return settingsButton;
   }
 
-  const selectRootButton = page.getByRole('button', { name: /^Select Root$/i });
+  const selectRootButton = page.getByRole('button', { name: /^Add Folder to Workspace$/i });
   if (await selectRootButton.isVisible().catch(() => false)) {
     await selectRootButton.click();
   }

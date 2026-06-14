@@ -3,8 +3,10 @@ export const FileExplorerStrings = {
   title: 'Context Explorer',
 
   // Button Labels
-  selectRoot: 'Select Root',
-  addFolder: 'Add Folder',
+  // Multi-root: a single consolidated action. The workspace can hold many roots,
+  // so the toolbar always offers "Add Folder to Workspace" (no Select Root / Add
+  // Folder split, no per-root focus implied).
+  addFolderToWorkspace: 'Add Folder to Workspace',
   refresh: 'Refresh',
 
   // Toast Messages

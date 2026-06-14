@@ -80,7 +80,7 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
   // Helper function to test folder selection memory impact
   async function testFolderSelectionMemory(page: Page): Promise<void> {
     const selectButton = page
-      .locator('button', { hasText: 'Select Root' })
+      .locator('button', { hasText: 'Add Folder to Workspace' })
       .or(page.locator('[data-testid="select-root-button"]'))
       .or(page.locator('button:has-text("folder")'));
 

@@ -102,7 +102,9 @@ export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
     return;
   }
 
-  const selectRootButton = page.getByRole('button', { name: /select root|browse/i }).first();
+  const selectRootButton = page
+    .getByRole('button', { name: /add folder to workspace|browse/i })
+    .first();
   await selectRootButton.waitFor({ state: 'visible', timeout: 10_000 });
   await selectRootButton.click();
   await filtersButton.waitFor({ state: 'visible', timeout: 15_000 });

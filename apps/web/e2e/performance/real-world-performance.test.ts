@@ -67,7 +67,7 @@ test.describe('Real-World Performance Validation', () => {
 
     // Look for the folder selection button
     const selectButton = page
-      .locator('button', { hasText: 'Select Root' })
+      .locator('button', { hasText: 'Add Folder to Workspace' })
       .or(page.locator('[data-testid="select-root-button"]'))
       .or(page.locator('button:has-text("folder")'));
 
