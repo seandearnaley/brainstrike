@@ -18,7 +18,7 @@ export class FileExplorerPage {
   }
 
   get noDirectoryText(): Locator {
-    return this.page.getByText('No directory selected');
+    return this.page.getByText('No folders in your workspace');
   }
 
   get noFilesText(): Locator {

@@ -80,7 +80,7 @@ test.describe('File Explorer', () => {
       await expect(explorer.selectRootButton).toBeVisible();
       await expect(explorer.noFilesText).toBeVisible();
       await expect(explorer.filterInput).not.toBeVisible();
-      await expect(page.getByText('No directory selected')).toBeVisible();
+      await expect(page.getByText('No folders in your workspace')).toBeVisible();
       await expect(page.getByText('No files selected')).toBeVisible();
     });
 
@@ -137,13 +137,15 @@ test.describe('File Explorer', () => {
       await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
     });
 
-    test('shows the active root badge in the toolbar without rendering a separate current-directory row', async ({
+    test('renders no focused-root badge or separate current-directory row in the toolbar', async ({
       page,
     }) => {
       await explorer.selectRoot();
 
+      // Multi-root: the focused-root folder badge was removed (it implied a
+      // single active root). The toolbar holds only the Add Folder action.
       const toolbar = page.getByTestId('file-explorer-toolbar');
-      await expect(toolbar).toContainText('test-root');
+      await expect(toolbar).not.toContainText('test-root');
       await expect(page.getByText(/current directory/i)).toHaveCount(0);
     });
 
@@ -403,7 +405,9 @@ test.describe('File Explorer', () => {
       test.beforeEach(async ({ page }) => {
         explorer = await bootstrapFileExplorer(page, bootstrapOptions);
 
-        await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('No folders in your workspace')).toBeVisible({
+          timeout: 15_000,
+        });
         await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
 
         await explorer.selectRoot();
