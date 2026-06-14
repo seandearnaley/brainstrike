@@ -218,7 +218,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.listWorkspaceContext': {
     toolId: 'brainstrike.listWorkspaceContext',
     description:
-      'Inspect the selected workspace context and workspace index hint without returning file contents. Compact summary by default; detail: true adds per-file Tapestry ranges. Use this before reading selected files.',
+      'Inspect the open workspace roots, the selected context, and the workspace index hint without returning file contents. Lists every open folder (name + id) so you can pass a `root` qualifier to the read/search tools. Compact summary by default; detail: true adds per-file Tapestry ranges. Use this before reading selected files.',
     parameters: [
       {
         name: 'detail',
@@ -246,7 +246,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'Workspace root, selected paths, selected count, workspace index hint, and optional metadata',
+      'Open workspace roots (workspaceRoots: name + id + path), the primary root path, selected paths, selected count, workspace index hint, and optional metadata',
   },
 
   'brainstrike.readWorkspaceContext': {

@@ -412,6 +412,41 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('lists every open workspace root so the model can qualify the other tools', async () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceRoots: [
+        { rootId: 'id-a', displayName: 'ProjectA', path: '/work/ProjectA' },
+        { rootId: 'id-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+      ],
+      selectionFilePaths: [],
+      workspaceIndexingEnabled: false,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as unknown as RuntimeData);
+
+    const result = await tools['brainstrike.listWorkspaceContext'].execute({ context: {} });
+
+    expect(result.workspaceRoots).toEqual([
+      { rootId: 'id-a', displayName: 'ProjectA', path: '/work/ProjectA' },
+      { rootId: 'id-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+    ]);
+  });
+
+  it('synthesizes a single-root list from the legacy workspaceRootPath', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const result = await buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths: [],
+      workspaceIndexingEnabled: false,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData)['brainstrike.listWorkspaceContext'].execute({ context: {} });
+
+    expect(result.workspaceRoots).toHaveLength(1);
+    expect(result.workspaceRoots[0]?.path).toBe(workspaceRootPath);
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('lists token-aware curated workspace context metadata without file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
