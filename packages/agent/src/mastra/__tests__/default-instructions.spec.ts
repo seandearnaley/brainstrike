@@ -204,6 +204,32 @@ describe('grep-first search orientation', () => {
   });
 });
 
+describe('multi-root guidance', () => {
+  it('teaches the root-qualifier workflow when listWorkspaceContext and a root-qualified tool are registered', () => {
+    const instructions = buildDefaultInstructions(FULL_TOOL_MAP);
+    expect(instructions).toMatch(/several folders|multiple folders/i);
+    expect(instructions).toContain('workspaceRoots');
+    expect(instructions).toMatch(/"root" argument/i);
+    // Results are labelled with their owning root so the model can disambiguate.
+    expect(instructions).toContain('rootName');
+    // The root-qualified tools are named in the guidance.
+    expect(instructions).toContain('grepSearch');
+    expect(instructions).toContain('readWorkspaceFile');
+  });
+
+  it('omits multi-root guidance when listWorkspaceContext is not registered', () => {
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([['grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(instructions).not.toContain('workspaceRoots');
+  });
+
+  it('keeps multi-root guidance out of the compact local instruction set', () => {
+    const localInstructions = buildLocalDefaultInstructions(FULL_TOOL_MAP);
+    expect(localInstructions).not.toContain('workspaceRoots');
+  });
+});
+
 describe('buildContextBudgetNote', () => {
   it('renders a one-line budget note', () => {
     expect(buildContextBudgetNote(126_000)).toBe(
