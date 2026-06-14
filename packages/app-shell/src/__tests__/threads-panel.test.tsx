@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
@@ -78,7 +79,7 @@ describe('ThreadsPanel', () => {
       threadRows.length,
       {
         id: 'thread-b',
-        resourceId: '/tmp/workspace-a',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Second thread',
         metadata: JSON.stringify({ icon: 'message', color: 'blue' }),
         createdAt: new Date('2026-04-22T10:00:00Z'),
@@ -86,7 +87,7 @@ describe('ThreadsPanel', () => {
       },
       {
         id: 'thread-a',
-        resourceId: '/tmp/workspace-a',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'First thread',
         metadata: JSON.stringify({ icon: 'code', color: 'emerald' }),
         createdAt: new Date('2026-04-22T09:00:00Z'),
@@ -137,7 +138,7 @@ describe('ThreadsPanel', () => {
           rows: [
             {
               id: 'run-1',
-              resourceId: '/tmp/workspace-a',
+              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
               threadId: 'thread-b',
               provider: 'openai',
               model: 'gpt-5.2',
@@ -158,15 +159,20 @@ describe('ThreadsPanel', () => {
     });
   });
 
-  it('shows an explicit empty workspace state before a workspace is open', () => {
+  it('loads workspace-global threads even when no folder is open', async () => {
+    // Multi-root: assistant memory is workspace-global and usable with zero roots.
+    // There is no "open a folder first" gate, and threads are keyed on a stable
+    // resource id rather than the focused root path.
     fileExplorerMocks.rootDirectoryHandle = null;
 
     render(<ThreadsPanel />);
 
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
     expect(screen.getByTestId('threads-preview-badge')).toHaveTextContent('Memory');
-    expect(screen.getByRole('button', { name: 'New thread' })).toBeDisabled();
-    expect(screen.getByTestId('threads-placeholder-card')).toBeVisible();
-    expect(screen.getByText('No workspace open')).toBeVisible();
+    expect(screen.queryByText('No workspace open')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New thread' })).toBeEnabled();
   });
 
   it('shows loading instead of unavailable while the database is initializing', () => {
@@ -248,7 +254,7 @@ describe('ThreadsPanel', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
-      '/tmp/workspace-a',
+      WORKSPACE_MEMORY_RESOURCE_ID,
     ]);
     expect(screen.getByText('First thread')).toBeVisible();
     expect(screen.getByText('Second thread')).toBeVisible();
@@ -256,9 +262,9 @@ describe('ThreadsPanel', () => {
     expect(screen.getByText('gpt-5.2')).toBeVisible();
     expect(screen.getByText('Reasoning: high')).toBeVisible();
     expect(screen.getByText('Max output: 512')).toBeVisible();
-    expect(useAssistantThreadStore.getState().selectedThreadByResourceId['/tmp/workspace-a']).toBe(
-      'thread-b'
-    );
+    expect(
+      useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-b');
   });
 
   it('renders curated thread identity without using the uuid as the primary row label', async () => {
@@ -364,14 +370,12 @@ describe('ThreadsPanel', () => {
     });
     expect(mockDb.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO mastra_threads'),
-      expect.arrayContaining([threadId, '/tmp/workspace-a', 'New Thread'])
+      expect.arrayContaining([threadId, WORKSPACE_MEMORY_RESOURCE_ID, 'New Thread'])
     );
     expect(screen.queryByText(threadId)).not.toBeInTheDocument();
-    expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
-      threadId,
-      'thread-b',
-      'thread-a',
-    ]);
+    expect(
+      useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual([threadId, 'thread-b', 'thread-a']);
     uuidSpy.mockRestore();
   });
 
@@ -439,9 +443,9 @@ describe('ThreadsPanel', () => {
     );
     expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
-    expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
-      'thread-a',
-    ]);
+    expect(
+      useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual(['thread-a']);
   });
 
   it('keeps delete errors local to the row without collapsing the thread list', async () => {

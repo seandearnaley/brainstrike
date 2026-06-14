@@ -15,6 +15,7 @@ import {
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import {
@@ -1421,7 +1422,7 @@ describe('AssistantUiPanelWrapper', () => {
         const requestData = readPanelRequestData();
         expect(requestData['memory']).toMatchObject({
           threadId: 'thread-existing',
-          resourceId: '/tmp/test-workspace',
+          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
           memoryOptions: {
             lastMessages: 40,
             workingMemory: { enabled: true, scope: 'resource' },
@@ -1590,7 +1591,7 @@ describe('AssistantUiPanelWrapper', () => {
         expect.stringContaining('INSERT INTO brainstrike_assistant_thread_runs'),
         expect.arrayContaining([
           'run-00000000-0000-4000-8000-00000000000d',
-          '/tmp/test-workspace',
+          WORKSPACE_MEMORY_RESOURCE_ID,
           'thread-existing',
           'openai',
           'gpt-5.2',
@@ -1606,7 +1607,7 @@ describe('AssistantUiPanelWrapper', () => {
     ).toBe(false);
     expect(preparedRequestDataLog[0]?.['memory']).toMatchObject({
       threadId: 'thread-existing',
-      resourceId: '/tmp/test-workspace',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
       runId: 'run-00000000-0000-4000-8000-00000000000d',
     });
     const insertCall = mockDb.query.mock.calls.find(([sql]) =>
@@ -1802,7 +1803,7 @@ describe('AssistantUiPanelWrapper', () => {
           rows: [
             {
               id: 'thread-existing',
-              resourceId: '/tmp/test-workspace',
+              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
               title: 'Existing thread',
               createdAt: new Date('2026-04-22T10:00:00Z'),
               updatedAt: new Date('2026-04-22T10:00:00Z'),
@@ -1819,7 +1820,7 @@ describe('AssistantUiPanelWrapper', () => {
           rows: [
             {
               id: 'run-00000000-0000-4000-8000-00000000000f',
-              resource_id: '/tmp/test-workspace',
+              resource_id: WORKSPACE_MEMORY_RESOURCE_ID,
               thread_id: 'thread-existing',
               provider: 'openai',
               model: 'gpt-5.2',
