@@ -420,6 +420,7 @@ export type {
   RuntimeWorkspaceContextFileMetadata,
   RuntimeWorkspaceContextMetadata,
   RuntimeWorkspaceContextRangeMetadata,
+  RuntimeWorkspaceRoot,
   StreamChunk,
   StreamChunkFinish,
   StreamChunkMessageFinish,

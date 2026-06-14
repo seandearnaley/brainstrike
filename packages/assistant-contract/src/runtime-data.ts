@@ -74,6 +74,21 @@ export interface RuntimeWorkspaceContextFileMetadata {
   rootId?: string;
 }
 
+/**
+ * One active workspace root (multi-root). Resolved server-side from the DB
+ * `roots` table so the root identity here matches `file_records.root_id` — the
+ * same id surfaced on search results — and the path matches what read tools
+ * resolve against. One source of truth for both.
+ */
+export interface RuntimeWorkspaceRoot {
+  /** Human display name (typically the last path segment); the model can use it to qualify a root. */
+  displayName: string;
+  /** Absolute filesystem path of the root. */
+  path: string;
+  /** Durable root id (DB `roots.id`; matches `file_records.root_id`). */
+  rootId: string;
+}
+
 export interface RuntimeWorkspaceContextMetadata {
   files?: readonly RuntimeWorkspaceContextFileMetadata[];
   includeProjectTree?: boolean;
@@ -159,4 +174,11 @@ export interface RuntimeData {
   workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
   workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
   workspaceRootPath?: string;
+  /**
+   * Active workspace roots (multi-root). Resolved server-side from the DB
+   * `roots` table so search-result root ids and read-tool root paths share one
+   * source of truth. Empty/absent => single-root or legacy: tools fall back to
+   * a single root synthesized from `workspaceRootPath`.
+   */
+  workspaceRoots?: readonly RuntimeWorkspaceRoot[];
 }

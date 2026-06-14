@@ -22,6 +22,7 @@ export type {
   RuntimeWorkspaceContextRangeMetadata,
   RuntimeWorkspaceIndexQueueProgress,
   RuntimeWorkspaceIndexStatusState,
+  RuntimeWorkspaceRoot,
 } from '@brainstrike/assistant-contract';
 
 export interface AgentMessagePartText {

@@ -60,6 +60,7 @@ import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
+import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -1046,7 +1047,7 @@ function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): st
 
 async function initializeAgentStream(
   messages: AgentMessage[],
-  runtimeData: RuntimeData | undefined,
+  incomingRuntimeData: RuntimeData | undefined,
   apiKey: string | undefined,
   mcpConfig: McpConfig | undefined,
   signal: AbortSignal,
@@ -1057,6 +1058,15 @@ async function initializeAgentStream(
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   }
 ): Promise<AgentStreamResult> {
+  // Multi-root: resolve the active workspace roots from the DB `roots` table so
+  // the assistant's file/search tools can disambiguate paths across roots. The
+  // helper falls back to the single focused root on an empty/failed lookup.
+  const rootsDatabase = await getDatabase().catch((error: unknown) => {
+    logger.warn('Workspace roots DB unavailable; tools fall back to the focused root.', { error });
+    return null;
+  });
+  const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(incomingRuntimeData, rootsDatabase);
+
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
