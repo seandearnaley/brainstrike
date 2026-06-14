@@ -32,6 +32,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
+  'rootId',
   'sourceRootPath',
   'createdAt',
   'updatedAt',
@@ -120,6 +121,7 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
+      rootId: record.rootId ?? null,
       sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
@@ -136,6 +138,7 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
+      rootId: record.rootId ?? null,
       sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
@@ -374,6 +377,9 @@ export class DrizzleFileRecordRepository {
         break;
       case 'sourceRootPath':
         updateData.sourceRootPath = validateNullableString(value, 'sourceRootPath');
+        break;
+      case 'rootId':
+        updateData.rootId = validateNullableString(value, 'rootId');
         break;
       case 'createdAt':
         updateData.createdAt = validateDateString(value, 'createdAt');
@@ -670,6 +676,9 @@ export class DrizzleFileRecordRepository {
 
     if (row.sourceRootPath !== null && row.sourceRootPath !== undefined) {
       record.sourceRootPath = row.sourceRootPath;
+    }
+    if (row.rootId !== null && row.rootId !== undefined) {
+      record.rootId = row.rootId;
     }
 
     // Add optional fields if they exist

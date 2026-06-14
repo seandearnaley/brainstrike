@@ -203,6 +203,7 @@ export function buildAssistantRequestData(args: {
     filePaths: string[];
     folderId: string | null | undefined;
     otherRootsCount?: number;
+    rootPath?: string | null | undefined;
   };
   workspaceContext: RuntimeData['workspaceContext'] | null;
   workspaceIndex: {
@@ -223,6 +224,9 @@ export function buildAssistantRequestData(args: {
   }
   if (args.selectionData.folderId) {
     data['selectionFolderId'] = args.selectionData.folderId;
+  }
+  if (args.selectionData.folderId && args.selectionData.rootPath) {
+    data['selectionRootPath'] = args.selectionData.rootPath;
   }
   if ((args.selectionData.otherRootsCount ?? 0) > 0) {
     // Multi-root: files selected in OTHER active roots are not addressable

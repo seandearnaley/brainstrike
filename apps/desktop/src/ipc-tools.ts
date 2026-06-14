@@ -351,6 +351,23 @@ function sanitizeEnabledNativeToolIds(value: unknown): string[] | undefined {
   return enabledNativeToolIds;
 }
 
+type RuntimeStringField =
+  | 'selectionFolderId'
+  | 'selectionRootPath'
+  | 'workspaceIndexEmbeddingSetId'
+  | 'workspaceRootPath';
+
+function copyRuntimeStringField(
+  input: Record<string, unknown>,
+  runtimeData: Partial<RuntimeData>,
+  field: RuntimeStringField
+): void {
+  const value = input[field];
+  if (typeof value === 'string') {
+    runtimeData[field] = value;
+  }
+}
+
 function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (!isPlainObject(input)) {
     return;
@@ -358,12 +375,9 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
 
   const runtimeData: Partial<RuntimeData> = {};
 
-  if (typeof input['workspaceRootPath'] === 'string') {
-    runtimeData.workspaceRootPath = input['workspaceRootPath'];
-  }
-  if (typeof input['selectionFolderId'] === 'string') {
-    runtimeData.selectionFolderId = input['selectionFolderId'];
-  }
+  copyRuntimeStringField(input, runtimeData, 'workspaceRootPath');
+  copyRuntimeStringField(input, runtimeData, 'selectionFolderId');
+  copyRuntimeStringField(input, runtimeData, 'selectionRootPath');
   if (Array.isArray(input['selectionFilePaths'])) {
     const selectionFilePaths = input['selectionFilePaths'].filter(
       (value): value is string => typeof value === 'string'
@@ -372,9 +386,7 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
       runtimeData.selectionFilePaths = selectionFilePaths;
     }
   }
-  if (typeof input['workspaceIndexEmbeddingSetId'] === 'string') {
-    runtimeData.workspaceIndexEmbeddingSetId = input['workspaceIndexEmbeddingSetId'];
-  }
+  copyRuntimeStringField(input, runtimeData, 'workspaceIndexEmbeddingSetId');
   if (typeof input['workspaceIndexingEnabled'] === 'boolean') {
     runtimeData.workspaceIndexingEnabled = input['workspaceIndexingEnabled'];
   }

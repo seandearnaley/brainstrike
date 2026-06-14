@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const workerConstructor = vi.fn();
 const pgliteConstructor = vi.fn();
 const pgliteWorkerCreate = vi.fn();
+const pgliteWorkerHarness = vi.fn();
 interface MockWorkerInstance {
   terminate: ReturnType<typeof vi.fn>;
 }
 
-async function waitForMockCall(mock: typeof pgliteWorkerCreate): Promise<void> {
+async function waitForMockCall(mock: ReturnType<typeof vi.fn>): Promise<void> {
   for (let index = 0; index < 20; index += 1) {
     if (mock.mock.calls.length > 0) {
       return;
@@ -17,7 +18,7 @@ async function waitForMockCall(mock: typeof pgliteWorkerCreate): Promise<void> {
   throw new Error('Timed out waiting for mock call');
 }
 
-async function waitForMockCallCount(mock: typeof pgliteWorkerCreate, count: number): Promise<void> {
+async function waitForMockCallCount(mock: ReturnType<typeof vi.fn>, count: number): Promise<void> {
   for (let index = 0; index < 20; index += 1) {
     if (mock.mock.calls.length >= count) {
       return;
@@ -44,6 +45,7 @@ vi.mock('@electric-sql/pglite/contrib/pg_trgm', () => ({
 }));
 
 vi.mock('@electric-sql/pglite/worker', () => ({
+  worker: pgliteWorkerHarness,
   PGliteWorker: {
     create: pgliteWorkerCreate,
   },
@@ -55,6 +57,7 @@ describe('wasmLoader browser worker host', () => {
     workerConstructor.mockReset();
     pgliteConstructor.mockReset();
     pgliteWorkerCreate.mockReset();
+    pgliteWorkerHarness.mockReset();
 
     Object.defineProperty(globalThis, 'Worker', {
       configurable: true,
@@ -287,5 +290,58 @@ describe('wasmLoader browser worker host', () => {
 
     expect(pgliteConstructor).toHaveBeenCalledTimes(1);
     expect(pgliteWorkerCreate).not.toHaveBeenCalled();
+  });
+
+  it('creates a process.env shim before worker init constructs browser PGlite', async () => {
+    const originalProcessDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'process');
+    interface WorkerHarnessConfig {
+      init: (options: unknown) => Promise<unknown>;
+    }
+    let capturedConfig: WorkerHarnessConfig | null = null;
+    pgliteWorkerHarness.mockImplementation((config: WorkerHarnessConfig) => {
+      capturedConfig = config;
+    });
+    pgliteConstructor.mockImplementation(function PGliteMock(this: Record<string, unknown>) {
+      const runtimeProcess = (globalThis as { process?: { env?: Record<string, string> } }).process;
+      if (!runtimeProcess?.env) {
+        throw new Error('process.env missing before PGlite construction');
+      }
+      this.close = vi.fn().mockResolvedValue(undefined);
+      this.query = vi.fn().mockResolvedValue({ rows: [] });
+    });
+
+    Object.defineProperty(globalThis, 'process', {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+
+    try {
+      await import('../src/pglite-worker-entry');
+      await waitForMockCall(pgliteWorkerHarness);
+
+      expect(capturedConfig).not.toBeNull();
+      await expect(
+        capturedConfig?.init({ dataDir: 'idb://web', relaxedDurability: false })
+      ).resolves.toBeDefined();
+      expect(pgliteConstructor).toHaveBeenCalledWith({
+        dataDir: 'idb://web',
+        extensions: {
+          pg_trgm: { name: 'pg-trgm-extension' },
+          vector: { name: 'vector-extension' },
+        },
+        relaxedDurability: false,
+      });
+      expect(
+        (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+          ?.NODE_ENV
+      ).toBe('test');
+    } finally {
+      if (originalProcessDescriptor) {
+        Object.defineProperty(globalThis, 'process', originalProcessDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'process');
+      }
+    }
   });
 });

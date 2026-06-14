@@ -417,6 +417,89 @@ describe('DrizzleFileChunkRepository', () => {
         '00000000-0000-0000-0000-000000000021',
       ]);
     });
+
+    it('keeps legacy unrooted chunks visible when a DB root filter is applied', async () => {
+      const now = new Date().toISOString();
+      const rootedFileRecordId = '00000000-0000-0000-0000-000000000003';
+      const unrootedFileRecordId = '00000000-0000-0000-0000-000000000004';
+      const otherRootFileRecordId = '00000000-0000-0000-0000-000000000005';
+      await client.query(
+        `INSERT INTO roots (id, kind, display_name, path)
+         VALUES ($1, 'path', 'Repo A', '/repo/a'), ($2, 'path', 'Repo B', '/repo/b')`,
+        ['db-root-a', 'db-root-b']
+      );
+      await fileRecordRepository.create({
+        id: rootedFileRecordId,
+        name: 'rooted.ts',
+        path: '/src/rooted.ts',
+        rootId: 'db-root-a',
+        size: 1024,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await fileRecordRepository.create({
+        id: unrootedFileRecordId,
+        name: 'legacy.ts',
+        path: '/src/legacy.ts',
+        size: 1024,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await fileRecordRepository.create({
+        id: otherRootFileRecordId,
+        name: 'other.ts',
+        path: '/src/other.ts',
+        rootId: 'db-root-b',
+        size: 1024,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.insertMany([
+        {
+          id: '00000000-0000-0000-0000-000000000030',
+          fileRecordId: rootedFileRecordId,
+          chunkIndex: 0,
+          content: 'rooted chunk',
+          embedding: [0.9, 0.1, 0.0],
+          embeddingSetId: testEmbeddingSetId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: '00000000-0000-0000-0000-000000000031',
+          fileRecordId: unrootedFileRecordId,
+          chunkIndex: 0,
+          content: 'legacy chunk',
+          embedding: [0.8, 0.2, 0.0],
+          embeddingSetId: testEmbeddingSetId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: '00000000-0000-0000-0000-000000000032',
+          fileRecordId: otherRootFileRecordId,
+          chunkIndex: 0,
+          content: 'other chunk',
+          embedding: [0.7, 0.3, 0.0],
+          embeddingSetId: testEmbeddingSetId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const results = await repository.searchSimilar([1.0, 0.0, 0.0], {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 10,
+        rootId: 'db-root-a',
+        threshold: 0,
+      });
+
+      expect(results.map((r) => r.chunk.id)).toEqual([
+        '00000000-0000-0000-0000-000000000030',
+        '00000000-0000-0000-0000-000000000031',
+      ]);
+    });
   });
 
   describe('getStats', () => {

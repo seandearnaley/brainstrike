@@ -32,6 +32,34 @@ function parseOptionalStatNumber(value: unknown): number | null {
   return null;
 }
 
+function assignOptionalString(
+  row: Record<string, unknown>,
+  column: string,
+  assign: (value: string) => void
+): void {
+  const value = row[column];
+  if (value !== null && value !== undefined) {
+    assign(String(value));
+  }
+}
+
+function assignOptionalNumber(
+  row: Record<string, unknown>,
+  column: string,
+  assign: (value: number) => void
+): void {
+  const value = row[column];
+  if (value !== null && value !== undefined) {
+    assign(Number(value));
+  }
+}
+
+function assignOptionalEmbedding(record: FileRecord, value: unknown): void {
+  if (value !== null && value !== undefined) {
+    record.embedding = value as number[];
+  }
+}
+
 /**
  * Allowed fields for updates - prevents accidental ID updates
  */
@@ -39,6 +67,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
+  'rootId',
   'sourceRootPath',
   'createdAt',
   'updatedAt',
@@ -81,6 +110,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     if (record.sourceRootPath) {
       fields.push('source_root_path');
       values.push(record.sourceRootPath);
+    }
+
+    if (record.rootId) {
+      fields.push('root_id');
+      values.push(record.rootId);
     }
 
     if (record.tokenCount !== undefined) {
@@ -132,6 +166,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.processedAt || null,
     ];
 
+    if (record.rootId) {
+      fields.push('root_id');
+      values.push(record.rootId);
+    }
+
     // Add embedding_set_id if present
     if (record.embeddingSetId) {
       fields.push('embedding_set_id');
@@ -164,7 +203,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const uniqueIds = Array.from(new Set(ids));
     // file_records.id is persisted as TEXT in existing migrations; cast both sides to text
     // to keep lookup behavior stable across legacy/electron databases.
-    const sql = `SELECT * FROM ${this.tableName} WHERE id::text = ANY($1::text[])`;
+    const sql = `SELECT fr.*, r.display_name AS root_display_name
+      FROM ${this.tableName} fr
+      LEFT JOIN roots r ON r.id = fr.root_id
+      WHERE fr.id::text = ANY($1::text[])`;
     const result = await this.db.query<Record<string, unknown>>(sql, [uniqueIds]);
 
     if (!Array.isArray(result.rows)) {
@@ -675,42 +717,37 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       updatedAt: String(row['updated_at']),
     };
 
-    if (row['source_root_path'] !== null && row['source_root_path'] !== undefined) {
-      record.sourceRootPath = String(row['source_root_path']);
-    }
-
-    // Add optional fields if they exist (check for both null and undefined)
-    if (row['content'] !== null && row['content'] !== undefined) {
-      record.content = String(row['content']);
-    }
-
-    if (row['content_hash'] !== null && row['content_hash'] !== undefined) {
-      record.contentHash = String(row['content_hash']);
-    }
-
-    if (row['token_count'] !== null && row['token_count'] !== undefined) {
-      record.tokenCount = Number(row['token_count']);
-    }
-
-    if (row['processed_at'] !== null && row['processed_at'] !== undefined) {
-      record.processedAt = String(row['processed_at']);
-    }
-
-    if (row['embedding'] !== null && row['embedding'] !== undefined) {
-      record.embedding = row['embedding'] as number[];
-    }
-
-    if (row['embedding_set_id'] !== null && row['embedding_set_id'] !== undefined) {
-      record.embeddingSetId = String(row['embedding_set_id']);
-    }
-
-    if (row['chunks_processed_at'] !== null && row['chunks_processed_at'] !== undefined) {
-      record.chunksProcessedAt = String(row['chunks_processed_at']);
-    }
-
-    if (row['chunks_count'] !== null && row['chunks_count'] !== undefined) {
-      record.chunksCount = Number(row['chunks_count']);
-    }
+    assignOptionalString(row, 'source_root_path', (value) => {
+      record.sourceRootPath = value;
+    });
+    assignOptionalString(row, 'root_id', (value) => {
+      record.rootId = value;
+    });
+    assignOptionalString(row, 'root_display_name', (value) => {
+      record.rootDisplayName = value;
+    });
+    assignOptionalString(row, 'content', (value) => {
+      record.content = value;
+    });
+    assignOptionalString(row, 'content_hash', (value) => {
+      record.contentHash = value;
+    });
+    assignOptionalNumber(row, 'token_count', (value) => {
+      record.tokenCount = value;
+    });
+    assignOptionalString(row, 'processed_at', (value) => {
+      record.processedAt = value;
+    });
+    assignOptionalEmbedding(record, row['embedding']);
+    assignOptionalString(row, 'embedding_set_id', (value) => {
+      record.embeddingSetId = value;
+    });
+    assignOptionalString(row, 'chunks_processed_at', (value) => {
+      record.chunksProcessedAt = value;
+    });
+    assignOptionalNumber(row, 'chunks_count', (value) => {
+      record.chunksCount = value;
+    });
 
     if (row['chunking_strategy'] !== null && row['chunking_strategy'] !== undefined) {
       record.chunkingStrategy = String(row['chunking_strategy']) as NonNullable<
@@ -732,6 +769,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         return 'updated_at';
       case 'sourceRootPath':
         return 'source_root_path';
+      case 'rootId':
+        return 'root_id';
       case 'contentHash':
         return 'content_hash';
       case 'tokenCount':

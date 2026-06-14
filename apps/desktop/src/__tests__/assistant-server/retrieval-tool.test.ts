@@ -41,6 +41,7 @@ vi.mock('@brainstrike/agent', async () => {
         fileName?: string;
         filePath?: string;
         chunkIndex?: number;
+        metadata?: Record<string, unknown>;
         startLine?: number;
         startOffset?: number;
       }>
@@ -93,6 +94,7 @@ vi.mock('@brainstrike/db', () => ({
         embeddingSetId: string;
         filePaths?: string[];
         selectionSnapshotId?: string;
+        rootId?: string;
       }
     ) {
       return searchSimilarMock(embedding, options);
@@ -268,6 +270,68 @@ describe('retrieval-tool', () => {
       filePaths: ['/repo/file.ts'],
     });
     expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
+  });
+
+  it('passes the focused root to search and preserves root metadata in retrieved chunks', async () => {
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'openai:text-embedding-3-small',
+              modelId: 'text-embedding-3-small',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes('FROM roots')) {
+        return { rows: [{ id: 'db-root-a' }] };
+      }
+      return { rows: [] };
+    });
+    findByIdsMock.mockResolvedValueOnce([
+      {
+        id: 'file-1',
+        name: 'file.ts',
+        path: '/repo/file.ts',
+        rootId: 'db-root-a',
+        rootDisplayName: 'Repo A',
+        tokenCount: 42,
+        size: 123,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    const tool = createRetrievalTool({
+      embeddingSetId: 'set-1',
+      tokenBudget: 10,
+      selectionFolderId: 'explorer-root-a',
+      selectionRootPath: '/repo/a',
+      selectionFilePaths: ['/repo/file.ts'],
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: 'Hello',
+        embeddingSetId: 'set-1',
+        filePaths: ['/repo/file.ts'],
+      },
+    });
+
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'set-1',
+      filePaths: ['/repo/file.ts'],
+      rootId: 'db-root-a',
+    });
+    expect(result.chunks[0]?.metadata).toMatchObject({
+      rootId: 'db-root-a',
+      rootDisplayName: 'Repo A',
+    });
+    expect(result.context).toContain('Source 1: Repo A:/repo/file.ts:10-12 (chunk 0)');
   });
 
   it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {

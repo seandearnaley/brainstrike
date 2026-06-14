@@ -62,6 +62,39 @@ describe('query-selection-snapshot', () => {
     expect(snapshotId).toBe('snapshot-1');
   });
 
+  it('resolves root-aware snapshots to the database root id before writing FK rows', async () => {
+    const db = createMockDb([
+      (sql) => {
+        expect(sql).toBe('BEGIN');
+        return { rows: [] };
+      },
+      () => ({ rows: [] }),
+      () => ({ rows: [{ id: 'snapshot-root-a' }] }),
+      (sql, params) => {
+        expect(sql).toContain('FROM roots');
+        expect(params).toEqual(['explorer-root-a', '/workspace/a']);
+        return { rows: [{ id: 'db-root-a' }] };
+      },
+      (sql, params) => {
+        expect(sql).toContain('INSERT INTO selection_snapshot_files');
+        expect(sql).toContain('root_id');
+        expect(params).toEqual(['snapshot-root-a', ['/src/shared.ts'], 'db-root-a']);
+        return { rows: [] };
+      },
+      (sql) => {
+        expect(sql).toBe('COMMIT');
+        return { rows: [] };
+      },
+    ]);
+
+    await expect(
+      createQuerySelectionSnapshot(db, ['/src/shared.ts'], {
+        rootId: 'explorer-root-a',
+        rootPath: '/workspace/a',
+      })
+    ).resolves.toBe('snapshot-root-a');
+  });
+
   it('throws when snapshot creation does not return an id', async () => {
     const db = createMockDb([
       (sql) => {

@@ -254,6 +254,29 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(searchSql).not.toContain('embedding <=> $1::vector');
   });
 
+  it('keeps legacy unrooted file records in root-scoped vector search SQL', async () => {
+    const dimension = 4;
+    const queryEmbedding = Array.from({ length: dimension }, () => 0.1);
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+      }
+      return { rows: [] };
+    });
+
+    await repo.searchSimilar(queryEmbedding, {
+      embeddingSetId: 'set-1',
+      limit: 5,
+      rootId: 'db-root-a',
+    });
+
+    const searchSql = query.mock.calls
+      .map((call) => call[0])
+      .find((sql) => sql.includes('ROW_NUMBER() OVER'));
+    expect(searchSql).toBeDefined();
+    expect(searchSql).toContain('WHERE (root_id = $2 OR root_id IS NULL)');
+  });
+
   // #1141 part (b): when the IPC db exposes the atomic `transaction` primitive, the
   // vector search must run its tuning + SELECT through ONE transaction() call (so
   // pglite.transaction() in main holds the connection lock and a concurrent FTS

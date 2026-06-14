@@ -22,12 +22,17 @@ const DEFAULT_CONTENT_MATCHES = 50;
  */
 const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
 
+interface QueryResult<T> {
+  rows: T[];
+}
+
 export interface GrepFileSummary {
   /** Line number of the first match in this file. */
   firstLine: number;
   /** Matches counted in this file (within the internal counting cap). */
   matchCount: number;
   path: string;
+  rootId?: string;
 }
 
 interface GrepToolResultBase {
@@ -61,16 +66,25 @@ export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 function aggregateFileSummaries(matches: readonly GrepMatch[]): GrepFileSummary[] {
   const byPath = new Map<string, GrepFileSummary>();
   for (const match of matches) {
-    const existing = byPath.get(match.path);
+    const key = `${match.rootId ?? ''}:${match.path}`;
+    const existing = byPath.get(key);
     if (existing) {
       existing.matchCount += 1;
       existing.firstLine = Math.min(existing.firstLine, match.line);
     } else {
-      byPath.set(match.path, { path: match.path, matchCount: 1, firstLine: match.line });
+      byPath.set(key, {
+        path: match.path,
+        ...(match.rootId ? { rootId: match.rootId } : {}),
+        matchCount: 1,
+        firstLine: match.line,
+      });
     }
   }
   return Array.from(byPath.values()).sort(
-    (a, b) => b.matchCount - a.matchCount || a.path.localeCompare(b.path)
+    (a, b) =>
+      b.matchCount - a.matchCount ||
+      (a.rootId ?? '').localeCompare(b.rootId ?? '') ||
+      a.path.localeCompare(b.path)
   );
 }
 
@@ -177,6 +191,35 @@ function buildContentResult(
   return result;
 }
 
+async function resolveDbRootIdByPath(db: PGlite, rootPath: string): Promise<string | undefined> {
+  const result = (await db.query(
+    `SELECT id
+     FROM roots
+     WHERE path = $1
+     LIMIT 1`,
+    [rootPath]
+  )) as QueryResult<{ id: string }>;
+  return normalizeOptionalText(result.rows[0]?.id) ?? undefined;
+}
+
+async function resolveSelectionRootId(
+  db: PGlite,
+  runtimeData: RuntimeData | undefined
+): Promise<string | undefined> {
+  const rootPath = normalizeOptionalText(runtimeData?.selectionRootPath);
+  if (!rootPath) {
+    return;
+  }
+  const rootId = await resolveDbRootIdByPath(db, rootPath);
+  if (!rootId) {
+    logger.warn('Selection root path did not resolve to a DB root id for grep search', {
+      rootPath,
+    });
+    throw new Error('Selection root metadata is unavailable.');
+  }
+  return rootId;
+}
+
 export async function runGrepSearch(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined
@@ -189,6 +232,7 @@ export async function runGrepSearch(
     normalizeOptionalText(runtimeData?.embeddingSetId) ??
     resolveWorkspaceIndexEmbeddingSetId(runtimeData) ??
     undefined;
+  const rootId = await resolveSelectionRootId(db, runtimeData);
 
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
@@ -207,6 +251,7 @@ export async function runGrepSearch(
       ...(input.isRegex === undefined ? {} : { isRegex: input.isRegex }),
       ...(input.caseSensitive === undefined ? {} : { caseSensitive: input.caseSensitive }),
       ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
+      ...(rootId === undefined ? {} : { rootId }),
       contextLines: outputMode === 'files' ? 0 : (input.contextLines ?? 1),
       maxResults: serviceMaxResults,
       ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
@@ -225,6 +270,7 @@ export async function runGrepSearch(
       /^Invalid regular expression pattern:/,
       /^Grep pattern must be at least \d+ characters/,
       /^findGrepCandidates filePaths limit exceeded/,
+      /^Selection root metadata is unavailable\.$/,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;

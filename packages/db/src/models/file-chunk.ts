@@ -94,6 +94,8 @@ export interface ChunkSearchOptions {
    */
   includeEmbedding?: boolean;
   limit?: number;
+  /** Optional root id to scope path/snapshot/unscoped results in multi-root workspaces. */
+  rootId?: string;
   /** Optional snapshot id referencing a persisted selection allowlist. */
   selectionSnapshotId?: string;
   threshold?: number;
@@ -149,6 +151,8 @@ export interface FTSSearchOptions {
    * Can be combined with | (e.g., 1|2 for both normalizations)
    */
   rankNormalization?: number;
+  /** Optional root id to scope path/snapshot/unscoped results in multi-root workspaces. */
+  rootId?: string;
   /** Optional snapshot id referencing a persisted selection allowlist */
   selectionSnapshotId?: string;
   /** Minimum FTS rank score threshold (default: 0, no threshold) */

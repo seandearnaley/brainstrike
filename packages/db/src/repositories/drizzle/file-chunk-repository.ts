@@ -352,6 +352,7 @@ export class DrizzleFileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
+      rootId,
       includeEmbedding = false,
     } = options;
 
@@ -375,6 +376,7 @@ export class DrizzleFileChunkRepository {
       );
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     // Get embedding set config
     const [setRow] = await this.db
@@ -438,7 +440,9 @@ export class DrizzleFileChunkRepository {
       baseQuery = sql`${baseQuery} AND EXISTS (
         SELECT 1
         FROM ${selectionSnapshotFiles}
-        JOIN ${fileRecords} ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
+        JOIN ${fileRecords}
+          ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
+          AND (${selectionSnapshotFiles.rootId} IS NULL OR ${fileRecords.rootId} = ${selectionSnapshotFiles.rootId})
         WHERE ${selectionSnapshotFiles.snapshotId} = ${normalizedSnapshotId}
           AND ${fileRecords.id} = ${fileChunks.fileRecordId}
       )`;
@@ -454,6 +458,13 @@ export class DrizzleFileChunkRepository {
         return [];
       }
       baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, fileRecordIds)}`;
+    }
+    if (normalizedRootId) {
+      baseQuery = sql`${baseQuery} AND ${fileChunks.fileRecordId} IN (
+        SELECT ${fileRecords.id}
+        FROM ${fileRecords}
+        WHERE (${fileRecords.rootId} = ${normalizedRootId} OR ${fileRecords.rootId} IS NULL)
+      )`;
     }
 
     baseQuery = sql`${baseQuery}
@@ -507,6 +518,7 @@ export class DrizzleFileChunkRepository {
       chunkType,
       filePaths,
       selectionSnapshotId,
+      rootId,
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
@@ -528,6 +540,7 @@ export class DrizzleFileChunkRepository {
       );
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     // Build tsquery using the appropriate function based on query mode
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
@@ -562,7 +575,9 @@ export class DrizzleFileChunkRepository {
       baseQuery = sql`${baseQuery} AND EXISTS (
         SELECT 1
         FROM ${selectionSnapshotFiles}
-        JOIN ${fileRecords} ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
+        JOIN ${fileRecords}
+          ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
+          AND (${selectionSnapshotFiles.rootId} IS NULL OR ${fileRecords.rootId} = ${selectionSnapshotFiles.rootId})
         WHERE ${selectionSnapshotFiles.snapshotId} = ${normalizedSnapshotId}
           AND ${fileRecords.id} = ${fileChunks.fileRecordId}
       )`;
@@ -577,6 +592,13 @@ export class DrizzleFileChunkRepository {
         return [];
       }
       baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, fileRecordIds)}`;
+    }
+    if (normalizedRootId) {
+      baseQuery = sql`${baseQuery} AND ${fileChunks.fileRecordId} IN (
+        SELECT ${fileRecords.id}
+        FROM ${fileRecords}
+        WHERE (${fileRecords.rootId} = ${normalizedRootId} OR ${fileRecords.rootId} IS NULL)
+      )`;
     }
 
     baseQuery = sql`${baseQuery}
@@ -639,6 +661,11 @@ export class DrizzleFileChunkRepository {
       return;
     }
     return Array.from(new Set(trimmed));
+  }
+
+  private normalizeRootId(rootId?: string): string | undefined {
+    const trimmed = rootId?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
   }
 
   async getStats(): Promise<{

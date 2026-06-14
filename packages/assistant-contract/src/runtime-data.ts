@@ -146,6 +146,7 @@ export interface RuntimeData {
    */
   selectionFilePathsFromOtherRoots?: number;
   selectionFolderId?: string;
+  selectionRootPath?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
   tokenBudget?: number | null;

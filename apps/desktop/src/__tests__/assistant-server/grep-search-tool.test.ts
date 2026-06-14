@@ -158,6 +158,26 @@ describe('grep search tool', () => {
     expect(params).toContain('set-1');
   });
 
+  it('resolves the focused root path before applying multi-root grep scoping', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM roots')) {
+        return { rows: [{ id: 'db-root-a' }] };
+      }
+      return { rows: [] };
+    });
+    const runtimeData: Partial<RuntimeData> = {
+      selectionFolderId: 'explorer-root-a',
+      selectionRootPath: '/repo/a',
+    };
+    await runGrepSearch(
+      { pattern: 'needle', filePaths: ['src/shared.ts'] },
+      runtimeData as RuntimeData
+    );
+    const [sql, params] = queryMock.mock.calls.at(-1) ?? [];
+    expect(String(sql)).toContain('fr.root_id');
+    expect(params).toContain('db-root-a');
+  });
+
   it('surfaces invalid-regex errors without coercion', async () => {
     await expect(runGrepSearch({ pattern: '([', isRegex: true }, undefined)).rejects.toThrow(
       /Invalid regular expression pattern/

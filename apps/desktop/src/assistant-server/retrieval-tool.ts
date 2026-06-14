@@ -70,6 +70,7 @@ const ERROR_MESSAGES = {
   missingApiKey: 'No API key configured for the embedding provider.',
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  invalidSelectionRoot: 'Selection root metadata is unavailable.',
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
@@ -88,6 +89,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingApiKey,
   ERROR_MESSAGES.invalidSelectionSnapshot,
   ERROR_MESSAGES.invalidSelectionFilePaths,
+  ERROR_MESSAGES.invalidSelectionRoot,
   ERROR_MESSAGES.selectionTooLarge,
   ERROR_MESSAGES.embeddingDimensionMismatch,
   ERROR_MESSAGES.embeddingFailed,
@@ -111,11 +113,14 @@ interface FileRecordRow {
   id: string;
   name: string;
   path: string;
+  rootDisplayName?: string;
+  rootId?: string;
   tokenCount: number | null;
 }
 
 interface RetrievalSelectionState {
   filePaths?: string[];
+  rootId?: string;
   selectionSnapshotId?: string;
 }
 
@@ -293,7 +298,11 @@ function createHostedProvider(
   }
 }
 
-async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
+async function createSelectionSnapshot(
+  db: PGlite,
+  filePaths: readonly string[],
+  rootId?: string
+): Promise<string> {
   assertValidSelectionFilePaths(filePaths);
   // Best-effort cleanup to avoid blocking snapshot creation on purge failures.
   void db
@@ -315,12 +324,32 @@ async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[])
     throw new Error(ERROR_MESSAGES.retrievalFailed);
   }
   assertValidSelectionSnapshotId(snapshotId);
-  await db.query(
-    `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-     SELECT $1, UNNEST($2::text[])`,
-    [snapshotId, filePaths]
-  );
+  if (rootId) {
+    await db.query(
+      `INSERT INTO selection_snapshot_files (snapshot_id, file_path, root_id)
+       SELECT $1, UNNEST($2::text[]), $3`,
+      [snapshotId, filePaths, rootId]
+    );
+  } else {
+    await db.query(
+      `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+       SELECT $1, UNNEST($2::text[])`,
+      [snapshotId, filePaths]
+    );
+  }
   return snapshotId;
+}
+
+function resolveSourceLocation(chunk: PackedContextChunk): string {
+  const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+  const rootDisplayName =
+    typeof chunk.metadata?.['rootDisplayName'] === 'string'
+      ? chunk.metadata['rootDisplayName']
+      : undefined;
+  if (rootDisplayName && chunk.filePath) {
+    return `${rootDisplayName}:${location}`;
+  }
+  return location;
 }
 
 function formatContext(chunks: readonly PackedContextChunk[]): string {
@@ -329,7 +358,7 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   }
   return chunks
     .map((chunk, index) => {
-      const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const location = resolveSourceLocation(chunk);
       const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
       return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
@@ -363,6 +392,39 @@ function resolveRuntimeEmbeddingSetId(
   );
 }
 
+async function resolveDbRootIdByPath(db: PGlite, rootPath: string): Promise<string | undefined> {
+  let result: QueryResult<{ id: string }>;
+  try {
+    result = (await db.query(
+      `SELECT id
+       FROM roots
+       WHERE path = $1
+       LIMIT 1`,
+      [rootPath]
+    )) as QueryResult<{ id: string }>;
+  } catch (error) {
+    logger.error('Failed to resolve selection root path', { rootPath, error });
+    throw new Error(ERROR_MESSAGES.invalidSelectionRoot);
+  }
+  return normalizeOptionalText(result.rows[0]?.id);
+}
+
+async function resolveSelectionRootId(
+  db: PGlite,
+  runtime: RuntimeData | undefined
+): Promise<string | undefined> {
+  const rootPath = normalizeOptionalText(runtime?.selectionRootPath);
+  if (!rootPath) {
+    return;
+  }
+  const rootId = await resolveDbRootIdByPath(db, rootPath);
+  if (!rootId) {
+    logger.warn('Selection root path did not resolve to a DB root id', { rootPath });
+    throw new Error(ERROR_MESSAGES.invalidSelectionRoot);
+  }
+  return rootId;
+}
+
 function resolveSelectionFilters(
   runtime: RuntimeData | undefined,
   inputFilePaths: readonly string[] | undefined,
@@ -375,7 +437,9 @@ function resolveSelectionFilters(
   if (snapshotId) {
     return { snapshotId };
   }
-  return filePaths ? { filePaths } : {};
+  return {
+    ...(filePaths ? { filePaths } : {}),
+  };
 }
 
 function resolveTokenBudget(runtime: RuntimeData | undefined, override?: number): number {
@@ -446,6 +510,8 @@ function toContextChunks(
         chunkType: result.chunk.chunkType,
         rank: result.rank,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        ...(fileInfo?.rootId ? { rootId: fileInfo.rootId } : {}),
+        ...(fileInfo?.rootDisplayName ? { rootDisplayName: fileInfo.rootDisplayName } : {}),
       },
     };
     if (fileInfo?.path !== undefined) {
@@ -474,6 +540,8 @@ async function buildFileRecordMap(
       id: record.id,
       name: record.name,
       path: record.path,
+      ...(record.rootId ? { rootId: record.rootId } : {}),
+      ...(record.rootDisplayName ? { rootDisplayName: record.rootDisplayName } : {}),
       tokenCount: record.tokenCount ?? null,
     });
   }
@@ -557,6 +625,7 @@ async function resolveSelectionState(
     input.filePaths,
     input.selectionSnapshotId
   );
+  const rootId = await resolveSelectionRootId(db, runtimeData);
   let selectionSnapshotId = selection.snapshotId;
   let filePaths = selection.filePaths;
 
@@ -568,13 +637,16 @@ async function resolveSelectionState(
   }
 
   if (!selectionSnapshotId && filePaths && filePaths.length > MAX_INLINE_FILE_PATHS) {
-    selectionSnapshotId = await createSelectionSnapshot(db, filePaths);
+    selectionSnapshotId = await createSelectionSnapshot(db, filePaths, rootId);
     filePaths = undefined;
   }
 
   const state: RetrievalSelectionState = {};
   if (filePaths) {
     state.filePaths = filePaths;
+  }
+  if (rootId) {
+    state.rootId = rootId;
   }
   if (selectionSnapshotId) {
     state.selectionSnapshotId = selectionSnapshotId;
@@ -598,6 +670,7 @@ async function searchForChunks(
     threshold,
     embeddingSetId,
     ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
+    ...(selection.rootId ? { rootId: selection.rootId } : {}),
     ...(selection.selectionSnapshotId
       ? { selectionSnapshotId: selection.selectionSnapshotId }
       : {}),
@@ -759,6 +832,7 @@ function omitImplicitContextRuntimeData(
   const {
     embeddingSetId: _embeddingSetId,
     selectionFilePaths: _selectionFilePaths,
+    selectionRootPath: _selectionRootPath,
     selectionSnapshotId: _selectionSnapshotId,
     tokenBudget: _tokenBudget,
     ...explicitRuntimeData

@@ -110,7 +110,10 @@ describe('ElectronFileRecordRepository', () => {
     const result = await repo.findByIds([r1.id, r2.id]);
 
     expect(query).toHaveBeenCalledWith(
-      'SELECT * FROM file_records WHERE id::text = ANY($1::text[])',
+      `SELECT fr.*, r.display_name AS root_display_name
+      FROM file_records fr
+      LEFT JOIN roots r ON r.id = fr.root_id
+      WHERE fr.id::text = ANY($1::text[])`,
       [[r1.id, r2.id]]
     );
     expect(result).toEqual([r1, r2]);

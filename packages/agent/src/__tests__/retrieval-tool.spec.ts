@@ -280,6 +280,49 @@ describe('createRetrievalTool', () => {
     );
   });
 
+  it('resolves the selected root path before applying root-aware retrieval search', async () => {
+    const deps = createMockDependencies({
+      resolveRootIdByPath: vi.fn().mockResolvedValue('db-root-a'),
+    });
+    const runtime: RuntimeData = {
+      embeddingSetId: 'set-001',
+      selectionFilePaths: ['/src/shared.ts'],
+      selectionFolderId: 'explorer-root-a',
+      selectionRootPath: '/repo/a',
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    await runTool(tool, { query: 'test' });
+
+    expect(deps.resolveRootIdByPath).toHaveBeenCalledWith('/repo/a');
+    expect(deps.searchSimilarChunks).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        filePaths: ['/src/shared.ts'],
+        rootId: 'db-root-a',
+      })
+    );
+  });
+
+  it('does not treat the explorer selection folder id as a database root id', async () => {
+    const deps = createMockDependencies();
+    const runtime: RuntimeData = {
+      embeddingSetId: 'set-001',
+      selectionFilePaths: ['/src/shared.ts'],
+      selectionFolderId: 'explorer-root-a',
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    await runTool(tool, { query: 'test' });
+
+    expect(deps.searchSimilarChunks).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.not.objectContaining({
+        rootId: 'explorer-root-a',
+      })
+    );
+  });
+
   it('uses custom limit and threshold from input', async () => {
     const deps = createMockDependencies();
     const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
@@ -331,6 +374,8 @@ describe('createRetrievalTool', () => {
               id: 'file-001',
               name: 'auth.ts',
               path: '/src/auth/auth.ts',
+              rootDisplayName: 'Workspace A',
+              rootId: 'root-a',
               tokenCount: 500,
             },
           ],
@@ -345,9 +390,10 @@ describe('createRetrievalTool', () => {
       context: string;
       chunks: Array<{ filePath?: string; fileName?: string }>;
     };
-    expect(r.context).toContain('/src/auth/auth.ts');
+    expect(r.context).toContain('Workspace A:/src/auth/auth.ts');
     expect(r.chunks[0]?.filePath).toBe('/src/auth/auth.ts');
     expect(r.chunks[0]?.fileName).toBe('auth.ts');
+    expect(r.chunks[0]).toHaveProperty('metadata.rootId', 'root-a');
   });
 
   it('formats context with source headers', async () => {

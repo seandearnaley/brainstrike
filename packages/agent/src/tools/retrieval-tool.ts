@@ -47,6 +47,7 @@ export const RETRIEVAL_ERROR_MESSAGES = {
   missingApiKey: 'No API key configured for the embedding provider.',
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  invalidSelectionRoot: 'Selection root metadata is unavailable.',
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
@@ -85,6 +86,8 @@ export interface FileRecordInfo {
   id: string;
   name: string;
   path: string;
+  rootDisplayName?: string;
+  rootId?: string;
   tokenCount: number | null;
 }
 
@@ -103,6 +106,7 @@ export interface EmbeddingSetInfo {
  */
 export interface RetrievalSelectionState {
   filePaths?: string[];
+  rootId?: string;
   selectionSnapshotId?: string;
 }
 
@@ -184,6 +188,11 @@ export interface RetrievalToolDependencies {
   resolveFileRecords: (fileRecordIds: string[]) => Promise<Map<string, FileRecordInfo>>;
 
   /**
+   * Resolves a live root path to the durable DB root id used by file_records.root_id.
+   */
+  resolveRootIdByPath?: (rootPath: string) => Promise<string | null | undefined>;
+
+  /**
    * Searches for similar chunks using the provided embedding.
    */
   searchSimilarChunks: (
@@ -193,6 +202,7 @@ export interface RetrievalToolDependencies {
       limit: number;
       threshold: number;
       filePaths?: string[];
+      rootId?: string;
       selectionSnapshotId?: string;
     }
   ) => Promise<ChunkSearchResultInput[]>;
@@ -265,19 +275,46 @@ function resolveRuntimeEmbeddingSetId(
 /**
  * Resolves selection filters from runtime data and input.
  */
-function resolveSelectionFilters(
+async function resolveSelectionRootId(
   runtime: RuntimeData | undefined,
+  deps: RetrievalToolDependencies
+): Promise<string | undefined> {
+  const rootPath = normalizeOptionalText(runtime?.selectionRootPath);
+  if (!rootPath) {
+    return;
+  }
+  if (!deps.resolveRootIdByPath) {
+    deps.logger?.warn('Selection root path is present but no DB root resolver is configured', {
+      rootPath,
+    });
+    throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidSelectionRoot);
+  }
+  const resolvedRootId = normalizeOptionalText((await deps.resolveRootIdByPath(rootPath)) ?? '');
+  if (!resolvedRootId) {
+    deps.logger?.warn('Selection root path did not resolve to a DB root id', { rootPath });
+    throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidSelectionRoot);
+  }
+  return resolvedRootId;
+}
+
+async function resolveSelectionFilters(
+  runtime: RuntimeData | undefined,
+  deps: RetrievalToolDependencies,
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
-): { filePaths?: string[]; snapshotId?: string } {
+): Promise<{ filePaths?: string[]; rootId?: string; snapshotId?: string }> {
   const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
   const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
+  const rootId = await resolveSelectionRootId(runtime, deps);
   if (snapshotId) {
-    return { snapshotId };
+    return { snapshotId, ...(rootId ? { rootId } : {}) };
   }
-  return filePaths ? { filePaths } : {};
+  return {
+    ...(filePaths ? { filePaths } : {}),
+    ...(rootId ? { rootId } : {}),
+  };
 }
 
 /**
@@ -332,6 +369,8 @@ function toContextChunks(
         chunkType: result.chunk.chunkType,
         rank: result.rank,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        ...(fileInfo?.rootId ? { rootId: fileInfo.rootId } : {}),
+        ...(fileInfo?.rootDisplayName ? { rootDisplayName: fileInfo.rootDisplayName } : {}),
       },
     };
     if (fileInfo?.path !== undefined) {
@@ -345,6 +384,18 @@ function toContextChunks(
   return { chunks, skippedSourceRangeChunks };
 }
 
+function resolveSourceLocation(chunk: PackedContextChunk): string {
+  const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+  const rootDisplayName =
+    typeof chunk.metadata?.['rootDisplayName'] === 'string'
+      ? chunk.metadata['rootDisplayName']
+      : undefined;
+  if (rootDisplayName && chunk.filePath) {
+    return `${rootDisplayName}:${location}`;
+  }
+  return location;
+}
+
 /**
  * Formats packed chunks into a human-readable context string.
  */
@@ -354,7 +405,7 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   }
   return chunks
     .map((chunk, index) => {
-      const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const location = resolveSourceLocation(chunk);
       const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
       return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
@@ -474,8 +525,9 @@ async function runRetrieval(
   }
 
   // Resolve selection filters
-  const selection = resolveSelectionFilters(
+  const selection = await resolveSelectionFilters(
     runtimeData,
+    deps,
     input.filePaths,
     input.selectionSnapshotId
   );
@@ -488,6 +540,7 @@ async function runRetrieval(
     limit,
     threshold,
     ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
+    ...(selection.rootId ? { rootId: selection.rootId } : {}),
     ...(selection.snapshotId ? { selectionSnapshotId: selection.snapshotId } : {}),
   });
 

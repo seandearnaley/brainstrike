@@ -337,6 +337,7 @@ export class FileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
+      rootId,
       includeEmbedding = false,
     } = options;
 
@@ -355,6 +356,7 @@ export class FileChunkRepository {
       );
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     // Resolve distance config and get dimension for index matching
     const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
@@ -386,7 +388,8 @@ export class FileChunkRepository {
       params,
       paramIndex,
       normalizedFilePaths,
-      normalizedSnapshotId
+      normalizedSnapshotId,
+      normalizedRootId
     );
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
@@ -496,6 +499,7 @@ export class FileChunkRepository {
       chunkType,
       filePaths,
       selectionSnapshotId,
+      rootId,
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
@@ -517,6 +521,7 @@ export class FileChunkRepository {
       );
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     // Build tsquery using the appropriate function based on query mode
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
@@ -542,7 +547,8 @@ export class FileChunkRepository {
       params,
       paramIndex,
       normalizedFilePaths,
-      normalizedSnapshotId
+      normalizedSnapshotId,
+      normalizedRootId
     );
 
     // Execute search query with ts_rank for relevance scoring
@@ -601,7 +607,8 @@ export class FileChunkRepository {
    * fullTextSearch/searchSimilar).
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
-    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit } = options;
+    const { likePattern, caseSensitive, embeddingSetId, filePaths, rootId, limit } = options;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -626,26 +633,36 @@ export class FileChunkRepository {
       params.push(Array.from(filePaths));
       conditions.push(`fr.path = ANY($${params.length}::text[])`);
     }
+    if (normalizedRootId !== undefined) {
+      params.push(normalizedRootId);
+      conditions.push(`fr.root_id = $${params.length}`);
+    }
     params.push(limit);
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await this.db.query(
-      `SELECT fc.content, fc.start_line, fr.path
+      `SELECT fc.content, fc.start_line, fr.path, fr.root_id
          FROM file_chunks fc
          JOIN file_records fr ON fr.id = fc.file_record_id
          ${whereClause}
-        ORDER BY fr.path, fc.chunk_index
+        ORDER BY fr.root_id NULLS FIRST, fr.path, fc.chunk_index
         LIMIT $${params.length}`,
       params
     );
 
-    return (result.rows as Array<{ content: string; path: string; start_line: number | null }>).map(
-      (row) => ({
-        content: row.content,
-        filePath: row.path,
-        startLine: row.start_line,
-      })
-    );
+    return (
+      result.rows as Array<{
+        content: string;
+        path: string;
+        root_id: string | null;
+        start_line: number | null;
+      }>
+    ).map((row) => ({
+      content: row.content,
+      filePath: row.path,
+      rootId: row.root_id,
+      startLine: row.start_line,
+    }));
   }
 
   /**
@@ -878,17 +895,23 @@ export class FileChunkRepository {
     return Array.from(new Set(trimmed));
   }
 
+  private normalizeRootId(rootId?: string): string | undefined {
+    const trimmed = rootId?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  }
+
   private appendSelectionFilters(
     whereParts: string[],
     params: unknown[],
     paramIndex: number,
     filePaths: readonly string[] | undefined,
-    selectionSnapshotId: string | undefined
+    selectionSnapshotId: string | undefined,
+    rootId: string | undefined
   ): number {
     let nextIndex = paramIndex;
     if (selectionSnapshotId) {
       whereParts.push(
-        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
+        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n            AND (ssf.root_id IS NULL OR fr.root_id = ssf.root_id)\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
       );
       params.push(selectionSnapshotId);
       nextIndex += 1;
@@ -899,6 +922,14 @@ export class FileChunkRepository {
         `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE path = ANY($${nextIndex}::text[])\n        )`
       );
       params.push(filePaths);
+      nextIndex += 1;
+    }
+
+    if (rootId !== undefined) {
+      whereParts.push(
+        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE (root_id = $${nextIndex} OR root_id IS NULL)\n        )`
+      );
+      params.push(rootId);
       nextIndex += 1;
     }
 

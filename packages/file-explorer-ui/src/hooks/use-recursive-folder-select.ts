@@ -26,11 +26,25 @@ import {
   collectAncestorDirectories,
   hasPersistApi,
   isForestStore,
+  resolveCanonicalRootId,
+  resolveCanonicalRootPath,
 } from './recursive-selection-utils';
 
 const logger = createLogger('RecursiveFolderSelect');
 
 type ShowToast = ReturnType<typeof useToastManager>['showToast'];
+
+function resolveQuerySelectionSnapshotRootScope(
+  store: ReturnType<typeof useOptionalFileExplorerStoreContext>,
+  folderId: string
+): { rootId?: string; rootPath?: string } {
+  const rootId = resolveCanonicalRootId(store, folderId);
+  const rootPath = resolveCanonicalRootPath(store, folderId);
+  return {
+    ...(rootId ? { rootId } : {}),
+    ...(rootPath ? { rootPath } : {}),
+  };
+}
 
 /**
  * No-silent-fallbacks: a folder click that selects nothing must say why.
@@ -337,7 +351,9 @@ export function useRecursiveFolderSelect(
             excludeFilters,
             useRegex,
           });
-          const snapshotId = await createQuerySelectionSnapshot(db, result.filePaths);
+          const snapshotId = await createQuerySelectionSnapshot(db, result.filePaths, {
+            ...resolveQuerySelectionSnapshotRootScope(store, folderId),
+          });
           const manifest = buildQuerySelectionManifest({
             filePaths: result.filePaths,
             fingerprint: manifestFingerprint,
