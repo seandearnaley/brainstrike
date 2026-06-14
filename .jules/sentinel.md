@@ -20,3 +20,7 @@
 **Vulnerability:** API key validation compared SHA-256 HMAC digests with `timingSafeEqual`, which is the right primitive but throws on mismatched buffer lengths. In the current collector both `providedHmac` and `apiKeyHmac` are generated internally with SHA-256 `.digest()` output, so they are fixed 32-byte buffers under normal operation and the length-mismatch path is defense-in-depth rather than an active critical exploit.
 **Learning:** Do not make raw secret string comparisons, and do not call `timingSafeEqual` on buffers whose lengths might diverge. For fixed-length HMAC digests, keep the comparison helper self-documenting so future algorithm or input changes cannot reintroduce an early-return or thrown-error path.
 **Prevention:** Compare internally generated HMAC digests through a small helper that normalizes mismatched lengths to an expected-length buffer before calling `timingSafeEqual`, then rejects if the original lengths differed.
+## 2026-06-13 - Desktop secrets must fail closed
+**Vulnerability:** Desktop API keys were saved as base64 plaintext when Electron `safeStorage` encryption was unavailable, and decrypt failures silently fell back to base64 decoding.
+**Learning:** The settings UI already had an `encryption_unavailable` path, but the storage service never threw it; the service fallback weakened stored provider keys instead of refusing the write.
+**Prevention:** Desktop secret storage must require `safeStorage.isEncryptionAvailable()` before writes and must return no secret when encrypted payload decryption fails.
