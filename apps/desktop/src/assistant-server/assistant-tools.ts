@@ -553,6 +553,25 @@ function resolveSelectionFolderId(
   return folderId;
 }
 
+function resolveFocusedSelectionFolderId(runtimeData: RuntimeData | undefined): string | undefined {
+  const folderId = runtimeData?.selectionFolderId?.trim();
+  return folderId && folderId.length > 0 ? folderId : undefined;
+}
+
+function resolveWritableSelectionFolderId(
+  inputFolderId: string | undefined,
+  runtimeData: RuntimeData | undefined,
+  errorPrefix: string
+): string {
+  const folderId = resolveSelectionFolderId(inputFolderId, runtimeData);
+  const focusedFolderId = resolveFocusedSelectionFolderId(runtimeData);
+  const requestedFolderId = inputFolderId?.trim();
+  if (requestedFolderId && focusedFolderId && requestedFolderId !== focusedFolderId) {
+    throw new Error(`${errorPrefix} updates are limited to the focused root.`);
+  }
+  return folderId;
+}
+
 function getRuntimeWorkspaceContext(
   runtimeData: RuntimeData | undefined
 ): RuntimeWorkspaceContextMetadata | undefined {
@@ -564,6 +583,15 @@ function getRuntimeWorkspaceContextFiles(
 ): RuntimeWorkspaceContextFileMetadata[] {
   const files = getRuntimeWorkspaceContext(runtimeData)?.files;
   return Array.isArray(files) ? Array.from(files) : [];
+}
+
+function getRuntimeWorkspaceContextFilesForFocusedRoot(
+  runtimeData: RuntimeData | undefined
+): RuntimeWorkspaceContextFileMetadata[] {
+  const focusedRootId = resolveFocusedSelectionFolderId(runtimeData);
+  return getRuntimeWorkspaceContextFiles(runtimeData).filter(
+    (file) => !(focusedRootId && file.rootId) || file.rootId === focusedRootId
+  );
 }
 
 function normalizeWorkspaceContextRange(
@@ -587,7 +615,7 @@ function buildRuntimeTapestryRangesByPath(
   runtimeData: RuntimeData | undefined
 ): Map<string, RuntimeWorkspaceContextRangeMetadata[]> {
   const rangesByPath = new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
-  for (const file of getRuntimeWorkspaceContextFiles(runtimeData)) {
+  for (const file of getRuntimeWorkspaceContextFilesForFocusedRoot(runtimeData)) {
     const normalizedPath = normalizeWorkspacePath(file.path);
     const ranges = Array.from(file.ranges ?? [])
       .map((range) => normalizeWorkspaceContextRange(range))
@@ -692,7 +720,7 @@ function runListWorkspaceContext(
   const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
   const curatedContext = getRuntimeWorkspaceContext(runtimeData);
   const curatedFilesByPath = new Map(
-    getRuntimeWorkspaceContextFiles(runtimeData).map((file) => [
+    getRuntimeWorkspaceContextFilesForFocusedRoot(runtimeData).map((file) => [
       normalizeWorkspacePath(file.path),
       file,
     ])
@@ -1259,7 +1287,11 @@ async function runUpdateWorkspaceContextSelection(
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
-  const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
+  const folderId = resolveWritableSelectionFolderId(
+    input.folderId,
+    runtimeData,
+    'workspace context selection'
+  );
   const mode = input.mode ?? 'add';
   const { requestedCount, selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
     rootPath,
@@ -1300,7 +1332,11 @@ async function runUpdateWorkspaceTapestrySelections(
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
-  const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
+  const folderId = resolveWritableSelectionFolderId(
+    input.folderId,
+    runtimeData,
+    'workspace context tapestry'
+  );
   const mode = input.mode ?? 'replace';
   const selectFiles = input.selectFiles !== false;
   const requestedPaths = input.updates.map((update) => update.path);

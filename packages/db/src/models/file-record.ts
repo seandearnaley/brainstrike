@@ -13,6 +13,8 @@ export interface FileRecord {
   name: string;
   path: string;
   processedAt?: string; // ISO date when file was processed/imported
+  rootDisplayName?: string; // Display name for root disambiguation in multi-root results
+  rootId?: string; // Durable root id for multi-root workspaces
   size: number;
   sourceRootPath?: string; // Canonical root folder path for managed cache entries
   tokenCount?: number; // Number of tokens in content

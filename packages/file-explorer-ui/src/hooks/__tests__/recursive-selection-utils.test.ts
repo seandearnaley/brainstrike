@@ -5,6 +5,7 @@ import {
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
   hasPersistApi,
+  resolveCanonicalRootId,
   yieldToBrowser,
 } from '../recursive-selection-utils';
 
@@ -43,6 +44,20 @@ describe('recursive-selection-utils', () => {
         })
       )
     ).toBe(true);
+  });
+
+  it('resolves only folder ids backed by root descriptors as canonical root ids', () => {
+    const store = {
+      getState: () => ({
+        rootDescriptors: {
+          'root-a': { path: '/work/a' },
+        },
+      }),
+    };
+
+    expect(resolveCanonicalRootId(store, 'root-a')).toBe('root-a');
+    expect(resolveCanonicalRootId(store, '/legacy/path')).toBeUndefined();
+    expect(resolveCanonicalRootId(null, 'root-a')).toBeUndefined();
   });
 
   it('applies small explicit selections in a single call', async () => {

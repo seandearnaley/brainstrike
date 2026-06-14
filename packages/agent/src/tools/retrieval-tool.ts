@@ -85,6 +85,8 @@ export interface FileRecordInfo {
   id: string;
   name: string;
   path: string;
+  rootDisplayName?: string;
+  rootId?: string;
   tokenCount: number | null;
 }
 
@@ -103,6 +105,7 @@ export interface EmbeddingSetInfo {
  */
 export interface RetrievalSelectionState {
   filePaths?: string[];
+  rootId?: string;
   selectionSnapshotId?: string;
 }
 
@@ -193,6 +196,7 @@ export interface RetrievalToolDependencies {
       limit: number;
       threshold: number;
       filePaths?: string[];
+      rootId?: string;
       selectionSnapshotId?: string;
     }
   ) => Promise<ChunkSearchResultInput[]>;
@@ -269,15 +273,19 @@ function resolveSelectionFilters(
   runtime: RuntimeData | undefined,
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
-): { filePaths?: string[]; snapshotId?: string } {
+): { filePaths?: string[]; rootId?: string; snapshotId?: string } {
   const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
   const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
+  const rootId = normalizeOptionalText(runtime?.selectionFolderId);
   if (snapshotId) {
-    return { snapshotId };
+    return { snapshotId, ...(rootId ? { rootId } : {}) };
   }
-  return filePaths ? { filePaths } : {};
+  return {
+    ...(filePaths ? { filePaths } : {}),
+    ...(rootId ? { rootId } : {}),
+  };
 }
 
 /**
@@ -332,6 +340,8 @@ function toContextChunks(
         chunkType: result.chunk.chunkType,
         rank: result.rank,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        ...(fileInfo?.rootId ? { rootId: fileInfo.rootId } : {}),
+        ...(fileInfo?.rootDisplayName ? { rootDisplayName: fileInfo.rootDisplayName } : {}),
       },
     };
     if (fileInfo?.path !== undefined) {
@@ -345,6 +355,18 @@ function toContextChunks(
   return { chunks, skippedSourceRangeChunks };
 }
 
+function resolveSourceLocation(chunk: PackedContextChunk): string {
+  const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+  const rootDisplayName =
+    typeof chunk.metadata?.['rootDisplayName'] === 'string'
+      ? chunk.metadata['rootDisplayName']
+      : undefined;
+  if (rootDisplayName && chunk.filePath) {
+    return `${rootDisplayName}:${location}`;
+  }
+  return location;
+}
+
 /**
  * Formats packed chunks into a human-readable context string.
  */
@@ -354,7 +376,7 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   }
   return chunks
     .map((chunk, index) => {
-      const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const location = resolveSourceLocation(chunk);
       const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
       return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
@@ -488,6 +510,7 @@ async function runRetrieval(
     limit,
     threshold,
     ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
+    ...(selection.rootId ? { rootId: selection.rootId } : {}),
     ...(selection.snapshotId ? { selectionSnapshotId: selection.snapshotId } : {}),
   });
 

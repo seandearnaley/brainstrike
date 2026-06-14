@@ -248,11 +248,18 @@ export const selectionSnapshotFiles = pgTable(
       .notNull()
       .references(() => selectionSnapshots.id, { onDelete: 'cascade' }),
     filePath: text('file_path').notNull(),
+    rootId: text('root_id').references(() => roots.id, { onDelete: 'cascade' }),
   },
   (table) => [
     index('idx_selection_snapshot_files_snapshot_id').on(table.snapshotId),
     index('idx_selection_snapshot_files_file_path').on(table.filePath),
-    uniqueIndex('idx_selection_snapshot_files_unique').on(table.snapshotId, table.filePath),
+    index('idx_selection_snapshot_files_root_id').on(table.rootId),
+    uniqueIndex('idx_selection_snapshot_files_unique')
+      .on(table.snapshotId, table.filePath, table.rootId)
+      .where(sql`${table.rootId} IS NOT NULL`),
+    uniqueIndex('idx_selection_snapshot_files_unique_legacy')
+      .on(table.snapshotId, table.filePath)
+      .where(sql`${table.rootId} IS NULL`),
   ]
 );
 

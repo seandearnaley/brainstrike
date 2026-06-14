@@ -28,6 +28,7 @@ export interface GrepFileSummary {
   /** Matches counted in this file (within the internal counting cap). */
   matchCount: number;
   path: string;
+  rootId?: string;
 }
 
 interface GrepToolResultBase {
@@ -61,16 +62,25 @@ export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 function aggregateFileSummaries(matches: readonly GrepMatch[]): GrepFileSummary[] {
   const byPath = new Map<string, GrepFileSummary>();
   for (const match of matches) {
-    const existing = byPath.get(match.path);
+    const key = `${match.rootId ?? ''}:${match.path}`;
+    const existing = byPath.get(key);
     if (existing) {
       existing.matchCount += 1;
       existing.firstLine = Math.min(existing.firstLine, match.line);
     } else {
-      byPath.set(match.path, { path: match.path, matchCount: 1, firstLine: match.line });
+      byPath.set(key, {
+        path: match.path,
+        ...(match.rootId ? { rootId: match.rootId } : {}),
+        matchCount: 1,
+        firstLine: match.line,
+      });
     }
   }
   return Array.from(byPath.values()).sort(
-    (a, b) => b.matchCount - a.matchCount || a.path.localeCompare(b.path)
+    (a, b) =>
+      b.matchCount - a.matchCount ||
+      (a.rootId ?? '').localeCompare(b.rootId ?? '') ||
+      a.path.localeCompare(b.path)
   );
 }
 
@@ -189,6 +199,7 @@ export async function runGrepSearch(
     normalizeOptionalText(runtimeData?.embeddingSetId) ??
     resolveWorkspaceIndexEmbeddingSetId(runtimeData) ??
     undefined;
+  const rootId = normalizeOptionalText(runtimeData?.selectionFolderId) ?? undefined;
 
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
@@ -207,6 +218,7 @@ export async function runGrepSearch(
       ...(input.isRegex === undefined ? {} : { isRegex: input.isRegex }),
       ...(input.caseSensitive === undefined ? {} : { caseSensitive: input.caseSensitive }),
       ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
+      ...(rootId === undefined ? {} : { rootId }),
       contextLines: outputMode === 'files' ? 0 : (input.contextLines ?? 1),
       maxResults: serviceMaxResults,
       ...(embeddingSetId === undefined ? {} : { embeddingSetId }),

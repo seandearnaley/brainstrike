@@ -62,6 +62,31 @@ describe('query-selection-snapshot', () => {
     expect(snapshotId).toBe('snapshot-1');
   });
 
+  it('writes root ids for root-aware snapshots', async () => {
+    const db = createMockDb([
+      (sql) => {
+        expect(sql).toBe('BEGIN');
+        return { rows: [] };
+      },
+      () => ({ rows: [] }),
+      () => ({ rows: [{ id: 'snapshot-root-a' }] }),
+      (sql, params) => {
+        expect(sql).toContain('INSERT INTO selection_snapshot_files');
+        expect(sql).toContain('root_id');
+        expect(params).toEqual(['snapshot-root-a', ['/src/shared.ts'], 'root-a']);
+        return { rows: [] };
+      },
+      (sql) => {
+        expect(sql).toBe('COMMIT');
+        return { rows: [] };
+      },
+    ]);
+
+    await expect(createQuerySelectionSnapshot(db, ['/src/shared.ts'], 'root-a')).resolves.toBe(
+      'snapshot-root-a'
+    );
+  });
+
   it('throws when snapshot creation does not return an id', async () => {
     const db = createMockDb([
       (sql) => {

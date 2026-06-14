@@ -31,6 +31,18 @@ export function isForestStore(store: unknown): boolean {
   return (state.activeRootIds?.length ?? 0) > 1;
 }
 
+export function resolveCanonicalRootId(store: unknown, folderId: string): string | undefined {
+  const getState = (store as { getState?: unknown } | null | undefined)?.getState;
+  if (typeof getState !== 'function') {
+    return;
+  }
+  const state = (getState as () => { rootDescriptors?: Record<string, unknown> })();
+  if (!Object.hasOwn(state.rootDescriptors ?? {}, folderId)) {
+    return;
+  }
+  return folderId;
+}
+
 export function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);

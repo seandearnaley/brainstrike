@@ -280,6 +280,26 @@ describe('createRetrievalTool', () => {
     );
   });
 
+  it('passes focused root id to root-aware retrieval search', async () => {
+    const deps = createMockDependencies();
+    const runtime: RuntimeData = {
+      embeddingSetId: 'set-001',
+      selectionFilePaths: ['/src/shared.ts'],
+      selectionFolderId: 'root-a',
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    await runTool(tool, { query: 'test' });
+
+    expect(deps.searchSimilarChunks).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        filePaths: ['/src/shared.ts'],
+        rootId: 'root-a',
+      })
+    );
+  });
+
   it('uses custom limit and threshold from input', async () => {
     const deps = createMockDependencies();
     const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
@@ -331,6 +351,8 @@ describe('createRetrievalTool', () => {
               id: 'file-001',
               name: 'auth.ts',
               path: '/src/auth/auth.ts',
+              rootDisplayName: 'Workspace A',
+              rootId: 'root-a',
               tokenCount: 500,
             },
           ],
@@ -345,9 +367,10 @@ describe('createRetrievalTool', () => {
       context: string;
       chunks: Array<{ filePath?: string; fileName?: string }>;
     };
-    expect(r.context).toContain('/src/auth/auth.ts');
+    expect(r.context).toContain('Workspace A:/src/auth/auth.ts');
     expect(r.chunks[0]?.filePath).toBe('/src/auth/auth.ts');
     expect(r.chunks[0]?.fileName).toBe('auth.ts');
+    expect(r.chunks[0]).toHaveProperty('metadata.rootId', 'root-a');
   });
 
   it('formats context with source headers', async () => {

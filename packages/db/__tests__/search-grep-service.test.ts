@@ -95,6 +95,31 @@ describe('GrepSearchService', () => {
     expect(result.totalMatches).toBe(2); // 3 raw hits, deduped to 2 unique (path, line) pairs
   });
 
+  it('does not dedupe matches with the same path and line from different roots', async () => {
+    const candidates: GrepCandidate[] = [
+      {
+        filePath: 'src/shared.ts',
+        rootId: 'root-a',
+        startLine: 7,
+        content: 'const needle = "root a";',
+      },
+      {
+        filePath: 'src/shared.ts',
+        rootId: 'root-b',
+        startLine: 7,
+        content: 'const needle = "root b";',
+      },
+    ];
+    const service = new GrepSearchService(stubRepository(candidates));
+    const result = await service.search({ pattern: 'needle' });
+
+    expect(result.matches.map((match) => `${match.rootId}:${match.path}:${match.line}`)).toEqual([
+      'root-a:src/shared.ts:7',
+      'root-b:src/shared.ts:7',
+    ]);
+    expect(result.totalMatches).toBe(2);
+  });
+
   it('caps results at maxResults and reports truncation + totalMatches', async () => {
     const many: GrepCandidate[] = [
       { filePath: 'src/c.ts', startLine: 1, content: 'hit\nhit\nhit\nhit' },

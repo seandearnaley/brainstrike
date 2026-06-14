@@ -36,6 +36,8 @@ export interface GrepSearchOptions {
   maxResults?: number;
   /** Literal text or JS regex source. Minimum 2 characters. */
   pattern: string;
+  /** Optional root id to disambiguate duplicate relative paths across roots. */
+  rootId?: string;
 }
 
 export interface GrepMatch {
@@ -44,6 +46,7 @@ export interface GrepMatch {
   line: number;
   lineText: string;
   path: string;
+  rootId?: string;
 }
 
 export interface GrepSearchResult {
@@ -122,7 +125,7 @@ function processCandidate(
       continue;
     }
     const absoluteLine = candidate.startLine + index;
-    const key = `${candidate.filePath}:${absoluteLine}`;
+    const key = `${candidate.rootId ?? ''}:${candidate.filePath}:${absoluteLine}`;
     if (accumulator.seen.has(key)) {
       continue;
     }
@@ -130,6 +133,7 @@ function processCandidate(
     accumulator.totalMatches += 1;
     accumulator.matches.push({
       path: candidate.filePath,
+      ...(candidate.rootId ? { rootId: candidate.rootId } : {}),
       line: absoluteLine,
       lineText,
       before: lines.slice(Math.max(0, index - contextLines), index),
@@ -167,6 +171,7 @@ export class GrepSearchService {
       limit: candidateLimit,
       ...(options.embeddingSetId === undefined ? {} : { embeddingSetId: options.embeddingSetId }),
       ...(options.filePaths === undefined ? {} : { filePaths: options.filePaths }),
+      ...(options.rootId === undefined ? {} : { rootId: options.rootId }),
     };
     const candidates = await this.repository.findGrepCandidates(candidateOptions);
 
@@ -182,7 +187,12 @@ export class GrepSearchService {
       processCandidate(candidate, lines, matcher, contextLines, accumulator);
     }
 
-    accumulator.matches.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+    accumulator.matches.sort(
+      (a, b) =>
+        (a.rootId ?? '').localeCompare(b.rootId ?? '') ||
+        a.path.localeCompare(b.path) ||
+        a.line - b.line
+    );
     const capped = accumulator.matches.slice(0, maxResults);
 
     return {

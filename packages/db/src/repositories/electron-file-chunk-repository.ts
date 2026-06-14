@@ -331,6 +331,7 @@ export class ElectronFileChunkRepository {
       efSearch,
       filePaths,
       selectionSnapshotId,
+      rootId,
       includeEmbedding = false,
     } = options;
 
@@ -348,6 +349,7 @@ export class ElectronFileChunkRepository {
       );
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
       embeddingSetId,
@@ -375,7 +377,8 @@ export class ElectronFileChunkRepository {
       params,
       paramIndex,
       normalizedFilePaths,
-      normalizedSnapshotId
+      normalizedSnapshotId,
+      normalizedRootId
     );
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
@@ -487,6 +490,7 @@ export class ElectronFileChunkRepository {
       chunkType,
       filePaths,
       selectionSnapshotId,
+      rootId,
       queryMode = 'websearch',
       language = 'english',
       rankNormalization = 0,
@@ -508,6 +512,7 @@ export class ElectronFileChunkRepository {
       );
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedRootId = this.normalizeRootId(rootId);
 
     // Build tsquery using the appropriate function based on query mode
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
@@ -533,7 +538,8 @@ export class ElectronFileChunkRepository {
       params,
       paramIndex,
       normalizedFilePaths,
-      normalizedSnapshotId
+      normalizedSnapshotId,
+      normalizedRootId
     );
 
     // Execute search query with ts_rank for relevance scoring
@@ -816,17 +822,23 @@ export class ElectronFileChunkRepository {
     return Array.from(new Set(trimmed));
   }
 
+  private normalizeRootId(rootId?: string): string | undefined {
+    const trimmed = rootId?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  }
+
   private appendSelectionFilters(
     whereParts: string[],
     params: unknown[],
     paramIndex: number,
     filePaths: readonly string[] | undefined,
-    selectionSnapshotId: string | undefined
+    selectionSnapshotId: string | undefined,
+    rootId: string | undefined
   ): number {
     let nextIndex = paramIndex;
     if (selectionSnapshotId) {
       whereParts.push(
-        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
+        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n            AND (ssf.root_id IS NULL OR fr.root_id = ssf.root_id)\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
       );
       params.push(selectionSnapshotId);
       nextIndex += 1;
@@ -837,6 +849,14 @@ export class ElectronFileChunkRepository {
         `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE path = ANY($${nextIndex}::text[])\n        )`
       );
       params.push(filePaths);
+      nextIndex += 1;
+    }
+
+    if (rootId !== undefined) {
+      whereParts.push(
+        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE root_id = $${nextIndex}\n        )`
+      );
+      params.push(rootId);
       nextIndex += 1;
     }
 

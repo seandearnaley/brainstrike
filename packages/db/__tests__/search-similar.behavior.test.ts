@@ -197,6 +197,87 @@ describe('searchSimilar behavior (pgvector path)', () => {
     expect(snapshotScoped.map((r) => r.chunk.id)).toEqual(['c2']);
   });
 
+  it('filters duplicate relative paths by root-aware allowlist and selection snapshot entries', async () => {
+    const now = new Date().toISOString();
+    const set = await setRepo.getOrCreateSet('jina-code', 'Xenova/jina-code', 768, 'cosine');
+
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path, status)
+       VALUES ($1, 'path', 'Repo A', '/repo-a', 'live'), ($2, 'path', 'Repo B', '/repo-b', 'live')`,
+      ['root-a', 'root-b']
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, root_id, size, created_at, updated_at)
+       VALUES ($1, 'shared.ts', '/src/shared.ts', $2, 10, $5, $5),
+              ($3, 'shared.ts', '/src/shared.ts', $4, 10, $5, $5)`,
+      ['fr-root-a', 'root-a', 'fr-root-b', 'root-b', now]
+    );
+
+    const chunks: FileChunkInsert[] = [
+      {
+        id: 'chunk-root-a',
+        fileRecordId: 'fr-root-a',
+        chunkIndex: 0,
+        content: 'root a shared file',
+        contentHash: 'root-a-hash',
+        tokenCount: 5,
+        chunkType: 'text',
+        chunkSize: 18,
+        embedding: makeVector(768, [[0, 0.3]]),
+        embeddingSetId: set.id,
+        embeddingUpdatedAt: now,
+        embeddingHash: 'root-a-embedding',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'chunk-root-b',
+        fileRecordId: 'fr-root-b',
+        chunkIndex: 0,
+        content: 'root b shared file',
+        contentHash: 'root-b-hash',
+        tokenCount: 5,
+        chunkType: 'text',
+        chunkSize: 18,
+        embedding: makeVector(768, [[0, 0.28]]),
+        embeddingSetId: set.id,
+        embeddingUpdatedAt: now,
+        embeddingHash: 'root-b-embedding',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    await chunkRepo.insertMany(chunks);
+
+    const query = makeVector(768, [[0, 0.2]]);
+    const allowlisted = await chunkRepo.searchSimilar(query, {
+      limit: 10,
+      threshold: 0,
+      embeddingSetId: set.id,
+      filePaths: ['/src/shared.ts'],
+      rootId: 'root-a',
+    });
+    expect(allowlisted.map((r) => r.chunk.id)).toEqual(['chunk-root-a']);
+
+    const snapshotId = '00000000-0000-0000-0000-000000000102';
+    await db.query('INSERT INTO selection_snapshots (id, created_at) VALUES ($1, $2)', [
+      snapshotId,
+      now,
+    ]);
+    await db.query(
+      'INSERT INTO selection_snapshot_files (snapshot_id, file_path, root_id) VALUES ($1, $2, $3)',
+      [snapshotId, '/src/shared.ts', 'root-b']
+    );
+
+    const snapshotScoped = await chunkRepo.searchSimilar(query, {
+      limit: 10,
+      threshold: 0,
+      embeddingSetId: set.id,
+      selectionSnapshotId: snapshotId,
+    });
+    expect(snapshotScoped.map((r) => r.chunk.id)).toEqual(['chunk-root-b']);
+  });
+
   it('rejects oversized file path allowlists', async () => {
     const set = await setRepo.getOrCreateSet('jina-code', 'Xenova/jina-code', 768, 'cosine');
     const query = makeVector(768, [[0, 0.2]]);

@@ -486,6 +486,56 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('uses focused-root curated metadata when multiple roots share the same relative path', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-a',
+      selectionFilePaths: ['/src/main.ts'],
+      workspaceContext: {
+        useTapestryRanges: true,
+        files: [
+          {
+            path: '/src/main.ts',
+            rootId: 'root-a',
+            rootDisplayName: 'Repo A',
+            approxTokens: 100,
+            ranges: [{ startLine: 2, endLine: 2, isActive: true }],
+          },
+          {
+            path: '/src/main.ts',
+            rootId: 'root-b',
+            rootDisplayName: 'Repo B',
+            approxTokens: 999,
+            ranges: [{ startLine: 4, endLine: 4, isActive: true }],
+          },
+        ],
+      },
+    } as RuntimeData);
+
+    const listed = await tools['brainstrike.listWorkspaceContext'].execute({
+      context: { includeTokenEstimates: true },
+    });
+    expect(listed.tokenEstimates).toEqual([{ path: '/src/main.ts', approxTokens: 100 }]);
+
+    const read = await tools['brainstrike.readWorkspaceContext'].execute({
+      context: {
+        maxCharsPerFile: 200,
+        tokenBudget: 100,
+        useTapestrySelections: true,
+      },
+    });
+    expect(read.files[0]).toMatchObject({
+      path: '/src/main.ts',
+      startLine: 2,
+      endLine: 2,
+      tapestryRangeCount: 1,
+    });
+    expect(read.files[0]?.content).toContain('line 2');
+    expect(read.files[0]?.content).not.toContain('line 4');
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('bounds huge selected-file listings with offset paging and a hint', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const selectionFilePaths = Array.from(
@@ -693,6 +743,28 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('rejects selection updates for a non-focused root before broadcasting paths', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const send = vi.fn();
+    getAllWindowsMock.mockReturnValue([createMockWindow({ id: 1051, role: 'visible-ui', send })]);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-a',
+    } as RuntimeData);
+
+    await expect(
+      tools['brainstrike.updateWorkspaceContextSelection'].execute({
+        context: {
+          folderId: 'root-b',
+          filePaths: ['/src/main.ts'],
+          mode: 'add',
+        },
+      })
+    ).rejects.toThrow('workspace context selection updates are limited to the focused root');
+    expect(send).not.toHaveBeenCalled();
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('broadcasts workspace tapestry range updates and can select the affected files first', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const send = vi.fn();
@@ -743,6 +815,33 @@ describe('assistant-tools', () => {
       ],
     });
     expect(hiddenSend).not.toHaveBeenCalled();
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('rejects tapestry updates for a non-focused root before broadcasting paths or ranges', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const send = vi.fn();
+    getAllWindowsMock.mockReturnValue([createMockWindow({ id: 1151, role: 'visible-ui', send })]);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-a',
+    } as RuntimeData);
+
+    await expect(
+      tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
+        context: {
+          folderId: 'root-b',
+          mode: 'replace',
+          updates: [
+            {
+              path: '/src/main.ts',
+              ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+            },
+          ],
+        },
+      })
+    ).rejects.toThrow('workspace context tapestry updates are limited to the focused root');
+    expect(send).not.toHaveBeenCalled();
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 

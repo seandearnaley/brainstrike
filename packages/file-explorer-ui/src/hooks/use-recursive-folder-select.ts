@@ -26,6 +26,7 @@ import {
   collectAncestorDirectories,
   hasPersistApi,
   isForestStore,
+  resolveCanonicalRootId,
 } from './recursive-selection-utils';
 
 const logger = createLogger('RecursiveFolderSelect');
@@ -337,7 +338,11 @@ export function useRecursiveFolderSelect(
             excludeFilters,
             useRegex,
           });
-          const snapshotId = await createQuerySelectionSnapshot(db, result.filePaths);
+          const snapshotId = await createQuerySelectionSnapshot(
+            db,
+            result.filePaths,
+            resolveCanonicalRootId(store, folderId)
+          );
           const manifest = buildQuerySelectionManifest({
             filePaths: result.filePaths,
             fingerprint: manifestFingerprint,

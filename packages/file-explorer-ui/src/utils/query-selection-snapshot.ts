@@ -85,7 +85,8 @@ export async function withSerializedSnapshotWrite<T>(
 
 export async function createQuerySelectionSnapshot(
   db: DbHandle | null,
-  filePaths: readonly string[]
+  filePaths: readonly string[],
+  rootId?: string
 ): Promise<string | null> {
   if (!(db && filePaths.length > 0)) {
     return null;
@@ -112,11 +113,20 @@ export async function createQuerySelectionSnapshot(
         throw new Error('Selection snapshot insert did not return an id');
       }
 
-      await db.query(
-        `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-         SELECT $1, UNNEST($2::text[])`,
-        [snapshotId, Array.from(filePaths)]
-      );
+      const normalizedRootId = rootId?.trim();
+      if (normalizedRootId) {
+        await db.query(
+          `INSERT INTO selection_snapshot_files (snapshot_id, file_path, root_id)
+           SELECT $1, UNNEST($2::text[]), $3`,
+          [snapshotId, Array.from(filePaths), normalizedRootId]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+           SELECT $1, UNNEST($2::text[])`,
+          [snapshotId, Array.from(filePaths)]
+        );
+      }
 
       await db.query('COMMIT');
       return snapshotId;
