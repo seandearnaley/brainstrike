@@ -215,6 +215,11 @@ function isAbsolutePathLike(value: string): boolean {
   return normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized);
 }
 
+function isWindowsAbsolutePathLike(value: string): boolean {
+  const normalized = normalizePathSeparators(value);
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith('//');
+}
+
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
@@ -222,7 +227,13 @@ function trimTrailingSlashes(value: string): string {
 function isPathWithinFolder(absolutePath: string, folderId: string): boolean {
   const normalizedPath = trimTrailingSlashes(normalizePathSeparators(absolutePath));
   const normalizedFolder = trimTrailingSlashes(normalizePathSeparators(folderId));
-  return normalizedPath === normalizedFolder || normalizedPath.startsWith(`${normalizedFolder}/`);
+  const compareCaseInsensitive =
+    isWindowsAbsolutePathLike(normalizedPath) && isWindowsAbsolutePathLike(normalizedFolder);
+  const comparablePath = compareCaseInsensitive ? normalizedPath.toLowerCase() : normalizedPath;
+  const comparableFolder = compareCaseInsensitive
+    ? normalizedFolder.toLowerCase()
+    : normalizedFolder;
+  return comparablePath === comparableFolder || comparablePath.startsWith(`${comparableFolder}/`);
 }
 
 function resolveDirectReadPath(folderId: string, selectionPath: string): string | null {

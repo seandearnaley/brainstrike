@@ -202,7 +202,6 @@ export const useSelectionManager = () => {
       // This provides intuitive UX: "Deselect All" means "start fresh".
       if (list.length === 0 && selectionModel.mode === 'rules') {
         clearSelectionRules();
-        return;
       }
 
       // Phase 6 cross-root partition: keys belonging to OTHER active roots
