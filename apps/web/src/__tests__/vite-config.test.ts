@@ -49,4 +49,18 @@ describe('web vite config alias contract', () => {
     expect(config).not.toContain('../../packages/file-tree-worker/dist');
     expect(config).toContain("'@brainstrike/file-tree-worker'");
   });
+
+  it('rewrites PGlite process.exitCode access in browser worker bundles', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toContain(
+      "const WORKER_PROCESS_EXIT_CODE_BINDING = '__brainstrikeWorkerProcessExitCode';"
+    );
+    expect(config).toContain("name: 'brainstrike-browser-worker-process-exit-code'");
+    expect(config).toContain("code.includes('process.exitCode')");
+    expect(config).toContain('code.replaceAll(');
+    expect(config).toMatch(
+      /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[browserWorkerProcessExitCodePlugin\(\)\]/
+    );
+  });
 });
