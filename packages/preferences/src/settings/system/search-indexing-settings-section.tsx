@@ -314,7 +314,7 @@ export function SearchIndexingSettingsSection() {
       <CardHeader>
         <CardTitle>Workspace Index</CardTitle>
         <CardDescription>
-          Keep the selected root folder searchable through BrainStrike's system-managed workspace
+          Keep your workspace folders searchable through BrainStrike's system-managed workspace
           index collection.
         </CardDescription>
       </CardHeader>
@@ -323,7 +323,7 @@ export function SearchIndexingSettingsSection() {
           <div>
             <Label className="font-medium text-sm">Workspace Index</Label>
             <p className="text-muted-foreground text-sm">
-              When enabled, BrainStrike scans the selected root folder, chunks eligible text files,
+              When enabled, BrainStrike scans your workspace folders, chunks eligible text files,
               and stores embeddings in the protected workspace index.
             </p>
           </div>
