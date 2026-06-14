@@ -33,6 +33,7 @@ import {
   hasPersistApi,
   isForestStore,
   resolveCanonicalRootId,
+  resolveCanonicalRootPath,
   yieldToBrowser,
 } from './recursive-selection-utils';
 
@@ -76,6 +77,7 @@ async function commitSelectAllQuerySelection(args: {
   folderId: string;
   includeFilters: string[];
   rootId?: string;
+  rootPath?: string;
   setQuerySelection: (
     descriptor: SelectionQueryDescriptor,
     manifest: QuerySelectionManifest,
@@ -93,7 +95,10 @@ async function commitSelectAllQuerySelection(args: {
     excludeFilters,
     useRegex,
   });
-  const snapshotId = await createQuerySelectionSnapshot(db, filePaths, args.rootId);
+  const snapshotId = await createQuerySelectionSnapshot(db, filePaths, {
+    ...(args.rootId ? { rootId: args.rootId } : {}),
+    ...(args.rootPath ? { rootPath: args.rootPath } : {}),
+  });
   const manifest = buildQuerySelectionManifest({
     filePaths,
     fingerprint: manifestFingerprint,
@@ -182,6 +187,7 @@ async function commitSelectAllResult(args: {
 
   if (querySelectionSetter) {
     const rootId = resolveCanonicalRootId(args.store, folderId);
+    const rootPath = resolveCanonicalRootPath(args.store, folderId);
     await commitSelectAllQuerySelection({
       db: args.db,
       excludeFilters,
@@ -189,6 +195,7 @@ async function commitSelectAllResult(args: {
       folderId,
       includeFilters,
       ...(rootId ? { rootId } : {}),
+      ...(rootPath ? { rootPath } : {}),
       setQuerySelection: querySelectionSetter,
       useRegex: args.useRegex,
     });

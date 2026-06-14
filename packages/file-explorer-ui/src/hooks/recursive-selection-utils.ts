@@ -43,6 +43,16 @@ export function resolveCanonicalRootId(store: unknown, folderId: string): string
   return folderId;
 }
 
+export function resolveCanonicalRootPath(store: unknown, folderId: string): string | undefined {
+  const getState = (store as { getState?: unknown } | null | undefined)?.getState;
+  if (typeof getState !== 'function') {
+    return;
+  }
+  const state = (getState as () => { rootDescriptors?: Record<string, { path?: unknown }> })();
+  const rootPath = state.rootDescriptors?.[folderId]?.path;
+  return typeof rootPath === 'string' && rootPath.trim().length > 0 ? rootPath : undefined;
+}
+
 export function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);

@@ -463,7 +463,7 @@ export class DrizzleFileChunkRepository {
       baseQuery = sql`${baseQuery} AND ${fileChunks.fileRecordId} IN (
         SELECT ${fileRecords.id}
         FROM ${fileRecords}
-        WHERE ${fileRecords.rootId} = ${normalizedRootId}
+        WHERE (${fileRecords.rootId} = ${normalizedRootId} OR ${fileRecords.rootId} IS NULL)
       )`;
     }
 
@@ -597,7 +597,7 @@ export class DrizzleFileChunkRepository {
       baseQuery = sql`${baseQuery} AND ${fileChunks.fileRecordId} IN (
         SELECT ${fileRecords.id}
         FROM ${fileRecords}
-        WHERE ${fileRecords.rootId} = ${normalizedRootId}
+        WHERE (${fileRecords.rootId} = ${normalizedRootId} OR ${fileRecords.rootId} IS NULL)
       )`;
     }
 

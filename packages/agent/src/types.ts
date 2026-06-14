@@ -118,6 +118,8 @@ export interface RuntimeData {
   selectionFilePathsFromOtherRoots?: number;
   /** Optional folder id for selection/token cache resolution. */
   selectionFolderId?: string;
+  /** Optional absolute path for the selected root, used to resolve DB root scope. */
+  selectionRootPath?: string;
   /** Optional selection snapshot id to scope retrieval. */
   selectionSnapshotId?: string;
   signal?: AbortSignal;

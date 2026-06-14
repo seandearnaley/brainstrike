@@ -250,7 +250,7 @@ describe('assistant runtime helpers', () => {
       modelSettings: { maxOutputTokens: 512 },
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectedMemoryThreadId: 'thread-1',
-      selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a' },
+      selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a', rootPath: '/workspace' },
       workspaceContext: {
         files: [],
         includeProjectTree: false,
@@ -281,6 +281,7 @@ describe('assistant runtime helpers', () => {
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectionFilePaths: ['src/a.ts'],
       selectionFolderId: 'folder-a',
+      selectionRootPath: '/workspace',
       workspaceIndexBlockedReason: 'paused',
       workspaceIndexEmbeddingSetId: 'embeddings-a',
       workspaceIndexLastError: 'failed',

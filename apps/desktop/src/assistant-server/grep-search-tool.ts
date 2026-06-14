@@ -22,6 +22,10 @@ const DEFAULT_CONTENT_MATCHES = 50;
  */
 const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
 
+interface QueryResult<T> {
+  rows: T[];
+}
+
 export interface GrepFileSummary {
   /** Line number of the first match in this file. */
   firstLine: number;
@@ -187,6 +191,35 @@ function buildContentResult(
   return result;
 }
 
+async function resolveDbRootIdByPath(db: PGlite, rootPath: string): Promise<string | undefined> {
+  const result = (await db.query(
+    `SELECT id
+     FROM roots
+     WHERE path = $1
+     LIMIT 1`,
+    [rootPath]
+  )) as QueryResult<{ id: string }>;
+  return normalizeOptionalText(result.rows[0]?.id) ?? undefined;
+}
+
+async function resolveSelectionRootId(
+  db: PGlite,
+  runtimeData: RuntimeData | undefined
+): Promise<string | undefined> {
+  const rootPath = normalizeOptionalText(runtimeData?.selectionRootPath);
+  if (!rootPath) {
+    return;
+  }
+  const rootId = await resolveDbRootIdByPath(db, rootPath);
+  if (!rootId) {
+    logger.warn('Selection root path did not resolve to a DB root id for grep search', {
+      rootPath,
+    });
+    throw new Error('Selection root metadata is unavailable.');
+  }
+  return rootId;
+}
+
 export async function runGrepSearch(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined
@@ -199,7 +232,7 @@ export async function runGrepSearch(
     normalizeOptionalText(runtimeData?.embeddingSetId) ??
     resolveWorkspaceIndexEmbeddingSetId(runtimeData) ??
     undefined;
-  const rootId = normalizeOptionalText(runtimeData?.selectionFolderId) ?? undefined;
+  const rootId = await resolveSelectionRootId(db, runtimeData);
 
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
@@ -237,6 +270,7 @@ export async function runGrepSearch(
       /^Invalid regular expression pattern:/,
       /^Grep pattern must be at least \d+ characters/,
       /^findGrepCandidates filePaths limit exceeded/,
+      /^Selection root metadata is unavailable\.$/,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;

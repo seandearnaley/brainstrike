@@ -927,7 +927,7 @@ export class FileChunkRepository {
 
     if (rootId !== undefined) {
       whereParts.push(
-        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE root_id = $${nextIndex}\n        )`
+        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE (root_id = $${nextIndex} OR root_id IS NULL)\n        )`
       );
       params.push(rootId);
       nextIndex += 1;

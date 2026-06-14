@@ -280,12 +280,36 @@ describe('createRetrievalTool', () => {
     );
   });
 
-  it('passes focused root id to root-aware retrieval search', async () => {
+  it('resolves the selected root path before applying root-aware retrieval search', async () => {
+    const deps = createMockDependencies({
+      resolveRootIdByPath: vi.fn().mockResolvedValue('db-root-a'),
+    });
+    const runtime: RuntimeData = {
+      embeddingSetId: 'set-001',
+      selectionFilePaths: ['/src/shared.ts'],
+      selectionFolderId: 'explorer-root-a',
+      selectionRootPath: '/repo/a',
+    };
+    const tool = createRetrievalTool(runtime, deps);
+
+    await runTool(tool, { query: 'test' });
+
+    expect(deps.resolveRootIdByPath).toHaveBeenCalledWith('/repo/a');
+    expect(deps.searchSimilarChunks).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        filePaths: ['/src/shared.ts'],
+        rootId: 'db-root-a',
+      })
+    );
+  });
+
+  it('does not treat the explorer selection folder id as a database root id', async () => {
     const deps = createMockDependencies();
     const runtime: RuntimeData = {
       embeddingSetId: 'set-001',
       selectionFilePaths: ['/src/shared.ts'],
-      selectionFolderId: 'root-a',
+      selectionFolderId: 'explorer-root-a',
     };
     const tool = createRetrievalTool(runtime, deps);
 
@@ -293,9 +317,8 @@ describe('createRetrievalTool', () => {
 
     expect(deps.searchSimilarChunks).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.objectContaining({
-        filePaths: ['/src/shared.ts'],
-        rootId: 'root-a',
+      expect.not.objectContaining({
+        rootId: 'explorer-root-a',
       })
     );
   });

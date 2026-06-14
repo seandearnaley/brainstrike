@@ -13,6 +13,11 @@ interface QueryResultRow {
   id?: string;
 }
 
+export interface QuerySelectionSnapshotRootScope {
+  rootId?: string | null;
+  rootPath?: string | null;
+}
+
 function normalizeSnapshotRows(rows: unknown[]): string[] {
   return rows
     .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
@@ -22,6 +27,52 @@ function normalizeSnapshotRows(rows: unknown[]): string[] {
     })
     .filter((value): value is string => typeof value === 'string')
     .sort(defaultCollator.compare);
+}
+
+function normalizeRootScope(
+  rootScope: QuerySelectionSnapshotRootScope | string | undefined
+): QuerySelectionSnapshotRootScope | undefined {
+  if (typeof rootScope === 'string') {
+    const rootId = rootScope.trim();
+    return rootId.length > 0 ? { rootId } : undefined;
+  }
+  const rootId = rootScope?.rootId?.trim();
+  const rootPath = rootScope?.rootPath?.trim();
+  if (!(rootId || rootPath)) {
+    return;
+  }
+  return {
+    ...(rootId ? { rootId } : {}),
+    ...(rootPath ? { rootPath } : {}),
+  };
+}
+
+async function resolveSnapshotDbRootId(
+  db: DbHandle,
+  rootScope: QuerySelectionSnapshotRootScope | string | undefined
+): Promise<string | undefined> {
+  const normalizedScope = normalizeRootScope(rootScope);
+  if (!normalizedScope) {
+    return;
+  }
+  const result = (await db.query(
+    `SELECT id
+     FROM roots
+     WHERE ($1::text IS NOT NULL AND id = $1::text)
+        OR ($2::text IS NOT NULL AND path = $2::text)
+     ORDER BY CASE WHEN id = $1::text THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [normalizedScope.rootId ?? null, normalizedScope.rootPath ?? null]
+  )) as { rows: QueryResultRow[] };
+  const dbRootId = result.rows[0]?.id?.trim();
+  if (!dbRootId) {
+    logger.warn('Selection snapshot root scope did not resolve to a DB root id', {
+      rootId: normalizedScope.rootId,
+      rootPath: normalizedScope.rootPath,
+    });
+    throw new Error('Selection snapshot root metadata is unavailable');
+  }
+  return dbRootId;
 }
 
 function createTimeoutError(message: string): Error {
@@ -86,7 +137,7 @@ export async function withSerializedSnapshotWrite<T>(
 export async function createQuerySelectionSnapshot(
   db: DbHandle | null,
   filePaths: readonly string[],
-  rootId?: string
+  rootScope?: QuerySelectionSnapshotRootScope | string
 ): Promise<string | null> {
   if (!(db && filePaths.length > 0)) {
     return null;
@@ -113,12 +164,12 @@ export async function createQuerySelectionSnapshot(
         throw new Error('Selection snapshot insert did not return an id');
       }
 
-      const normalizedRootId = rootId?.trim();
-      if (normalizedRootId) {
+      const dbRootId = await resolveSnapshotDbRootId(db, rootScope);
+      if (dbRootId) {
         await db.query(
           `INSERT INTO selection_snapshot_files (snapshot_id, file_path, root_id)
            SELECT $1, UNNEST($2::text[]), $3`,
-          [snapshotId, Array.from(filePaths), normalizedRootId]
+          [snapshotId, Array.from(filePaths), dbRootId]
         );
       } else {
         await db.query(

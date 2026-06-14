@@ -70,6 +70,7 @@ const ERROR_MESSAGES = {
   missingApiKey: 'No API key configured for the embedding provider.',
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  invalidSelectionRoot: 'Selection root metadata is unavailable.',
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
@@ -88,6 +89,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingApiKey,
   ERROR_MESSAGES.invalidSelectionSnapshot,
   ERROR_MESSAGES.invalidSelectionFilePaths,
+  ERROR_MESSAGES.invalidSelectionRoot,
   ERROR_MESSAGES.selectionTooLarge,
   ERROR_MESSAGES.embeddingDimensionMismatch,
   ERROR_MESSAGES.embeddingFailed,
@@ -390,22 +392,53 @@ function resolveRuntimeEmbeddingSetId(
   );
 }
 
+async function resolveDbRootIdByPath(db: PGlite, rootPath: string): Promise<string | undefined> {
+  let result: QueryResult<{ id: string }>;
+  try {
+    result = (await db.query(
+      `SELECT id
+       FROM roots
+       WHERE path = $1
+       LIMIT 1`,
+      [rootPath]
+    )) as QueryResult<{ id: string }>;
+  } catch (error) {
+    logger.error('Failed to resolve selection root path', { rootPath, error });
+    throw new Error(ERROR_MESSAGES.invalidSelectionRoot);
+  }
+  return normalizeOptionalText(result.rows[0]?.id);
+}
+
+async function resolveSelectionRootId(
+  db: PGlite,
+  runtime: RuntimeData | undefined
+): Promise<string | undefined> {
+  const rootPath = normalizeOptionalText(runtime?.selectionRootPath);
+  if (!rootPath) {
+    return;
+  }
+  const rootId = await resolveDbRootIdByPath(db, rootPath);
+  if (!rootId) {
+    logger.warn('Selection root path did not resolve to a DB root id', { rootPath });
+    throw new Error(ERROR_MESSAGES.invalidSelectionRoot);
+  }
+  return rootId;
+}
+
 function resolveSelectionFilters(
   runtime: RuntimeData | undefined,
   inputFilePaths: readonly string[] | undefined,
   inputSnapshotId: string | undefined
-): { filePaths?: string[]; rootId?: string; snapshotId?: string } {
+): { filePaths?: string[]; snapshotId?: string } {
   const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
   const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
   const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
   const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
-  const rootId = normalizeOptionalText(runtime?.selectionFolderId);
   if (snapshotId) {
-    return { snapshotId, ...(rootId ? { rootId } : {}) };
+    return { snapshotId };
   }
   return {
     ...(filePaths ? { filePaths } : {}),
-    ...(rootId ? { rootId } : {}),
   };
 }
 
@@ -592,6 +625,7 @@ async function resolveSelectionState(
     input.filePaths,
     input.selectionSnapshotId
   );
+  const rootId = await resolveSelectionRootId(db, runtimeData);
   let selectionSnapshotId = selection.snapshotId;
   let filePaths = selection.filePaths;
 
@@ -603,7 +637,7 @@ async function resolveSelectionState(
   }
 
   if (!selectionSnapshotId && filePaths && filePaths.length > MAX_INLINE_FILE_PATHS) {
-    selectionSnapshotId = await createSelectionSnapshot(db, filePaths, selection.rootId);
+    selectionSnapshotId = await createSelectionSnapshot(db, filePaths, rootId);
     filePaths = undefined;
   }
 
@@ -611,8 +645,8 @@ async function resolveSelectionState(
   if (filePaths) {
     state.filePaths = filePaths;
   }
-  if (selection.rootId) {
-    state.rootId = selection.rootId;
+  if (rootId) {
+    state.rootId = rootId;
   }
   if (selectionSnapshotId) {
     state.selectionSnapshotId = selectionSnapshotId;
@@ -798,6 +832,7 @@ function omitImplicitContextRuntimeData(
   const {
     embeddingSetId: _embeddingSetId,
     selectionFilePaths: _selectionFilePaths,
+    selectionRootPath: _selectionRootPath,
     selectionSnapshotId: _selectionSnapshotId,
     tokenBudget: _tokenBudget,
     ...explicitRuntimeData
