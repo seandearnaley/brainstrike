@@ -12,10 +12,17 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     providerError: null as Error | null,
   },
   fileExplorerMocks: {
+    activeRootIds: [] as string[],
     rootDirectoryHandle: {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     } as { name: string; path: string } | null,
+    rootDirectoryHandles: [
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ] as { name: string; path: string }[],
   },
   mockDb: {
     exec: vi.fn(() => Promise.resolve()),
@@ -36,15 +43,24 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
+  useFileSystem: () => ({
+    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+    rootDirectoryHandles: fileExplorerMocks.rootDirectoryHandles,
+  }),
 }));
 
 vi.mock('../assistant-ui-panel-wrapper', () => ({
   AssistantUiPanelWrapper: ({
+    memoryResourceId,
     memoryThreadId,
   }: {
     memoryResourceId?: string;
     memoryThreadId?: string;
-  }) => <div data-testid="assistant-thread-wrapper">{memoryThreadId}</div>,
+  }) => (
+    <div data-resource-id={memoryResourceId} data-testid="assistant-thread-wrapper">
+      {memoryThreadId}
+    </div>
+  ),
 }));
 
 describe('AssistantThreadTabsWorkspace', () => {
@@ -53,6 +69,13 @@ describe('AssistantThreadTabsWorkspace', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    fileExplorerMocks.rootDirectoryHandles = [
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ];
+    fileExplorerMocks.activeRootIds = [];
     dbMocks.database = undefined;
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
@@ -120,6 +143,41 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
       'aria-selected',
       'true'
+    );
+  });
+
+  it('uses a stable multi-root forest resource id for assistant thread tabs', async () => {
+    const forestResourceId = 'assistant-workspace:roots:%2Ftmp%2Fworkspace-a|%2Ftmp%2Fworkspace-b';
+    fileExplorerMocks.activeRootIds = ['root-b', 'root-a'];
+    fileExplorerMocks.rootDirectoryHandles = [
+      {
+        name: 'workspace-b',
+        path: '/tmp/workspace-b',
+      },
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ];
+    threadRows.splice(0, threadRows.length, {
+      id: 'thread-forest',
+      resourceId: forestResourceId,
+      title: 'Forest-scoped thread',
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      updatedAt: new Date('2026-04-22T11:00:00Z'),
+    });
+
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Forest-scoped thread/ })).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
+      forestResourceId,
+    ]);
+    expect(screen.getByTestId('assistant-thread-wrapper')).toHaveAttribute(
+      'data-resource-id',
+      forestResourceId
     );
   });
 

@@ -4,7 +4,7 @@ import {
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { useFileExplorerStoreSelector, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import {
   Bug,
@@ -37,6 +37,7 @@ import {
 } from './assistant-memory-repository';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
+import { resolveAssistantWorkspaceResourceId } from './assistant-workspace-resource-id';
 
 type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
@@ -951,8 +952,13 @@ export function ThreadsPanel(): ReactElement {
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
-  const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
-  const resourceId = rootDirectoryHandle?.path ?? null;
+  const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  const { rootDirectoryHandle, rootDirectoryHandles } = useFileSystem();
+  const resourceId = resolveAssistantWorkspaceResourceId({
+    activeRootIds,
+    rootDirectoryPath: rootDirectoryHandle?.path,
+    rootDirectoryPaths: rootDirectoryHandles.map((handle) => handle.path),
+  });
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]

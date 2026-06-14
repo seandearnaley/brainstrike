@@ -4,7 +4,7 @@ import {
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { useFileExplorerStoreSelector, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
 import type { ReactElement, WheelEvent } from 'react';
@@ -14,6 +14,7 @@ import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-t
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
+import { resolveAssistantWorkspaceResourceId } from './assistant-workspace-resource-id';
 
 interface TabScrollState {
   readonly canScrollBack: boolean;
@@ -38,8 +39,13 @@ export function AssistantThreadTabsWorkspace({
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
-  const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
-  const resourceId = rootDirectoryHandle?.path ?? null;
+  const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  const { rootDirectoryHandle, rootDirectoryHandles } = useFileSystem();
+  const resourceId = resolveAssistantWorkspaceResourceId({
+    activeRootIds,
+    rootDirectoryPath: rootDirectoryHandle?.path,
+    rootDirectoryPaths: rootDirectoryHandles.map((handle) => handle.path),
+  });
   const repository = useMemo(
     () => (database ? createPgliteAssistantThreadRepository(database) : null),
     [database]

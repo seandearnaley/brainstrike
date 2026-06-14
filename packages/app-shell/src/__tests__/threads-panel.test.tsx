@@ -14,10 +14,17 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     providerError: null as Error | null,
   },
   fileExplorerMocks: {
+    activeRootIds: [] as string[],
     rootDirectoryHandle: {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     } as { name: string; path: string } | null,
+    rootDirectoryHandles: [
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ] as { name: string; path: string }[],
   },
   mockDb: {
     exec: vi.fn(() => Promise.resolve()),
@@ -49,6 +56,10 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
+  useFileSystem: () => ({
+    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+    rootDirectoryHandles: fileExplorerMocks.rootDirectoryHandles,
+  }),
 }));
 
 describe('ThreadsPanel', () => {
@@ -57,6 +68,13 @@ describe('ThreadsPanel', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
+    fileExplorerMocks.rootDirectoryHandles = [
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ];
+    fileExplorerMocks.activeRootIds = [];
     dbMocks.database = undefined;
     dbMocks.deleteFailureThreadId = null;
     dbMocks.initializing = false;
@@ -257,6 +275,41 @@ describe('ThreadsPanel', () => {
     expect(screen.getByText('Max output: 512')).toBeVisible();
     expect(useAssistantThreadStore.getState().selectedThreadByResourceId['/tmp/workspace-a']).toBe(
       'thread-b'
+    );
+  });
+
+  it('lists threads under a stable multi-root forest resource id', async () => {
+    const forestResourceId = 'assistant-workspace:roots:%2Ftmp%2Fworkspace-a|%2Ftmp%2Fworkspace-b';
+    fileExplorerMocks.activeRootIds = ['root-b', 'root-a'];
+    fileExplorerMocks.rootDirectoryHandles = [
+      {
+        name: 'workspace-b',
+        path: '/tmp/workspace-b',
+      },
+      {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      },
+    ];
+    threadRows.splice(0, threadRows.length, {
+      id: 'thread-forest',
+      resourceId: forestResourceId,
+      title: 'Forest-scoped thread',
+      metadata: JSON.stringify({ icon: 'message', color: 'blue' }),
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      updatedAt: new Date('2026-04-22T11:00:00Z'),
+    });
+
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Forest-scoped thread')).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
+      forestResourceId,
+    ]);
+    expect(useAssistantThreadStore.getState().selectedThreadByResourceId[forestResourceId]).toBe(
+      'thread-forest'
     );
   });
 

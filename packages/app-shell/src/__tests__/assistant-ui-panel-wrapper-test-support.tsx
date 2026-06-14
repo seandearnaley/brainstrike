@@ -31,6 +31,12 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
       name: 'test-workspace',
       path: '/tmp/test-workspace',
     } as { path: string; name: string } | null,
+    rootDirectoryHandles: [
+      {
+        name: 'test-workspace',
+        path: '/tmp/test-workspace',
+      },
+    ] as { path: string; name: string }[],
     setIncludeProjectTree: vi.fn<(value: boolean) => void>(),
     setSelectedFiles: vi.fn<(files: ReadonlySet<string>) => void>(),
     setTokenBudget: vi.fn<(budget: number) => void>(),
@@ -449,6 +455,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
     tokenBudget: fileExplorerMocks.tokenBudget,
     currentFolderId: fileExplorerMocks.currentFolderId,
     rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+    rootDirectoryHandles: fileExplorerMocks.rootDirectoryHandles,
     includeProjectTree: fileExplorerMocks.includeProjectTree,
     setTokenBudget: fileExplorerMocks.setTokenBudget,
     setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
@@ -468,6 +475,10 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
     useFileExplorerStoreContext: () => store,
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),
+    useFileSystem: () => ({
+      rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+      rootDirectoryHandles: fileExplorerMocks.rootDirectoryHandles,
+    }),
   };
 });
 
@@ -903,6 +914,12 @@ beforeEach(() => {
     path: '/tmp/test-workspace',
     name: 'test-workspace',
   };
+  fileExplorerMocks.rootDirectoryHandles = [
+    {
+      path: '/tmp/test-workspace',
+      name: 'test-workspace',
+    },
+  ];
   fileExplorerMocks.tokenBudget = 100_000;
   fileExplorerMocks.workspaceContextSnapshot = null;
   fileExplorerMocks.tapestryRangesByKey = {};
@@ -936,6 +953,10 @@ beforeEach(() => {
     configurable: true,
     value: { url: 'http://127.0.0.1:9876' },
   });
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: { db: {} },
+  });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
@@ -947,6 +968,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
   Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'electronAPI');
   Reflect.deleteProperty(window, 'desktopLifecycle');
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });

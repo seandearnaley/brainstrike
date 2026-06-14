@@ -10,6 +10,7 @@ import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brain
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreSelector,
+  useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
@@ -27,6 +28,7 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
+import { hasElectronAPI } from '@brainstrike/ui';
 import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
@@ -70,6 +72,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { resolveAssistantWorkspaceResourceId } from './assistant-workspace-resource-id';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
@@ -108,6 +111,9 @@ function resolveProviderFromComposite(
 
 function hasDesktopAssistantBackend(): boolean {
   if (typeof window === 'undefined') {
+    return false;
+  }
+  if (!hasElectronAPI()) {
     return false;
   }
   return Boolean(window.assistant?.url || window.assistant?.getUrl);
@@ -377,7 +383,8 @@ export function AssistantUiPanelWrapper({
   ]);
 
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
-  const rootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
+  const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  const { rootDirectoryHandle, rootDirectoryHandles } = useFileSystem();
   const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
   const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
@@ -437,8 +444,9 @@ export function AssistantUiPanelWrapper({
       filePaths: Array.from(filePaths),
       folderId: resolvedFolderId,
       otherRootsCount,
+      rootPath: resolvedFolderId ? (rootDirectoryHandle?.path ?? null) : null,
     };
-  }, [effectiveSelection, currentFolderId]);
+  }, [effectiveSelection, currentFolderId, rootDirectoryHandle?.path]);
 
   const handleSelectionUpdate = useCallback(
     (
@@ -627,6 +635,10 @@ export function AssistantUiPanelWrapper({
   });
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const workspaceRootPaths = useMemo(
+    () => rootDirectoryHandles.map((handle) => handle.path),
+    [rootDirectoryHandles]
+  );
   const workspaceIndexEmbeddingSetId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
@@ -672,7 +684,12 @@ export function AssistantUiPanelWrapper({
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const memoryResourceId = memoryResourceIdOverride ?? workspaceRootPath ?? undefined;
+  const defaultMemoryResourceId = resolveAssistantWorkspaceResourceId({
+    activeRootIds,
+    rootDirectoryPath: workspaceRootPath,
+    rootDirectoryPaths: workspaceRootPaths,
+  });
+  const memoryResourceId = memoryResourceIdOverride ?? defaultMemoryResourceId ?? undefined;
   const selectedMemoryThreadId = memoryResourceId
     ? (memoryThreadId ?? selectedThreadByResourceId[memoryResourceId])
     : undefined;
