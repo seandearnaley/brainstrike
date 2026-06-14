@@ -138,16 +138,26 @@ export async function loadWorkspaceRootsFromDatabase(
 
 /**
  * Enrich RuntimeData with the active workspace roots so the tools become
- * multi-root aware. The client may already provide `workspaceRoots`; otherwise
- * we resolve them server-side from the DB. On an empty result or a query
- * failure we leave RuntimeData unchanged so the resolver falls back to the
- * single `workspaceRootPath` (single-root / legacy) — logged, never silent.
+ * multi-root aware. We resolve roots server-side from the DB so each root id is
+ * the DB `roots.id` that `file_records.root_id` references — the single id
+ * source shared by search-result `rootId`s and read-tool path resolution.
+ *
+ * INVARIANT: a pre-supplied `runtimeData.workspaceRoots` is treated as
+ * authoritative and skips DB resolution, so any such list MUST already carry DB
+ * `roots.id`s — never client/adapter ids (which differ). Today nothing on the
+ * client populates `workspaceRoots`, so the DB path always runs; this contract
+ * keeps a future client from silently diverging the two id sources.
+ *
+ * On an empty result or a query failure we leave RuntimeData unchanged so the
+ * resolver falls back to the single `workspaceRootPath` (legacy) — logged,
+ * never silent.
  */
 export async function enrichRuntimeDataWithWorkspaceRoots(
   runtimeData: RuntimeData | undefined,
   db: WorkspaceRootsQueryable | null | undefined
 ): Promise<RuntimeData | undefined> {
   if (!runtimeData || (runtimeData.workspaceRoots && runtimeData.workspaceRoots.length > 0)) {
+    // Trusted to carry DB roots.id (see INVARIANT above).
     return runtimeData;
   }
   if (!db) {

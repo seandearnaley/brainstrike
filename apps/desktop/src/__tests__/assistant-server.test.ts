@@ -233,6 +233,10 @@ describe('assistant-server', () => {
     vi.clearAllMocks();
     mockDesktopDatabase.exec.mockReset();
     mockDesktopDatabase.query.mockReset();
+    // Default: workspace-roots enrichment (runs first on every assistant
+    // stream init) sees no roots and cleanly falls back. Tests that exercise
+    // other queries override this.
+    mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
     resetDesktopMastraMemoryCacheForTests();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
@@ -770,9 +774,15 @@ describe('assistant-server', () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');
 
-      mockDesktopDatabase.query.mockResolvedValueOnce({
-        rows: [{ path: '/src/main.ts', content: 'const hidden = true;' }],
-      });
+      // The only DB query in this path is workspace-roots enrichment; if the
+      // server wrongly prepended selected-file context it would issue a
+      // file-content query, which this SQL-aware mock would answer (and the
+      // assertion below would then catch).
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) =>
+        typeof sql === 'string' && sql.includes('FROM roots')
+          ? Promise.resolve({ rows: [] })
+          : Promise.resolve({ rows: [{ path: '/src/main.ts', content: 'const hidden = true;' }] })
+      );
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
         { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
       ]);
@@ -802,7 +812,10 @@ describe('assistant-server', () => {
 
       const [messages] = (toAiSdkStyleStream as Mock).mock.calls[0] as [Array<{ role: string }>];
       expect(messages).toEqual([{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }]);
-      expect(mockDesktopDatabase.query).not.toHaveBeenCalled();
+      // No selected-file content was fetched: the only DB queries are roots enrichment.
+      expect(
+        mockDesktopDatabase.query.mock.calls.every(([sql]) => String(sql).includes('FROM roots'))
+      ).toBe(true);
     });
 
     it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
@@ -823,6 +836,8 @@ describe('assistant-server', () => {
         const response = res as { end?: () => void };
         response.end?.();
       });
+      // Workspace-roots enrichment queries the DB before memory init.
+      mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
 
       await runRequest({
         method: 'POST',
@@ -859,7 +874,8 @@ describe('assistant-server', () => {
 
       const { createProvider } = await import('@brainstrike/agent');
 
-      expect(getDatabase).toHaveBeenCalledTimes(1);
+      // Once for workspace-roots enrichment, once for PGlite Mastra memory init.
+      expect(getDatabase).toHaveBeenCalledTimes(2);
       expect(createProvider).toHaveBeenCalledWith(
         'anthropic',
         'test-api-key',
@@ -2003,7 +2019,13 @@ describe('assistant-server', () => {
         },
       });
       (streamResponse as Mock).mockRejectedValueOnce(new Error('stream pipeline failed'));
-      mockDesktopDatabase.query.mockRejectedValueOnce(new Error('run status write failed'));
+      // Roots enrichment queries first and must succeed; only the run-status
+      // write should fail (SQL-aware so the rejection targets the right query).
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) =>
+        typeof sql === 'string' && sql.includes('FROM roots')
+          ? Promise.resolve({ rows: [] })
+          : Promise.reject(new Error('run status write failed'))
+      );
 
       const response = await runRequest({
         method: 'POST',
