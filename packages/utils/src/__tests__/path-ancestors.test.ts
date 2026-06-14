@@ -30,8 +30,32 @@ describe('getAncestorDirectoryPaths', () => {
     expect(cache.get('/src')).toEqual(['/', '/src']);
   });
 
+  it('normalizes walked parent paths before caching repeated separators', () => {
+    const cache = new Map<string, readonly string[]>();
+
+    expect(getAncestorDirectoryPaths('/src//nested/file.ts', { cache, includeRoot: true })).toEqual(
+      ['/', '/src', '/src//nested']
+    );
+    expect(cache.has('/src/')).toBe(false);
+    expect(cache.get('/src')).toEqual(['/', '/src']);
+  });
+
   it('returns an empty array for top-level relative paths', () => {
     expect(getAncestorDirectoryPaths('index.ts')).toEqual([]);
+  });
+
+  it('builds deep ancestor chains without recursive stack growth', () => {
+    const directorySegments = Array.from({ length: 12_000 }, (_, index) => `dir-${index}`);
+    const filePath = `/${directorySegments.join('/')}/file.ts`;
+
+    const ancestors = getAncestorDirectoryPaths(filePath, {
+      cache: new Map<string, readonly string[]>(),
+      includeRoot: true,
+    });
+
+    expect(ancestors).toHaveLength(directorySegments.length + 1);
+    expect(ancestors.at(0)).toBe('/');
+    expect(ancestors.at(-1)).toBe(`/${directorySegments.join('/')}`);
   });
 
   it('accumulates ancestor directory counts for multiple files', () => {

@@ -44,15 +44,34 @@ function buildAncestorDirectoryChain(
     return cachedChain;
   }
 
-  const parentPath = getParentDirectoryPath(normalizedDirectoryPath);
-  const chain = parentPath ? [...buildAncestorDirectoryChain(parentPath, options)] : [];
+  const missingPaths: string[] = [];
+  let currentPath: string | null = normalizedDirectoryPath;
+  let cachedParentChain: readonly string[] | undefined;
 
-  if (normalizedDirectoryPath !== '/' || options.includeRoot) {
-    chain.push(normalizedDirectoryPath);
+  while (currentPath) {
+    const normalizedCurrentPath = normalizePath(currentPath);
+    cachedParentChain = cache?.get(normalizedCurrentPath);
+    if (cachedParentChain) {
+      break;
+    }
+    missingPaths.push(normalizedCurrentPath);
+    currentPath = getParentDirectoryPath(normalizedCurrentPath);
   }
 
-  cache?.set(normalizedDirectoryPath, chain);
-  return chain;
+  // Avoid recursive spread copies for deep trees; recursive selection can ask for
+  // ancestor chains across thousands of nested paths.
+  const chain = cachedParentChain ? [...cachedParentChain] : [];
+
+  for (let index = missingPaths.length - 1; index >= 0; index -= 1) {
+    const path = missingPaths[index] as string;
+    if (path !== '/' || options.includeRoot) {
+      chain.push(path);
+    }
+
+    cache?.set(path, [...chain]);
+  }
+
+  return cache?.get(normalizedDirectoryPath) ?? chain;
 }
 
 export function getAncestorDirectoryPaths(
