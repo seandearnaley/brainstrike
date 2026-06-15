@@ -127,6 +127,9 @@ export const ReembedCollectionInputSchema = z
 const ROOT_QUALIFIER_DESCRIPTION =
   'Which open folder the path is in: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one.';
 
+const ROOT_WRITE_GUARD_DESCRIPTION =
+  'Optional guard (folder name or id): selection write-back targets the currently FOCUSED folder only. If supplied it must resolve to the focused folder, else the call errors. To curate a different folder, re-focus it in the file tree first.';
+
 export const ReadWorkspaceFileInputSchema = z
   .object({
     path: z.string().min(1).describe('Workspace-relative file path'),
@@ -269,6 +272,7 @@ export const UpdateWorkspaceContextSelectionInputSchema = z
       .optional()
       .describe('Selection update strategy (default: add)'),
     folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+    root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
   })
   .strict();
 
@@ -316,6 +320,7 @@ export const UpdateWorkspaceTapestrySelectionsInputSchema = z
       .optional()
       .describe('Range update strategy for each file (default: replace)'),
     folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+    root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
     selectFiles: z
       .boolean()
       .optional()

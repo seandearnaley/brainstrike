@@ -146,7 +146,15 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
     return '';
   }
-  return `The workspace can have several folders ("roots") open at once: ${names.listWorkspaceContext} returns workspaceRoots — each open folder's name and id. File paths are relative to a root, so when more than one folder is open a bare path is ambiguous: pass a "root" argument (the folder name or id from workspaceRoots) to ${rootQualifiedToolNames.join(', ')} to say which folder you mean, and omit it when only one folder is open. Search and read results are labelled with their owning rootName/rootId — use that label to disambiguate and to choose the root for any follow-up call.`;
+  const writeBackTools = [
+    names.updateWorkspaceContextSelection,
+    names.updateWorkspaceTapestrySelections,
+  ].filter((name): name is string => Boolean(name));
+  const writeBackNote =
+    writeBackTools.length > 0
+      ? ` Selection write-back (${writeBackTools.join(', ')}) only affects the currently FOCUSED folder; to curate a different open folder, ask the user to focus it in the file tree first.`
+      : '';
+  return `The workspace can have several folders ("roots") open at once: ${names.listWorkspaceContext} returns workspaceRoots — each open folder's name and id. File paths are relative to a root, so when more than one folder is open a bare path is ambiguous: pass a "root" argument (the folder name or id from workspaceRoots) to ${rootQualifiedToolNames.join(', ')} to say which folder you mean, and omit it when only one folder is open. Search and read results are labelled with their owning rootName/rootId — use that label to disambiguate and to choose the root for any follow-up call.${writeBackNote}`;
 }
 
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {

@@ -278,6 +278,20 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
     ).rejects.toThrow(/multiple folders.*ProjectA.*ProjectB/is);
   });
 
+  it('Task: selection write-back to a non-focused root is refused (focused-root guard)', async () => {
+    // ProjectA is the focused folder; targeting ProjectB must throw, not no-op.
+    const focusedRuntime = {
+      ...twoRootRuntime(),
+      workspaceRootPath: rootAPath,
+      selectionFolderId: 'client-folder-uuid',
+    } as unknown as RuntimeData;
+    await expect(
+      buildDesktopAssistantTools(focusedRuntime)[
+        'brainstrike.updateWorkspaceContextSelection'
+      ].execute({ context: { filePaths: ['/README.md'], root: 'ProjectB' } })
+    ).rejects.toThrow(/focused folder.*ProjectB/is);
+  });
+
   it('Task: semantic search — retrieved chunks are labelled by root and the context is root-prefixed', async () => {
     const tools = buildDesktopAssistantTools(twoRootRuntime(), {
       embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
