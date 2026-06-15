@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   isHiddenPath,
   isWithinRoot,
@@ -106,6 +106,16 @@ describe('workspace-path: isHiddenPath', () => {
     expect(isHiddenPath('/src/main.ts')).toBe(false);
     expect(isHiddenPath('/README.md')).toBe(false);
     expect(isHiddenPath('/')).toBe(false);
+  });
+
+  it('does not split the whole path when scanning for hidden segments', () => {
+    const splitSpy = vi.spyOn(String.prototype, 'split');
+
+    expect(isHiddenPath('/src/components/button.tsx')).toBe(false);
+    expect(isHiddenPath('/src/.env')).toBe(true);
+
+    expect(splitSpy).not.toHaveBeenCalled();
+    splitSpy.mockRestore();
   });
 });
 
