@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isHiddenPath,
   isWithinRoot,
@@ -8,6 +8,10 @@ import {
   normalizeWorkspacePaths,
   toPathSegments,
 } from '../../assistant-server/workspace-path';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('workspace-path: normalizeWorkspacePath', () => {
   it('collapses bare ".", "", "./" and whitespace to the root "/"', () => {
@@ -115,7 +119,6 @@ describe('workspace-path: isHiddenPath', () => {
     expect(isHiddenPath('/src/.env')).toBe(true);
 
     expect(splitSpy).not.toHaveBeenCalled();
-    splitSpy.mockRestore();
   });
 });
 

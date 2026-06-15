@@ -1,5 +1,8 @@
 import path from 'node:path';
 
+const DOT_CHAR_CODE = 46;
+const SLASH_CHAR_CODE = 47;
+
 /**
  * Pure, OS-portable helpers for the assistant's *virtual* workspace paths.
  *
@@ -83,10 +86,10 @@ export function isHiddenPath(entryPath: string): boolean {
   // visible paths do not allocate a full segment array just to answer a boolean.
   for (let index = 0; index < entryPath.length; index += 1) {
     const code = entryPath.charCodeAt(index);
-    if (code === 47) {
+    if (code === SLASH_CHAR_CODE) {
       continue;
     }
-    if (code === 46) {
+    if (code === DOT_CHAR_CODE) {
       return true;
     }
     const nextSlash = entryPath.indexOf('/', index);
