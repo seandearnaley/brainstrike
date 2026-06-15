@@ -45,7 +45,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.readWorkspaceFile': {
     toolId: 'brainstrike.readWorkspaceFile',
     description:
-      'Read a workspace file from the selected root. Supports line ranges and output truncation for token efficiency.',
+      'Read a workspace file. Supports line ranges and output truncation for token efficiency. Pass `root` to choose the folder when multiple are open.',
     parameters: [
       {
         name: 'path',
@@ -53,6 +53,13 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         description: 'Workspace-relative file path to read',
         required: true,
         minLength: 1,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Folder name or id to read from when multiple folders are open (omit when one)',
+        required: false,
       },
       {
         name: 'startLine',
@@ -95,6 +102,13 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         minLength: 1,
       },
       {
+        name: 'root',
+        type: 'string',
+        description:
+          'Folder name or id to search in when multiple folders are open (omit when one)',
+        required: false,
+      },
+      {
         name: 'query',
         type: 'string',
         description: 'Symbol name or substring to find',
@@ -133,6 +147,12 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         name: 'path',
         type: 'string',
         description: 'Directory path to list (defaults to workspace root)',
+        required: false,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description: 'Folder name or id to list when multiple folders are open (omit when one)',
         required: false,
       },
       {

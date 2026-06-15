@@ -56,6 +56,7 @@ import {
   normalizeWorkspacePaths,
   toPathSegments,
 } from './workspace-path';
+import { resolveWorkspaceRoot } from './workspace-roots';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
@@ -246,28 +247,30 @@ async function runFindWorkspaceSymbol(
   input: FindWorkspaceSymbolInput,
   runtimeData: RuntimeData | undefined
 ): Promise<{
+  rootName: string;
   path: string;
   totalMatches: number;
   truncated: boolean;
   matches: ReturnType<typeof findSymbolMatches>['matches'];
 }> {
-  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Route through the checked reader so the same guards apply (isFile, 2 MB size
   // cap, NUL-byte binary probe). Symbol scanning returns only a tiny bounded
   // result, so a multi-MB bundle or binary file must error cleanly rather than
   // be loaded and scanned in full on the main process.
-  const file = await readWorkspaceTextFile({ rootPath, requestedPath: input.path });
+  const file = await readWorkspaceTextFile({ rootPath: root.path, requestedPath: input.path });
   const { matches, totalMatches, truncated } = findSymbolMatches(file.content, input.query, {
     maxMatches: input.maxMatches ?? 5,
     contextLines: input.contextLines ?? 2,
   });
-  return { path: file.path, totalMatches, truncated, matches };
+  return { rootName: root.displayName, path: file.path, totalMatches, truncated, matches };
 }
 
 async function runReadWorkspaceFile(
   input: ReadWorkspaceFileInput,
   runtimeData: RuntimeData | undefined
 ): Promise<{
+  rootName: string;
   path: string;
   size: number;
   tokenCount: number | null;
@@ -279,14 +282,15 @@ async function runReadWorkspaceFile(
   approxOutputTokens: number;
   content: string;
 }> {
-  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path;
-  const file = await readWorkspaceTextFile({ rootPath, requestedPath });
+  const file = await readWorkspaceTextFile({ rootPath: root.path, requestedPath });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
 
   return {
+    rootName: root.displayName,
     path: file.path,
     size: file.size,
     tokenCount: null,
@@ -424,6 +428,8 @@ interface ReadWorkspaceDirectoryToolResult {
   hint?: string;
   offset: number;
   path: string;
+  /** Display name of the folder this listing is from (multi-root). */
+  rootName: string;
   /** Entries collected by the traversal (lower bound when truncated). */
   totalEntries: number;
   totalMatchedFiles: number;
@@ -434,10 +440,10 @@ async function runReadWorkspaceDirectory(
   input: ReadWorkspaceDirectoryInput,
   runtimeData: RuntimeData | undefined
 ): Promise<ReadWorkspaceDirectoryToolResult> {
-  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path ?? '/';
   const normalizedPath = normalizeWorkspacePath(requestedPath);
-  const resolvedBase = await resolveWorkspaceAbsolutePath(rootPath, normalizedPath);
+  const resolvedBase = await resolveWorkspaceAbsolutePath(root.path, normalizedPath);
 
   const baseStats = await fsPromises.stat(resolvedBase.absolutePath);
   if (!baseStats.isDirectory()) {
@@ -524,6 +530,7 @@ async function runReadWorkspaceDirectory(
           `${traversalNote} Continue with offset: ${offset + entries.length}, or list a more specific subdirectory.`
         : undefined;
       return {
+        rootName: root.displayName,
         path: normalizedPath,
         entries,
         count: entries.length,

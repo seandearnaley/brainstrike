@@ -1104,3 +1104,127 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 });
+
+describe('assistant-tools multi-root read tools', () => {
+  async function createTwoRootWorkspace(): Promise<{
+    rootA: string;
+    rootB: string;
+    cleanup: () => Promise<void>;
+  }> {
+    const rootA = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-multiroot-a-'));
+    const rootB = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-multiroot-b-'));
+    // Same relative path, different content — proves the tools disambiguate roots.
+    await fsPromises.writeFile(
+      path.join(rootA, 'README.md'),
+      '# Project A\nexport const fromA = 1;\n',
+      'utf8'
+    );
+    await fsPromises.writeFile(
+      path.join(rootB, 'README.md'),
+      '# Project B\nexport const fromB = 2;\n',
+      'utf8'
+    );
+    return {
+      rootA,
+      rootB,
+      cleanup: async () => {
+        await fsPromises.rm(rootA, { recursive: true, force: true });
+        await fsPromises.rm(rootB, { recursive: true, force: true });
+      },
+    };
+  }
+
+  function twoRootRuntime(rootA: string, rootB: string): RuntimeData {
+    return {
+      workspaceRoots: [
+        { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
+        { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+      ],
+    } as RuntimeData;
+  }
+
+  it('reads the file from the root named by `root` and labels the result', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ];
+
+      const fromB = await tool.execute({ path: '/README.md', root: 'ProjectB' });
+      expect(fromB.rootName).toBe('ProjectB');
+      expect(fromB.content).toContain('Project B');
+
+      const fromA = await tool.execute({ path: '/README.md', root: 'ProjectA' });
+      expect(fromA.rootName).toBe('ProjectA');
+      expect(fromA.content).toContain('Project A');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('resolves `root` by id as well as by display name', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceFile'
+      ].execute({ path: '/README.md', root: 'id-b' });
+      expect(result.content).toContain('Project B');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('errors and lists the open folders when `root` is omitted and several are open', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      await expect(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+          'brainstrike.readWorkspaceFile'
+        ].execute({ path: '/README.md' })
+      ).rejects.toThrow(/multiple folders.*ProjectA.*ProjectB/is);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('errors with the available folders for an unknown `root`', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      await expect(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+          'brainstrike.readWorkspaceFile'
+        ].execute({ path: '/README.md', root: 'Nope' })
+      ).rejects.toThrow(/no folder "Nope".*ProjectA.*ProjectB/is);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('lists a directory from the chosen root and labels it', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.readWorkspaceDirectory'
+      ].execute({ path: '/', root: 'ProjectA' });
+      expect(result.rootName).toBe('ProjectA');
+      expect(result.entries.some((entry: { path: string }) => entry.path === '/README.md')).toBe(
+        true
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('finds a symbol in the chosen root and labels the result', async () => {
+    const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
+    try {
+      const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+        'brainstrike.findWorkspaceSymbol'
+      ].execute({ path: '/README.md', query: 'fromB', root: 'ProjectB' });
+      expect(result.rootName).toBe('ProjectB');
+      expect(result.totalMatches).toBeGreaterThan(0);
+    } finally {
+      await cleanup();
+    }
+  });
+});
