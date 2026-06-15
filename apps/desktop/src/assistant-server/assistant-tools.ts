@@ -22,6 +22,7 @@ import {
   type RuntimeWorkspaceContextFileMetadata,
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
+  type RuntimeWorkspaceRoot,
   type UpdateWorkspaceContextSelectionInput,
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
@@ -56,7 +57,7 @@ import {
   normalizeWorkspacePaths,
   toPathSegments,
 } from './workspace-path';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
@@ -688,14 +689,28 @@ interface ListWorkspaceContextToolResult {
   tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
   truncated: boolean;
   workspaceIndex: WorkspaceIndexSummary;
+  /** Primary/focused root path (back-compat); see workspaceRoots for the full set. */
   workspaceRootPath: string;
+  /**
+   * Every open workspace root (id + display name + path). The model reads these
+   * to pass a `root` qualifier to the read/search tools when several are open.
+   */
+  workspaceRoots: readonly RuntimeWorkspaceRoot[];
 }
 
 function runListWorkspaceContext(
   input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
 ): ListWorkspaceContextToolResult {
-  const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
+  const workspaceRoots = getWorkspaceRoots(runtimeData);
+  if (workspaceRoots.length === 0) {
+    throw new Error(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+  }
+  // The first root is the primary/focused one (path.resolve matches the legacy
+  // resolveWorkspaceRootPath value for the single-root case).
+  const workspaceRootPath = workspaceRoots[0]?.path ?? '';
   const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
   const curatedContext = getRuntimeWorkspaceContext(runtimeData);
   const curatedFilesByPath = new Map(
@@ -722,6 +737,7 @@ function runListWorkspaceContext(
       : undefined;
     return {
       workspaceRootPath,
+      workspaceRoots,
       selectedFileCount: selectedFiles.length,
       selectedFiles: files,
       workspaceIndex,
