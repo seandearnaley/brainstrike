@@ -1281,6 +1281,30 @@ function broadcastWorkspaceContextEvent(
   return notifiedWindowCount;
 }
 
+/**
+ * Selection write-back is delivered to the renderer keyed by the CLIENT
+ * folderId (a renderer-minted UUID), which is NOT the DB roots.id the read/
+ * search tools resolve. So a write can only land in the FOCUSED folder today.
+ * If the model supplies a `root`, assert it resolves to the focused root and
+ * otherwise THROW — never silently no-op against the wrong/another root.
+ * (Cross-root write-back awaits unifying the two id spaces.)
+ */
+function assertWriteBackTargetsFocusedRoot(
+  runtimeData: RuntimeData | undefined,
+  inputRoot: string | undefined,
+  focusedRootPath: string
+): void {
+  if (inputRoot === undefined) {
+    return;
+  }
+  const requestedRoot = resolveWorkspaceRoot(runtimeData, inputRoot);
+  if (requestedRoot.path !== focusedRootPath) {
+    throw new Error(
+      `Selection write-back can only target the focused folder. "${requestedRoot.displayName}" is open but not focused — re-focus it in the file tree first, then retry.`
+    );
+  }
+}
+
 async function runUpdateWorkspaceContextSelection(
   input: UpdateWorkspaceContextSelectionInput,
   runtimeData: RuntimeData | undefined
@@ -1295,6 +1319,7 @@ async function runUpdateWorkspaceContextSelection(
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
+  assertWriteBackTargetsFocusedRoot(runtimeData, input.root, rootPath);
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'add';
   const { requestedCount, selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
@@ -1336,6 +1361,7 @@ async function runUpdateWorkspaceTapestrySelections(
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
+  assertWriteBackTargetsFocusedRoot(runtimeData, input.root, rootPath);
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'replace';
   const selectFiles = input.selectFiles !== false;

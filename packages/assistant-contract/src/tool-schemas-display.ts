@@ -335,6 +335,13 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         description: 'Optional folder id for multi-root workspaces',
         required: false,
       },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional guard (folder name or id): write-back targets the FOCUSED folder only; must resolve to it or the call errors. Re-focus another folder in the file tree to curate it.',
+        required: false,
+      },
     ],
     returns: 'Selection update result with applied and skipped paths',
   },
