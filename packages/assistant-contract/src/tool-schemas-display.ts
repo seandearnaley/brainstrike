@@ -339,7 +339,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         name: 'root',
         type: 'string',
         description:
-          'Optional guard (folder name or id): write-back targets the FOCUSED folder only; must resolve to it or the call errors. Re-focus another folder in the file tree to curate it.',
+          'Folder name or id to curate when multiple folders are open (omit when one). The selection applies to that folder even if it is not the focused one.',
         required: false,
       },
     ],

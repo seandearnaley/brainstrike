@@ -1282,27 +1282,25 @@ function broadcastWorkspaceContextEvent(
 }
 
 /**
- * Selection write-back is delivered to the renderer keyed by the CLIENT
- * folderId (a renderer-minted UUID), which is NOT the DB roots.id the read/
- * search tools resolve. So a write can only land in the FOCUSED folder today.
- * If the model supplies a `root`, assert it resolves to the focused root and
- * otherwise THROW — never silently no-op against the wrong/another root.
- * (Cross-root write-back awaits unifying the two id spaces.)
+ * Resolve the target root for a selection write-back. The client RootId the
+ * renderer routes by is NOT the DB roots.id, but both name the SAME absolute
+ * path, so a targeted update broadcasts its `rootPath` and the renderer maps it
+ * to the matching client folder (see assistant-ui-panel-wrapper).
+ * - With `root`: target THAT open folder (resolveWorkspaceRoot throws on an
+ *   unknown/ambiguous qualifier); broadcast rootPath/rootId so the renderer
+ *   routes there.
+ * - Without `root`: target the focused root; the renderer routes by the legacy
+ *   client folderId (rootPath omitted).
  */
-function assertWriteBackTargetsFocusedRoot(
+function resolveWriteBackTarget(
   runtimeData: RuntimeData | undefined,
-  inputRoot: string | undefined,
-  focusedRootPath: string
-): void {
+  inputRoot: string | undefined
+): { rootPath: string; broadcastRoot: { rootId: string; rootPath: string } | undefined } {
   if (inputRoot === undefined) {
-    return;
+    return { rootPath: resolveWorkspaceRootPath(runtimeData), broadcastRoot: undefined };
   }
-  const requestedRoot = resolveWorkspaceRoot(runtimeData, inputRoot);
-  if (requestedRoot.path !== focusedRootPath) {
-    throw new Error(
-      `Selection write-back can only target the focused folder. "${requestedRoot.displayName}" is open but not focused — re-focus it in the file tree first, then retry.`
-    );
-  }
+  const root = resolveWorkspaceRoot(runtimeData, inputRoot);
+  return { rootPath: root.path, broadcastRoot: { rootId: root.rootId, rootPath: root.path } };
 }
 
 async function runUpdateWorkspaceContextSelection(
@@ -1318,8 +1316,7 @@ async function runUpdateWorkspaceContextSelection(
   skippedCount: number;
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
-  const rootPath = resolveWorkspaceRootPath(runtimeData);
-  assertWriteBackTargetsFocusedRoot(runtimeData, input.root, rootPath);
+  const { rootPath, broadcastRoot } = resolveWriteBackTarget(runtimeData, input.root);
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'add';
   const { requestedCount, selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
@@ -1333,6 +1330,7 @@ async function runUpdateWorkspaceContextSelection(
           folderId,
           filePaths: selectedFiles,
           mode,
+          ...(broadcastRoot ?? {}),
         })
       : 0;
   return {
@@ -1360,8 +1358,7 @@ async function runUpdateWorkspaceTapestrySelections(
   skippedFileCount: number;
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
-  const rootPath = resolveWorkspaceRootPath(runtimeData);
-  assertWriteBackTargetsFocusedRoot(runtimeData, input.root, rootPath);
+  const { rootPath, broadcastRoot } = resolveWriteBackTarget(runtimeData, input.root);
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'replace';
   const selectFiles = input.selectFiles !== false;
@@ -1390,6 +1387,7 @@ async function runUpdateWorkspaceTapestrySelections(
       folderId,
       filePaths: selectedFiles,
       mode: 'add',
+      ...(broadcastRoot ?? {}),
     });
   }
   if (updates.length > 0) {
@@ -1399,6 +1397,7 @@ async function runUpdateWorkspaceTapestrySelections(
         folderId,
         mode,
         updates,
+        ...(broadcastRoot ?? {}),
       })
     );
   }

@@ -841,73 +841,99 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
-  describe('selection write-back focused-root guard', () => {
-    const OTHER_ROOT_PATH = path.join(os.tmpdir(), 'bs-guard-other-root');
-
-    function guardRuntime(focusedPath: string): RuntimeData {
+  describe('selection write-back multi-root routing', () => {
+    function routingRuntime(rootA: string, rootB: string): RuntimeData {
       return {
-        workspaceRootPath: focusedPath,
-        selectionFolderId: 'root-1',
+        workspaceRootPath: rootA,
+        selectionFolderId: 'client-a',
         workspaceRoots: [
-          { rootId: 'id-a', displayName: 'ProjectA', path: focusedPath },
-          { rootId: 'id-b', displayName: 'ProjectB', path: OTHER_ROOT_PATH },
+          { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
+          { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
         ],
       } as unknown as RuntimeData;
     }
 
-    it('allows updateWorkspaceContextSelection when `root` is the focused folder', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
+    it('routes a selection update to a NON-focused root, broadcasting its rootPath', async () => {
+      const rootA = await createWorkspaceFixture();
+      const rootB = await createWorkspaceFixture();
       const send = vi.fn();
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2001, role: 'visible-ui', send })]);
       try {
-        const result = await buildDesktopAssistantTools(guardRuntime(workspaceRootPath))[
+        // ProjectA is focused; the model targets ProjectB. The file is validated
+        // against ProjectB's real path and the broadcast carries rootPath so the
+        // renderer can route to the matching client folder.
+        const result = await buildDesktopAssistantTools(routingRuntime(rootA, rootB))[
           'brainstrike.updateWorkspaceContextSelection'
-        ].execute({ context: { filePaths: ['/src/main.ts'], mode: 'replace', root: 'ProjectA' } });
+        ].execute({ context: { filePaths: ['/src/main.ts'], mode: 'replace', root: 'ProjectB' } });
         expect(result.appliedCount).toBe(1);
-        // Broadcast still routes by the CLIENT folderId, never a DB roots.id.
         expect(send).toHaveBeenCalledWith(
           'assistant:workspace-context-selection-update',
-          expect.objectContaining({ folderId: 'root-1' })
+          expect.objectContaining({ rootPath: rootB, rootId: 'id-b', mode: 'replace' })
         );
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { recursive: true, force: true });
+        await fsPromises.rm(rootB, { recursive: true, force: true });
       }
     });
 
-    it('throws and does NOT broadcast when updateWorkspaceContextSelection targets a non-focused root', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
+    it('omits rootPath for the legacy single/focused-root path (renderer routes by folderId)', async () => {
+      const rootA = await createWorkspaceFixture();
       const send = vi.fn();
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2002, role: 'visible-ui', send })]);
       try {
-        await expect(
-          buildDesktopAssistantTools(guardRuntime(workspaceRootPath))[
-            'brainstrike.updateWorkspaceContextSelection'
-          ].execute({ context: { filePaths: ['/src/main.ts'], root: 'ProjectB' } })
-        ).rejects.toThrow(/focused folder.*ProjectB/is);
-        expect(send).not.toHaveBeenCalled();
+        await buildDesktopAssistantTools({
+          workspaceRootPath: rootA,
+          selectionFolderId: 'client-a',
+        } as RuntimeData)['brainstrike.updateWorkspaceContextSelection'].execute({
+          context: { filePaths: ['/src/main.ts'], mode: 'replace' },
+        });
+        const payload = send.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+        expect(payload).toMatchObject({ folderId: 'client-a' });
+        expect(payload).not.toHaveProperty('rootPath');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { recursive: true, force: true });
       }
     });
 
-    it('throws and does NOT broadcast when updateWorkspaceTapestrySelections targets a non-focused root', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
+    it('still throws on an unknown root qualifier (no broadcast)', async () => {
+      const rootA = await createWorkspaceFixture();
+      const rootB = await createWorkspaceFixture();
       const send = vi.fn();
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2003, role: 'visible-ui', send })]);
       try {
         await expect(
-          buildDesktopAssistantTools(guardRuntime(workspaceRootPath))[
-            'brainstrike.updateWorkspaceTapestrySelections'
-          ].execute({
-            context: {
-              root: 'ProjectB',
-              updates: [{ path: '/src/main.ts', ranges: [{ startLine: 1, endLine: 1 }] }],
-            },
-          })
-        ).rejects.toThrow(/focused folder.*ProjectB/is);
+          buildDesktopAssistantTools(routingRuntime(rootA, rootB))[
+            'brainstrike.updateWorkspaceContextSelection'
+          ].execute({ context: { filePaths: ['/src/main.ts'], root: 'Nope' } })
+        ).rejects.toThrow(/no folder "Nope"/i);
         expect(send).not.toHaveBeenCalled();
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { recursive: true, force: true });
+        await fsPromises.rm(rootB, { recursive: true, force: true });
+      }
+    });
+
+    it('routes a tapestry update to a non-focused root, broadcasting its rootPath', async () => {
+      const rootA = await createWorkspaceFixture();
+      const rootB = await createWorkspaceFixture();
+      const send = vi.fn();
+      getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2004, role: 'visible-ui', send })]);
+      try {
+        await buildDesktopAssistantTools(routingRuntime(rootA, rootB))[
+          'brainstrike.updateWorkspaceTapestrySelections'
+        ].execute({
+          context: {
+            root: 'ProjectB',
+            updates: [{ path: '/src/main.ts', ranges: [{ startLine: 1, endLine: 2 }] }],
+          },
+        });
+        expect(send).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ rootPath: rootB, rootId: 'id-b' })
+        );
+      } finally {
+        await fsPromises.rm(rootA, { recursive: true, force: true });
+        await fsPromises.rm(rootB, { recursive: true, force: true });
       }
     });
   });

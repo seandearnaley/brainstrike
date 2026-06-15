@@ -128,7 +128,7 @@ const ROOT_QUALIFIER_DESCRIPTION =
   'Which open folder the path is in: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one.';
 
 const ROOT_WRITE_GUARD_DESCRIPTION =
-  'Optional guard (folder name or id): selection write-back targets the currently FOCUSED folder only. If supplied it must resolve to the focused folder, else the call errors. To curate a different folder, re-focus it in the file tree first.';
+  'Which open folder to curate: its name or id (from listWorkspaceContext or a search result). Required only when multiple folders are open; omit when there is one. The selection is applied to that folder even if it is not the focused one.';
 
 export const ReadWorkspaceFileInputSchema = z
   .object({

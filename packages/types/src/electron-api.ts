@@ -279,6 +279,15 @@ export interface AssistantWorkspaceContextSelectionUpdatePayload {
   filePaths: string[];
   folderId: string;
   mode: AssistantWorkspaceContextSelectionMode;
+  /** DB roots.id of the target root (diagnostic; the renderer routes by rootPath). */
+  rootId?: string;
+  /**
+   * Multi-root: absolute path of the target root. The renderer maps this to the
+   * client RootId (via rootDescriptors) to route the update to the right folder.
+   * Present only when the assistant targeted a specific `root`; absent for the
+   * legacy single-/focused-root path (route by folderId then).
+   */
+  rootPath?: string;
 }
 
 export type AssistantWorkspaceTapestryUpdateMode = 'replace' | 'add' | 'clear';
@@ -298,6 +307,14 @@ export interface AssistantWorkspaceTapestryFileUpdatePayload {
 export interface AssistantWorkspaceTapestryUpdatePayload {
   folderId: string;
   mode: AssistantWorkspaceTapestryUpdateMode;
+  /** DB roots.id of the target root (diagnostic; the renderer routes by rootPath). */
+  rootId?: string;
+  /**
+   * Multi-root: absolute path of the target root. The renderer maps this to the
+   * client RootId to route the update. Present only when the assistant targeted
+   * a specific `root`; absent for the legacy single-/focused-root path.
+   */
+  rootPath?: string;
   updates: AssistantWorkspaceTapestryFileUpdatePayload[];
 }
 
