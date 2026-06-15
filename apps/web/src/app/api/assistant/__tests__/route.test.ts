@@ -108,6 +108,7 @@ describe('assistant route', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(400);
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const payload = await res.json();
     expect(payload).toEqual({
       error: 'invalid_json',
@@ -188,6 +189,7 @@ describe('assistant route', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(502);
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const payload = await res.json();
     expect(payload).toMatchObject({ error: 'agent_stream_init_failed' });
     expect(payload.message).toBe('Assistant stream initialization failed');
