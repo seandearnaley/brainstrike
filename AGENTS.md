@@ -125,6 +125,13 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   source from linting (e.g. packages/hooks 34 → 0). Build artifacts are gitignored (never
   listed) and test-file noise is handled natively (`test-noise`-tagged rules auto-suppress
   in non-production files). Suppress findings via `ignore.overrides` / `rules`, not files.
+- **`Accessibility` + `Security` categories are OFF.** a11y is already enforced by the
+  biome a11y rules (and react-doctor can't read `biome-ignore`, so it re-flagged every
+  documented exception + custom ARIA widget — an audit of 28 findings found 1 genuine
+  gap). Security produced 0 genuine issues across 6 real-source findings; secret detection
+  stays covered by the lefthook `secrets-scan`. react-doctor's unique value here is its
+  React-Compiler-correctness rules (`react-hooks-js/*`, `react-compiler-*`) + dead-code,
+  which is where remediation effort is focused.
 
 Local: `pnpm doctor` (full scan, telemetry off via config) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·
