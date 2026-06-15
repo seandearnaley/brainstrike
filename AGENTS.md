@@ -102,6 +102,36 @@ Rules:
 
 ---
 
+## REACT DOCTOR (LINT + DEAD CODE)
+
+`.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
+pinned `0.5.5`) on every PR and on push to `main`. It supersedes running standalone knip in
+CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
+~250 React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
+Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
+
+Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
+- **Telemetry OFF.** `noScore` + `share:false` in config; `REACT_DOCTOR_NO_TELEMETRY=1` in the
+  workflow `env` (the Action exposes no flag). Nothing is sent to the hosted score API / Sentry.
+- **Gate = `scope: changed` + `blocking: error`.** Only NEWLY introduced error-severity issues
+  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs.
+- **knip is retained, NOT replaced.** `deslop` is not knip: it reads knip's `entry`/`ignore`
+  (only from strict-JSON `knip.json` or `package.json#knip`, never `knip.jsonc`) but ignores
+  knip's `ignoreDependencies` and has no per-dependency allowlist. So `deslop/unused-dependency`
+  + `deslop/unused-dev-dependency` are disabled in `doctor.config.ts`, and `pnpm knip`
+  (driven by `knip.jsonc`, with the curated false-positive allowlist) stays the dependency auditor.
+- **Never set `ignore.files`** (verified against 0.5.5). A non-empty `ignore.files` flips
+  the lint pass to an explicit include-list and silently drops ~half the monorepo's real
+  source from linting (e.g. packages/hooks 34 → 0). Build artifacts are gitignored (never
+  listed) and test-file noise is handled natively (`test-noise`-tagged rules auto-suppress
+  in non-production files). Suppress findings via `ignore.overrides` / `rules`, not files.
+
+Local: `pnpm doctor` (full scan, telemetry off via config) ·
+`npx react-doctor . --scope changed --verbose` (only new issues) ·
+`npx react-doctor why <file>:<line>` (explain a rule).
+
+---
+
 ## EMBEDDING ARCHITECTURE (CRITICAL)
 
 Renderer-only execution is mandatory.
