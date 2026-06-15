@@ -48,5 +48,12 @@ export default {
     // express per-dependency ignores, so leaving these on produces ~59 false positives.
     'deslop/unused-dependency': 'off' as const,
     'deslop/unused-dev-dependency': 'off' as const,
+    // Mirror knip.jsonc's `rules.exports: "off"` — the project deliberately disabled
+    // unused-export checking due to false positives. deslop's version is strictly more
+    // FP-prone: it scans each package in isolation WITHOUT entry-point config, so every
+    // cross-package public-API export looks "unused", and it flagged knip-ignored
+    // scripts/. Left active: deslop's higher-signal unused-file + circular-dependency.
+    'deslop/unused-export': 'off' as const,
+    'deslop/unused-type': 'off' as const,
   },
 };

@@ -3,7 +3,7 @@ import type {
   LocalRuntimeId,
 } from '@brainstrike/assistant-contract/local-runtime';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store';
+import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store-name';
 import type { DbModel, DbProvider } from './stores/model-registry-store';
 
 export interface ModelRegistrySnapshotOverride {
