@@ -89,6 +89,7 @@ describe('chat route schema', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const data = await res.json();
     expect(data.code).toBe('invalid_body');
   });
@@ -469,6 +470,7 @@ describe('chat route schema', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(502);
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const payload = await res.json();
     expect(payload.error).toBe('agent_stream_init_failed');
     expect(payload.code).toBeUndefined();

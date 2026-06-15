@@ -21,6 +21,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 const logger = createLogger('WebAssistantRoute');
+const JSON_ERROR_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Type': 'application/json; charset=utf-8',
+} as const;
 const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
@@ -67,10 +71,7 @@ export async function POST(req: Request): Promise<Response> {
       }),
       {
         status: 503,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store',
-        },
+        headers: JSON_ERROR_HEADERS,
       }
     );
   }
@@ -94,7 +95,7 @@ export async function POST(req: Request): Promise<Response> {
       }),
       {
         status: 502,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        headers: JSON_ERROR_HEADERS,
       }
     );
   }
@@ -117,7 +118,7 @@ function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
       }),
       {
         status: 400,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        headers: JSON_ERROR_HEADERS,
       }
     );
   }
@@ -129,7 +130,7 @@ function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
     }),
     {
       status: 501,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      headers: JSON_ERROR_HEADERS,
     }
   );
 }
@@ -137,6 +138,6 @@ function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
 function jsonError(status: number, error: string, message?: string): Response {
   return new Response(JSON.stringify(message ? { error, message } : { error }), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    headers: JSON_ERROR_HEADERS,
   });
 }
