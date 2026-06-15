@@ -95,7 +95,15 @@ export function createScanningStatusReporter(
 }
 
 export function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
+  if (error instanceof Error && error.name === 'AbortError') {
+    return true;
+  }
+
+  return (
+    typeof DOMException !== 'undefined' &&
+    error instanceof DOMException &&
+    error.name === 'AbortError'
+  );
 }
 
 export async function waitForAbortableDelay(ms: number, signal: AbortSignal): Promise<void> {
