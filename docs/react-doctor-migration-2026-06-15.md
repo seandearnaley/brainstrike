@@ -74,26 +74,42 @@ Each PR stacks on the previous. Discipline: **red-green** — confirm the issues
 (`react-doctor <scope> --category X --verbose`), fix, confirm they clear, and keep the full
 `build + lint:ci + typecheck + unit` suite green per AGENTS.md. Commit in small batches.
 
-- **PR 1 — Foundation (this PR).** Pin react-doctor; `doctor.config.ts`; CI workflow;
+- **PR 1 — Foundation (#1228, DONE).** Pin react-doctor; `doctor.config.ts`; CI workflow;
   `doctor` script; knip relationship documented; AGENTS.md section. No source changes.
-- **PR 2 — Dead code (deslop).** Verify each unused file/export/type + the circular dep is
-  truly dead (deslop runs without per-package entry points → confirm before deleting), remove.
-- **PR 3 — Security (16) + Accessibility (28).** Small, high-value; recount on real source.
-- **PR 4 — Bugs: errors first** (`no-adjust-state-on-prop-change` 48, `effect-needs-cleanup`,
-  `no-eval`, …) **then warnings** (`exhaustive-deps`, `no-event-handler`, `no-children-prop`,
-  `no-derived-state`, …). Split by package if large.
-- **PR 5 — React-hooks-js correctness** (`refs` 108, `todo` 69, `set-state-in-effect` 49,
-  `immutability`, `purity`). React Compiler bail-outs; high value. Split by package.
-- **PR 6 — Performance** (`async-await-in-loop` 91, `rerender-lazy-ref-init` 61,
-  `js-combine-iterations` 57, `async-defer-await`, `js-tosorted-immutable`, …).
-- **PR 7 — Maintainability (non-memo)** (`only-export-components` 51,
-  `no-react19-deprecated-apis` 25, `no-giant-component`, `no-barrel-import`, `no-multi-comp`).
-- **PR 8+ — `react-compiler-no-manual-memoization` (1211).** Largest + most opinionated.
-  Split per package (file-explorer-ui, ui, db-explorer, …). Trust the React Compiler, but
-  KEEP manual memo where it guards non-React expensive work or external-store identity
-  (verify behavior + tests per slice). If the team decides manual memo is intentional in
-  some areas, the escape hatch is `rules: { "react-doctor/react-compiler-no-manual-memoization": "off" }`
-  scoped via `ignore.overrides` rather than mass edits.
+- **PR 2 — Dead code (#1229, DONE).** Broke the preferences store ↔ settings-test-runtime
+  circular import (extracted the shared store-name const). Disabled `deslop/unused-export`
+  + `unused-type` to mirror knip's `exports: off`. deslop findings → 0.
+- **PR 3 — Security + Accessibility (DONE).** Triaged all 34 real-source findings: only
+  **1** was genuine (vector-status missing label — fixed). The other 33 were
+  false-positive / intentional custom widgets / test fixtures / already `biome-ignore`d.
+  Disabled the `Accessibility` + `Security` categories (a11y duplicates biome; security
+  was 100% FP). Categories → 0.
+
+### Recalibration (after the PR 3 audit)
+
+The PR 3 audit established that react-doctor's findings on this mature, biome-linted
+codebase are **~97% false-positive / intentional**. Strategy for the rest: **triage +
+tune** — fix genuine issues, config-disable FP-prone/redundant rules — and **prioritize
+the React-Compiler-correctness rules**, which are react-doctor's unique value over the
+existing biome + knip setup. Do NOT hand-suppress every finding.
+
+- **PR 4 — React-Compiler correctness (PRIORITY).** `react-hooks-js/refs` 108,
+  `react-hooks-js/set-state-in-effect` 49, `react-hooks-js/todo` 69 ("compiler can't
+  optimize this" bail-outs), `immutability`, `purity`, + `no-adjust-state-on-prop-change`
+  48. These are real "your component silently isn't being memoized / has a hooks bug"
+  signals biome/knip don't have. Triage per package; fix genuine, config-tune FP.
+- **PR 5 — Genuine Bugs** (`effect-needs-cleanup`, `exhaustive-deps`, `no-event-handler`,
+  `no-children-prop`, `no-derived-state`, …) — keep only the real ones; many overlap biome.
+- **PR 6 — Performance (lighter pass)** (`async-await-in-loop` 91, `rerender-lazy-ref-init`
+  61, `js-combine-iterations` 57, …) — fix clear wins; many are stylistic.
+- **PR 7 — Maintainability non-memo** (`only-export-components`, `no-giant-component`,
+  `no-barrel-import`, …) — triage; expect a high FP/stylistic rate.
+- **HELD — `react-compiler-no-manual-memoization` (1211).** Separate go/no-go (user
+  decision). The repo runs the React Compiler deliberately; stripping 1211 manual memos is
+  a large, opinionated refactor. Options: per-package removal (trust the compiler, keep
+  memo that guards non-React work / external-store identity), OR disable the rule via
+  `rules: { 'react-doctor/react-compiler-no-manual-memoization': 'off' }` if the team
+  considers the manual memoization intentional.
 
 ## Commands
 
