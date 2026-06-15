@@ -132,6 +132,11 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   stays covered by the lefthook `secrets-scan`. react-doctor's unique value here is its
   React-Compiler-correctness rules (`react-hooks-js/*`, `react-compiler-*`) + dead-code,
   which is where remediation effort is focused.
+- **`react-compiler-no-manual-memoization` is OFF.** Manual `useMemo`/`useCallback`/
+  `React.memo` is intentional here (guards non-React work, external-store identity,
+  referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
+  of the original backlog) demanding removal — disabled per team decision.
+  `react-hooks-js/preserve-manual-memoization` stays ON (it protects memo the compiler needs).
 
 Local: `pnpm doctor` (full scan, telemetry off via config) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·

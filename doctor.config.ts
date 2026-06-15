@@ -55,6 +55,14 @@ export default {
     // scripts/. Left active: deslop's higher-signal unused-file + circular-dependency.
     'deslop/unused-export': 'off' as const,
     'deslop/unused-type': 'off' as const,
+    // Manual memoization is INTENTIONAL in this repo. We run the React Compiler, but
+    // deliberately keep manual useMemo/useCallback/React.memo where it guards non-React
+    // expensive work, external-store identity, or referential stability for consumers
+    // outside the compiled tree. This rule fired 1211x (54% of the original 2258-finding
+    // backlog) demanding their removal — a large, opinionated, high-blast-radius refactor
+    // of working code. Disabled per team decision. (react-hooks-js/preserve-manual-
+    // memoization stays ON — it protects memo the compiler still needs.)
+    'react-doctor/react-compiler-no-manual-memoization': 'off' as const,
   },
 
   categories: {

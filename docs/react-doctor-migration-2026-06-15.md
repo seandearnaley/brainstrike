@@ -104,12 +104,11 @@ existing biome + knip setup. Do NOT hand-suppress every finding.
   61, `js-combine-iterations` 57, …) — fix clear wins; many are stylistic.
 - **PR 7 — Maintainability non-memo** (`only-export-components`, `no-giant-component`,
   `no-barrel-import`, …) — triage; expect a high FP/stylistic rate.
-- **HELD — `react-compiler-no-manual-memoization` (1211).** Separate go/no-go (user
-  decision). The repo runs the React Compiler deliberately; stripping 1211 manual memos is
-  a large, opinionated refactor. Options: per-package removal (trust the compiler, keep
-  memo that guards non-React work / external-store identity), OR disable the rule via
-  `rules: { 'react-doctor/react-compiler-no-manual-memoization': 'off' }` if the team
-  considers the manual memoization intentional.
+- **DONE — `react-compiler-no-manual-memoization` DISABLED (was 1211).** Team decision:
+  manual memoization is intentional here (it guards non-React expensive work, external-store
+  identity, and referential stability for consumers outside the compiled tree), so the rule
+  demanding its removal is off. Total dropped 2149 → 938. `react-hooks-js/preserve-manual-
+  memoization` stays ON (it protects memo the compiler still needs).
 
 ## Commands
 
