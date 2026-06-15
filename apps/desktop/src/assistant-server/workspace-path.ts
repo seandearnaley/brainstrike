@@ -79,7 +79,23 @@ export function joinSegments(
 
 /** True when any segment of the virtual path is dot-prefixed (e.g. ".git"). */
 export function isHiddenPath(entryPath: string): boolean {
-  return toPathSegments(entryPath).some((segment) => segment.startsWith('.'));
+  // Directory listings call this for every child. Scan in place so ordinary
+  // visible paths do not allocate a full segment array just to answer a boolean.
+  for (let index = 0; index < entryPath.length; index += 1) {
+    const code = entryPath.charCodeAt(index);
+    if (code === 47) {
+      continue;
+    }
+    if (code === 46) {
+      return true;
+    }
+    const nextSlash = entryPath.indexOf('/', index);
+    if (nextSlash === -1) {
+      return false;
+    }
+    index = nextSlash;
+  }
+  return false;
 }
 
 /**
