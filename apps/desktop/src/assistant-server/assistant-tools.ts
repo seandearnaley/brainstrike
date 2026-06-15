@@ -1090,6 +1090,8 @@ async function runReadWorkspaceContext(
   runtimeData: RuntimeData | undefined
 ): Promise<{
   workspaceRootPath: string;
+  rootId: string;
+  rootName: string;
   requestedCount: number;
   includedCount: number;
   skippedCount: number;
@@ -1099,7 +1101,16 @@ async function runReadWorkspaceContext(
   files: WorkspaceContextFileResult[];
   skippedFiles: WorkspaceContextSkippedFile[];
 }> {
-  const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const workspaceRootPath = root.path;
+  // The selected-context default (runtimeData.selectionFilePaths) is relative to
+  // the FOCUSED root only, so it cannot be resolved against an explicitly chosen
+  // root — require explicit filePaths in that case rather than read wrong files.
+  if (input.root !== undefined && input.filePaths === undefined) {
+    throw new Error(
+      `Provide filePaths when reading from a specific root ("${root.displayName}"); the selected-context default only applies to the focused folder.`
+    );
+  }
   const requestedPaths = normalizeWorkspacePaths(
     input.filePaths ? input.filePaths : Array.from(runtimeData?.selectionFilePaths ?? [])
   );
@@ -1152,6 +1163,8 @@ async function runReadWorkspaceContext(
 
   return {
     workspaceRootPath,
+    rootId: root.rootId,
+    rootName: root.displayName,
     requestedCount: requestedPaths.length,
     includedCount: files.length,
     skippedCount: skippedFiles.length,

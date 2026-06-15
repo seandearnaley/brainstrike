@@ -262,6 +262,22 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
     expect(result.totalMatches).toBeGreaterThan(0);
   });
 
+  it('Task: read curated context in a chosen root (explicit filePaths) — labelled by root', async () => {
+    const result = await buildDesktopAssistantTools(twoRootRuntime())[
+      'brainstrike.readWorkspaceContext'
+    ].execute({ context: { root: 'ProjectB', filePaths: ['/README.md'] } });
+    expect(result.rootName).toBe('ProjectB');
+    expect(result.files[0]?.content).toContain('Project B');
+  });
+
+  it('Task: read curated context without root (ambiguous) — errors and lists the open folders', async () => {
+    await expect(
+      buildDesktopAssistantTools(twoRootRuntime())['brainstrike.readWorkspaceContext'].execute({
+        context: { filePaths: ['/README.md'] },
+      })
+    ).rejects.toThrow(/multiple folders.*ProjectA.*ProjectB/is);
+  });
+
   it('Task: semantic search — retrieved chunks are labelled by root and the context is root-prefixed', async () => {
     const tools = buildDesktopAssistantTools(twoRootRuntime(), {
       embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },

@@ -226,6 +226,7 @@ export const ReadWorkspaceContextInputSchema = z
       .max(5000)
       .optional()
       .describe('Workspace-relative file paths to read. Defaults to selected workspace context.'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     tokenBudget: z
       .number()
       .int()
