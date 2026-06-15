@@ -1,0 +1,48 @@
+name: React Doctor
+
+# React Doctor replaces standalone knip in CI: it runs the dead-code pass (deslop)
+# AND ~250 React/JS lint rules (Security, Bugs, Performance, Accessibility,
+# Maintainability). knip itself is retained for local dependency auditing (`pnpm knip`)
+# because deslop cannot express per-dependency ignores — see doctor.config.ts.
+#
+# Gate policy (per team decision):
+#   - scope: changed   -> only NEWLY introduced issues are reported/blocking on a PR;
+#                         the pre-existing backlog stays advisory while it is burned
+#                         down in stacked PRs.
+#   - blocking: error  -> a PR fails only on new error-severity issues.
+#   - telemetry OFF    -> REACT_DOCTOR_NO_TELEMETRY=1 (the Action has no flag for it);
+#                         nothing is sent to the hosted score API / Sentry.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+concurrency:
+  group: react-doctor-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Disable the hosted score API, share URL, and Sentry crash/usage reporting.
+  REACT_DOCTOR_NO_TELEMETRY: "1"
+
+jobs:
+  react-doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: millionco/react-doctor@v2
+        with:
+          # Pinned for reproducible CI (kept in lockstep with the devDependency).
+          version: "0.5.5"
+          scope: changed
+          blocking: error

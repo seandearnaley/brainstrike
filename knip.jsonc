@@ -426,7 +426,8 @@
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
     "@tanstack/react-table", // Used in packages/preferences for LogViewerCard table component
     "@tanstack/react-virtual", // Used in packages/preferences for row virtualization
-    "@jacobwolf/biome-unnecessary-effect" // Biome plugin used in biome.json for React useEffect linting
+    "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
+    "react-doctor" // CI/lint tool run via `pnpm doctor` + the react-doctor.yml workflow, never imported
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
