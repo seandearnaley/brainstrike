@@ -797,11 +797,15 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             <option value="webgpu">WebGPU</option>
             <option value="wasm">WASM</option>
           </select>
-          <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
+          <Label
+            className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider"
+            htmlFor="vector-status-reinit-every-n"
+          >
             Reinit
           </Label>
           <input
             className="h-7 w-16 rounded border px-1 text-[11px]"
+            id="vector-status-reinit-every-n"
             max={10_000}
             min={50}
             onChange={(e) => setReinitEveryN(Number(e.target.value) || 0)}

@@ -56,4 +56,24 @@ export default {
     'deslop/unused-export': 'off' as const,
     'deslop/unused-type': 'off' as const,
   },
+
+  categories: {
+    // Accessibility is already enforced by this repo's biome a11y rules, and the team
+    // documents intentional exceptions with `biome-ignore` comments. react-doctor does
+    // NOT read biome-ignore, so it re-flags every documented exception plus custom ARIA
+    // widgets (SVG gauges, draggable range bands, listbox/combobox) where the suggested
+    // native tag is not a drop-in. An audit of all 28 a11y findings found 27
+    // false-positive/intentional and 1 genuine gap (fixed: vector-status Reinit label).
+    // Keeping this on duplicates biome and floods the gate with noise.
+    // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
+    Accessibility: 'off' as const,
+    // Security: an audit of all 6 real-source findings found 0 genuine issues — a test
+    // mock `new Function`, a guarded pgvector `sql.raw` (validated via
+    // validateEmbeddingVector), a non-crypto diagnostic signature, a localStorage
+    // sentinel mistaken for a secret, and pnpm-hardening nags. Secret detection is
+    // already covered by the lefthook `secrets-scan`. pnpm supply-chain hardening
+    // (minimumReleaseAge / trustPolicy) is tracked separately as an infra decision.
+    // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
+    Security: 'off' as const,
+  },
 };
