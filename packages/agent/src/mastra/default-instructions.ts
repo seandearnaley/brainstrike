@@ -129,11 +129,31 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
     .join('\n');
 }
 
+/**
+ * Multi-root workflow guidance: the model learns the open folders (roots) from
+ * listWorkspaceContext, then qualifies path-based read/search tools with a
+ * `root` argument when several folders are open. Empty when listWorkspaceContext
+ * or every root-qualified tool is absent.
+ */
+function buildMultiRootInstruction(names: ModelFacingToolNames): string {
+  const rootQualifiedToolNames = [
+    names.grepSearch,
+    names.queryEmbeddingSpace,
+    names.readWorkspaceFile,
+    names.findWorkspaceSymbol,
+  ].filter((name): name is string => Boolean(name));
+  if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
+    return '';
+  }
+  return `The workspace can have several folders ("roots") open at once: ${names.listWorkspaceContext} returns workspaceRoots — each open folder's name and id. File paths are relative to a root, so when more than one folder is open a bare path is ambiguous: pass a "root" argument (the folder name or id from workspaceRoots) to ${rootQualifiedToolNames.join(', ')} to say which folder you mean, and omit it when only one folder is open. Search and read results are labelled with their owning rootName/rootId — use that label to disambiguate and to choose the root for any follow-up call.`;
+}
+
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
     ? `First inspect available selected context, token budgets, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}; pass detail: true only when you need per-file Tapestry ranges.`
     : 'Workspace-selection inspection is unavailable in this run.';
+  const multiRootInstruction = buildMultiRootInstruction(names);
   const grepSearchInstruction = names.grepSearch
     ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
     : 'Exact-text grep search is unavailable in this run.';
@@ -193,6 +213,7 @@ Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
 When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${grepSearchInstruction} ${semanticSearchInstruction} ${readContextInstruction}
+${multiRootInstruction}
 ${curationInstruction}
 ${selectionLine}
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
