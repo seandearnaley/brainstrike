@@ -262,6 +262,13 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         arrayItemType: 'string',
       },
       {
+        name: 'root',
+        type: 'string',
+        description:
+          'Folder name or id to read from when multiple folders are open (omit when one). Requires explicit filePaths — the selected-context default only applies to the focused folder.',
+        required: false,
+      },
+      {
         name: 'tokenBudget',
         type: 'number',
         description: 'Maximum approximate output tokens for all returned file contents',

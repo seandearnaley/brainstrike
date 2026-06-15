@@ -688,6 +688,119 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  describe('readWorkspaceContext multi-root', () => {
+    async function createTwoRootContext(): Promise<{
+      rootA: string;
+      rootB: string;
+      cleanup: () => Promise<void>;
+    }> {
+      const rootA = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-rc-a-'));
+      const rootB = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-rc-b-'));
+      await fsPromises.writeFile(path.join(rootA, 'notes.md'), 'notes from alpha root', 'utf8');
+      await fsPromises.writeFile(path.join(rootB, 'notes.md'), 'notes from beta root', 'utf8');
+      return {
+        rootA,
+        rootB,
+        cleanup: async () => {
+          await fsPromises.rm(rootA, { recursive: true, force: true });
+          await fsPromises.rm(rootB, { recursive: true, force: true });
+        },
+      };
+    }
+
+    function twoRootRuntime(rootA: string, rootB: string): RuntimeData {
+      return {
+        workspaceRoots: [
+          { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
+          { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+        ],
+      } as unknown as RuntimeData;
+    }
+
+    it('reads from the root named by `root` (with explicit filePaths) and labels the result', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
+        const result = await tools['brainstrike.readWorkspaceContext'].execute({
+          context: { root: 'ProjectB', filePaths: ['/notes.md'] },
+        });
+        expect(result.rootName).toBe('ProjectB');
+        expect(result.rootId).toBe('id-b');
+        expect(result.files[0]?.content).toContain('beta root');
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('resolves `root` by id as well as by display name', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+          'brainstrike.readWorkspaceContext'
+        ].execute({ context: { root: 'id-a', filePaths: ['/notes.md'] } });
+        expect(result.rootName).toBe('ProjectA');
+        expect(result.files[0]?.content).toContain('alpha root');
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('errors and lists the open folders when `root` is omitted and several are open', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        await expect(
+          buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+            'brainstrike.readWorkspaceContext'
+          ].execute({ context: { filePaths: ['/notes.md'] } })
+        ).rejects.toThrow(/multiple folders.*ProjectA.*ProjectB/is);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('errors with the available folders for an unknown `root`', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        await expect(
+          buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+            'brainstrike.readWorkspaceContext'
+          ].execute({ context: { root: 'Nope', filePaths: ['/notes.md'] } })
+        ).rejects.toThrow(/no folder "Nope".*ProjectA.*ProjectB/is);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('requires explicit filePaths when `root` is provided (selection defaults are focused-root only)', async () => {
+      const { rootA, rootB, cleanup } = await createTwoRootContext();
+      try {
+        await expect(
+          buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+            'brainstrike.readWorkspaceContext'
+          ].execute({ context: { root: 'ProjectA' } })
+        ).rejects.toThrow(/filePaths/i);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('still reads the focused-root selection default (single root) and labels the result', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const result = await buildDesktopAssistantTools({
+          workspaceRootPath,
+          selectionFilePaths: ['/src/main.ts'],
+        } as RuntimeData)['brainstrike.readWorkspaceContext'].execute({ context: {} });
+        expect(result.includedCount).toBe(1);
+        expect(result.files[0]?.path).toBe('/src/main.ts');
+        expect(typeof result.rootName).toBe('string');
+        expect(result.workspaceRootPath).toBe(workspaceRootPath);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const send = vi.fn();

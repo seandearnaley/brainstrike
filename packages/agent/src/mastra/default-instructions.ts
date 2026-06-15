@@ -140,6 +140,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.grepSearch,
     names.queryEmbeddingSpace,
     names.readWorkspaceFile,
+    names.readWorkspaceContext,
     names.findWorkspaceSymbol,
   ].filter((name): name is string => Boolean(name));
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
