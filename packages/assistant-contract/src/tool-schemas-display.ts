@@ -490,6 +490,13 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         arrayItemType: 'string',
       },
       {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional folder name or id to scope the search to one open folder (omit to search all; results are labelled with their root)',
+        required: false,
+      },
+      {
         name: 'contextLines',
         type: 'number',
         description: "Lines of context before/after each match in 'content' mode",

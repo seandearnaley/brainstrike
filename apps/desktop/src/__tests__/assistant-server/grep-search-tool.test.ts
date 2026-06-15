@@ -172,3 +172,81 @@ describe('grep search tool', () => {
     await expect(promise).rejects.not.toThrow(/file_chunks/);
   });
 });
+
+describe('grep search tool multi-root', () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+  });
+
+  const TWO_ROOTS = {
+    workspaceRoots: [
+      { rootId: 'db-root-a', displayName: 'ProjectA', path: '/work/ProjectA' },
+      { rootId: 'db-root-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+    ],
+  } as unknown as RuntimeData;
+
+  it('labels file summaries with their root and keeps same-path files in different roots distinct', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        {
+          content: 'needle',
+          start_line: 1,
+          path: 'README.md',
+          root_id: 'db-root-a',
+          display_name: 'ProjectA',
+        },
+        {
+          content: 'needle',
+          start_line: 1,
+          path: 'README.md',
+          root_id: 'db-root-b',
+          display_name: 'ProjectB',
+        },
+      ],
+    });
+    const result = await runGrepSearch({ pattern: 'needle' }, TWO_ROOTS);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.files).toHaveLength(2);
+    expect(result.files.map((f) => `${f.rootName}/${f.path}`).sort()).toEqual([
+      'ProjectA/README.md',
+      'ProjectB/README.md',
+    ]);
+  });
+
+  it('labels content matches with rootId and rootName', async () => {
+    queryMock.mockResolvedValue({
+      rows: [
+        {
+          content: 'needle line',
+          start_line: 5,
+          path: 'src/x.ts',
+          root_id: 'db-root-a',
+          display_name: 'ProjectA',
+        },
+      ],
+    });
+    const result = await runGrepSearch({ pattern: 'needle', outputMode: 'content' }, TWO_ROOTS);
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches[0]?.rootName).toBe('ProjectA');
+    expect(result.matches[0]?.rootId).toBe('db-root-a');
+  });
+
+  it('scopes the query to the resolved root when `root` is provided', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await runGrepSearch({ pattern: 'needle', root: 'ProjectB' }, TWO_ROOTS);
+    const [sql, params] = queryMock.mock.calls[0] ?? [];
+    expect(String(sql)).toContain('fr.root_id =');
+    expect(params).toContain('db-root-b');
+  });
+
+  it('errors clearly (and skips the DB) when `root` names a folder that is not open', async () => {
+    await expect(runGrepSearch({ pattern: 'needle', root: 'Nope' }, TWO_ROOTS)).rejects.toThrow(
+      /no folder "Nope"/i
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+});
