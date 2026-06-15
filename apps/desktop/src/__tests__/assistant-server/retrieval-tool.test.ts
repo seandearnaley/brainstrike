@@ -1,3 +1,4 @@
+import type { RuntimeData } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -784,5 +785,96 @@ describe('retrieval-tool', () => {
         context: { query: 'hello', embeddingSetId: 'set-1' },
       })
     ).rejects.toThrow('Unable to retrieve context right now. Try again.');
+  });
+});
+
+describe('retrieval-tool multi-root', () => {
+  const ROOTED_RUNTIME = {
+    workspaceRoots: [
+      { rootId: 'root-a', displayName: 'ProjectA', path: '/work/ProjectA' },
+      { rootId: 'root-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+    ],
+  } as unknown as RuntimeData;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getKeyMock.mockResolvedValue('test-api-key');
+    resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
+    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
+    findByIdsMock.mockResolvedValue([
+      { id: 'file-1', name: 'file.ts', path: 'src/file.ts', tokenCount: 42 },
+    ]);
+    searchSimilarMock.mockResolvedValue([
+      {
+        chunk: {
+          id: 'chunk-1',
+          content: 'Hello world',
+          tokenCount: 4,
+          chunkIndex: 0,
+          startLine: 10,
+          endLine: 12,
+          startOffset: 120,
+          endOffset: 155,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.9,
+        rank: 1,
+      },
+    ]);
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'openai:text-embedding-3-small',
+              modelId: 'text-embedding-3-small',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      // Root-label lookup (aliased columns mirror the real query).
+      if (sql.includes('FROM file_records')) {
+        return { rows: [{ id: 'file-1', rootId: 'root-a', rootName: 'ProjectA' }] };
+      }
+      return { rows: [] };
+    });
+    getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
+  });
+
+  it('labels retrieved chunks and the context string with their workspace root', async () => {
+    const result = await runQueryEmbeddingSpace(
+      { query: 'hello', embeddingSetId: 'set-1' },
+      ROOTED_RUNTIME
+    );
+    if ('status' in result) {
+      throw new Error('expected a retrieval result');
+    }
+    expect(result.context).toContain('ProjectA');
+    expect(result.chunks[0]?.metadata?.rootName).toBe('ProjectA');
+    expect(result.chunks[0]?.metadata?.rootId).toBe('root-a');
+  });
+
+  it('scopes retrieval to the resolved root when `root` is provided', async () => {
+    await runQueryEmbeddingSpace(
+      { query: 'hello', embeddingSetId: 'set-1', root: 'ProjectB' },
+      ROOTED_RUNTIME
+    );
+    expect(searchSimilarMock).toHaveBeenCalledWith(
+      [0.25, 0.5],
+      expect.objectContaining({ rootId: 'root-b' })
+    );
+  });
+
+  it('errors clearly when `root` names a folder that is not open', async () => {
+    await expect(
+      runQueryEmbeddingSpace(
+        { query: 'hello', embeddingSetId: 'set-1', root: 'Nope' },
+        ROOTED_RUNTIME
+      )
+    ).rejects.toThrow(/no folder "Nope"/i);
   });
 });

@@ -450,9 +450,16 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         required: false,
         arrayItemType: 'string',
       },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional folder name or id to scope retrieval to one open folder (omit to search all; results are labelled with their root)',
+        required: false,
+      },
     ],
     returns:
-      'Packed semantic chunks with source line ranges, offsets, chunk metadata, budget, and skipped counts',
+      'Packed semantic chunks with source line ranges, offsets, chunk metadata (incl. rootId/rootName), budget, and skipped counts',
   },
 
   'brainstrike.grepSearch': {

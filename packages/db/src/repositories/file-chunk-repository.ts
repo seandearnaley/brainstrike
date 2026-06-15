@@ -336,6 +336,7 @@ export class FileChunkRepository {
       embeddingSetId,
       efSearch,
       filePaths,
+      rootId,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -388,6 +389,15 @@ export class FileChunkRepository {
       normalizedFilePaths,
       normalizedSnapshotId
     );
+    // Scope to one workspace root via a subquery (not a JOIN) so the main
+    // file_chunks predicate still matches the partial HNSW index.
+    if (rootId !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
+      );
+      params.push(rootId);
+      paramIndex += 1;
+    }
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;

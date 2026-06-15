@@ -156,4 +156,93 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
       expect(r.chunk.embeddingDimensions).toBe(dim);
     }
   });
+
+  it('scopes results to a single workspace root via the rootId option', async () => {
+    const db: PGlite = await wasmLoader.createPGlite('memory://sql-rootid');
+    await migrate(db);
+    await db.query('CREATE EXTENSION IF NOT EXISTS vector');
+
+    const setId = 'set_root';
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
+      [setId, 'bge-m3', 'bge-m3', 768, 'cosine']
+    );
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path, status, created_at)
+       VALUES ($1, 'path', $2, $3, 'live', $4), ($5, 'path', $6, $7, 'live', $8)`,
+      ['root-a', 'ProjectA', '/work/A', now, 'root-b', 'ProjectB', '/work/B', now]
+    );
+    // Same relative path in two roots; identical embeddings so only the filter
+    // (not the distance ranking) can separate them.
+    await db.query(
+      `INSERT INTO file_records (id, name, path, root_id, size, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)`,
+      [
+        'fa',
+        'doc.md',
+        'doc.md',
+        'root-a',
+        1,
+        now,
+        now,
+        'fb',
+        'doc.md',
+        'doc.md',
+        'root-b',
+        1,
+        now,
+        now,
+      ]
+    );
+
+    const dim = 768;
+    const q = makeVector(dim, [[0, 1.0]]);
+    const e = makeVector(dim, [[0, 1.0]]);
+    const repo = new FileChunkRepository(db);
+    await repo.insertMany([
+      {
+        id: 'ca',
+        fileRecordId: 'fa',
+        chunkIndex: 0,
+        content: 'A',
+        contentHash: 'ha',
+        tokenCount: 1,
+        chunkType: 'text',
+        chunkSize: 1,
+        embedding: e,
+        embeddingSetId: setId,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'cb',
+        fileRecordId: 'fb',
+        chunkIndex: 0,
+        content: 'B',
+        contentHash: 'hb',
+        tokenCount: 1,
+        chunkType: 'text',
+        chunkSize: 1,
+        embedding: e,
+        embeddingSetId: setId,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const all = await repo.searchSimilar(q, { limit: 10, threshold: 0, embeddingSetId: setId });
+    expect(all.map((r) => r.chunk.id).sort()).toEqual(['ca', 'cb']);
+
+    const scoped = await repo.searchSimilar(q, {
+      limit: 10,
+      threshold: 0,
+      embeddingSetId: setId,
+      rootId: 'root-b',
+    });
+    expect(scoped.map((r) => r.chunk.id)).toEqual(['cb']);
+
+    await db.close();
+  });
 });

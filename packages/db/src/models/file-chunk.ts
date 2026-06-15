@@ -94,6 +94,8 @@ export interface ChunkSearchOptions {
    */
   includeEmbedding?: boolean;
   limit?: number;
+  /** Optional workspace-root scope (file_records.root_id). */
+  rootId?: string;
   /** Optional snapshot id referencing a persisted selection allowlist. */
   selectionSnapshotId?: string;
   threshold?: number;
