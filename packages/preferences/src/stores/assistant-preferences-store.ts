@@ -32,6 +32,7 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
+import { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
 import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('AssistantPreferencesStore');
@@ -103,7 +104,7 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-export const ASSISTANT_PREFERENCES_STORE_NAME = 'assistant-preferences.v1' as const;
+export { ASSISTANT_PREFERENCES_STORE_NAME };
 export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
 const STORE_NAME = ASSISTANT_PREFERENCES_STORE_NAME;
 const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
