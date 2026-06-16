@@ -955,6 +955,29 @@ html.dark .shiki span {
   font-size: 0.86em;
 }
 
+/**
+ * Fenced code blocks BEFORE Shiki resolves (or if it fails to load — the
+ * SyntaxHighlighter falls back to a bare <pre><code>). Without this they render
+ * as unstyled plaintext with no container. Scoped to `:not(.shiki)` so Shiki's
+ * own highlighted <pre.shiki> output is never touched.
+ */
+.assistant-ui-panel .aui-md pre:not(.shiki) {
+  margin-block: 0.9em;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.5rem;
+  background: hsl(var(--muted) / 0.6);
+  overflow-x: auto;
+  font-size: 0.82em;
+  line-height: 1.5;
+}
+
+.assistant-ui-panel .aui-md pre:not(.shiki) code {
+  padding: 0;
+  background: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: inherit;
+}
+
 .assistant-ui-panel .aui-md table {
   margin-block: 0.8em;
   width: 100%;

@@ -97,6 +97,23 @@ describe('markdown typography (real browser, with preflight reset)', () => {
     );
     expect(getComputedStyle(screen.getByTestId('first')).marginTop).toBe('0px');
   });
+
+  test('styles the bare fallback code block (Shiki loading/failure) with a container', () => {
+    render(
+      <div className="assistant-ui-panel">
+        <div className="aui-md">
+          <pre data-testid="fallback-pre">
+            <code>const x = 1;</code>
+          </pre>
+        </div>
+      </div>
+    );
+    const pre = screen.getByTestId('fallback-pre');
+    // A real container: non-zero padding + a non-transparent background.
+    expect(Number.parseFloat(getComputedStyle(pre).paddingTop)).toBeGreaterThan(0);
+    expect(getComputedStyle(pre).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(getComputedStyle(pre).overflowX).toBe('auto');
+  });
 });
 
 describe('AssistantActivityGroup (real browser)', () => {
