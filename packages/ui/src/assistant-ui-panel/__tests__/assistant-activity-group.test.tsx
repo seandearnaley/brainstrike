@@ -4,11 +4,11 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AssistantActivityGroup,
-  formatActivityDuration,
   runEventsSpanMs,
   summarizeToolActivity,
   type ToolActivitySummary,
 } from '../assistant-activity-group';
+import { formatActivityDuration } from '../tool-durations';
 
 const toolPart = (overrides: Record<string, unknown>) => ({
   type: 'tool-call',

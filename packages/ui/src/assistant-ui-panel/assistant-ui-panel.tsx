@@ -32,7 +32,6 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from 'lucide-react';
-import * as m from 'motion/react-m';
 import {
   type FC,
   type ReactNode,
@@ -72,8 +71,11 @@ import {
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { ThreadContextMeter } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { ExpandableMessageContent } from './expandable-message-content';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import { ToolDurationProvider } from './tool-duration-context';
+import { collectToolDurations } from './tool-durations';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
@@ -407,6 +409,7 @@ const LocalChainOfThought: FC = () => {
     [chainOfThoughtParts]
   );
   const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
+  const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
   const hasToolParts = toolActivity.stepCount > 0;
   // Stay "active" (expanded) while any tool runs, while reasoning streams, or
   // while the message is still producing output. Tool/reasoning-running alone
@@ -461,17 +464,19 @@ const LocalChainOfThought: FC = () => {
 
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
-      {hasToolParts ? (
-        <AssistantActivityGroup
-          fallbackMs={activityFallbackMs}
-          isActive={isActivityActive}
-          summary={toolActivity}
-        >
-          {reasoningSection}
-        </AssistantActivityGroup>
-      ) : (
-        reasoningSection
-      )}
+      <ToolDurationProvider durations={toolDurations}>
+        {hasToolParts ? (
+          <AssistantActivityGroup
+            fallbackMs={activityFallbackMs}
+            isActive={isActivityActive}
+            summary={toolActivity}
+          >
+            {reasoningSection}
+          </AssistantActivityGroup>
+        ) : (
+          reasoningSection
+        )}
+      </ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
 };
@@ -514,73 +519,6 @@ const ThreadHistoryControl: FC<{
         )}
         <span>{hiddenMessageCount} previous messages</span>
       </button>
-    </div>
-  );
-};
-
-const ExpandableMessageContent: FC<{
-  children: ReactNode;
-  className: string;
-  collapsedHeight?: number;
-  testId?: string;
-}> = ({ children, className, collapsedHeight = 176, testId }) => {
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const contentId = useId();
-  const [expanded, setExpanded] = useState(false);
-  const [hasOverflow, setHasOverflow] = useState(false);
-  const [contentHeight, setContentHeight] = useState(collapsedHeight);
-
-  useEffect(() => {
-    const node = contentRef.current;
-    if (!node) {
-      return;
-    }
-
-    const measure = (): void => {
-      const nextContentHeight = node.scrollHeight;
-      setContentHeight(nextContentHeight);
-      setHasOverflow(nextContentHeight > collapsedHeight + 1);
-    };
-
-    measure();
-    if (typeof ResizeObserver === 'undefined') {
-      return;
-    }
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
-  }, [collapsedHeight, children]);
-
-  const collapsed = hasOverflow && !expanded;
-
-  return (
-    <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
-      <m.div
-        animate={{ maxHeight: collapsed ? collapsedHeight : contentHeight }}
-        className="bs-expandable-message-body"
-        id={contentId}
-        initial={false}
-        ref={contentRef}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-      >
-        {children}
-      </m.div>
-      {collapsed ? <div aria-hidden="true" className="bs-expandable-message-fade" /> : null}
-      {hasOverflow ? (
-        <button
-          aria-controls={contentId}
-          aria-expanded={expanded}
-          aria-label={expanded ? 'Show less message content' : 'Show more message content'}
-          className="bs-expandable-message-toggle"
-          onClick={() => setExpanded((current) => !current)}
-          type="button"
-        >
-          {expanded ? 'Show less' : 'Show more'}
-        </button>
-      ) : null}
     </div>
   );
 };
