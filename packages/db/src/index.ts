@@ -32,8 +32,12 @@ export {
 } from './drizzle/index.js';
 export {
   type ApplyManagedCacheBatchArgs,
+  type ApplyManagedCacheInvalidationsArgs,
   applyManagedCacheBatch,
+  invalidateManagedCacheEntriesByIdentity,
   type ManagedCacheBatchMutation,
+  type ManagedCacheInvalidationResult,
+  type ManagedCacheInvalidationTarget,
   parseManagedCacheBatchArgs,
 } from './managed-cache/index.js';
 // Legacy migration export
