@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
+import { fileFilter } from '@brainstrike/utils/path-filter';
 import type { DirectoryHandle, FileSystemChange } from '../types';
 
 const logger = createLogger('ElectronWatchers');
@@ -8,12 +9,17 @@ export const FS_WATCH_BATCH_WINDOW_MS = 150;
 // Invariant: keep watcher event buffering bounded during bursty workloads.
 export const FS_WATCH_MAX_BATCH_SIZE = 500;
 
-export function startFsWatch(
-  handle: DirectoryHandle,
+interface FileSystemChangeBatcher {
+  dispose: () => void;
+  enqueue: (change: FileSystemChange) => void;
+}
+
+function createFileSystemChangeBatcher(
   callback: (changes: FileSystemChange[]) => void
-): () => void {
+): FileSystemChangeBatcher {
   let batch: FileSystemChange[] = [];
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
 
   const flushBatch = (): void => {
     batchTimer = null;
@@ -31,7 +37,10 @@ export function startFsWatch(
     batchTimer = setTimeout(flushBatch, FS_WATCH_BATCH_WINDOW_MS);
   };
 
-  const enqueueChange = (change: FileSystemChange): void => {
+  const enqueue = (change: FileSystemChange): void => {
+    if (disposed) {
+      return;
+    }
     batch.push(change);
     if (batch.length >= FS_WATCH_MAX_BATCH_SIZE) {
       if (batchTimer) {
@@ -44,34 +53,67 @@ export function startFsWatch(
     scheduleBatchFlush();
   };
 
-  try {
-    const native = fs.watch(handle.path, { recursive: false }, (ev, filename) => {
-      if (!filename) {
-        return;
+  const dispose = (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    if (batchTimer) {
+      clearTimeout(batchTimer);
+    }
+    flushBatch();
+  };
+
+  return { dispose, enqueue };
+}
+
+export function startFsWatch(
+  handle: DirectoryHandle,
+  callback: (changes: FileSystemChange[]) => void
+): () => void {
+  const batcher = createFileSystemChangeBatcher(callback);
+
+  const processNativeEvent = async (
+    ev: string,
+    filename: string | Buffer | null
+  ): Promise<void> => {
+    if (!filename) {
+      return;
+    }
+    const full = path.join(handle.path, filename.toString());
+    try {
+      const stat = await fs.promises.stat(full);
+      const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';
+      batcher.enqueue({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
+    } catch {
+      // stat failed — file was likely removed
+      if (ev === 'rename') {
+        batcher.enqueue({ type: 'removed', path: full, kind: 'file' });
       }
-      const full = path.join(handle.path, filename);
-      fs.promises.stat(full).then(
-        (stat) => {
-          const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';
-          enqueueChange({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
-        },
-        () => {
-          // stat failed — file was likely removed
-          if (ev === 'rename') {
-            enqueueChange({ type: 'removed', path: full, kind: 'file' });
-          }
-        }
-      );
-    });
+    }
+  };
+
+  let nativeEventQueue = Promise.resolve();
+  const enqueueNativeEvent = (ev: string, filename: string | Buffer | null): void => {
+    nativeEventQueue = nativeEventQueue
+      .then(() => processNativeEvent(ev, filename))
+      .catch((error: unknown) => {
+        logger.error('Native fs.watch event processing failed', { error, path: handle.path });
+      });
+  };
+
+  try {
+    const native = fs.watch(handle.path, { recursive: true }, enqueueNativeEvent);
+    logger.warn('Using recursive native fs.watch fallback', { path: handle.path });
     return () => {
       native.close();
-      if (batchTimer) {
-        clearTimeout(batchTimer);
-      }
-      flushBatch();
+      batcher.dispose();
     };
   } catch (error) {
-    logger.error('Failed to start native fs.watch', { error, path: handle.path });
+    logger.error('Failed to start recursive native fs.watch; folder will not be watched', {
+      error,
+      path: handle.path,
+    });
     return () => {};
   }
 }
@@ -93,12 +135,14 @@ export async function startChokidarWatch(
     ignoreInitial: true,
     persistent: true,
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
-    ignored: /(^|[/\\])\../,
-    depth: 0,
+    followSymlinks: false,
+    atomic: true,
+    ignored: (filePath: string) => fileFilter.shouldIgnorePath(filePath),
   });
 
+  const batcher = createFileSystemChangeBatcher(callback);
   const toChange = (type: FileSystemChange['type'], filePath: string, isDir: boolean) => {
-    callback([{ type, path: filePath, kind: isDir ? 'directory' : 'file' }]);
+    batcher.enqueue({ type, path: filePath, kind: isDir ? 'directory' : 'file' });
   };
 
   watcher
@@ -111,7 +155,10 @@ export async function startChokidarWatch(
       logger.error('Chokidar watcher reported an error', { error, path: handle.path });
     });
 
-  return () => watcher.close();
+  return () => {
+    watcher.close();
+    batcher.dispose();
+  };
 }
 
 export function handleWatcherSetupError(

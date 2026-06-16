@@ -220,7 +220,7 @@ describe('useFileSystemWatcher', () => {
     }
   });
 
-  it('forwards changes to onChanges with the correct rootId', () => {
+  it('forwards nested changes to onChanges with the correct rootId and unchanged paths', () => {
     const adapter = makeAdapter();
     const handleA = makeHandle('root-a');
 
@@ -235,7 +235,9 @@ describe('useFileSystemWatcher', () => {
     expect(adapter.watchCalls).toHaveLength(1);
     const watchCall = adapter.watchCalls[0]!;
     const changes: FileSystemChange[] = [
-      { kind: 'file', path: '/roots/root-a/foo.ts', type: 'modified' },
+      { kind: 'file', path: '/roots/root-a/src/new.ts', type: 'added' },
+      { kind: 'file', path: '/roots/root-a/src/nested/update.ts', type: 'modified' },
+      { kind: 'file', path: '/roots/root-a/src/nested/remove.ts', type: 'removed' },
     ];
 
     act(() => {

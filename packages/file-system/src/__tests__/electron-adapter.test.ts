@@ -314,16 +314,25 @@ describe('ElectronFileSystemAdapter', () => {
     await waitForCondition(() => vi.mocked(chokidar.default.watch).mock.calls.length > 0);
 
     // Verify chokidar was initialized correctly
-    expect(chokidar.default.watch).toHaveBeenCalledWith(tempDir, {
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 100,
-        pollInterval: 100,
-      },
-      ignored: /(^|[/\\])\../,
-      depth: 0,
-    });
+    expect(chokidar.default.watch).toHaveBeenCalledWith(
+      tempDir,
+      expect.objectContaining({
+        ignoreInitial: true,
+        persistent: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 100,
+        },
+        followSymlinks: false,
+        atomic: true,
+        ignored: expect.any(Function),
+      })
+    );
+    const watchOptions = vi.mocked(chokidar.default.watch).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(watchOptions).not.toHaveProperty('depth');
 
     // Simulate file addition
     const addCallback = mockWatcher.on.mock.calls.find((call) => call[0] === 'add')?.[1];
@@ -332,6 +341,7 @@ describe('ElectronFileSystemAdapter', () => {
       addCallback(filePath);
     }
 
+    await waitForCondition(() => callback.mock.calls.length > 0);
     expect(callback).toHaveBeenCalledWith([{ type: 'added', path: filePath, kind: 'file' }]);
 
     stop();
@@ -368,7 +378,7 @@ describe('ElectronFileSystemAdapter', () => {
     await waitForCondition(() => fsWatchSpy.mock.calls.length > 0);
 
     // Verify fs.watch was called as fallback
-    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: false }, expect.any(Function));
+    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: true }, expect.any(Function));
 
     // Since fs.watch callback testing is complex due to overloads, just verify the watcher was set up
     // The actual functionality is tested in integration tests
@@ -587,6 +597,7 @@ describe('ElectronFileSystemAdapter', () => {
       }
 
       // Callback should have been called
+      await waitForCondition(() => callback.mock.calls.length > 0);
       expect(callback).toHaveBeenCalled();
     });
   });
