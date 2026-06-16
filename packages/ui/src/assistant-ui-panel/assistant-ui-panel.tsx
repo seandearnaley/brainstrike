@@ -87,25 +87,32 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   // people care about. Hide every run-event row unless the Detail level is
   // Developer — the default thread is just the grouped tool cards + the answer.
   const { detailLevel } = useAssistantDetailLevel();
+  const showBackground = shouldShowBackgroundActivity(detailLevel);
+  // Both selectors are O(total parts) and re-run on every streamed state change.
+  // In the default (non-Developer) case — now the common path for every hidden
+  // memory/context/run-step row — short-circuit INSIDE the selector so the scans
+  // are skipped entirely, not run only to discard the result. Hooks still run
+  // unconditionally (rules-of-hooks safe); only one string primitive is selected.
   const statusOverride = useAuiState((state) =>
-    resolveAssistantRunEventStatus(state.thread.messages, data)
+    showBackground ? resolveAssistantRunEventStatus(state.thread.messages, data) : undefined
   );
-  // The render plan scans all message parts (O(total parts)) and re-evaluates
-  // on every streamed state change, so compute it ONCE per update and select a
-  // string primitive — stable re-render semantics without a second scan.
   const renderPlanKey = useAuiState((state) => {
+    if (!showBackground) {
+      return 'hidden';
+    }
     const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
     return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
   });
-  if (!shouldShowBackgroundActivity(detailLevel)) {
-    return null;
-  }
   if (renderPlanKey === 'hidden') {
     return null;
   }
   const repeatCount = Number(renderPlanKey.slice('visible:'.length));
   return (
-    <AssistantRunTimeline data={data} repeatCount={repeatCount} statusOverride={statusOverride} />
+    <AssistantRunTimeline
+      data={data}
+      repeatCount={repeatCount}
+      {...(statusOverride ? { statusOverride } : {})}
+    />
   );
 };
 
@@ -391,6 +398,17 @@ function isActivityPart(part: unknown): boolean {
   return type === 'tool-call' || type === 'reasoning';
 }
 
+/** Stable React key for an activity row: the tool call id, else its position. */
+function activityPartKey(part: unknown, index: number): string {
+  if (part && typeof part === 'object') {
+    const id = (part as { toolCallId?: unknown }).toolCallId;
+    if (typeof id === 'string' && id.length > 0) {
+      return id;
+    }
+  }
+  return `activity-${index}`;
+}
+
 const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
@@ -414,12 +432,18 @@ const LocalChainOfThought: FC = () => {
     }
     return state.chainOfThought.parts.find(isActivityPart) === firstActivity;
   });
-  const activityIndicesKey = useAuiState((state) =>
-    state.message.parts
-      .map((part, index) => (isActivityPart(part) ? index : -1))
-      .filter((index) => index >= 0)
-      .join(',')
-  );
+  // `index:stableKey` for each activity part, built in ONE pass (the selector
+  // re-runs on every streamed update). Selecting a string primitive keeps
+  // re-render semantics stable; the stable key avoids array-index keys.
+  const activityKey = useAuiState((state) => {
+    const entries: string[] = [];
+    for (const [index, part] of state.message.parts.entries()) {
+      if (isActivityPart(part)) {
+        entries.push(`${index}:${activityPartKey(part, index)}`);
+      }
+    }
+    return entries.join(',');
+  });
 
   const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
   const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
@@ -441,13 +465,18 @@ const LocalChainOfThought: FC = () => {
     return null;
   }
 
-  const activityIndices =
-    activityIndicesKey === '' ? [] : activityIndicesKey.split(',').map(Number);
+  const activityEntries =
+    activityKey === ''
+      ? []
+      : activityKey.split(',').map((entry) => {
+          const separator = entry.indexOf(':');
+          return { index: Number(entry.slice(0, separator)), key: entry.slice(separator + 1) };
+        });
 
   // Render each tool/reasoning part by index — this keeps assistant-ui's live
   // streaming binding while letting us group across step boundaries.
-  const activityParts = activityIndices.map((index) => (
-    <div className="mb-2 last:mb-0 empty:mb-0" key={index}>
+  const activityParts = activityEntries.map(({ index, key }) => (
+    <div className="mb-2 last:mb-0 empty:mb-0" key={key}>
       <MessagePrimitive.PartByIndex
         components={{
           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
