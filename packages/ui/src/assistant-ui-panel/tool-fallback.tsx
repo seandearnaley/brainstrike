@@ -4,8 +4,14 @@ import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import { resolveToolDisplayPolicy } from './assistant-detail-level';
+import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
-import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
+import {
+  categoryTintClasses,
+  classifyToolName,
+  isInternalToolName,
+} from './tool-visual-classification';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
@@ -205,13 +211,19 @@ export function summarizeResult(result: ToolResult): string | undefined {
  * - Error: shows the error message inline in red
  */
 export const ToolFallback: ToolCallMessagePartComponent = ({
+  toolCallId,
   toolName,
   args,
   argsText,
   result,
   status,
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const { detailLevel } = useAssistantDetailLevel();
+  const policy = resolveToolDisplayPolicy(detailLevel, {
+    isInternal: isInternalToolName(toolName),
+  });
+
+  const [isCollapsed, setIsCollapsed] = useState(!policy.defaultExpanded);
   const detailsId = useId();
 
   const hasResult = result !== undefined;
@@ -221,13 +233,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
   const errorMessage = resolveErrorMessage(status, result);
-  const showDetails = !isRunning && (Boolean(argsText) || hasResult);
+  const showDetails = policy.showDetailsExpander && !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 
   const primaryArg = useMemo(() => extractPrimaryArg(args, argsText), [args, argsText]);
   const resultSummary = useMemo(
-    () => (isError ? undefined : summarizeResult(result)),
-    [isError, result]
+    () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
+    [isError, policy.showResultSummary, result]
   );
 
   const category = classifyToolName(toolName);
@@ -311,6 +323,19 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
       {showDetails && !isCollapsed && (
         <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
+          {policy.showRawIo ? (
+            <div className="px-3 py-1">
+              <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+                Metadata:
+              </p>
+              <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                <dt className="text-muted-foreground">toolCallId</dt>
+                <dd className="min-w-0 break-words text-foreground/90">{toolCallId}</dd>
+                <dt className="text-muted-foreground">tool</dt>
+                <dd className="min-w-0 break-words text-foreground/90">{toolName}</dd>
+              </dl>
+            </div>
+          ) : null}
           {argsText && (
             <div className="px-3 py-1">
               <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
