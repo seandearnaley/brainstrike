@@ -667,21 +667,23 @@ describe('FileExplorerPanel', () => {
     };
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
 
-    renderWithProviders(<FileExplorerPanel />);
+    try {
+      renderWithProviders(<FileExplorerPanel />);
 
-    // Click the refresh button which is now rendered by FileExplorerPanel itself
-    await user.click(screen.getByTestId('refresh-button-small'));
+      // Click the refresh button which is now rendered by FileExplorerPanel itself
+      await user.click(screen.getByTestId('refresh-button-small'));
 
-    expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
-    expect(showToastMock).toHaveBeenCalled();
-    expect(refreshEvents).toHaveLength(1);
-    expect(refreshEvents[0]?.detail).toEqual({
-      source: 'manual',
-      scope: 'full',
-      roots: [],
-    });
-
-    window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+      expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
+      expect(showToastMock).toHaveBeenCalled();
+      expect(refreshEvents).toHaveLength(1);
+      expect(refreshEvents[0]?.detail).toEqual({
+        source: 'manual',
+        scope: 'full',
+        roots: [],
+      });
+    } finally {
+      window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    }
   });
 
   it('handles directory selection errors', async () => {

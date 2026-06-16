@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INJECT_ROOT_HANDLE_EVENT } from '../inject-root-handle-event';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {
+  createFileExplorerRefreshEvent,
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEventDetail,
 } from '../shell/file-explorer-refresh-event';
@@ -19,6 +20,19 @@ function useExposed() {
   const fs = useFileSystem();
   const store = useFileExplorerStoreContext();
   return { fs, store };
+}
+
+function captureFileExplorerRefreshEvents() {
+  const events: CustomEvent<FileExplorerRefreshEventDetail>[] = [];
+  const listener = vi.fn((event: Event): void => {
+    events.push(event as CustomEvent<FileExplorerRefreshEventDetail>);
+  });
+  window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, listener);
+  return {
+    events,
+    listener,
+    cleanup: () => window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, listener),
+  };
 }
 
 describe('useFileSystem context hook', () => {
@@ -570,181 +584,329 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
       'bbbbbbbb-cccc-dddd-eeee-ffffffffffff' as ReturnType<typeof crypto.randomUUID>
     );
-    const refreshEvents: CustomEvent<FileExplorerRefreshEventDetail>[] = [];
-    const onRefresh = (event: Event): void => {
-      refreshEvents.push(event as CustomEvent<FileExplorerRefreshEventDetail>);
-    };
-    window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    const refreshCapture = captureFileExplorerRefreshEvents();
 
-    // Track calls to watchDirectory so we can invoke the callback ourselves.
-    let capturedCallback: ((changes: FileSystemChange[]) => void) | null = null;
+    try {
+      // Track calls to watchDirectory so we can invoke the callback ourselves.
+      let capturedCallback: ((changes: FileSystemChange[]) => void) | null = null;
 
-    const handle: DirectoryHandle = {
-      path: '/debounce-root',
-      name: 'debounce-root',
-      kind: 'directory',
-      platform: 'web',
-      rootId: 'debounce-root-id',
-    } as DirectoryHandle;
+      const handle: DirectoryHandle = {
+        path: '/debounce-root',
+        name: 'debounce-root',
+        kind: 'directory',
+        platform: 'web',
+        rootId: 'debounce-root-id',
+      } as DirectoryHandle;
 
-    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
-      watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
-        capturedCallback = cb;
-        return vi.fn();
-      }),
-    });
-
-    const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        children,
-        mockFileSystemAdapter: adapterWithWatch,
+      const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+        restoreLastFolder: vi.fn(async () => handle),
+        watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
+          capturedCallback = cb;
+          return vi.fn();
+        }),
       });
 
-    renderHook(() => useExposed(), { wrapper });
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(FileExplorerTestWrapper, {
+          children,
+          mockFileSystemAdapter: adapterWithWatch,
+        });
 
-    // Allow restoreLastFolder to settle so the watcher root is registered
-    await act(async () => {
-      await vi.runAllTimersAsync();
-    });
+      renderHook(() => useExposed(), { wrapper });
 
-    if (!capturedCallback) {
-      throw new Error('watchDirectory callback was not registered');
-    }
+      // Allow restoreLastFolder to settle so the watcher root is registered
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
 
-    expect(adapterWithWatch.watchDirectory).toHaveBeenCalledTimes(1);
+      if (!capturedCallback) {
+        throw new Error('watchDirectory callback was not registered');
+      }
 
-    const cb = capturedCallback as (changes: FileSystemChange[]) => void;
-    const changes: FileSystemChange[] = [
-      { kind: 'file', path: 'src/index.ts', type: 'modified' },
-      { kind: 'directory', path: 'src/nested', type: 'added' },
-      { kind: 'file', path: 'src/nested/deep-file.ts', type: 'removed' },
-    ];
+      expect(adapterWithWatch.watchDirectory).toHaveBeenCalledTimes(1);
 
-    // Fire rapid changes — all within the 300ms debounce window.
-    for (const change of changes) {
+      const cb = capturedCallback as (changes: FileSystemChange[]) => void;
+      const changes: FileSystemChange[] = [
+        { kind: 'file', path: 'src/index.ts', type: 'modified' },
+        { kind: 'directory', path: 'src/nested', type: 'added' },
+        { kind: 'file', path: 'src/nested/deep-file.ts', type: 'removed' },
+      ];
+
+      // Fire rapid changes — all within the 300ms debounce window.
+      for (const change of changes) {
+        act(() => {
+          cb([change]);
+        });
+      }
+
+      // No dispatch yet (debounce timer hasn't expired)
+      expect(refreshCapture.events).toHaveLength(0);
+
+      // Advance past the 300ms trailing window
       act(() => {
-        cb([change]);
+        vi.advanceTimersByTime(300);
       });
+
+      expect(refreshCapture.events).toHaveLength(1);
+      expect(refreshCapture.events[0]).toBeInstanceOf(CustomEvent);
+      expect(refreshCapture.events[0]?.detail).toEqual({
+        source: 'watcher',
+        scope: 'incremental',
+        roots: [
+          {
+            rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+            rootPath: '/debounce-root',
+            changes,
+          },
+        ],
+      });
+    } finally {
+      refreshCapture.cleanup();
     }
+  });
 
-    // No dispatch yet (debounce timer hasn't expired)
-    expect(refreshEvents).toHaveLength(0);
+  it('prunes queued watcher changes when the changed root is removed before debounce fires', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
 
-    // Advance past the 300ms trailing window
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
+    try {
+      const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
+      const root: DirectoryHandle = {
+        path: '/queued-removed-root',
+        name: 'queued-removed-root',
+        kind: 'directory',
+        platform: 'web',
+        rootId: 'queued-removed-root-id',
+      } as DirectoryHandle;
 
-    expect(refreshEvents).toHaveLength(1);
-    expect(refreshEvents[0]).toBeInstanceOf(CustomEvent);
-    expect(refreshEvents[0]?.detail).toEqual({
-      source: 'watcher',
-      scope: 'incremental',
-      roots: [
-        {
-          rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
-          rootPath: '/debounce-root',
-          changes,
-        },
-      ],
-    });
+      const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+        watchDirectory: vi.fn(
+          (handle: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
+            callbacksByPath.set(handle.path, cb);
+            return vi.fn();
+          }
+        ),
+      });
 
-    window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(FileExplorerTestWrapper, {
+          children,
+          mockFileSystemAdapter: adapterWithWatch,
+        });
+
+      const { result } = renderHook(() => useExposed(), { wrapper });
+
+      await act(async () => {
+        await result.current.fs.registerRestoredHandles([root]);
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      const callback = callbacksByPath.get('/queued-removed-root');
+      if (!callback) {
+        throw new Error('watchDirectory callback was not registered');
+      }
+
+      act(() => {
+        callback([{ kind: 'file', path: 'src/stale.ts', type: 'modified' }]);
+      });
+
+      await act(async () => {
+        await result.current.fs.removeRootDirectory('queued-removed-root-id');
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(refreshCapture.events).toHaveLength(0);
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
+  it('ignores watcher callbacks flushed after their root was removed', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+
+    try {
+      const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
+      const root: DirectoryHandle = {
+        path: '/disposed-flush-root',
+        name: 'disposed-flush-root',
+        kind: 'directory',
+        platform: 'web',
+        rootId: 'disposed-flush-root-id',
+      } as DirectoryHandle;
+
+      const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+        watchDirectory: vi.fn(
+          (handle: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
+            callbacksByPath.set(handle.path, cb);
+            return vi.fn();
+          }
+        ),
+      });
+
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(FileExplorerTestWrapper, {
+          children,
+          mockFileSystemAdapter: adapterWithWatch,
+        });
+
+      const { result } = renderHook(() => useExposed(), { wrapper });
+
+      await act(async () => {
+        await result.current.fs.registerRestoredHandles([root]);
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      const callback = callbacksByPath.get('/disposed-flush-root');
+      if (!callback) {
+        throw new Error('watchDirectory callback was not registered');
+      }
+
+      await act(async () => {
+        await result.current.fs.removeRootDirectory('disposed-flush-root-id');
+      });
+
+      expect(() => {
+        callback([{ kind: 'file', path: 'src/disposed.ts', type: 'modified' }]);
+      }).not.toThrow();
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(refreshCapture.events).toHaveLength(0);
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
+  it('cleans up refresh event listeners when a listener assertion fails', () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+    const expectedError = new Error('intentional listener cleanup assertion failure');
+
+    expect(() => {
+      try {
+        window.dispatchEvent(
+          createFileExplorerRefreshEvent({
+            source: 'watcher',
+            scope: 'incremental',
+            roots: [],
+          })
+        );
+        throw expectedError;
+      } finally {
+        refreshCapture.cleanup();
+      }
+    }).toThrow(expectedError);
+
+    window.dispatchEvent(
+      createFileExplorerRefreshEvent({
+        source: 'watcher',
+        scope: 'incremental',
+        roots: [],
+      })
+    );
+
+    expect(refreshCapture.listener).toHaveBeenCalledTimes(1);
   });
 
   it('merges rapid watcher callbacks from different roots into one refresh event', async () => {
-    const refreshEvents: CustomEvent<FileExplorerRefreshEventDetail>[] = [];
-    const onRefresh = (event: Event): void => {
-      refreshEvents.push(event as CustomEvent<FileExplorerRefreshEventDetail>);
-    };
-    window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    const refreshCapture = captureFileExplorerRefreshEvents();
 
-    const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
+    try {
+      const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
 
-    const rootA: DirectoryHandle = {
-      path: '/multi-root-a',
-      name: 'multi-root-a',
-      kind: 'directory',
-      platform: 'web',
-      rootId: 'root-a-id',
-    } as DirectoryHandle;
-    const rootB: DirectoryHandle = {
-      path: '/multi-root-b',
-      name: 'multi-root-b',
-      kind: 'directory',
-      platform: 'web',
-      rootId: 'root-b-id',
-    } as DirectoryHandle;
+      const rootA: DirectoryHandle = {
+        path: '/multi-root-a',
+        name: 'multi-root-a',
+        kind: 'directory',
+        platform: 'web',
+        rootId: 'root-a-id',
+      } as DirectoryHandle;
+      const rootB: DirectoryHandle = {
+        path: '/multi-root-b',
+        name: 'multi-root-b',
+        kind: 'directory',
+        platform: 'web',
+        rootId: 'root-b-id',
+      } as DirectoryHandle;
 
-    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      watchDirectory: vi.fn(
-        (handle: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
-          callbacksByPath.set(handle.path, cb);
-          return vi.fn();
-        }
-      ),
-    });
-
-    const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        children,
-        mockFileSystemAdapter: adapterWithWatch,
+      const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+        watchDirectory: vi.fn(
+          (handle: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
+            callbacksByPath.set(handle.path, cb);
+            return vi.fn();
+          }
+        ),
       });
 
-    const { result } = renderHook(() => useExposed(), { wrapper });
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(FileExplorerTestWrapper, {
+          children,
+          mockFileSystemAdapter: adapterWithWatch,
+        });
 
-    await act(async () => {
-      await result.current.fs.registerRestoredHandles([rootA, rootB]);
-    });
+      const { result } = renderHook(() => useExposed(), { wrapper });
 
-    await act(async () => {
-      await vi.runAllTimersAsync();
-    });
+      await act(async () => {
+        await result.current.fs.registerRestoredHandles([rootA, rootB]);
+      });
 
-    expect(adapterWithWatch.watchDirectory).toHaveBeenCalledTimes(2);
-    const callbackA = callbacksByPath.get('/multi-root-a');
-    const callbackB = callbacksByPath.get('/multi-root-b');
-    if (!(callbackA && callbackB)) {
-      throw new Error('watchDirectory callbacks were not registered for both roots');
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(adapterWithWatch.watchDirectory).toHaveBeenCalledTimes(2);
+      const callbackA = callbacksByPath.get('/multi-root-a');
+      const callbackB = callbacksByPath.get('/multi-root-b');
+      if (!(callbackA && callbackB)) {
+        throw new Error('watchDirectory callbacks were not registered for both roots');
+      }
+
+      const changesA: FileSystemChange[] = [{ kind: 'file', path: 'src/a.ts', type: 'modified' }];
+      const changesB: FileSystemChange[] = [
+        { kind: 'directory', path: 'src/features/nested', type: 'added' },
+        { kind: 'file', path: 'src/features/nested/b.ts', type: 'added' },
+      ];
+
+      act(() => {
+        callbackA(changesA);
+        callbackB(changesB);
+      });
+
+      expect(refreshCapture.events).toHaveLength(0);
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(refreshCapture.events).toHaveLength(1);
+      expect(refreshCapture.events[0]?.detail).toEqual({
+        source: 'watcher',
+        scope: 'incremental',
+        roots: [
+          {
+            rootId: 'root-a-id',
+            rootPath: '/multi-root-a',
+            changes: changesA,
+          },
+          {
+            rootId: 'root-b-id',
+            rootPath: '/multi-root-b',
+            changes: changesB,
+          },
+        ],
+      });
+    } finally {
+      refreshCapture.cleanup();
     }
-
-    const changesA: FileSystemChange[] = [{ kind: 'file', path: 'src/a.ts', type: 'modified' }];
-    const changesB: FileSystemChange[] = [
-      { kind: 'directory', path: 'src/features/nested', type: 'added' },
-      { kind: 'file', path: 'src/features/nested/b.ts', type: 'added' },
-    ];
-
-    act(() => {
-      callbackA(changesA);
-      callbackB(changesB);
-    });
-
-    expect(refreshEvents).toHaveLength(0);
-
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-
-    expect(refreshEvents).toHaveLength(1);
-    expect(refreshEvents[0]?.detail).toEqual({
-      source: 'watcher',
-      scope: 'incremental',
-      roots: [
-        {
-          rootId: 'root-a-id',
-          rootPath: '/multi-root-a',
-          changes: changesA,
-        },
-        {
-          rootId: 'root-b-id',
-          rootPath: '/multi-root-b',
-          changes: changesB,
-        },
-      ],
-    });
-
-    window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
   });
 
   it('unmounting clears the pending debounce timer — no dispatch after unmount', async () => {

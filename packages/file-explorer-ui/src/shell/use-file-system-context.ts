@@ -376,15 +376,14 @@ export function useFileSystemInstance() {
       })),
     [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
   );
-  const watcherRootById = useMemo(
-    () => new Map(watcherRoots.map((root) => [root.rootId, root] as const)),
-    [watcherRoots]
-  );
 
   // Debounce timer for the refresh event dispatch. Held in a ref so the
   // timer identity never drives re-renders and the callback closure always
   // sees the same ref object without needing it in deps.
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watcherRootMetadataRef = useRef<Map<string, { rootId: string; rootPath: string }>>(
+    new Map()
+  );
   const pendingRefreshRootsRef = useRef<
     Map<
       string,
@@ -396,15 +395,45 @@ export function useFileSystemInstance() {
     >
   >(new Map());
 
+  const prunePendingRefreshRoots = useCallback((activeRootIds: ReadonlySet<string>): void => {
+    const pendingRoots = pendingRefreshRootsRef.current;
+    for (const rootId of Array.from(pendingRoots.keys())) {
+      if (!activeRootIds.has(rootId)) {
+        pendingRoots.delete(rootId);
+      }
+    }
+    if (pendingRoots.size === 0 && refreshTimerRef.current !== null) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, []);
+
+  // Keep active watcher metadata and pending refresh payloads in lockstep with
+  // the active roots. This effect intentionally runs before useFileSystemWatcher
+  // below, so watcher disposal flushes observe the pruned metadata.
+  useEffect(() => {
+    const nextMetadata = new Map(
+      watcherRoots.map((root) => [
+        root.rootId,
+        {
+          rootId: root.rootId,
+          rootPath: root.handle.path,
+        },
+      ])
+    );
+    watcherRootMetadataRef.current = nextMetadata;
+    prunePendingRefreshRoots(new Set(nextMetadata.keys()));
+  }, [prunePendingRefreshRoots, watcherRoots]);
+
   // Debounced watcher callback: 300ms trailing. Multiple rapid change
   // notifications from the same or different roots collapse into a single
   // FILE_EXPLORER_REFRESH_EVENT dispatch, preventing redundant tree reloads
   // during a burst of file-system activity (e.g. a build writing many files).
   const handleWatcherChanges = useCallback(
     (rootId: string, changes: FileSystemChange[]): void => {
-      const watcherRoot = watcherRootById.get(rootId);
+      const watcherRoot = watcherRootMetadataRef.current.get(rootId);
       if (!watcherRoot) {
-        throw new Error(`Watcher change received for unknown file explorer root: ${rootId}`);
+        return;
       }
 
       const pendingRoots = pendingRefreshRootsRef.current;
@@ -414,7 +443,7 @@ export function useFileSystemInstance() {
       } else {
         pendingRoots.set(rootId, {
           rootId,
-          rootPath: watcherRoot.handle.path,
+          rootPath: watcherRoot.rootPath,
           changes: [...changes],
         });
       }
@@ -424,12 +453,16 @@ export function useFileSystemInstance() {
       }
       refreshTimerRef.current = setTimeout(() => {
         refreshTimerRef.current = null;
+        prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
         const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
           rootId: root.rootId,
           rootPath: root.rootPath,
           changes: root.changes,
         }));
         pendingRefreshRootsRef.current.clear();
+        if (roots.length === 0) {
+          return;
+        }
         window.dispatchEvent(
           createFileExplorerRefreshEvent({
             source: 'watcher',
@@ -439,7 +472,7 @@ export function useFileSystemInstance() {
         );
       }, 300);
     },
-    [watcherRootById]
+    [prunePendingRefreshRoots]
   );
 
   // Clear any pending debounced dispatch on unmount to avoid dispatching after
