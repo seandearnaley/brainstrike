@@ -227,7 +227,11 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const durationMs = useToolDurationMs(toolCallId);
   const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
 
-  const [isCollapsed, setIsCollapsed] = useState(!policy.defaultExpanded);
+  // Follow the Detail level (policy.defaultExpanded) until the user explicitly
+  // toggles this card — so switching to Developer auto-expands already-rendered
+  // cards (and Compact re-collapses them), while an explicit toggle still wins.
+  const [userCollapsed, setUserCollapsed] = useState<boolean | null>(null);
+  const isCollapsed = userCollapsed ?? !policy.defaultExpanded;
   const detailsId = useId();
 
   const hasResult = result !== undefined;
@@ -311,7 +315,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           <DetailsToggleButton
             detailsId={detailsId}
             isCollapsed={isCollapsed}
-            onToggle={() => setIsCollapsed((prev) => !prev)}
+            onToggle={() => setUserCollapsed(!isCollapsed)}
           />
         ) : null}
       </div>

@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/utils';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
 import {
   type AssistantDetailLevel,
   DEFAULT_ASSISTANT_DETAIL_LEVEL,
@@ -9,8 +9,9 @@ import {
 const logger = createLogger('AssistantDetailLevel');
 
 /**
- * localStorage key for the persisted Detail level. Exported so the Factory
- * Reset pipeline can enumerate it (see factory-reset-helpers).
+ * localStorage key for the persisted Detail level. Factory Reset already covers
+ * it via its blanket `localStorage.clear()` (no per-key enumeration); the export
+ * is for tests and any future targeted handling.
  */
 export const ASSISTANT_DETAIL_LEVEL_STORAGE_KEY = 'brainstrike.assistant.detail-level';
 
@@ -82,5 +83,5 @@ export function AssistantDetailLevelProvider({ children }: { children: ReactNode
  * not an error path.
  */
 export function useAssistantDetailLevel(): AssistantDetailLevelValue {
-  return useContext(AssistantDetailLevelContext) ?? FALLBACK_VALUE;
+  return use(AssistantDetailLevelContext) ?? FALLBACK_VALUE;
 }

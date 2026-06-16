@@ -2,12 +2,8 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  AssistantActivityGroup,
-  runEventsSpanMs,
-  summarizeToolActivity,
-  type ToolActivitySummary,
-} from '../assistant-activity-group';
+import { AssistantActivityGroup } from '../assistant-activity-group';
+import { runEventsSpanMs, summarizeToolActivity, type ToolActivitySummary } from '../tool-activity';
 import { formatActivityDuration } from '../tool-durations';
 
 const toolPart = (overrides: Record<string, unknown>) => ({

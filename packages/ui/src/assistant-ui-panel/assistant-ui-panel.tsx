@@ -49,11 +49,7 @@ import { Button } from '../button';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
-import {
-  AssistantActivityGroup,
-  runEventsSpanMs,
-  summarizeToolActivity,
-} from './assistant-activity-group';
+import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import {
@@ -78,6 +74,7 @@ import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
 import { collectToolDurations } from './tool-durations';
 import { ToolFallback } from './tool-fallback';

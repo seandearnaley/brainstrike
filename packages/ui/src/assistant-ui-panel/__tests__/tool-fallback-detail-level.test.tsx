@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
@@ -6,6 +6,7 @@ import type { AssistantDetailLevel } from '../assistant-detail-level';
 import {
   ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
   AssistantDetailLevelProvider,
+  useAssistantDetailLevel,
 } from '../assistant-detail-level-context';
 import { ToolFallback } from '../tool-fallback';
 
@@ -76,5 +77,40 @@ describe('ToolFallback detail level', () => {
   it('standard does not leak the raw tool-call id', () => {
     renderTool(internalToolProps, 'standard');
     expect(screen.queryByText('call-internal-1')).not.toBeInTheDocument();
+  });
+
+  it('re-syncs an already-rendered card when the Detail level changes', () => {
+    // Regression: collapse state was seeded once, so switching to Developer
+    // never expanded cards that were already on screen.
+    function Harness() {
+      const { setDetailLevel } = useAssistantDetailLevel();
+      const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
+      return (
+        <>
+          <button onClick={() => setDetailLevel('developer')} type="button">
+            go developer
+          </button>
+          <Comp {...internalToolProps} />
+        </>
+      );
+    }
+
+    window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, 'standard');
+    render(
+      <TooltipProvider>
+        <AssistantDetailLevelProvider>
+          <Harness />
+        </AssistantDetailLevelProvider>
+      </TooltipProvider>
+    );
+
+    // Standard: collapsed, no panes.
+    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'go developer' }));
+
+    // Developer: the existing card auto-expands its panes.
+    expect(screen.getByText('Arguments:')).toBeInTheDocument();
+    expect(screen.getByText('Result:')).toBeInTheDocument();
   });
 });

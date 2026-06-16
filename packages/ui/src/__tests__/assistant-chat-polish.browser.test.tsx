@@ -2,10 +2,8 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, test } from 'vitest';
-import {
-  AssistantActivityGroup,
-  type ToolActivitySummary,
-} from '../assistant-ui-panel/assistant-activity-group';
+import { AssistantActivityGroup } from '../assistant-ui-panel/assistant-activity-group';
+import type { ToolActivitySummary } from '../assistant-ui-panel/tool-activity';
 // Theme variables (colors, shimmer, tints) so screenshots render faithfully.
 import '../globals.css';
 import '../assistant-ui-panel/overrides.css';
