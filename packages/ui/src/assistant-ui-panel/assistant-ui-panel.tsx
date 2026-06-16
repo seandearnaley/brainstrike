@@ -477,9 +477,12 @@ const LocalChainOfThought: FC = () => {
     activityParts
   );
 
-  // A lone tool call (no reasoning) is more useful as just the card — the
-  // "Worked · 1 step" wrapper adds nothing. Two+ steps, or any reasoning, group.
-  const isSingleTool = toolActivity.stepCount === 1 && !hasReasoningParts;
+  const isActivityActive = toolActivity.runningCount > 0 || isReasoningRunning || isMessageRunning;
+  // A FINISHED lone tool call (no reasoning) is more useful as just the card —
+  // the "Worked · 1 step" wrapper adds nothing. While the turn is still active
+  // we always group, so streaming tools land in a stable container instead of a
+  // bare card that pops into a group when the second tool arrives.
+  const isSingleTool = !isActivityActive && toolActivity.stepCount === 1 && !hasReasoningParts;
 
   let content: ReactNode = reasoningSection;
   if (isSingleTool) {
@@ -488,7 +491,7 @@ const LocalChainOfThought: FC = () => {
     content = (
       <AssistantActivityGroup
         fallbackMs={activityFallbackMs}
-        isActive={toolActivity.runningCount > 0 || isReasoningRunning || isMessageRunning}
+        isActive={isActivityActive}
         summary={toolActivity}
       >
         {reasoningSection}

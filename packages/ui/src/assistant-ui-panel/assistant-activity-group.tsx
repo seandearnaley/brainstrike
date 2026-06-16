@@ -1,28 +1,33 @@
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
 import type { ToolActivitySummary } from './tool-activity';
 import { formatActivityDuration } from './tool-durations';
 
 /**
- * Live elapsed timer. While `isActive`, ticks every 100ms from the moment the
- * turn first became active (client clock — accurate for in-flight turns). Once
- * inactive it freezes the measured value. When the turn was never observed live
- * (a reloaded/finished turn), it returns `fallbackMs` instead.
+ * Live elapsed timer. While `isActive`, ticks every 100ms, SEEDED from the
+ * turn's already-elapsed run-event span so it continues from there instead of
+ * resetting to 0 (which otherwise flashes e.g. 1.8s → 0.2s the moment the group
+ * mounts mid-turn). Once inactive it freezes the measured value; a turn never
+ * observed live (reloaded/finished) just returns `fallbackMs`.
  */
 function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number | undefined {
-  // Store the measured elapsed directly in state so render stays pure (no ref
-  // reads during render). null = never timed live → fall back to the persisted
-  // duration; a frozen number = the value at the moment activity stopped.
   const [measuredMs, setMeasuredMs] = useState<number | null>(null);
+  // Latest seed value, mirrored in an effect (not render, to keep render pure)
+  // and read once when activity starts — so a growing fallback never restarts
+  // the clock.
+  const seedRef = useRef(fallbackMs);
+  useEffect(() => {
+    seedRef.current = fallbackMs;
+  }, [fallbackMs]);
 
   useEffect(() => {
     if (!isActive) {
       return;
     }
-    const start = Date.now();
-    // The only state write lives in the interval tick (a genuine side effect),
-    // so render stays pure and there is no prop→state mirroring in the body.
+    // Anchor the clock to the turn's real start: now − elapsed-so-far.
+    const start = Date.now() - (seedRef.current ?? 0);
+    setMeasuredMs(Date.now() - start);
     const intervalId = setInterval(() => setMeasuredMs(Date.now() - start), 100);
     return () => clearInterval(intervalId);
   }, [isActive]);

@@ -124,6 +124,18 @@ describe('AssistantActivityGroup', () => {
     expect(screen.getByText('3.4s')).toBeInTheDocument();
   });
 
+  it('seeds the live timer from the elapsed fallback (no flash back to 0)', () => {
+    // The group mounts 2s into the turn — the clock must continue from ~2.0s,
+    // not reset to 0 (which flashed 1.8s → 0.2s).
+    render(<AssistantActivityGroup fallbackMs={2000} isActive summary={activeSummary} />);
+    expect(screen.getByText('2.0s')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.getByText('3.0s')).toBeInTheDocument();
+  });
+
   it('renders the done summary with elapsed fallback and step count', () => {
     render(<AssistantActivityGroup fallbackMs={12_000} isActive={false} summary={doneSummary} />);
 
