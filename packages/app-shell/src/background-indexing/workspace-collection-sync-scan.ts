@@ -68,7 +68,12 @@ export interface PreparedSyncChanges {
 interface ScopedChangeAccumulator {
   changedFileNodesByPath: Map<string, IFileNode>;
   forceReadRelativePaths: Set<string>;
-  invalidationTargets: ManagedCacheInvalidationTarget[];
+  pendingRemovals: ScopedPendingRemoval[];
+}
+
+interface ScopedPendingRemoval {
+  change: FileSystemChange;
+  relativePath: string;
 }
 
 type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
@@ -403,56 +408,80 @@ async function readScopedDirectoryTree(args: {
   return fileNodes;
 }
 
-function createScopedRemovalInvalidationTarget(args: {
-  change: FileSystemChange;
-  relativePath: string;
-  rootId: string;
-}): ManagedCacheInvalidationTarget {
-  return args.change.kind === 'directory'
-    ? {
-        mode: 'prefix',
-        relativePathPrefix: args.relativePath,
-        rootId: args.rootId,
-      }
-    : {
-        mode: 'exact',
-        relativePath: args.relativePath,
-        rootId: args.rootId,
-      };
-}
-
 function isUnderRelativePrefix(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function collectLiveScopedChangePaths(args: {
-  changes: readonly FileSystemChange[];
-  rootPath: string;
-}): Set<string> {
-  const livePaths = new Set<string>();
-  for (const change of args.changes) {
-    if (change.type === 'removed') {
-      continue;
-    }
-    livePaths.add(normalizeScopedChangePath(change, args.rootPath));
+function makeInvalidationTargetKey(target: ManagedCacheInvalidationTarget): string {
+  if (target.mode === 'prefix') {
+    return `prefix:${target.rootId}:${target.relativePathPrefix}`;
   }
-  return livePaths;
+  return `exact:${target.rootId}:${target.relativePath}:${target.expectedFileRecordId ?? ''}`;
 }
 
-function removalConflictsWithLiveChange(args: {
-  change: FileSystemChange;
-  livePaths: ReadonlySet<string>;
-  relativePath: string;
-}): boolean {
-  if (args.change.kind === 'file') {
-    return args.livePaths.has(args.relativePath);
+function dedupeInvalidationTargets(
+  targets: readonly ManagedCacheInvalidationTarget[]
+): ManagedCacheInvalidationTarget[] {
+  const byKey = new Map<string, ManagedCacheInvalidationTarget>();
+  for (const target of targets) {
+    byKey.set(makeInvalidationTargetKey(target), target);
   }
-  for (const livePath of args.livePaths) {
-    if (isUnderRelativePrefix(livePath, args.relativePath)) {
-      return true;
+  return [...byKey.values()];
+}
+
+function collectScopedRemovalInvalidations(args: {
+  existingEntries: readonly ManagedCacheEntryMetadata[];
+  liveFilePaths: ReadonlySet<string>;
+  pendingRemovals: readonly ScopedPendingRemoval[];
+  rootId: string;
+}): ManagedCacheInvalidationTarget[] {
+  const targets: ManagedCacheInvalidationTarget[] = [];
+  for (const removal of args.pendingRemovals) {
+    if (removal.change.kind === 'file') {
+      if (args.liveFilePaths.has(removal.relativePath)) {
+        continue;
+      }
+      targets.push({
+        mode: 'exact',
+        relativePath: removal.relativePath,
+        rootId: args.rootId,
+      });
+      continue;
+    }
+
+    let foundLiveDescendant = false;
+    for (const liveFilePath of args.liveFilePaths) {
+      if (isUnderRelativePrefix(liveFilePath, removal.relativePath)) {
+        foundLiveDescendant = true;
+        break;
+      }
+    }
+    if (!foundLiveDescendant) {
+      targets.push({
+        mode: 'prefix',
+        relativePathPrefix: removal.relativePath,
+        rootId: args.rootId,
+      });
+      continue;
+    }
+
+    for (const entry of args.existingEntries) {
+      if (
+        entry.rootId !== args.rootId ||
+        !isUnderRelativePrefix(entry.relativePath, removal.relativePath) ||
+        args.liveFilePaths.has(entry.relativePath)
+      ) {
+        continue;
+      }
+      targets.push({
+        expectedFileRecordId: entry.fileRecordId,
+        mode: 'exact',
+        relativePath: entry.relativePath,
+        rootId: args.rootId,
+      });
     }
   }
-  return false;
+  return dedupeInvalidationTargets(targets);
 }
 
 async function collectChangedDirectoryFileNodes(args: {
@@ -506,29 +535,13 @@ async function collectScopedChange(args: {
   context: ResolvedScanContext;
   deps: WorkspaceCollectionSyncScanDeps;
   entryPolicy: WorkspaceIndexingEntryPolicy;
-  livePaths: ReadonlySet<string>;
   onExcludedEntry: () => void;
   rootHandle: RootDirectoryHandle;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<void> {
   const relativePath = normalizeScopedChangePath(args.change, args.context.rootPath);
   if (args.change.type === 'removed') {
-    if (
-      removalConflictsWithLiveChange({
-        change: args.change,
-        livePaths: args.livePaths,
-        relativePath,
-      })
-    ) {
-      return;
-    }
-    args.accumulator.invalidationTargets.push(
-      createScopedRemovalInvalidationTarget({
-        change: args.change,
-        relativePath,
-        rootId: args.context.dbRootId ?? '',
-      })
-    );
+    args.accumulator.pendingRemovals.push({ change: args.change, relativePath });
     return;
   }
 
@@ -668,12 +681,8 @@ async function collectPreparedScopedChanges(args: {
   const accumulator: ScopedChangeAccumulator = {
     changedFileNodesByPath: new Map<string, IFileNode>(),
     forceReadRelativePaths: new Set<string>(),
-    invalidationTargets: [],
+    pendingRemovals: [],
   };
-  const livePaths = collectLiveScopedChangePaths({
-    changes: args.changes,
-    rootPath: args.context.rootPath,
-  });
 
   try {
     for (const change of args.changes) {
@@ -684,7 +693,6 @@ async function collectPreparedScopedChanges(args: {
         context: args.context,
         deps: args.deps,
         entryPolicy,
-        livePaths,
         onExcludedEntry,
         rootHandle,
         statusReporter,
@@ -715,7 +723,12 @@ async function collectPreparedScopedChanges(args: {
     });
     statusReporter.flush(null);
     return {
-      invalidationTargets: accumulator.invalidationTargets,
+      invalidationTargets: collectScopedRemovalInvalidations({
+        existingEntries,
+        liveFilePaths: new Set(accumulator.changedFileNodesByPath.keys()),
+        pendingRemovals: accumulator.pendingRemovals,
+        rootId: args.context.dbRootId ?? '',
+      }),
       prepared: {
         ...prepared,
         excludedEntries,
