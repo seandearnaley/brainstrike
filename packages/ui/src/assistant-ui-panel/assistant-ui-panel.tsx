@@ -48,7 +48,7 @@ import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
 import { cn } from '../lib/utils';
-import { ModelPicker } from '../model-picker';
+import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageError } from './assistant-message-error';
