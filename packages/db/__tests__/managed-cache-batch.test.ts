@@ -565,6 +565,101 @@ describe('applyManagedCacheBatch', () => {
     );
   });
 
+  it('prefix invalidation treats SQL wildcard characters as literal path characters', async () => {
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-literal-underscore',
+      relativePath: 'src/a_b/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-wildcard-would-match-underscore',
+      relativePath: 'src/aXb/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-literal-percent',
+      relativePath: 'src/a%b/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-wildcard-would-match-percent',
+      relativePath: 'src/aXYZb/index.ts',
+      rootId: 'root-fixture',
+    });
+
+    const underscoreResult = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src/a_b',
+        },
+      ],
+    });
+
+    expect(underscoreResult.deletedFileRecordIds).toEqual(['prefix-literal-underscore']);
+    await expect(fileRecordRepository.findById('prefix-literal-underscore')).resolves.toBeNull();
+    await expect(
+      fileRecordRepository.findById('prefix-wildcard-would-match-underscore')
+    ).resolves.not.toBeNull();
+
+    const percentResult = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src/a%b',
+        },
+      ],
+    });
+
+    expect(percentResult.deletedFileRecordIds).toEqual(['prefix-literal-percent']);
+    await expect(fileRecordRepository.findById('prefix-literal-percent')).resolves.toBeNull();
+    await expect(
+      fileRecordRepository.findById('prefix-wildcard-would-match-percent')
+    ).resolves.not.toBeNull();
+  });
+
+  it('prefix invalidation normalizes trailing slashes before matching descendants', async () => {
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-trailing-slash-child',
+      relativePath: 'src/index.ts',
+      rootId: 'root-fixture',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src/',
+        },
+      ],
+    });
+
+    expect(result.deletedFileRecordIds).toEqual(['prefix-trailing-slash-child']);
+    await expect(fileRecordRepository.findById('prefix-trailing-slash-child')).resolves.toBeNull();
+  });
+
+  it('rejects invalidation batches that exceed the PostgreSQL parameter limit', async () => {
+    const tooManyTargets = Array.from({ length: 16_384 }, (_, index) => ({
+      rootId: 'root-fixture',
+      relativePath: `src/${index}.ts`,
+    }));
+
+    await expect(
+      invalidateManagedCacheEntriesByIdentity(db, {
+        embeddingSetId: 'set-1',
+        targets: tooManyTargets,
+      })
+    ).rejects.toThrow(
+      'Managed cache invalidation exceeds the PostgreSQL parameter limit. Received 16384 targets; maximum supported invalidation target count is 16383.'
+    );
+  });
+
   it('invalidates file records, cascades chunk deletion, refreshes stats, and returns deleted ids', async () => {
     await seedEmbeddingSet('set-stats');
     await importManagedCacheFile({
