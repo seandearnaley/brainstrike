@@ -9,7 +9,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
-import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from '../db-shared';
+import {
+  DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+  DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+  parseManagedCacheInvalidationsArgs,
+} from '../db-shared';
 import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
 import {
   getDesktopDatabaseWorkSchedulerSnapshot,
@@ -572,6 +576,25 @@ export function registerDatabaseIpcHandlers(
             const { getDbHostManager } = await import('../db-host-manager');
             await getDbHostManager().applyManagedCacheBatch(parsedPayload);
           }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL)
+      );
+    }
+  );
+
+  registry.registerInvoke(
+    'db',
+    DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+    async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
+      const parsedPayload = parseManagedCacheInvalidationsArgs(payload);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDbHostManager } = await import('../db-host-manager');
+            return await getDbHostManager().invalidateManagedCacheEntriesByIdentity(parsedPayload);
+          }, DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL)
       );
     }
   );

@@ -2,11 +2,13 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyManagedCacheBatch,
+  invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '../src/managed-cache/apply-managed-cache-batch.js';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
+import { getCollectionIndexingStats } from '../src/services/collection-indexing-stats.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
@@ -32,6 +34,140 @@ describe('applyManagedCacheBatch', () => {
   afterEach(async () => {
     await db.close();
   });
+
+  async function seedEmbeddingSet(embeddingSetId: string): Promise<void> {
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions)
+       VALUES ($1, $2, $3, 3)
+       ON CONFLICT (id) DO NOTHING`,
+      [embeddingSetId, `${embeddingSetId}-model-key`, `${embeddingSetId}-model-id`]
+    );
+  }
+
+  async function seedRoot(id: string, path: string): Promise<void> {
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path)
+       VALUES ($1, 'path', $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, id, path]
+    );
+  }
+
+  async function importManagedCacheFile(args: {
+    readonly embeddingSetId?: string;
+    readonly fileRecordId: string;
+    readonly relativePath: string;
+    readonly rootId?: string;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const pathParts = args.relativePath.split('/');
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: args.embeddingSetId ?? 'set-1',
+      rootId: args.rootId ?? 'root-fixture',
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            id: args.fileRecordId,
+            name: pathParts.pop() ?? args.fileRecordId,
+            path: args.relativePath,
+            size: 12,
+            createdAt: now,
+            updatedAt: now,
+            processedAt: now,
+            content: `export const file = ${JSON.stringify(args.fileRecordId)};`,
+            contentHash: `${args.fileRecordId}-hash`,
+            tokenCount: 5,
+          },
+        },
+      ],
+    });
+  }
+
+  async function insertChunk(args: {
+    readonly chunkId: string;
+    readonly chunkIndex?: number;
+    readonly embeddingSetId?: string;
+    readonly fileRecordId: string;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    await fileChunkRepository.insert({
+      id: args.chunkId,
+      fileRecordId: args.fileRecordId,
+      chunkIndex: args.chunkIndex ?? 0,
+      content: `${args.chunkId} content`,
+      contentHash: `${args.chunkId}-hash`,
+      tokenCount: 4,
+      chunkType: 'sentence',
+      chunkSize: 16,
+      embeddingSetId: args.embeddingSetId ?? 'set-1',
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  async function insertEmbeddingJob(args: {
+    readonly chunkId: string;
+    readonly error?: string | null;
+    readonly id: string;
+    readonly leaseToken?: string | null;
+    readonly leasedUntil?: string | null;
+    readonly state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
+    readonly workerId?: string | null;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO job_queue (
+         id, queue, job_type, payload, state, run_at,
+         lease_token, leased_until, worker_id, error, created_at, updated_at
+       )
+       VALUES ($1, 'embeddings', 'embed_chunk', $2::jsonb, $3, $4, $5, $6, $7, $8, $4, $4)`,
+      [
+        args.id,
+        JSON.stringify({ chunkId: args.chunkId }),
+        args.state ?? 'queued',
+        now,
+        args.leaseToken ?? null,
+        args.leasedUntil ?? null,
+        args.workerId ?? null,
+        args.error ?? null,
+      ]
+    );
+  }
+
+  async function listJobStates(): Promise<
+    Array<{
+      chunk_id: string | null;
+      error: string | null;
+      id: string;
+      lease_token: string | null;
+      leased_until: string | null;
+      state: string;
+      worker_id: string | null;
+    }>
+  > {
+    const result = await db.query<{
+      chunk_id: string | null;
+      error: string | null;
+      id: string;
+      lease_token: string | null;
+      leased_until: string | null;
+      state: string;
+      worker_id: string | null;
+    }>(
+      `SELECT
+         id,
+         state,
+         payload->>'chunkId' AS chunk_id,
+         lease_token,
+         leased_until,
+         worker_id,
+         error
+       FROM job_queue
+       ORDER BY id`
+    );
+    return result.rows;
+  }
 
   it('parses and validates managed-cache batch payloads from a single source of truth', () => {
     expect(
@@ -298,6 +434,496 @@ describe('applyManagedCacheBatch', () => {
         ],
       })
     ).rejects.toThrow('Managed cache batch mutation requires transactional database support.');
+  });
+
+  it('invalidates only the exact managed-cache identity and leaves the same relative path in another root', async () => {
+    await seedRoot('root-other', '/workspace/other');
+    await importManagedCacheFile({
+      fileRecordId: 'exact-root-fixture-file',
+      relativePath: 'src/shared.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'exact-root-other-file',
+      relativePath: 'src/shared.ts',
+      rootId: 'root-other',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          rootId: 'root-fixture',
+          relativePath: 'src/shared.ts',
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: ['exact-root-fixture-file'],
+    });
+    await expect(fileRecordRepository.findById('exact-root-fixture-file')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('exact-root-other-file')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'exact-root-other-file',
+        path: 'src/shared.ts',
+      })
+    );
+  });
+
+  it('does not invalidate root_id null legacy rows that share the target path', async () => {
+    const now = new Date().toISOString();
+    await fileRecordRepository.createWithContent({
+      id: 'legacy-null-root-file',
+      name: 'legacy.ts',
+      path: 'src/legacy.ts',
+      size: 10,
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const legacy = true;',
+      contentHash: 'legacy-null-root-hash',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'root-bound-legacy-path-file',
+      relativePath: 'src/legacy.ts',
+      rootId: 'root-fixture',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          rootId: 'root-fixture',
+          relativePath: 'src/legacy.ts',
+        },
+      ],
+    });
+
+    expect(result.deletedFileRecordIds).toEqual(['root-bound-legacy-path-file']);
+    await expect(fileRecordRepository.findById('root-bound-legacy-path-file')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('legacy-null-root-file')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'legacy-null-root-file',
+        path: 'src/legacy.ts',
+      })
+    );
+  });
+
+  it('prefix invalidation deletes descendants under one root while leaving sibling prefixes and other roots', async () => {
+    await seedRoot('root-prefix-other', '/workspace/prefix-other');
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-src-index',
+      relativePath: 'src/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-src-nested',
+      relativePath: 'src/nested/view.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-src-old-sibling',
+      relativePath: 'src-old/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-other-root-src',
+      relativePath: 'src/other-root.ts',
+      rootId: 'root-prefix-other',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src',
+        },
+      ],
+    });
+
+    expect(result.deletedFileRecordIds).toEqual(['prefix-src-index', 'prefix-src-nested']);
+    await expect(fileRecordRepository.findById('prefix-src-index')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('prefix-src-nested')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('prefix-src-old-sibling')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'prefix-src-old-sibling',
+        path: 'src-old/index.ts',
+      })
+    );
+    await expect(fileRecordRepository.findById('prefix-other-root-src')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'prefix-other-root-src',
+        path: 'src/other-root.ts',
+      })
+    );
+  });
+
+  it('prefix invalidation treats SQL wildcard characters as literal path characters', async () => {
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-literal-underscore',
+      relativePath: 'src/a_b/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-wildcard-would-match-underscore',
+      relativePath: 'src/aXb/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-literal-percent',
+      relativePath: 'src/a%b/index.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-wildcard-would-match-percent',
+      relativePath: 'src/aXYZb/index.ts',
+      rootId: 'root-fixture',
+    });
+
+    const underscoreResult = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src/a_b',
+        },
+      ],
+    });
+
+    expect(underscoreResult.deletedFileRecordIds).toEqual(['prefix-literal-underscore']);
+    await expect(fileRecordRepository.findById('prefix-literal-underscore')).resolves.toBeNull();
+    await expect(
+      fileRecordRepository.findById('prefix-wildcard-would-match-underscore')
+    ).resolves.not.toBeNull();
+
+    const percentResult = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src/a%b',
+        },
+      ],
+    });
+
+    expect(percentResult.deletedFileRecordIds).toEqual(['prefix-literal-percent']);
+    await expect(fileRecordRepository.findById('prefix-literal-percent')).resolves.toBeNull();
+    await expect(
+      fileRecordRepository.findById('prefix-wildcard-would-match-percent')
+    ).resolves.not.toBeNull();
+  });
+
+  it('prefix invalidation normalizes trailing slashes before matching descendants', async () => {
+    await importManagedCacheFile({
+      fileRecordId: 'prefix-trailing-slash-child',
+      relativePath: 'src/index.ts',
+      rootId: 'root-fixture',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: 'root-fixture',
+          relativePathPrefix: 'src/',
+        },
+      ],
+    });
+
+    expect(result.deletedFileRecordIds).toEqual(['prefix-trailing-slash-child']);
+    await expect(fileRecordRepository.findById('prefix-trailing-slash-child')).resolves.toBeNull();
+  });
+
+  it('rejects invalidation batches that exceed the PostgreSQL parameter limit', async () => {
+    const tooManyTargets = Array.from({ length: 16_384 }, (_, index) => ({
+      rootId: 'root-fixture',
+      relativePath: `src/${index}.ts`,
+    }));
+
+    await expect(
+      invalidateManagedCacheEntriesByIdentity(db, {
+        embeddingSetId: 'set-1',
+        targets: tooManyTargets,
+      })
+    ).rejects.toThrow(
+      'Managed cache invalidation exceeds the PostgreSQL parameter limit. Received 16384 targets; maximum supported invalidation target count is 16383.'
+    );
+  });
+
+  it('invalidates file records, cascades chunk deletion, refreshes stats, and returns deleted ids', async () => {
+    await seedEmbeddingSet('set-stats');
+    await importManagedCacheFile({
+      embeddingSetId: 'set-stats',
+      fileRecordId: 'stats-delete-file',
+      relativePath: 'src/delete.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      embeddingSetId: 'set-stats',
+      fileRecordId: 'stats-keep-file',
+      relativePath: 'src/keep.ts',
+      rootId: 'root-fixture',
+    });
+    await insertChunk({
+      chunkId: 'stats-delete-chunk-b',
+      chunkIndex: 1,
+      embeddingSetId: 'set-stats',
+      fileRecordId: 'stats-delete-file',
+    });
+    await insertChunk({
+      chunkId: 'stats-delete-chunk-a',
+      chunkIndex: 0,
+      embeddingSetId: 'set-stats',
+      fileRecordId: 'stats-delete-file',
+    });
+    await insertChunk({
+      chunkId: 'stats-keep-chunk',
+      embeddingSetId: 'set-stats',
+      fileRecordId: 'stats-keep-file',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-stats',
+      targets: [
+        {
+          expectedFileRecordId: 'stats-delete-file',
+          rootId: 'root-fixture',
+          relativePath: 'src/delete.ts',
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: ['stats-delete-chunk-a', 'stats-delete-chunk-b'],
+      deletedFileRecordIds: ['stats-delete-file'],
+    });
+    await expect(fileChunkRepository.findByFileRecordId('stats-delete-file')).resolves.toEqual([]);
+    await expect(fileChunkRepository.findByFileRecordId('stats-keep-file')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'stats-keep-chunk',
+      }),
+    ]);
+    await expect(getCollectionIndexingStats(db, 'set-stats')).resolves.toEqual(
+      expect.objectContaining({
+        chunkCount: 1,
+        dirty: false,
+        embeddedChunkCount: 0,
+        fileCount: 1,
+        pendingChunkCount: 1,
+      })
+    );
+  });
+
+  it('invalidations cancel queued and running embed jobs for deleted chunks and leave unrelated jobs intact', async () => {
+    await importManagedCacheFile({
+      fileRecordId: 'job-delete-file',
+      relativePath: 'src/job-delete.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'job-keep-file',
+      relativePath: 'src/job-keep.ts',
+      rootId: 'root-fixture',
+    });
+    await insertChunk({
+      chunkId: 'job-delete-queued-chunk',
+      fileRecordId: 'job-delete-file',
+    });
+    await insertChunk({
+      chunkId: 'job-delete-running-chunk',
+      chunkIndex: 1,
+      fileRecordId: 'job-delete-file',
+    });
+    await insertChunk({
+      chunkId: 'job-keep-chunk',
+      fileRecordId: 'job-keep-file',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'job-delete-queued-chunk',
+      id: 'job-delete-queued',
+      state: 'queued',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'job-delete-running-chunk',
+      id: 'job-delete-running',
+      leaseToken: 'lease-delete-running',
+      leasedUntil: '2999-01-01T00:00:00.000Z',
+      state: 'running',
+      workerId: 'worker-delete-running',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'job-delete-running-chunk',
+      id: 'job-delete-succeeded',
+      state: 'succeeded',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'job-keep-chunk',
+      id: 'job-keep-queued',
+      state: 'queued',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          rootId: 'root-fixture',
+          relativePath: 'src/job-delete.ts',
+        },
+      ],
+    });
+
+    expect(result.canceledEmbeddingJobCount).toBe(2);
+    expect(await listJobStates()).toEqual([
+      {
+        chunk_id: 'job-delete-queued-chunk',
+        error: 'Managed-cache invalidation deleted chunk job-delete-queued-chunk before embedding.',
+        id: 'job-delete-queued',
+        lease_token: null,
+        leased_until: null,
+        state: 'canceled',
+        worker_id: null,
+      },
+      {
+        chunk_id: 'job-delete-running-chunk',
+        error:
+          'Managed-cache invalidation deleted chunk job-delete-running-chunk before embedding.',
+        id: 'job-delete-running',
+        lease_token: null,
+        leased_until: null,
+        state: 'canceled',
+        worker_id: null,
+      },
+      {
+        chunk_id: 'job-delete-running-chunk',
+        error: null,
+        id: 'job-delete-succeeded',
+        lease_token: null,
+        leased_until: null,
+        state: 'succeeded',
+        worker_id: null,
+      },
+      {
+        chunk_id: 'job-keep-chunk',
+        error: null,
+        id: 'job-keep-queued',
+        lease_token: null,
+        leased_until: null,
+        state: 'queued',
+        worker_id: null,
+      },
+    ]);
+  });
+
+  it('replacement cancels queued and running embed jobs for old chunks before deleting chunks', async () => {
+    const now = new Date().toISOString();
+    await fileRecordRepository.createWithContent({
+      id: 'replace-job-file',
+      name: 'replace-job.ts',
+      path: 'src/replace-job.ts',
+      size: 10,
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-job-old-hash',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+      chunksCount: 2,
+      chunksProcessedAt: now,
+      chunkingStrategy: 'sentence',
+    });
+    await insertChunk({
+      chunkId: 'replace-job-old-queued-chunk',
+      fileRecordId: 'replace-job-file',
+    });
+    await insertChunk({
+      chunkId: 'replace-job-old-running-chunk',
+      chunkIndex: 1,
+      fileRecordId: 'replace-job-file',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'replace-job-old-queued-chunk',
+      id: 'replace-job-old-queued',
+      state: 'queued',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'replace-job-old-running-chunk',
+      id: 'replace-job-old-running',
+      leaseToken: 'replace-job-running-lease',
+      leasedUntil: '2999-01-01T00:00:00.000Z',
+      state: 'running',
+      workerId: 'replace-job-worker',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'unrelated-replace-job-chunk',
+      id: 'replace-job-unrelated',
+      state: 'queued',
+    });
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'replace-job-file',
+            name: 'replace-job.ts',
+            path: 'src/replace-job.ts',
+            size: 11,
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const version = 2;',
+            contentHash: 'replace-job-new-hash',
+            tokenCount: 6,
+          },
+        },
+      ],
+    });
+
+    await expect(fileChunkRepository.findByFileRecordId('replace-job-file')).resolves.toEqual([]);
+    expect(await listJobStates()).toEqual([
+      {
+        chunk_id: 'replace-job-old-queued-chunk',
+        error:
+          'Managed-cache replacement deleted chunk replace-job-old-queued-chunk before embedding.',
+        id: 'replace-job-old-queued',
+        lease_token: null,
+        leased_until: null,
+        state: 'canceled',
+        worker_id: null,
+      },
+      {
+        chunk_id: 'replace-job-old-running-chunk',
+        error:
+          'Managed-cache replacement deleted chunk replace-job-old-running-chunk before embedding.',
+        id: 'replace-job-old-running',
+        lease_token: null,
+        leased_until: null,
+        state: 'canceled',
+        worker_id: null,
+      },
+      {
+        chunk_id: 'unrelated-replace-job-chunk',
+        error: null,
+        id: 'replace-job-unrelated',
+        lease_token: null,
+        leased_until: null,
+        state: 'queued',
+        worker_id: null,
+      },
+    ]);
   });
 
   it('rolls back replacement chunk deletion when a later import in the batch fails', async () => {

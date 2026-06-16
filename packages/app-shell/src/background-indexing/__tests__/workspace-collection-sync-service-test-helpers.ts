@@ -83,6 +83,11 @@ export function createDeps(
       terminate: vi.fn(),
     })),
     ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
+    invalidateManagedCacheEntriesByIdentity: vi.fn(async () => ({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    })),
     onManagedCollectionMissing: vi.fn(),
     // Non-null by default: managed-cache identity is root_id (source_root_path
     // retired), and an import with a null root_id is skipped. ROOT_PATH doubles

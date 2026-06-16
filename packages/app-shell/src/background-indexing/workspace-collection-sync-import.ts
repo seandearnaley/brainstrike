@@ -522,6 +522,7 @@ export async function collectPreparedChangesInBatches(args: {
   fileContentProcessor?: FileContentProcessor;
   fileNodes: readonly IFileNode[];
   fileSystemAdapter: FileSystemAdapter;
+  forceReadRelativePaths?: ReadonlySet<string>;
   onCurrentFile: (path: string | null) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   // rootPath drives path normalization / composite keys; rootId is the durable
@@ -535,6 +536,7 @@ export async function collectPreparedChangesInBatches(args: {
     fileContentProcessor,
     fileNodes,
     fileSystemAdapter,
+    forceReadRelativePaths,
     onCurrentFile,
     qosPolicy,
     rootId,
@@ -560,11 +562,29 @@ export async function collectPreparedChangesInBatches(args: {
   // Stat-cache fast-path: drop files whose size+mtime already match the stored
   // entry before any content read, so unchanged files cost a stat lookup instead
   // of a full read + SHA-256 hash. Skipped files count as unchanged directly.
-  const { needsRead: preparations, skippedUnchanged } = partitionPreparationsByStatCache({
+  const statCacheEligiblePreparations =
+    forceReadRelativePaths && forceReadRelativePaths.size > 0
+      ? allPreparations.filter(
+          (preparation) => !forceReadRelativePaths.has(preparation.relativePath)
+        )
+      : allPreparations;
+  const forceReadPreparations =
+    forceReadRelativePaths && forceReadRelativePaths.size > 0
+      ? allPreparations.filter((preparation) =>
+          forceReadRelativePaths.has(preparation.relativePath)
+        )
+      : [];
+  const { needsRead, skippedUnchanged } = partitionPreparationsByStatCache({
     existingByIdentity,
-    preparations: allPreparations,
+    preparations: statCacheEligiblePreparations,
     rootId,
   });
+  const needsReadIdentities = new Set(
+    [...forceReadPreparations, ...needsRead].map((preparation) => preparation.relativePath)
+  );
+  const preparations = allPreparations.filter((preparation) =>
+    needsReadIdentities.has(preparation.relativePath)
+  );
   if (skippedUnchanged.length > 0) {
     // One line per scan: without this, a stat-skipped file leaves no trace at
     // all, which makes "why didn't my edit get indexed" undiagnosable.

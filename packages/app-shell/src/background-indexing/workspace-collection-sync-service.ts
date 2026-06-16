@@ -1,12 +1,13 @@
 import type {
   ApplyManagedCacheBatchArgs,
+  ApplyManagedCacheInvalidationsArgs,
   DbHandle,
   EmbeddingSet,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
+  ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
 import type { FileContentProcessor } from '@brainstrike/file-explorer-hooks';
-import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type {
   ChunkingWorkerPort,
   EnhancedImportProgress,
@@ -29,22 +30,17 @@ import type {
   WorkspaceCollectionSyncScanSummary,
   WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import {
-  type BackgroundIndexingPolicyPreset,
-  createBackgroundIndexingEntryPolicy,
-} from '@brainstrike/utils';
+import type { FileSystemChange } from '@brainstrike/types';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
-  collectPreparedChangesInBatches,
-  flattenFileNodes,
   type PreparedChangesSummary,
   runRootFolderCacheImport,
 } from './workspace-collection-sync-import';
 import {
   createAbortError,
-  createScanningStatusReporter,
   dispatchQueueDrainedEvent,
   getBackfillDrainPollDelayMs,
   isAbortError,
@@ -55,6 +51,10 @@ import {
   toWorkspaceCollectionSyncImportProgress,
   waitForAbortableDelay,
 } from './workspace-collection-sync-progress';
+import {
+  collectPreparedWorkspaceSyncChanges,
+  type PreparedSyncChanges,
+} from './workspace-collection-sync-scan';
 import { isWorkspaceIndexBlockedError } from './workspace-index-blocked-error';
 
 const logger = createLogger('WorkspaceCollectionSyncService');
@@ -74,6 +74,7 @@ interface RootDirectoryHandle {
   name: string;
   path: string;
   platform: 'electron' | 'web';
+  rootId?: string;
 }
 
 export interface WorkspaceCollectionSyncServiceDependencies {
@@ -107,6 +108,9 @@ export interface WorkspaceCollectionSyncServiceDependencies {
       requestId: string;
     }>
   >;
+  invalidateManagedCacheEntriesByIdentity: (
+    args: ApplyManagedCacheInvalidationsArgs
+  ) => Promise<ManagedCacheInvalidationResult>;
   log?: typeof logger;
   onManagedCollectionMissing?: (managedCollectionId: string) => void;
   /**
@@ -114,7 +118,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
    * table, awaiting the reconciliation result. Returns `null` if the path is
    * not mapped (logs once per path). ALWAYS settles — never hangs.
    */
-  resolveDbRootId: (rootPath: string) => Promise<string | null>;
+  resolveDbRootId: (rootPath: string, adapterRootId?: string | null) => Promise<string | null>;
   resolveQosPolicy: () => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
@@ -132,11 +136,22 @@ export interface WorkspaceCollectionSyncServiceDependencies {
 }
 
 export interface WorkspaceCollectionSyncRequest {
+  dbRootId?: string | null;
   enabled: boolean;
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   managedCollectionId: string | null;
   rootDirectoryHandle: RootDirectoryHandle | null;
+  scope?: WorkspaceCollectionSyncScope;
 }
+
+export type WorkspaceCollectionSyncScope =
+  | {
+      mode: 'full';
+    }
+  | {
+      changes: readonly FileSystemChange[];
+      mode: 'paths';
+    };
 
 interface ResolvedSyncContext {
   activeRootPath: string;
@@ -420,7 +435,12 @@ export class WorkspaceCollectionSyncService {
 
     // Short-circuit: '' is never a valid lookup key, and passing it would
     // pollute the warn-once set with a misleading entry on path-less runs.
-    const dbRootId = rootPath ? await this.deps.resolveDbRootId(rootPath) : null;
+    const dbRootId =
+      request.dbRootId === undefined
+        ? rootPath
+          ? await this.deps.resolveDbRootId(rootPath, request.rootDirectoryHandle?.rootId)
+          : null
+        : request.dbRootId;
     return {
       collection,
       activeRootPath: rootPath ?? '',
@@ -504,67 +524,28 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext;
     abortSignal: AbortSignal;
     qosPolicy: WorkspaceIndexingQosPolicy;
-  }): Promise<PreparedChangesSummary> {
-    const { request, context, abortSignal, qosPolicy } = args;
-    const entryPolicy = createBackgroundIndexingEntryPolicy({
-      preset: request.indexingPolicyPreset,
-    });
-    const statusReporter = createScanningStatusReporter((path) => {
-      this.setScanningStatus(context, path);
-    });
-    let excludedEntries = 0;
-
-    try {
-      const tree = await readFullTreeWithOptions(
-        this.deps.fileSystemAdapter,
-        request.rootDirectoryHandle as RootDirectoryHandle,
-        {
-          abortSignal,
-          entryPolicy,
-          onEntrySkipped: (entry) => {
-            if (entry.reason === 'entry-policy') {
-              excludedEntries += 1;
-            }
-          },
-          updateProgress: (path?: string) => {
-            statusReporter.report(path ?? null);
-          },
-        }
-      );
-      throwIfAborted(abortSignal);
-
-      const existingEntries = await this.deps.fileRecordRepository.listManagedCacheEntryMetadata(
-        context.collection.id
-      );
-      throwIfAborted(abortSignal);
-
-      const prepared = await collectPreparedChangesInBatches({
-        abortSignal,
-        existingEntries,
-        fileNodes: flattenFileNodes(tree),
+  }): Promise<PreparedSyncChanges> {
+    return await collectPreparedWorkspaceSyncChanges({
+      abortSignal: args.abortSignal,
+      context: {
+        activeRootPath: args.context.activeRootPath,
+        collectionId: args.context.collection.id,
+        dbRootId: args.context.dbRootId,
+        rootPath: args.context.rootPath,
+      },
+      deps: {
+        fileRecordRepository: this.deps.fileRecordRepository,
         fileSystemAdapter: this.deps.fileSystemAdapter,
-        onCurrentFile: (path) => {
-          statusReporter.report(path);
+        onScanningPath: (path) => {
+          this.setScanningStatus(args.context, path);
         },
-        qosPolicy,
-        // rootId is the managed-cache dedup identity (source_root_path retired).
-        // runSyncPass short-circuits a null dbRootId BEFORE the scan, so this is
-        // effectively non-null here; `?? ''` is only a typed floor for the
-        // string | null field (an empty id would match no stored row anyway).
-        rootId: context.dbRootId ?? '',
-        rootPath: context.activeRootPath,
         ...(this.deps.fileContentProcessor
           ? { fileContentProcessor: this.deps.fileContentProcessor }
           : {}),
-      });
-      statusReporter.flush(null);
-      return {
-        ...prepared,
-        excludedEntries,
-      };
-    } finally {
-      statusReporter.dispose();
-    }
+      },
+      qosPolicy: args.qosPolicy,
+      request: args.request,
+    });
   }
 
   private setScanSummary(
@@ -979,13 +960,21 @@ export class WorkspaceCollectionSyncService {
       context: args.context,
       phase: 'scan',
     });
-    const prepared = await this.collectPreparedChanges({
+    const syncChanges = await this.collectPreparedChanges({
       request: args.request,
       context: args.context,
       abortSignal: args.abortSignal,
       qosPolicy: scanQosPolicy,
     });
+    const { invalidationTargets, prepared } = syncChanges;
     this.setScanSummary(args.context, prepared);
+    if (invalidationTargets.length > 0) {
+      await this.deps.invalidateManagedCacheEntriesByIdentity({
+        embeddingSetId: args.context.collection.id,
+        targets: invalidationTargets,
+      });
+      throwIfAborted(args.abortSignal);
+    }
     await this.persistStatRefreshes(prepared.statRefreshes);
 
     if (prepared.changes.length === 0) {

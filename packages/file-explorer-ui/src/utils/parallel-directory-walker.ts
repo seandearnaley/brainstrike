@@ -77,6 +77,8 @@ export interface ParallelWalkerOptions {
   onProgress?: ((path: string, depth: number) => void) | undefined;
   /** Callback for streaming tree snapshots */
   onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
+  /** Throw when a non-root subdirectory cannot be read instead of omitting it from the result. */
+  propagateDirectoryReadErrors?: boolean | undefined;
   /** Snapshot interval in ms (default: 100) */
   snapshotIntervalMs?: number | undefined;
   /** Custom sort function for nodes */
@@ -147,6 +149,7 @@ export async function walkDirectoryParallel(
     entryPolicy,
     onEntrySkipped,
     onProgress,
+    propagateDirectoryReadErrors,
     sortFileNodes = defaultSortFileNodes,
     onTreeSnapshot,
     snapshotIntervalMs = DEFAULT_SNAPSHOT_INTERVAL_MS,
@@ -359,7 +362,7 @@ export async function walkDirectoryParallel(
       throw error;
     }
     // For root directory (depth 0), propagate the error
-    if (depth === 0) {
+    if (depth === 0 || propagateDirectoryReadErrors) {
       if (error instanceof Error) {
         throw error;
       }

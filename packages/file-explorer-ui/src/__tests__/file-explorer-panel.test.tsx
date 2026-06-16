@@ -7,6 +7,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import {
+  FILE_EXPLORER_REFRESH_EVENT,
+  type FileExplorerRefreshEventDetail,
+} from '../shell/file-explorer-refresh-event';
 import { useFileExplorer } from '../shell/use-file-explorer-context';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -657,13 +661,29 @@ describe('FileExplorerPanel', () => {
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerPanel />);
+    const refreshEvents: CustomEvent<FileExplorerRefreshEventDetail>[] = [];
+    const onRefresh = (event: Event): void => {
+      refreshEvents.push(event as CustomEvent<FileExplorerRefreshEventDetail>);
+    };
+    window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
 
-    // Click the refresh button which is now rendered by FileExplorerPanel itself
-    await user.click(screen.getByTestId('refresh-button-small'));
+    try {
+      renderWithProviders(<FileExplorerPanel />);
 
-    expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
-    expect(showToastMock).toHaveBeenCalled();
+      // Click the refresh button which is now rendered by FileExplorerPanel itself
+      await user.click(screen.getByTestId('refresh-button-small'));
+
+      expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
+      expect(showToastMock).toHaveBeenCalled();
+      expect(refreshEvents).toHaveLength(1);
+      expect(refreshEvents[0]?.detail).toEqual({
+        source: 'manual',
+        scope: 'full',
+        roots: [],
+      });
+    } finally {
+      window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    }
   });
 
   it('handles directory selection errors', async () => {

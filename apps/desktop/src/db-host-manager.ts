@@ -97,6 +97,7 @@ export interface DbHostManager {
   readonly close: () => Promise<void>;
   readonly getDatabase: () => Promise<RemoteDbClient>;
   readonly getDiagnostics: () => Promise<DbHostDiagnosticsResult>;
+  readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
 }
 
@@ -361,6 +362,10 @@ class DefaultDbHostManager implements DbHostManager {
 
   async applyManagedCacheBatch(payload: unknown): Promise<void> {
     await this.send({ kind: 'managed-cache:apply-batch', payload });
+  }
+
+  async invalidateManagedCacheEntriesByIdentity(payload: unknown): Promise<unknown> {
+    return await this.send({ kind: 'managed-cache:invalidate-by-identity', payload });
   }
 
   async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {

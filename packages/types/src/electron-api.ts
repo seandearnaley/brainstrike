@@ -59,6 +59,12 @@ export interface QueryResult<T = unknown> {
   rows: T[];
 }
 
+export interface ManagedCacheInvalidationResult {
+  readonly canceledEmbeddingJobCount: number;
+  readonly deletedChunkIds: string[];
+  readonly deletedFileRecordIds: string[];
+}
+
 export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
 export interface DatabaseWorkOptions {
@@ -184,6 +190,14 @@ export interface ElectronDatabaseAPI {
    * Get database file path (if applicable)
    */
   getPath?: () => Promise<string | null>;
+
+  /**
+   * Invalidate managed cache entries by embedding set, root id, and relative path identity.
+   */
+  invalidateManagedCacheEntriesByIdentity?: (
+    payload: unknown,
+    options?: DatabaseWorkOptions
+  ) => Promise<ManagedCacheInvalidationResult>;
   /**
    * Basic connectivity check
    */

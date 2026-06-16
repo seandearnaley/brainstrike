@@ -44,6 +44,7 @@ const {
   processFilesMock,
   listManagedCacheEntryMetadataMock,
   applyManagedCacheBatchLocalMock,
+  invalidateManagedCacheEntriesByIdentityLocalMock,
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
@@ -81,6 +82,11 @@ const {
       await db.transaction?.(async () => undefined);
     }
   ),
+  invalidateManagedCacheEntriesByIdentityLocalMock: vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  })),
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
@@ -165,6 +171,7 @@ const {
       name: string;
       path: string;
       platform: string;
+      rootId?: string;
     } | null,
     rootDirectoryHandles: [
       {
@@ -178,6 +185,7 @@ const {
       name: string;
       path: string;
       platform: string;
+      rootId?: string;
     }>,
     rootIdByPath: new Map<string, string>([['/workspace/root', 'root-id-1']]),
   },
@@ -283,6 +291,7 @@ vi.mock('@brainstrike/db', () => ({
     };
   }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
+  invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
   createDatabasePressureController: vi.fn(() => ({
     waitForBackgroundPermit: vi.fn(async () => undefined),
   })),
@@ -334,6 +343,9 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     rootDirectoryHandles: fileSystemState.rootDirectoryHandles,
     rootIdByPath: fileSystemState.rootIdByPath,
   }),
+  FILE_EXPLORER_REFRESH_EVENT: 'brainstrike:file-explorer-refreshed',
+  createFileExplorerRefreshEvent: (detail: unknown) =>
+    new CustomEvent('brainstrike:file-explorer-refreshed', { detail }),
 }));
 
 vi.mock('../../roots/use-roots-reconciliation', () => ({
@@ -895,6 +907,227 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
+  it('routes typed watcher incremental refreshes only to matching active root handles', async () => {
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+      rootId: 'root-a-id',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [
+      rootA,
+      {
+        kind: 'directory',
+        name: 'root-b',
+        path: '/workspace/root-b',
+        platform: 'electron',
+        rootId: 'root-b-id',
+      },
+    ];
+    fileSystemState.rootIdByPath = new Map([
+      ['/workspace/root-a', 'root-a-id'],
+      ['/workspace/root-b', 'root-b-id'],
+    ]);
+    resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
+      rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
+    );
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+
+      const change = {
+        kind: 'file' as const,
+        path: '/workspace/root-b/src/index.ts',
+        type: 'modified' as const,
+      };
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:file-explorer-refreshed', {
+            detail: {
+              source: 'watcher',
+              scope: 'incremental',
+              roots: [
+                {
+                  rootId: 'root-b-id',
+                  rootPath: '/workspace/root-b',
+                  changes: [change],
+                },
+              ],
+            },
+          })
+        );
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      expect(syncSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dbRootId: 'db-root-b-id',
+          rootDirectoryHandle: expect.objectContaining({
+            path: '/workspace/root-b',
+            rootId: 'root-b-id',
+          }),
+          scope: {
+            mode: 'paths',
+            changes: [change],
+          },
+        })
+      );
+      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/root-b', 'root-b-id');
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('treats payloadless and invalid refresh events as full all-root recovery syncs', async () => {
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+      rootId: 'root-a-id',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [
+      rootA,
+      {
+        kind: 'directory',
+        name: 'root-b',
+        path: '/workspace/root-b',
+        platform: 'electron',
+        rootId: 'root-b-id',
+      },
+    ];
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+
+      act(() => {
+        window.dispatchEvent(new Event('brainstrike:file-explorer-refreshed'));
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      expect(syncSpy.mock.calls.map(([request]) => request.rootDirectoryHandle?.path)).toEqual([
+        '/workspace/root-a',
+        '/workspace/root-b',
+      ]);
+      expect(syncSpy.mock.calls.every(([request]) => request.scope?.mode === 'full')).toBe(true);
+
+      syncSpy.mockClear();
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:file-explorer-refreshed', {
+            detail: { source: 'watcher', scope: 'incremental', roots: 'invalid' },
+          })
+        );
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      expect(syncSpy.mock.calls.map(([request]) => request.rootDirectoryHandle?.path)).toEqual([
+        '/workspace/root-a',
+        '/workspace/root-b',
+      ]);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('falls back to full recovery sync when a watcher event matches no active root', async () => {
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+      rootId: 'root-a-id',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [
+      rootA,
+      {
+        kind: 'directory',
+        name: 'root-b',
+        path: '/workspace/root-b',
+        platform: 'electron',
+        rootId: 'root-b-id',
+      },
+    ];
+    fileSystemState.rootIdByPath = new Map([
+      ['/workspace/root-a', 'root-a-id'],
+      ['/workspace/root-b', 'root-b-id'],
+    ]);
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncProvider') {
+        captured.push(record);
+      }
+    });
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.WARN);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:file-explorer-refreshed', {
+            detail: {
+              source: 'watcher',
+              scope: 'incremental',
+              roots: [
+                {
+                  rootId: 'removed-root-id',
+                  rootPath: '/workspace/removed',
+                  changes: [
+                    { kind: 'file', path: '/workspace/removed/src/index.ts', type: 'modified' },
+                  ],
+                },
+              ],
+            },
+          })
+        );
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      expect(syncSpy.mock.calls.every(([request]) => request.scope?.mode === 'full')).toBe(true);
+      expect(captured).toContainEqual(
+        expect.objectContaining({
+          level: 'warn',
+          message:
+            'Watcher refresh referenced no active workspace roots; running full recovery sync',
+        })
+      );
+    } finally {
+      removeListener();
+      configureLogger({ enableInProduction: false });
+      syncSpy.mockRestore();
     }
   });
 
