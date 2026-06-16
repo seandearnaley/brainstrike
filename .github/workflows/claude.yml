@@ -39,7 +39,7 @@ jobs:
           claude_args: |
             --model claude-opus-4-8
             --max-turns 16
-            --append-system-prompt "Follow AGENTS.md and apps/docs/docs/development/code-review-guidelines.md as required standards. Prioritize determinism, performance, test coverage, simplification, and architecture integrity."
+            --append-system-prompt "Follow AGENTS.md as the required standard. Prioritize determinism, performance, test coverage, simplification, and architecture integrity."
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"

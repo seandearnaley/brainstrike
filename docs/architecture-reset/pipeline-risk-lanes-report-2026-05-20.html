@@ -110,7 +110,7 @@
     <table>
       <thead><tr><th>Risk category</th><th>Representative paths</th><th>Local proof commands</th><th>Cloud labels</th><th>E2E lanes</th></tr></thead>
       <tbody>
-        <tr><td>docs-only</td><td><code>docs/</code>, <code>apps/docs/</code>, markdown/html</td><td><code>diff-check</code>, <code>docs-static</code></td><td>none</td><td>none</td></tr>
+        <tr><td>docs-only</td><td><code>docs/</code>, markdown/html</td><td><code>diff-check</code>, <code>docs-static</code></td><td>none</td><td>none</td></tr>
         <tr><td>config-tooling</td><td><code>scripts/</code>, tool contracts, local config</td><td><code>diff-check</code>, <code>ci-script-tests</code>, <code>workflow-contracts</code></td><td><code>ci:coverage</code></td><td>none</td></tr>
         <tr><td>isolated-unit-test-only</td><td>app/package unit and integration test files, excluding <code>e2e/</code></td><td><code>diff-check</code>, <code>changed-unit-tests</code></td><td><code>ci:coverage</code></td><td>none</td></tr>
         <tr><td>assistant-contract-runtime</td><td><code>packages/assistant-contract/</code>, assistant UI/runtime seams</td><td><code>assistant-contract-tests</code>, <code>app-shell-tests</code></td><td><code>ci:web-e2e</code>, <code>ci:coverage</code></td><td>critical web smoke</td></tr>
@@ -173,7 +173,7 @@
       <thead><tr><th>Command</th><th>Lane use</th><th class="num">Wall time</th><th>Result</th></tr></thead>
       <tbody>
         <tr><td><code>git diff --check</code></td><td>all local proofs</td><td class="num">0.00s</td><td>passed</td></tr>
-        <tr><td><code>git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md</code></td><td>docs-only</td><td class="num">0.00s</td><td>passed</td></tr>
+        <tr><td><code>git diff --check -- docs README.md AGENTS.md CLAUDE.md</code></td><td>docs-only</td><td class="num">0.00s</td><td>passed</td></tr>
         <tr><td><code>node --test ...ci-script-tests...</code></td><td>config/tooling</td><td class="num">0.08s</td><td>64 tests passed</td></tr>
         <tr><td><code>pnpm run ci:risk-fixtures</code></td><td>config/tooling</td><td class="num">0.16s</td><td>14 representative cases passed</td></tr>
         <tr><td><code>node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs</code></td><td>workflow-contracts</td><td class="num">0.12s</td><td>65 tests passed</td></tr>

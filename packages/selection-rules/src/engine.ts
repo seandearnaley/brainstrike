@@ -7,7 +7,6 @@
  * - Count computation without full enumeration
  *
  * @see schema.ts for rule type definitions
- * @see apps/docs/docs/reference/adr/selection-rules-v1.md for evaluation semantics
  */
 
 import { Minimatch } from 'minimatch';

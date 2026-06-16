@@ -1,12 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   BRAINSTRIKE_DB_RUNTIME_BASELINE,
   getDbRuntimeBaselineDependencyIds,
 } from '../src/architecture/db-runtime-baseline.js';
-
-const testDir = dirname(fileURLToPath(import.meta.url));
 
 describe('Brainstrike DB runtime baseline', () => {
   it('records the current desktop and web DB ownership model', () => {
@@ -47,34 +42,5 @@ describe('Brainstrike DB runtime baseline', () => {
       'migration-authority',
       'schema-drift-audit',
     ]);
-  });
-
-  it('has an architecture note matching the coded baseline', () => {
-    const docsPath = resolve(
-      testDir,
-      '../../../apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
-    );
-    expect(
-      existsSync(docsPath),
-      'Architecture doc must exist at apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
-    ).toBe(true);
-    const doc = readFileSync(docsPath, 'utf8').replaceAll('\r\n', '\n');
-
-    expect(doc).toContain('utilityProcess DB host');
-    expect(doc).toContain('Web owns PGlite in a browser PGliteWorker DB host');
-    expect(doc).toContain('IndexedDB remains the default web storage backend');
-    expect(doc).toContain('OPFS AHP is supported only as an explicit opt-in');
-    expect(doc).toContain('Direct PGlite remains scoped to tests, memory-only databases');
-    expect(doc).toContain('Drizzle migration runner is the production migration authority');
-    expect(doc).toContain('runtime initialization records applied migrations');
-    expect(doc).toContain('legacy `_migrations` database is\nreset-required');
-    expect(doc).toContain('_migrations');
-    expect(doc).toContain('__drizzle_migrations');
-    expect(doc).toContain('The execution client covers:');
-    expect(doc).toContain('The runtime host covers:');
-    expect(doc).toContain('providers/models');
-    expect(doc).toContain('Drizzle schema maps the production `providers/models` tables');
-    expect(doc).toContain('generated Drizzle migration manifest now ends with `providers/models`');
-    expect(doc).toContain('`drizzle-orm` is pinned to exact `0.45.2`');
   });
 });

@@ -196,7 +196,6 @@
  * - !important is the only way to guarantee our overrides win
  *
  * REFERENCES:
- * - Post-mortem: apps/docs/docs/archive/cold/handoffs/20250930-094210-assistant-ui-layout-fix-postmortem.md
  * - Library source: node_modules/@assistant-ui/styles/src/styles/tailwindcss/thread.css
  *
  * DO NOT REMOVE unless you've verified the library has changed its structure
@@ -473,7 +472,6 @@
  * - Last message gets minimal margin (1rem instead of 24rem)
  *
  * REFERENCES:
- * - Post-mortem: apps/docs/docs/archive/cold/handoffs/20250930-094210-assistant-ui-layout-fix-postmortem.md
  * - Issue: Composer "shunting down" as messages accumulate
  */
 /* !important is required to override @assistant-ui library defaults */

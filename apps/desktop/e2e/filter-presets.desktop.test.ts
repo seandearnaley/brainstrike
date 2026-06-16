@@ -413,8 +413,8 @@ async function installFilteredEmptyFolderFixture(
       ],
       [`${rootPath}/apps`]: [
         {
-          name: 'docs',
-          path: `${rootPath}/apps/docs`,
+          name: 'notes',
+          path: `${rootPath}/apps/notes`,
           type: 'directory' as const,
           depth: 0,
           selectionState: 'unchecked' as const,
@@ -423,8 +423,8 @@ async function installFilteredEmptyFolderFixture(
           children: [],
           handle: {
             kind: 'directory' as const,
-            name: 'docs',
-            path: `${rootPath}/apps/docs`,
+            name: 'notes',
+            path: `${rootPath}/apps/notes`,
             platform: 'electron' as const,
           },
         },
@@ -445,10 +445,10 @@ async function installFilteredEmptyFolderFixture(
           },
         },
       ],
-      [`${rootPath}/apps/docs`]: [
+      [`${rootPath}/apps/notes`]: [
         {
           name: 'readme.md',
-          path: `${rootPath}/apps/docs/readme.md`,
+          path: `${rootPath}/apps/notes/readme.md`,
           type: 'file' as const,
           size: 100,
           depth: 0,
@@ -458,7 +458,7 @@ async function installFilteredEmptyFolderFixture(
           handle: {
             kind: 'file' as const,
             name: 'readme.md',
-            path: `${rootPath}/apps/docs/readme.md`,
+            path: `${rootPath}/apps/notes/readme.md`,
             platform: 'electron' as const,
           },
         },
@@ -501,7 +501,7 @@ async function installFilteredEmptyFolderFixture(
       ],
     },
     fileContentsByPath: {
-      [`${rootPath}/apps/docs/readme.md`]: '# docs',
+      [`${rootPath}/apps/notes/readme.md`]: '# notes',
       [`${rootPath}/apps/web/app.ts`]: 'export const app = 1;',
       [`${rootPath}/packages/core.ts`]: 'export const core = 1;',
     },
@@ -709,17 +709,17 @@ test.describe('Desktop filter presets', () => {
     await expect(expandButtons).toHaveCount(2, { timeout: 10_000 });
     await clickElectronControl(expandButtons.first());
 
-    await expect(fileTree.getByText('docs')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('notes')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('web')).toBeVisible({ timeout: 10_000 });
 
-    const docsRow = fileTree.getByRole('row', { name: /docs/i });
+    const notesRow = fileTree.getByRole('row', { name: /notes/i });
     const webRow = fileTree.getByRole('row', { name: /web/i });
-    await expect(docsRow).toBeVisible();
+    await expect(notesRow).toBeVisible();
     await expect(webRow).toBeVisible();
 
-    await clickElectronControl(docsRow.getByRole('button', { name: 'Expand' }));
+    await clickElectronControl(notesRow.getByRole('button', { name: 'Expand' }));
 
-    await expect(docsRow).toBeVisible({ timeout: 10_000 });
+    await expect(notesRow).toBeVisible({ timeout: 10_000 });
     await expect(webRow).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('readme.md')).not.toBeVisible();
   });
@@ -749,7 +749,7 @@ test.describe('Desktop filter presets', () => {
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('packages')).toBeVisible({ timeout: 10_000 });
-    await expect(fileTree.getByText('docs')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('notes')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('web')).toBeVisible({ timeout: 10_000 });
 
     await expect(
