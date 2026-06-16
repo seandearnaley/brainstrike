@@ -1,4 +1,5 @@
 import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
+import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
@@ -30,6 +31,23 @@ vi.mock('@brainstrike/file-import', () => ({
   runEnhancedImport: runEnhancedImportMock,
 }));
 const COMPOSITE_KEY = encodeFileSelection(ROOT_PATH, FILE_PATH);
+const ROOT_B_PATH = '/workspace/root-b';
+const DB_ROOT_A_ID = 'db-root-a';
+const DB_ROOT_B_ID = 'db-root-b';
+const ROOT_B_COMPOSITE_KEY = encodeFileSelection(ROOT_B_PATH, FILE_PATH);
+
+function createMockNodeHandle(args: {
+  kind: 'directory' | 'file';
+  name: string;
+  path: string;
+}): IFileNode['handle'] {
+  return {
+    kind: args.kind,
+    name: args.name,
+    path: args.path,
+    platform: 'electron',
+  } as unknown as IFileNode['handle'];
+}
 
 describe('WorkspaceCollectionSyncService', () => {
   beforeEach(() => {
@@ -521,6 +539,381 @@ describe('WorkspaceCollectionSyncService', () => {
       expect.objectContaining({
         source: 'background-indexing',
       })
+    );
+  });
+
+  it('force-reads a watcher-modified file and replaces only the matching db root identity', async () => {
+    const oldContent = 'export const value = 1;';
+    const newContent = 'export const value = 2;';
+    const oldHash = await generateContentHash(oldContent);
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(
+        async (): Promise<IFileNode[]> => [
+          {
+            depth: 1,
+            handle: createMockNodeHandle({
+              kind: 'file',
+              name: 'index.ts',
+              path: `${ROOT_B_PATH}/${FILE_PATH}`,
+            }),
+            lastModified: 1000,
+            name: 'index.ts',
+            path: `${ROOT_B_PATH}/${FILE_PATH}`,
+            rootFolderId: ROOT_B_PATH,
+            selectionState: 'unchecked',
+            size: 23,
+            type: 'file',
+          },
+        ]
+      ),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [ROOT_B_COMPOSITE_KEY]: newContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-root-a',
+            embeddingSetId: 'set-1',
+            rootId: DB_ROOT_A_ID,
+            relativePath: FILE_PATH,
+            contentHash: oldHash,
+            mtimeMs: 1000,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            fileRecordId: 'file-root-b',
+            embeddingSetId: 'set-1',
+            rootId: DB_ROOT_B_ID,
+            relativePath: FILE_PATH,
+            contentHash: oldHash,
+            mtimeMs: 1000,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+      resolveDbRootId: vi.fn(async (rootPath: string) =>
+        rootPath === ROOT_B_PATH ? DB_ROOT_B_ID : DB_ROOT_A_ID
+      ),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'file', path: `${ROOT_B_PATH}/${FILE_PATH}`, type: 'modified' }],
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rootId: DB_ROOT_B_ID,
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-root-b',
+              path: FILE_PATH,
+              content: newContent,
+            }),
+          }),
+        ],
+      })
+    );
+    const serializedBatch = JSON.stringify(vi.mocked(deps.applyManagedCacheBatch).mock.calls);
+    expect(serializedBatch).not.toContain('file-root-a');
+  });
+
+  it('invalidates a watcher-removed file by exact root identity without import or chunking', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' }],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'exact',
+          rootId: ROOT_PATH,
+          relativePath: FILE_PATH,
+        },
+      ],
+    });
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a watcher-removed directory by prefix root identity', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'directory', path: `${ROOT_PATH}/src/generated`, type: 'removed' }],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: ROOT_PATH,
+          relativePathPrefix: 'src/generated',
+        },
+      ],
+    });
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('hard-deletes full-scan entries missing from only the active db root', async () => {
+    const indexedFilePath = 'src/index.ts';
+    const missingFilePath = 'src/deleted.ts';
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([
+      {
+        depth: 1,
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: 'index.ts',
+          path: `${ROOT_B_PATH}/${indexedFilePath}`,
+        }),
+        lastModified: 1000,
+        name: 'index.ts',
+        path: `${ROOT_B_PATH}/${indexedFilePath}`,
+        rootFolderId: ROOT_B_PATH,
+        selectionState: 'unchecked',
+        size: 23,
+        type: 'file',
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({})),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: 'indexed-hash',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-root-b-indexed',
+            mtimeMs: 1000,
+            relativePath: indexedFilePath,
+            rootId: DB_ROOT_B_ID,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: 'stale-hash',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-root-b-deleted',
+            mtimeMs: 1000,
+            relativePath: missingFilePath,
+            rootId: DB_ROOT_B_ID,
+            size: 11,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: 'other-root-hash',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-root-a-deleted',
+            mtimeMs: 1000,
+            relativePath: missingFilePath,
+            rootId: DB_ROOT_A_ID,
+            size: 11,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      resolveDbRootId: vi.fn(async () => DB_ROOT_B_ID),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          expectedFileRecordId: 'file-root-b-deleted',
+          mode: 'exact',
+          rootId: DB_ROOT_B_ID,
+          relativePath: missingFilePath,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(vi.mocked(deps.invalidateManagedCacheEntriesByIdentity).mock.calls)
+    ).not.toContain('file-root-a-deleted');
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('scans only the changed watcher directory subtree', async () => {
+    const subtreeFilePath = 'src/components/button.ts';
+    const outsideFilePath = 'src/other.ts';
+    const subtreeCompositeKey = encodeFileSelection(ROOT_PATH, subtreeFilePath);
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([
+      {
+        depth: 1,
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: 'other.ts',
+          path: `${ROOT_PATH}/${outsideFilePath}`,
+        }),
+        name: 'other.ts',
+        path: `${ROOT_PATH}/${outsideFilePath}`,
+        rootFolderId: ROOT_PATH,
+        selectionState: 'unchecked',
+        type: 'file',
+      },
+      {
+        depth: 2,
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: 'button.ts',
+          path: `${ROOT_PATH}/${subtreeFilePath}`,
+        }),
+        name: 'button.ts',
+        path: `${ROOT_PATH}/${subtreeFilePath}`,
+        rootFolderId: ROOT_PATH,
+        selectionState: 'unchecked',
+        type: 'file',
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [subtreeCompositeKey]: 'export const Button = 1;',
+        })),
+      },
+      fileSystemAdapter: {
+        readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+          if (handle.path === ROOT_PATH) {
+            return [
+              {
+                depth: 1,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'src',
+                  path: `${ROOT_PATH}/src`,
+                }),
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              },
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src`) {
+            return [
+              {
+                depth: 2,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'components',
+                  path: `${ROOT_PATH}/src/components`,
+                }),
+                name: 'components',
+                path: `${ROOT_PATH}/src/components`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              },
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src/components`) {
+            return [
+              {
+                depth: 3,
+                handle: createMockNodeHandle({
+                  kind: 'file',
+                  name: 'button.ts',
+                  path: `${ROOT_PATH}/${subtreeFilePath}`,
+                }),
+                name: 'button.ts',
+                path: `${ROOT_PATH}/${subtreeFilePath}`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'file',
+              },
+            ];
+          }
+          return [];
+        }),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn(),
+      } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'],
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'directory', path: `${ROOT_PATH}/src/components`, type: 'modified' }],
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    const processFiles = deps.fileContentProcessor?.processFiles;
+    if (!processFiles) {
+      throw new Error('Expected test fileContentProcessor.');
+    }
+    const firstReadRequests = vi.mocked(processFiles).mock.calls[0]?.[0];
+    expect(firstReadRequests?.map((request) => request.fileNode.path)).toEqual([
+      `${ROOT_PATH}/${subtreeFilePath}`,
+    ]);
+    expect(JSON.stringify(vi.mocked(deps.applyManagedCacheBatch).mock.calls)).not.toContain(
+      outsideFilePath
     );
   });
 

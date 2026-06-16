@@ -26,6 +26,7 @@ export const DESKTOP_IPC_CHANNELS = {
     schedulerSnapshot: 'db:scheduler:snapshot',
     test: 'db:test',
     transaction: 'db:transaction',
+    invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',

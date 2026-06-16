@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   applyManagedCacheBatch,
   escapePGliteLiveQueryFormatPercents,
+  invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
 import type {
@@ -21,6 +22,7 @@ import {
   initializeMainDatabase,
   resetLocalDatabase,
 } from './db-main';
+import { parseManagedCacheInvalidationsArgs } from './db-shared';
 
 interface ParentPortLike {
   readonly on: (event: 'message', listener: (message: unknown) => void) => void;
@@ -402,6 +404,13 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       const db = await getQueryableDatabase();
       await applyManagedCacheBatch(db, parseManagedCacheBatchArgs(request.payload));
       return { applied: true };
+    }
+    case 'managed-cache:invalidate-by-identity': {
+      const db = await getQueryableDatabase();
+      return await invalidateManagedCacheEntriesByIdentity(
+        db,
+        parseManagedCacheInvalidationsArgs(request.payload)
+      );
     }
     case 'diagnostics':
       return getDatabaseDiagnostics();

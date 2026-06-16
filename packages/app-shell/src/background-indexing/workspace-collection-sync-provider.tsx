@@ -9,10 +9,15 @@ import {
   ElectronFileRecordRepository,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
+  invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import {
+  FILE_EXPLORER_REFRESH_EVENT,
+  type FileExplorerRefreshEventDetail,
+  useFileSystem,
+} from '@brainstrike/file-explorer-ui/shell';
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
@@ -20,6 +25,7 @@ import {
   useWorkspaceCollectionSyncStatusStore,
   type WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
 import {
   getBackgroundWorkArbiterSnapshot,
   getBackgroundWorkPauseReasonLabels,
@@ -59,7 +65,9 @@ import {
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
-export const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
+
+export { FILE_EXPLORER_REFRESH_EVENT };
+
 /**
  * The sync service signals foreground-style import progress through `setImporting`.
  * Background indexing intentionally discards it: the global `isImporting` flag is
@@ -112,6 +120,33 @@ interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
 }
 
+type TriggerSyncScope =
+  | {
+      mode: 'full';
+    }
+  | {
+      mode: 'paths';
+      roots: Array<{
+        changes: readonly FileSystemChange[];
+        rootId: string;
+      }>;
+    };
+
+interface SyncLoopTarget {
+  handle: DirectoryHandle;
+  scope: {
+    changes?: readonly FileSystemChange[];
+    mode: 'full' | 'paths';
+  };
+}
+
+function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarget[] {
+  return handles.map((handle) => ({
+    handle,
+    scope: { mode: 'full' },
+  }));
+}
+
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
 }
@@ -129,6 +164,138 @@ function createBackgroundRepositoryDb(db: DbHandle): {
       await db.exec?.(sql);
     },
   };
+}
+
+function isFileSystemChange(value: unknown): value is FileSystemChange {
+  if (!(value && typeof value === 'object')) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate['kind'] === 'file' || candidate['kind'] === 'directory') &&
+    (candidate['type'] === 'added' ||
+      candidate['type'] === 'removed' ||
+      candidate['type'] === 'modified') &&
+    typeof candidate['path'] === 'string' &&
+    candidate['path'].length > 0
+  );
+}
+
+function isWorkspaceRefreshDetail(value: unknown): value is FileExplorerRefreshEventDetail {
+  if (!(value && typeof value === 'object')) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    !(
+      candidate['source'] === 'watcher' ||
+      candidate['source'] === 'manual' ||
+      candidate['source'] === 'visibility-recovery'
+    )
+  ) {
+    return false;
+  }
+  if (!(candidate['scope'] === 'incremental' || candidate['scope'] === 'full')) {
+    return false;
+  }
+  if (!Array.isArray(candidate['roots'])) {
+    return false;
+  }
+  return candidate['roots'].every((root) => {
+    if (!(root && typeof root === 'object')) {
+      return false;
+    }
+    const rootCandidate = root as Record<string, unknown>;
+    return (
+      typeof rootCandidate['rootId'] === 'string' &&
+      rootCandidate['rootId'].length > 0 &&
+      typeof rootCandidate['rootPath'] === 'string' &&
+      Array.isArray(rootCandidate['changes']) &&
+      rootCandidate['changes'].every(isFileSystemChange)
+    );
+  });
+}
+
+function parseRefreshSyncScope(event: Event): TriggerSyncScope {
+  if (!(event instanceof CustomEvent)) {
+    return { mode: 'full' };
+  }
+  if (!isWorkspaceRefreshDetail(event.detail)) {
+    return { mode: 'full' };
+  }
+  if (!(event.detail.source === 'watcher' && event.detail.scope === 'incremental')) {
+    return { mode: 'full' };
+  }
+  if (event.detail.roots.length === 0) {
+    return { mode: 'full' };
+  }
+  return {
+    mode: 'paths',
+    roots: event.detail.roots.map((root) => ({
+      rootId: root.rootId,
+      changes: root.changes,
+    })),
+  };
+}
+
+function buildPathSyncTargets(args: {
+  allHandles: readonly DirectoryHandle[];
+  rootIdByPath: ReadonlyMap<string, string>;
+  scope: Extract<TriggerSyncScope, { mode: 'paths' }>;
+}): SyncLoopTarget[] {
+  const targetByRootId = new Map<string, SyncLoopTarget>();
+  for (const handle of args.allHandles) {
+    const rootId = handle.rootId ?? args.rootIdByPath.get(handle.path);
+    if (!rootId) {
+      continue;
+    }
+    targetByRootId.set(rootId, {
+      handle,
+      scope: { mode: 'paths', changes: [] },
+    });
+  }
+  for (const root of args.scope.roots) {
+    const target = targetByRootId.get(root.rootId);
+    if (!target) {
+      continue;
+    }
+    const existingChanges = target.scope.changes ?? [];
+    targetByRootId.set(root.rootId, {
+      handle: target.handle,
+      scope: {
+        mode: 'paths',
+        changes: [...existingChanges, ...root.changes],
+      },
+    });
+  }
+  return [...targetByRootId.values()].filter(
+    (target) => target.scope.mode === 'paths' && (target.scope.changes?.length ?? 0) > 0
+  );
+}
+
+function buildSyncLoopTargets(args: {
+  rootDirectoryHandle: DirectoryHandle;
+  rootDirectoryHandles: readonly DirectoryHandle[];
+  rootIdByPath: ReadonlyMap<string, string>;
+  scope: TriggerSyncScope;
+}): SyncLoopTarget[] {
+  const allHandles =
+    args.rootDirectoryHandles.length > 0 ? args.rootDirectoryHandles : [args.rootDirectoryHandle];
+  if (args.scope.mode === 'full') {
+    return buildFullSyncTargets(allHandles);
+  }
+  const pathTargets = buildPathSyncTargets({
+    allHandles,
+    rootIdByPath: args.rootIdByPath,
+    scope: args.scope,
+  });
+  if (pathTargets.length > 0) {
+    return pathTargets;
+  }
+  logger.warn('Watcher refresh referenced no active workspace roots; running full recovery sync', {
+    rootIds: args.scope.roots.map((root) => root.rootId),
+  });
+  return buildFullSyncTargets(allHandles);
 }
 
 function createWaitForBackgroundPermit(
@@ -517,6 +684,17 @@ export function WorkspaceCollectionSyncProvider({
         }
         await applyManagedCacheBatchLocally(backgroundDb, args);
       },
+      invalidateManagedCacheEntriesByIdentity: async (args) => {
+        const electronInvalidateManagedCacheEntries =
+          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
+        if (electronInvalidateManagedCacheEntries) {
+          return await electronInvalidateManagedCacheEntries(
+            args,
+            BACKGROUND_DATABASE_WORK_OPTIONS
+          );
+        }
+        return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
+      },
       cancelBackfill: async (embeddingSetId) => {
         await runtimeController.cancelBackfill(embeddingSetId);
       },
@@ -646,146 +824,151 @@ export function WorkspaceCollectionSyncProvider({
     setSyncStatus,
   ]);
 
-  const triggerSync = useCallback(() => {
-    if (!hasHydrated) {
-      return;
-    }
+  const triggerSync = useCallback(
+    (scope: TriggerSyncScope = { mode: 'full' }) => {
+      if (!hasHydrated) {
+        return;
+      }
 
-    // Bump the generation so any in-flight loop from a previous triggerSync
-    // call can detect that it is now stale and stop iterating.
-    syncLoopGenerationRef.current += 1;
+      // Bump the generation so any in-flight loop from a previous triggerSync
+      // call can detect that it is now stale and stop iterating.
+      syncLoopGenerationRef.current += 1;
 
-    if (!service) {
-      if (enabled) {
+      if (!service) {
+        if (enabled) {
+          setSyncStatus({
+            state: 'error',
+            managedCollectionId,
+            managedCollectionName: null,
+            activeRootPath: rootDirectoryHandle?.path ?? null,
+            currentFilePath: null,
+            queuedFiles: 0,
+            processedFiles: 0,
+            lastError: 'Background indexing runtime is unavailable.',
+          });
+        } else {
+          resetSyncStatus();
+        }
+        return;
+      }
+
+      if (triggerWorkspaceIndexBootstrap()) {
+        return;
+      }
+
+      if (backgroundWorkSnapshot.backgroundIndexingPaused) {
+        void service.cancel().catch((error) => {
+          reportAsyncError('cancel', error);
+        });
         setSyncStatus({
-          state: 'error',
+          state: 'paused',
           managedCollectionId,
           managedCollectionName: null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
-          lastError: 'Background indexing runtime is unavailable.',
+          lastError: null,
+          pauseReasons: [
+            ...(backgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
+            ...getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
+          ],
         });
-      } else {
-        resetSyncStatus();
+        return;
       }
-      return;
-    }
 
-    if (triggerWorkspaceIndexBootstrap()) {
-      return;
-    }
-
-    if (backgroundWorkSnapshot.backgroundIndexingPaused) {
-      void service.cancel().catch((error) => {
-        reportAsyncError('cancel', error);
-      });
-      setSyncStatus({
-        state: 'paused',
-        managedCollectionId,
-        managedCollectionName: null,
-        activeRootPath: rootDirectoryHandle?.path ?? null,
-        currentFilePath: null,
-        lastError: null,
-        pauseReasons: [
-          ...(backgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
-          ...getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
-        ],
-      });
-      return;
-    }
-
-    if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
-      void service
-        .sync({
-          enabled,
-          indexingPolicyPreset,
-          managedCollectionId,
-          rootDirectoryHandle,
-        })
-        .catch((error) => {
-          reportAsyncError('sync', error);
-        });
-      return;
-    }
-
-    if (isAccessLoading) {
-      void service.cancel();
-      setSyncStatus({
-        state: 'waiting',
-        managedCollectionId,
-        managedCollectionName: null,
-        activeRootPath: rootDirectoryHandle.path,
-        currentFilePath: null,
-        queuedFiles: 0,
-        processedFiles: 0,
-        lastError: null,
-      });
-      return;
-    }
-
-    if (!isTreeRestorationReady) {
-      void service.cancel();
-      setSyncStatus({
-        state: 'waiting',
-        managedCollectionId,
-        managedCollectionName: null,
-        activeRootPath: rootDirectoryHandle.path,
-        currentFilePath: null,
-        queuedFiles: 0,
-        processedFiles: 0,
-        lastError: null,
-      });
-      return;
-    }
-
-    // Multi-root sequential loop: when more than one handle is active, iterate
-    // each root in order and await each pass before starting the next. The
-    // service self-serializes via runId/abort so parallelising would abort its
-    // own passes — sequential is the only safe strategy.
-    //
-    // Single-root path: rootDirectoryHandles has exactly one element (the same
-    // object as rootDirectoryHandle), so the loop body runs exactly once and
-    // behaviour is byte-identical to the pre-multi-root code.
-    const handlesToSync =
-      rootDirectoryHandles.length > 0 ? rootDirectoryHandles : [rootDirectoryHandle];
-    const myGeneration = syncLoopGenerationRef.current;
-
-    void (async () => {
-      for (const handle of handlesToSync) {
-        // Stale-loop guard: a newer triggerSync has fired — stop immediately.
-        if (syncLoopGenerationRef.current !== myGeneration) {
-          return;
-        }
-        await service
+      if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
+        void service
           .sync({
             enabled,
             indexingPolicyPreset,
             managedCollectionId,
-            rootDirectoryHandle: handle,
+            rootDirectoryHandle,
+            scope: { mode: 'full' },
           })
           .catch((error) => {
             reportAsyncError('sync', error);
           });
+        return;
       }
-    })();
-  }, [
-    backgroundWorkSnapshot,
-    enabled,
-    hasHydrated,
-    indexingPolicyPreset,
-    isAccessLoading,
-    isTreeRestorationReady,
-    managedCollectionId,
-    reportAsyncError,
-    resetSyncStatus,
-    rootDirectoryHandle,
-    rootDirectoryHandles,
-    service,
-    setSyncStatus,
-    triggerWorkspaceIndexBootstrap,
-  ]);
+
+      if (isAccessLoading) {
+        void service.cancel();
+        setSyncStatus({
+          state: 'waiting',
+          managedCollectionId,
+          managedCollectionName: null,
+          activeRootPath: rootDirectoryHandle.path,
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 0,
+          lastError: null,
+        });
+        return;
+      }
+
+      if (!isTreeRestorationReady) {
+        void service.cancel();
+        setSyncStatus({
+          state: 'waiting',
+          managedCollectionId,
+          managedCollectionName: null,
+          activeRootPath: rootDirectoryHandle.path,
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 0,
+          lastError: null,
+        });
+        return;
+      }
+
+      const targets = buildSyncLoopTargets({
+        rootDirectoryHandle,
+        rootDirectoryHandles,
+        rootIdByPath,
+        scope,
+      });
+      const myGeneration = syncLoopGenerationRef.current;
+
+      void (async () => {
+        for (const target of targets) {
+          // Stale-loop guard: a newer triggerSync has fired — stop immediately.
+          if (syncLoopGenerationRef.current !== myGeneration) {
+            return;
+          }
+          await service
+            .sync({
+              enabled,
+              indexingPolicyPreset,
+              managedCollectionId,
+              rootDirectoryHandle: target.handle,
+              scope:
+                target.scope.mode === 'paths'
+                  ? { mode: 'paths', changes: target.scope.changes ?? [] }
+                  : { mode: 'full' },
+            })
+            .catch((error) => {
+              reportAsyncError('sync', error);
+            });
+        }
+      })();
+    },
+    [
+      backgroundWorkSnapshot,
+      enabled,
+      hasHydrated,
+      indexingPolicyPreset,
+      isAccessLoading,
+      isTreeRestorationReady,
+      managedCollectionId,
+      reportAsyncError,
+      resetSyncStatus,
+      rootDirectoryHandle,
+      rootDirectoryHandles,
+      rootIdByPath,
+      service,
+      setSyncStatus,
+      triggerWorkspaceIndexBootstrap,
+    ]
+  );
 
   useEffect(() => {
     setBackgroundWorkManualPause(paused);
@@ -815,8 +998,8 @@ export function WorkspaceCollectionSyncProvider({
   }, [reportAsyncError, service, triggerSync]);
 
   useEffect(() => {
-    const handleRefresh = (): void => {
-      triggerSync();
+    const handleRefresh = (event: Event): void => {
+      triggerSync(parseRefreshSyncScope(event));
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);

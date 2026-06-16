@@ -20,7 +20,9 @@ const {
   mockDb,
   browserWindowMock,
   applyManagedCacheBatchMock,
+  invalidateManagedCacheEntriesByIdentityMock,
   parseManagedCacheBatchArgsMock,
+  parseManagedCacheInvalidationsArgsMock,
   getDatabaseMock,
   loggerWarn,
   loggerDebug,
@@ -53,6 +55,11 @@ const {
     getAllWindows: vi.fn(() => []),
   });
   const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+  const invalidateManagedCacheEntriesByIdentityMock = vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  }));
   const parseManagedCacheBatchArgsMock = vi.fn((payload: unknown) => {
     if (
       !(
@@ -71,6 +78,27 @@ const {
       !Array.isArray(candidate.changes)
     ) {
       throw new Error('Invalid managed cache batch payload.');
+    }
+    return payload;
+  });
+  const parseManagedCacheInvalidationsArgsMock = vi.fn((payload: unknown) => {
+    if (
+      !(
+        payload &&
+        typeof payload === 'object' &&
+        'embeddingSetId' in payload &&
+        'targets' in payload
+      )
+    ) {
+      throw new Error('Invalid managed cache invalidation payload.');
+    }
+    const candidate = payload as { embeddingSetId?: unknown; targets?: unknown };
+    if (
+      typeof candidate.embeddingSetId !== 'string' ||
+      candidate.embeddingSetId.length === 0 ||
+      !Array.isArray(candidate.targets)
+    ) {
+      throw new Error('Invalid managed cache invalidation payload.');
     }
     return payload;
   });
@@ -137,13 +165,16 @@ const {
   const getDbHostManagerMock = vi.fn(() => ({
     applyManagedCacheBatch: applyManagedCacheBatchMock,
     getDiagnostics: getDatabaseDiagnosticsMock,
+    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
   }));
   return {
     handlers,
     mockDb,
     browserWindowMock,
     applyManagedCacheBatchMock,
+    invalidateManagedCacheEntriesByIdentityMock,
     parseManagedCacheBatchArgsMock,
+    parseManagedCacheInvalidationsArgsMock,
     getDatabaseMock,
     loggerWarn,
     loggerDebug,
@@ -180,11 +211,13 @@ export {
   getDbHostManagerMock,
   handleRuntimeCorruptionMock,
   handlers,
+  invalidateManagedCacheEntriesByIdentityMock,
   isCorruptionErrorMock,
   loggerDebug,
   loggerWarn,
   mockDb,
   parseManagedCacheBatchArgsMock,
+  parseManagedCacheInvalidationsArgsMock,
   resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
 };
@@ -194,7 +227,16 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...actual,
     applyManagedCacheBatch: applyManagedCacheBatchMock,
+    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
     parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
+  };
+});
+
+vi.mock('../../db-shared', async () => {
+  const actual = await vi.importActual<typeof import('../../db-shared')>('../../db-shared');
+  return {
+    ...actual,
+    parseManagedCacheInvalidationsArgs: parseManagedCacheInvalidationsArgsMock,
   };
 });
 
