@@ -967,6 +967,7 @@ export function WorkspaceCollectionSyncProvider({
       managedCollectionId,
       reportAsyncError,
       resetSyncStatus,
+      resolveDbRootId,
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
