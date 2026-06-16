@@ -29,11 +29,54 @@ import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
 
 const logger = createLogger('InlineFixtureSubscription');
 
+interface IndexingDebugAccessIssue {
+  reason: string;
+  source: string;
+}
+
+interface IndexingDebugBridgeStatus {
+  available: false;
+  reason: string;
+}
+
+interface IndexingDebugAvailableHostStatus {
+  available: true;
+  status: unknown;
+}
+
+type IndexingDebugHostStatus = IndexingDebugAvailableHostStatus | IndexingDebugBridgeStatus;
+
+interface IndexingDebugSnapshot {
+  accessIssues?: IndexingDebugAccessIssue[];
+  collectionStats: unknown[];
+  hosts: {
+    chunking: IndexingDebugHostStatus;
+    embedding: IndexingDebugHostStatus;
+  };
+  queueCounts: unknown[];
+  roots: unknown[];
+}
+
+interface IndexingDebugApi {
+  snapshot: () => Promise<IndexingDebugSnapshot>;
+}
+
+type DbQueryBridge = (sql: string, params: unknown[]) => Promise<{ rows?: unknown[] }>;
+
+interface IndexingDebugWindowBridges {
+  chunkingHost?: { getStatus?: () => Promise<unknown> };
+  electronAPI?: { db?: { query?: DbQueryBridge } };
+  embeddingHost?: { getStatus?: () => Promise<unknown> };
+}
+
 declare global {
   interface Window {
     /** Clear the dev fixture and reset the file explorer */
     // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
     __BRAINSTRIKE_CLEAR_FIXTURE__?: (() => void | Promise<void>) | undefined;
+    /** Read-only indexing diagnostics for automated debugging tools */
+    // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
+    __BRAINSTRIKE_INDEXING_DEBUG__?: IndexingDebugApi | undefined;
     /** Load the built-in dev fixture into the file explorer (bypasses native directory picker) */
     // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
     __BRAINSTRIKE_LOAD_FIXTURE__?:
@@ -45,6 +88,99 @@ declare global {
     // biome-ignore lint/style/useNamingConvention: E2E init-script flag uses double underscores by convention
     __brainstrike_e2e_expose_file_explorer_store__?: boolean | undefined;
   }
+}
+
+async function readRows(
+  query: DbQueryBridge | undefined,
+  sql: string,
+  accessIssues: IndexingDebugAccessIssue[],
+  source: string
+): Promise<unknown[]> {
+  if (!query) {
+    if (!accessIssues.some((issue) => issue.source === 'electronAPI.db.query')) {
+      accessIssues.push({
+        source: 'electronAPI.db.query',
+        reason: 'database bridge unavailable',
+      });
+    }
+    return [];
+  }
+  try {
+    const result = await query(sql, []);
+    return Array.isArray(result.rows) ? result.rows : [];
+  } catch (error) {
+    accessIssues.push({
+      source,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+async function readHostStatus(
+  host: { getStatus?: () => Promise<unknown> } | undefined,
+  unavailableReason: string
+): Promise<IndexingDebugHostStatus> {
+  if (!host?.getStatus) {
+    return {
+      available: false,
+      reason: unavailableReason,
+    };
+  }
+  try {
+    return {
+      available: true,
+      status: await host.getStatus(),
+    };
+  } catch (error) {
+    return {
+      available: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function createIndexingDebugApi(): IndexingDebugApi {
+  return Object.freeze({
+    snapshot: async (): Promise<IndexingDebugSnapshot> => {
+      const accessIssues: IndexingDebugAccessIssue[] = [];
+      const bridges = window as Window & IndexingDebugWindowBridges;
+      const query = bridges.electronAPI?.db?.query;
+      const [roots, collectionStats, queueCounts, chunking, embedding] = await Promise.all([
+        readRows(
+          query,
+          'SELECT id, path, display_name, kind, status, created_at, last_verified_at FROM roots ORDER BY created_at ASC',
+          accessIssues,
+          'roots'
+        ),
+        readRows(
+          query,
+          'SELECT embedding_set_id, file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty, last_refreshed_at FROM collection_indexing_stats ORDER BY last_refreshed_at DESC',
+          accessIssues,
+          'collection_indexing_stats'
+        ),
+        readRows(
+          query,
+          "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type IN ('chunk_file', 'embed_chunk') GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
+          accessIssues,
+          'job_queue'
+        ),
+        readHostStatus(bridges.chunkingHost, 'chunkingHost bridge unavailable'),
+        readHostStatus(bridges.embeddingHost, 'embeddingHost bridge unavailable'),
+      ]);
+
+      return {
+        roots,
+        collectionStats,
+        queueCounts,
+        hosts: {
+          chunking,
+          embedding,
+        },
+        ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      };
+    },
+  });
 }
 
 /**
@@ -161,9 +297,11 @@ export function setupInlineFixtureSubscription(
         store.getState().setDevInlineFixtureEnabled(false);
         await applyFixtureState(false);
       };
+      window.__BRAINSTRIKE_INDEXING_DEBUG__ = createIndexingDebugApi();
     } else {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
       window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+      window.__BRAINSTRIKE_INDEXING_DEBUG__ = undefined;
     }
   }
 
@@ -172,6 +310,7 @@ export function setupInlineFixtureSubscription(
     if (typeof window !== 'undefined') {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
       window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+      window.__BRAINSTRIKE_INDEXING_DEBUG__ = undefined;
     }
   };
 }
