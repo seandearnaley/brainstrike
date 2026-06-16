@@ -407,6 +407,33 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('hides background run-event rows by default (memory/context bookkeeping)', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    const dataUi = useAssistantDataUIMock.mock.calls
+      .map((call) => call[0] as { name?: string; render?: React.ComponentType<{ data: unknown }> })
+      .find((entry) => entry.name === ASSISTANT_RUN_EVENT_DATA_NAME);
+    const RunEventPart = dataUi?.render;
+    if (!RunEventPart) {
+      throw new Error('Expected a run-event data renderer to be registered.');
+    }
+
+    // No AssistantDetailLevelProvider here → standard default → background hidden.
+    render(
+      <RunEventPart
+        data={{
+          id: 'evt-1',
+          kind: 'memory.semantic.completed',
+          label: 'Recalled memory',
+          status: 'completed',
+          timestamp: '2026-06-16T10:00:00.000Z',
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId('assistant-run-timeline')).not.toBeInTheDocument();
+  });
+
   it('renders completed chain-of-thought with a static reasoning mark', () => {
     mockAuiState = createMockAuiState([null, { status: 'complete' }, completedReasoningPart]);
 

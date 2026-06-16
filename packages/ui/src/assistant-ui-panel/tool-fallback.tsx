@@ -15,11 +15,7 @@ import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
-import {
-  categoryTintClasses,
-  classifyToolName,
-  isInternalToolName,
-} from './tool-visual-classification';
+import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
@@ -227,9 +223,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   status,
 }) => {
   const { detailLevel } = useAssistantDetailLevel();
-  const policy = resolveToolDisplayPolicy(detailLevel, {
-    isInternal: isInternalToolName(toolName),
-  });
+  const policy = resolveToolDisplayPolicy(detailLevel);
   const durationMs = useToolDurationMs(toolCallId);
   const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
 

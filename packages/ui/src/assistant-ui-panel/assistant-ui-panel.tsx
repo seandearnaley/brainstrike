@@ -55,7 +55,11 @@ import {
   summarizeToolActivity,
 } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
-import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
+import { shouldShowBackgroundActivity } from './assistant-detail-level';
+import {
+  AssistantDetailLevelProvider,
+  useAssistantDetailLevel,
+} from './assistant-detail-level-context';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
@@ -81,6 +85,11 @@ import { TooltipIconButton } from './tooltip-icon-button';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
+  // Memory/context background activity (observational memory, semantic recall,
+  // context prep, run steps) is internal bookkeeping that wraps the tool calls
+  // people care about. Hide every run-event row unless the Detail level is
+  // Developer — the default thread is just the grouped tool cards + the answer.
+  const { detailLevel } = useAssistantDetailLevel();
   const statusOverride = useAuiState((state) =>
     resolveAssistantRunEventStatus(state.thread.messages, data)
   );
@@ -91,6 +100,9 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
     const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
     return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
   });
+  if (!shouldShowBackgroundActivity(detailLevel)) {
+    return null;
+  }
   if (renderPlanKey === 'hidden') {
     return null;
   }
