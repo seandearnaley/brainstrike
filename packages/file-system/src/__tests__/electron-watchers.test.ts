@@ -212,7 +212,7 @@ describe('startFsWatch', () => {
     statMock.mockRestore();
   });
 
-  it('pushes removed event when stat rejects on rename', async () => {
+  it('pushes directory removed event when stat rejects on rename', async () => {
     const statMock = vi.spyOn(fs.promises, 'stat').mockRejectedValue(new Error('ENOENT'));
     const callback = vi.fn();
     startFsWatch(mockHandle, callback);
@@ -223,7 +223,7 @@ describe('startFsWatch', () => {
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith([
       expect.objectContaining({
-        kind: 'file',
+        kind: 'directory',
         path: path.join(mockHandle.path, 'deleted.txt'),
         type: 'removed',
       }),

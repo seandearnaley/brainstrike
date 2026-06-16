@@ -43,7 +43,7 @@ describe('reconcileRoots', () => {
   });
 
   it('does not path-match FSA roots because path is only the directory display name', async () => {
-    const dbRows = [{ id: 'db-1', path: 'my-project' }];
+    const dbRows = [{ id: 'db-1', kind: 'fsa', path: 'my-project' }];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -57,6 +57,24 @@ describe('reconcileRoots', () => {
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('adapter-1');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(true);
+  });
+
+  it('maps a unique FSA root onto its legacy DB row and promotes the row to fsa', async () => {
+    const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'my-project' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+    const updateCall = query.mock.calls.find(([sql]) => (sql as string).includes('UPDATE roots'));
+    expect(updateCall?.[1]).toEqual(['legacy-db-1', 'my-project']);
   });
 
   it('skips roots with persisted:false or permissionState unknown (no DB rows for session-only ids)', async () => {
@@ -116,6 +134,23 @@ describe('reconcileRoots', () => {
     expect(insertCalls[1]?.[1]).toEqual(expect.arrayContaining(['adapter-b']));
     expect(result.dbRootIdByAdapterRootId.get('adapter-a')).toBe('adapter-a');
     expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-b');
+  });
+
+  it('does not map same-name FSA roots onto a legacy row because the bridge is ambiguous', async () => {
+    const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'shared-folder' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-a', 'shared-folder'), fsaRoot('adapter-b', 'shared-folder')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(result.dbRootIdByAdapterRootId.get('adapter-a')).toBe('adapter-a');
+    expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-b');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
   });
 
   it('converges on the existing row when a concurrent writer wins the path-unique race', async () => {

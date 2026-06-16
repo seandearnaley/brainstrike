@@ -89,9 +89,11 @@ export function startFsWatch(
       const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';
       batcher.enqueue({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
     } catch {
-      // stat failed — file was likely removed
+      // The native fallback cannot know whether a missing path was a file or
+      // directory. Directory removal is the safe invalidation shape because it
+      // deletes the same-path record plus any stale descendants.
       if (ev === 'rename') {
-        batcher.enqueue({ type: 'removed', path: full, kind: 'file' });
+        batcher.enqueue({ type: 'removed', path: full, kind: 'directory' });
       }
     }
   };
