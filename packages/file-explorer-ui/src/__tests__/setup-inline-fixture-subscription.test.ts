@@ -394,7 +394,7 @@ describe('setup-inline-fixture-subscription', () => {
     );
     expect(query).toHaveBeenNthCalledWith(
       3,
-      "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type IN ('chunk_file', 'embed_chunk') GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
+      "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
       []
     );
 
