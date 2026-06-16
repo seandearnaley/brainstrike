@@ -718,18 +718,16 @@ export async function runRootFolderCacheImport(args: {
     return;
   }
   assertManagedCollectionModelKey(collection.modelKey);
-  // Background workspace import enqueues embed_chunk jobs in the same
-  // transaction that inserts chunks. A missing transaction means the DB handle
-  // is miswired for this path; do not fall back to non-atomic enqueue.
-  if (!db.transaction) {
-    throw new Error(
-      'Workspace Index background import requires transactional database support for atomic chunk/job enqueue.'
-    );
-  }
   const sql = {
     query: db.query.bind(db),
-    runInTransaction: db.transaction.bind(db),
+    ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
   };
+  if (!db.transaction) {
+    logger.warn(
+      'Workspace Index import DB handle does not expose callback transactions; chunk/job recovery relies on backfill reconciliation.',
+      { embeddingSetId: collection.id }
+    );
+  }
   const embeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
     db,
     createQueue: (executor) => new JobQueue(executor),

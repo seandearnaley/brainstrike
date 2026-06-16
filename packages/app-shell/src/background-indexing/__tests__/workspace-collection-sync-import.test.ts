@@ -492,6 +492,11 @@ function makeMinimalDb() {
   };
 }
 
+function makeMinimalIpcDbWithoutCallbackTransaction() {
+  const query = vi.fn().mockResolvedValue({ rows: [] });
+  return { query };
+}
+
 function makeMinimalChange(): PreparedCacheChange {
   return {
     compositeKey: COMPOSITE_KEY,
@@ -645,6 +650,63 @@ describe('runRootFolderCacheImport — rootId threading', () => {
             enqueueBatch: expect.any(Function),
           }),
           sql: expect.objectContaining({
+            runInTransaction: expect.any(Function),
+          }),
+        }),
+      })
+    );
+  });
+
+  it('does not block desktop IPC imports when only statement transactions are exposed', async () => {
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = makeMinimalCollection();
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch,
+      abortSignal: new AbortController().signal,
+      changes: [change],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+        insertMany: vi.fn().mockResolvedValue([]),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection,
+      db: makeMinimalIpcDbWithoutCallbackTransaction() as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(vi.mocked(runEnhancedImport)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ports: expect.objectContaining({
+          embeddingQueue: expect.objectContaining({
+            enqueueBatch: expect.any(Function),
+          }),
+          sql: expect.not.objectContaining({
             runInTransaction: expect.any(Function),
           }),
         }),
