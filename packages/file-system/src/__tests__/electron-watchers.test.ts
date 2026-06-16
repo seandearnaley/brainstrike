@@ -130,6 +130,37 @@ describe('startFsWatch', () => {
     });
   });
 
+  it('uses project ignore rules before statting native fallback events', async () => {
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      isDirectory: () => false,
+    } as Stats);
+    const callback = vi.fn();
+    startFsWatch(mockHandle, callback);
+
+    mockWatchCallback?.('change', '.git/config');
+    mockWatchCallback?.('change', 'node_modules/react/index.js');
+    mockWatchCallback?.('change', 'dist/app.js');
+    mockWatchCallback?.('change', '.github/workflows/ci.yml');
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(statMock).toHaveBeenCalledTimes(1);
+    expect(statMock).toHaveBeenCalledWith(path.join(mockHandle.path, '.github/workflows/ci.yml'));
+
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith([
+      {
+        kind: 'file',
+        path: path.join(mockHandle.path, '.github/workflows/ci.yml'),
+        type: 'modified',
+      },
+    ]);
+
+    statMock.mockRestore();
+  });
+
   it('flushes immediately when the batch reaches max size', async () => {
     const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
       isDirectory: () => false,

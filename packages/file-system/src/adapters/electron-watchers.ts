@@ -81,6 +81,9 @@ export function startFsWatch(
       return;
     }
     const full = path.join(handle.path, filename.toString());
+    if (fileFilter.shouldIgnorePath(full)) {
+      return;
+    }
     try {
       const stat = await fs.promises.stat(full);
       const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';

@@ -186,21 +186,18 @@ describe('ElectronFileSystemAdapter', () => {
   });
 
   it('should throw error when electron dialog is unavailable', async () => {
-    vi.resetModules();
-    vi.doMock('electron', () => ({}));
-    // re-import adapter to pick up failing import
-    const { ElectronFileSystemAdapter: FailingAdapter } = await import(
-      '../adapters/electron-adapter'
-    );
-    const failing = new FailingAdapter();
-    await expect(failing.requestDirectoryAccess()).rejects.toThrow(
-      'Electron is not available - this adapter should only be used in the main process'
-    );
-    vi.doUnmock('electron');
-    vi.doMock('electron', () => ({
-      dialog: { showOpenDialog: vi.fn() },
-    }));
-    vi.resetModules();
+    const { dialog } = await import('electron');
+    const dialogMock = dialog as unknown as { showOpenDialog?: unknown };
+    const originalShowOpenDialog = dialogMock.showOpenDialog;
+    dialogMock.showOpenDialog = undefined;
+
+    try {
+      await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
+        'Electron is not available - this adapter should only be used in the main process'
+      );
+    } finally {
+      dialogMock.showOpenDialog = originalShowOpenDialog;
+    }
   });
 
   it('should throw AccessError when selected path is not a directory', async () => {
