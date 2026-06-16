@@ -1,6 +1,6 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useState } from 'react';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
 import { extractPrimaryArg } from './tool-fallback';
 
@@ -129,25 +129,23 @@ export function formatActivityDuration(ms: number): string {
  * (a reloaded/finished turn), it returns `fallbackMs` instead.
  */
 function useElapsedMs(isActive: boolean, fallbackMs: number | undefined): number | undefined {
-  const startRef = useRef<number | null>(null);
-  const [now, setNow] = useState<number | null>(null);
+  // Store the measured elapsed directly in state so render stays pure (no ref
+  // reads during render). null = never timed live → fall back to the persisted
+  // duration; a frozen number = the value at the moment activity stopped.
+  const [measuredMs, setMeasuredMs] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isActive) {
       return;
     }
-    if (startRef.current === null) {
-      startRef.current = Date.now();
-    }
-    setNow(Date.now());
-    const intervalId = setInterval(() => setNow(Date.now()), 100);
+    const start = Date.now();
+    // The only state write lives in the interval tick (a genuine side effect),
+    // so render stays pure and there is no prop→state mirroring in the body.
+    const intervalId = setInterval(() => setMeasuredMs(Date.now() - start), 100);
     return () => clearInterval(intervalId);
   }, [isActive]);
 
-  if (startRef.current !== null && now !== null) {
-    return Math.max(0, now - startRef.current);
-  }
-  return fallbackMs;
+  return measuredMs ?? fallbackMs;
 }
 
 interface AssistantActivityGroupProps {
