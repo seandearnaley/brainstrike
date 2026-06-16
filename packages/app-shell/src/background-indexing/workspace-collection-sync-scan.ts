@@ -541,6 +541,9 @@ async function collectScopedChange(args: {
 }): Promise<void> {
   const relativePath = normalizeScopedChangePath(args.change, args.context.rootPath);
   if (args.change.type === 'removed') {
+    if (relativePath === '') {
+      return;
+    }
     args.accumulator.pendingRemovals.push({ change: args.change, relativePath });
     return;
   }

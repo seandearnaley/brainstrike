@@ -106,8 +106,14 @@ export function startFsWatch(
   };
 
   try {
+    // Node only supports recursive native fs.watch on macOS and Windows.
+    // Unsupported platforms throw synchronously and are reported below as unwatched.
     const native = fs.watch(handle.path, { recursive: true }, enqueueNativeEvent);
-    logger.warn('Using recursive native fs.watch fallback', { path: handle.path });
+    logger.warn('Using recursive native fs.watch fallback', {
+      path: handle.path,
+      platform: process.platform,
+      recursiveSupport: 'macos-windows-only',
+    });
     return () => {
       native.close();
       batcher.dispose();
@@ -116,6 +122,8 @@ export function startFsWatch(
     logger.error('Failed to start recursive native fs.watch; folder will not be watched', {
       error,
       path: handle.path,
+      platform: process.platform,
+      recursiveSupport: 'macos-windows-only',
     });
     return () => {};
   }

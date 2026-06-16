@@ -125,9 +125,14 @@ describe('startFsWatch', () => {
       { recursive: true },
       expect.any(Function)
     );
-    expect(loggerMock.warn).toHaveBeenCalledWith('Using recursive native fs.watch fallback', {
-      path: mockHandle.path,
-    });
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Using recursive native fs.watch fallback',
+      expect.objectContaining({
+        path: mockHandle.path,
+        platform: process.platform,
+        recursiveSupport: 'macos-windows-only',
+      })
+    );
   });
 
   it('uses project ignore rules before statting native fallback events', async () => {
@@ -330,10 +335,12 @@ describe('startFsWatch', () => {
     expect(() => stop()).not.toThrow();
     expect(loggerMock.error).toHaveBeenCalledWith(
       'Failed to start recursive native fs.watch; folder will not be watched',
-      {
+      expect.objectContaining({
         error: expect.any(Error),
         path: mockHandle.path,
-      }
+        platform: process.platform,
+        recursiveSupport: 'macos-windows-only',
+      })
     );
   });
 });
@@ -471,9 +478,14 @@ describe('handleWatcherSetupError', () => {
         path: mockHandle.path,
       }
     );
-    expect(loggerMock.warn).toHaveBeenCalledWith('Using recursive native fs.watch fallback', {
-      path: mockHandle.path,
-    });
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Using recursive native fs.watch fallback',
+      expect.objectContaining({
+        path: mockHandle.path,
+        platform: process.platform,
+        recursiveSupport: 'macos-windows-only',
+      })
+    );
 
     stop();
   });
@@ -484,9 +496,14 @@ describe('handleWatcherSetupError', () => {
     const stop = handleWatcherSetupError(moduleError, mockHandle, callback);
 
     expect(loggerMock.error).not.toHaveBeenCalled();
-    expect(loggerMock.warn).toHaveBeenCalledWith('Using recursive native fs.watch fallback', {
-      path: mockHandle.path,
-    });
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Using recursive native fs.watch fallback',
+      expect.objectContaining({
+        path: mockHandle.path,
+        platform: process.platform,
+        recursiveSupport: 'macos-windows-only',
+      })
+    );
     stop();
     expect(fallbackClose).toHaveBeenCalledTimes(1);
   });

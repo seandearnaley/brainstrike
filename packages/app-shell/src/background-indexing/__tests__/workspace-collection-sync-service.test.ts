@@ -697,6 +697,27 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
+  it('ignores root-level watcher removals without invalidation or import', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'directory', path: ROOT_PATH, type: 'removed' }],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
   it('does not invalidate a file path that is recreated in the same watcher batch', async () => {
     const oldContent = 'export const value = 1;';
     const newContent = 'export const value = 2;';
