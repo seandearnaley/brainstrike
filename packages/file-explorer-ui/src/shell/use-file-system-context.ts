@@ -11,6 +11,7 @@ import {
   useToastManager,
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { FileSystemChange } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
@@ -19,6 +20,7 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
+import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
 import { useOptionalRootDataDeletion } from './root-data-deletion-context';
 
 const logger = createLogger('FileSystemContext');
@@ -98,9 +100,6 @@ async function selectDirectoryWithErrorMapping(
     throw new Error(errorMessage);
   }
 }
-
-/** Custom event dispatched to all listeners when a watched root reports changes. */
-const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
 
 /**
  * The file-system INSTANCE hook — owns root handle state, watchers, and
@@ -377,25 +376,71 @@ export function useFileSystemInstance() {
       })),
     [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
   );
+  const watcherRootById = useMemo(
+    () => new Map(watcherRoots.map((root) => [root.rootId, root] as const)),
+    [watcherRoots]
+  );
 
   // Debounce timer for the refresh event dispatch. Held in a ref so the
   // timer identity never drives re-renders and the callback closure always
   // sees the same ref object without needing it in deps.
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRefreshRootsRef = useRef<
+    Map<
+      string,
+      {
+        rootId: string;
+        rootPath: string;
+        changes: FileSystemChange[];
+      }
+    >
+  >(new Map());
 
   // Debounced watcher callback: 300ms trailing. Multiple rapid change
   // notifications from the same or different roots collapse into a single
   // FILE_EXPLORER_REFRESH_EVENT dispatch, preventing redundant tree reloads
   // during a burst of file-system activity (e.g. a build writing many files).
-  const handleWatcherChanges = useCallback((_rootId: string): void => {
-    if (refreshTimerRef.current !== null) {
-      clearTimeout(refreshTimerRef.current);
-    }
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = null;
-      window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
-    }, 300);
-  }, []);
+  const handleWatcherChanges = useCallback(
+    (rootId: string, changes: FileSystemChange[]): void => {
+      const watcherRoot = watcherRootById.get(rootId);
+      if (!watcherRoot) {
+        throw new Error(`Watcher change received for unknown file explorer root: ${rootId}`);
+      }
+
+      const pendingRoots = pendingRefreshRootsRef.current;
+      const pendingRoot = pendingRoots.get(rootId);
+      if (pendingRoot) {
+        pendingRoot.changes.push(...changes);
+      } else {
+        pendingRoots.set(rootId, {
+          rootId,
+          rootPath: watcherRoot.handle.path,
+          changes: [...changes],
+        });
+      }
+
+      if (refreshTimerRef.current !== null) {
+        clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
+          rootId: root.rootId,
+          rootPath: root.rootPath,
+          changes: root.changes,
+        }));
+        pendingRefreshRootsRef.current.clear();
+        window.dispatchEvent(
+          createFileExplorerRefreshEvent({
+            source: 'watcher',
+            scope: 'incremental',
+            roots,
+          })
+        );
+      }, 300);
+    },
+    [watcherRootById]
+  );
 
   // Clear any pending debounced dispatch on unmount to avoid dispatching after
   // the component has been torn down.
@@ -405,6 +450,7 @@ export function useFileSystemInstance() {
       if (refreshTimerRef.current !== null) {
         clearTimeout(refreshTimerRef.current);
       }
+      pendingRefreshRootsRef.current.clear();
     },
     []
   );
