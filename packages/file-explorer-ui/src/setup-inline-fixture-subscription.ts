@@ -48,6 +48,7 @@ type IndexingDebugHostStatus = IndexingDebugAvailableHostStatus | IndexingDebugB
 
 interface IndexingDebugSnapshot {
   accessIssues?: IndexingDebugAccessIssue[];
+  chunkingBacklog: unknown[];
   collectionStats: unknown[];
   hosts: {
     chunking: IndexingDebugHostStatus;
@@ -146,33 +147,41 @@ function createIndexingDebugApi(): IndexingDebugApi {
       const accessIssues: IndexingDebugAccessIssue[] = [];
       const bridges = window as Window & IndexingDebugWindowBridges;
       const query = bridges.electronAPI?.db?.query;
-      const [roots, collectionStats, queueCounts, chunking, embedding] = await Promise.all([
-        readRows(
-          query,
-          'SELECT id, path, display_name, kind, status, created_at, last_verified_at FROM roots ORDER BY created_at ASC',
-          accessIssues,
-          'roots'
-        ),
-        readRows(
-          query,
-          'SELECT embedding_set_id, file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty, last_refreshed_at FROM collection_indexing_stats ORDER BY last_refreshed_at DESC',
-          accessIssues,
-          'collection_indexing_stats'
-        ),
-        readRows(
-          query,
-          "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
-          accessIssues,
-          'job_queue'
-        ),
-        readHostStatus(bridges.chunkingHost, 'chunkingHost bridge unavailable'),
-        readHostStatus(bridges.embeddingHost, 'embeddingHost bridge unavailable'),
-      ]);
+      const [roots, collectionStats, queueCounts, chunkingBacklog, chunking, embedding] =
+        await Promise.all([
+          readRows(
+            query,
+            'SELECT id, path, display_name, kind, status, created_at, last_verified_at FROM roots ORDER BY created_at ASC',
+            accessIssues,
+            'roots'
+          ),
+          readRows(
+            query,
+            'SELECT embedding_set_id, file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty, last_refreshed_at FROM collection_indexing_stats ORDER BY last_refreshed_at DESC',
+            accessIssues,
+            'collection_indexing_stats'
+          ),
+          readRows(
+            query,
+            "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
+            accessIssues,
+            'job_queue'
+          ),
+          readRows(
+            query,
+            'SELECT embedding_set_id, root_id, COUNT(*)::int AS file_count, MIN(updated_at) AS oldest_updated_at FROM file_records WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL AND chunks_processed_at IS NULL GROUP BY embedding_set_id, root_id ORDER BY embedding_set_id, root_id',
+            accessIssues,
+            'file_records_chunking_backlog'
+          ),
+          readHostStatus(bridges.chunkingHost, 'chunkingHost bridge unavailable'),
+          readHostStatus(bridges.embeddingHost, 'embeddingHost bridge unavailable'),
+        ]);
 
       return {
         roots,
         collectionStats,
         queueCounts,
+        chunkingBacklog,
         hosts: {
           chunking,
           embedding,
