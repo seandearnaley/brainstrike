@@ -56,6 +56,7 @@ import {
   summarizeToolActivity,
 } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
+import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
@@ -1131,70 +1132,72 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
-    <section
-      aria-label="Assistant chat"
-      className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
-      data-testid="chat-panel"
-    >
-      {isLocalProvider && modelName && !localViaDataStream ? (
-        <LocalRuntimeChat
-          completePreparedRequest={completePreparedRequest}
-          contextWindow={contextWindow}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          key={threadKey ? `local:${threadKey}` : 'local'}
-          loadLocalLlmBackend={loadLocalLlmBackend}
-          localLoadingState={localLoadingState}
-          modelId={modelName}
-          onLoadingStateChange={handleLocalLoadingStateChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          {...(onUsage ? { onUsage } : {})}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      ) : (
-        <DataStreamRuntimeChat
-          api={api}
-          completePreparedRequest={completePreparedRequest}
-          contextWindow={contextWindow}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          historyAdapter={historyAdapter}
-          key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
-          localLoadingState={localLoadingState}
-          modelName={modelName}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          prepareLocalModel={prepareLocalModel}
-          {...(onUsage ? { onUsage } : {})}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      )}
-    </section>
+    <AssistantDetailLevelProvider>
+      <section
+        aria-label="Assistant chat"
+        className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-testid="chat-panel"
+      >
+        {isLocalProvider && modelName && !localViaDataStream ? (
+          <LocalRuntimeChat
+            completePreparedRequest={completePreparedRequest}
+            contextWindow={contextWindow}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            key={threadKey ? `local:${threadKey}` : 'local'}
+            loadLocalLlmBackend={loadLocalLlmBackend}
+            localLoadingState={localLoadingState}
+            modelId={modelName}
+            onLoadingStateChange={handleLocalLoadingStateChange}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onStreamActivity={onStreamActivity}
+            onThreadRunStart={onThreadRunStart}
+            {...(onUsage ? { onUsage } : {})}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            prepareRequestData={prepareRequestData}
+            providerGroups={groupedProviders}
+            providerSettings={providerSettings}
+            requestData={requestData}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        ) : (
+          <DataStreamRuntimeChat
+            api={api}
+            completePreparedRequest={completePreparedRequest}
+            contextWindow={contextWindow}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            historyAdapter={historyAdapter}
+            key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
+            localLoadingState={localLoadingState}
+            modelName={modelName}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onStreamActivity={onStreamActivity}
+            onThreadRunStart={onThreadRunStart}
+            prepareLocalModel={prepareLocalModel}
+            {...(onUsage ? { onUsage } : {})}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            prepareRequestData={prepareRequestData}
+            providerGroups={groupedProviders}
+            providerSettings={providerSettings}
+            requestData={requestData}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        )}
+      </section>
+    </AssistantDetailLevelProvider>
   );
 };
 

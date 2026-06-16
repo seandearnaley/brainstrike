@@ -25,11 +25,16 @@ vi.mock('../dropdown-menu', () => {
     </button>
   );
 
+  const RadioGroup = ({ children }: { children: ReactNode }) => <div>{children}</div>;
+  const RadioItem = ({ children }: { children: ReactNode }) => <div>{children}</div>;
+
   return {
     DropdownMenu: Shell,
     DropdownMenuContent: Content,
     DropdownMenuItem: Item,
     DropdownMenuLabel: Label,
+    DropdownMenuRadioGroup: RadioGroup,
+    DropdownMenuRadioItem: RadioItem,
     DropdownMenuSeparator: Separator,
     DropdownMenuSub: Shell,
     DropdownMenuSubContent: Content,
@@ -53,12 +58,12 @@ vi.mock('../assistant-ui-panel/provider-settings-panel', () => ({
 }));
 
 describe('ControlsMenu', () => {
-  it('does not render when there are no tools or reasoning controls', () => {
+  it('always renders the trigger and the Detail control, even without tools or reasoning', () => {
+    // The Detail control is always relevant, so the menu no longer hides itself.
     render(<ControlsMenu />);
 
-    expect(
-      screen.queryByRole('button', { name: 'Open assistant controls' })
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
+    expect(screen.getByText('Detail')).toBeInTheDocument();
   });
 
   it('renders reasoning controls for supported providers', () => {
@@ -86,12 +91,11 @@ describe('ControlsMenu', () => {
     expect(screen.getByText('Provider settings panel')).toHaveAttribute('data-model-name', 'gpt-5');
   });
 
-  it('keeps unsupported provider settings hidden', () => {
+  it('hides reasoning settings for unsupported providers but still shows the menu', () => {
     render(<ControlsMenu onProviderSettingsChange={vi.fn()} selectedProvider="local" />);
 
-    expect(
-      screen.queryByRole('button', { name: 'Open assistant controls' })
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
+    expect(screen.queryByText('Reasoning & Output')).not.toBeInTheDocument();
   });
 
   it('groups tools by source and label, summarizes enabled counts, and routes actions', async () => {
