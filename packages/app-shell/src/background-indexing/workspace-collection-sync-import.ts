@@ -741,6 +741,7 @@ export async function runRootFolderCacheImport(args: {
     service: null,
     chunkRepository,
     resolveTargetEmbeddingSetId: () => collection.id,
+    targetDimension: collection.dimensions,
   };
   const processor =
     fileContentProcessor ??

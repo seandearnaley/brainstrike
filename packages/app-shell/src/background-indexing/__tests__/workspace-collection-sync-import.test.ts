@@ -638,6 +638,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         embedding: expect.objectContaining({
           enabled: true,
           resolveTargetEmbeddingSetId: expect.any(Function),
+          targetDimension: collection.dimensions,
         }),
         ports: expect.objectContaining({
           embeddingQueue: expect.objectContaining({

@@ -255,6 +255,7 @@ describe('runEnhancedImport', () => {
         service: {} as never,
         chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'set-1',
+        targetDimension: 384,
       },
       progressHandlers: {
         update: (updater) => updater(null),
@@ -289,7 +290,7 @@ describe('runEnhancedImport', () => {
       expect.objectContaining({
         model: 'local::mock-model',
         targetEmbeddingSetId: 'set-1',
-        targetDimension: 768,
+        targetDimension: 384,
         provider: 'local',
         dimensionParameter: null,
       })

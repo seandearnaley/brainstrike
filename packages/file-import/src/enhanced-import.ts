@@ -192,6 +192,7 @@ interface EmbeddingConfiguration {
   provider?: EmbeddingProviderType;
   resolveTargetEmbeddingSetId?: () => string | null | undefined;
   service: SimpleEmbeddingService | null;
+  targetDimension?: number;
 }
 
 type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
@@ -552,7 +553,7 @@ async function attachLocalModelMetadata(
 
   const modelEntry = await resolveLocalModelEntry(resolved.modelId, ports?.sql);
   assertValidDimensions(modelEntry.dimensions);
-  resolved.targetDimension = modelEntry.dimensions;
+  resolved.targetDimension = resolveConfiguredTargetDimension(config) ?? modelEntry.dimensions;
 
   await ensureAndEmitEmbeddingSet({
     sql: ports?.sql,
@@ -587,6 +588,7 @@ async function attachHostedModelMetadata(
   } else {
     resolved.targetDimension = DEFAULT_EMBEDDING_DIMENSION;
   }
+  resolved.targetDimension = resolveConfiguredTargetDimension(config) ?? resolved.targetDimension;
 
   await ensureHostedApiKey(supported);
   await ensureAndEmitEmbeddingSet({
@@ -595,6 +597,14 @@ async function attachHostedModelMetadata(
     modelConfig: undefined,
     config,
   });
+}
+
+function resolveConfiguredTargetDimension(config: EmbeddingConfiguration): number | undefined {
+  if (config.targetDimension === undefined) {
+    return;
+  }
+  assertValidDimensions(config.targetDimension);
+  return config.targetDimension;
 }
 
 async function ensureHostedApiKey(
