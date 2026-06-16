@@ -106,6 +106,30 @@ describe('WorkspaceCollectionSyncService', () => {
         update: vi.fn(async () => undefined),
         updateStatMetadata: vi.fn(async () => undefined),
       },
+      fileSystemAdapter: {
+        readDirectory: vi.fn(
+          async (): Promise<IFileNode[]> => [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+              }),
+              lastModified: 1000,
+              name: 'index.ts',
+              path: `${ROOT_PATH}/${FILE_PATH}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 23,
+              type: 'file',
+            },
+          ]
+        ),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn(),
+      } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'],
     });
     const service = new WorkspaceCollectionSyncService(deps);
 
@@ -673,6 +697,123 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
+  it('does not invalidate a file path that is recreated in the same watcher batch', async () => {
+    const oldContent = 'export const value = 1;';
+    const newContent = 'export const value = 2;';
+    const oldHash = await generateContentHash(oldContent);
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+        if (handle.path === ROOT_PATH) {
+          return [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+              }),
+              name: 'src',
+              path: `${ROOT_PATH}/src`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src`) {
+          return [
+            {
+              depth: 2,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+              }),
+              lastModified: 1000,
+              name: 'index.ts',
+              path: `${ROOT_PATH}/${FILE_PATH}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 23,
+              type: 'file',
+            },
+          ];
+        }
+        return [];
+      }),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: newContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-1',
+            mtimeMs: 1000,
+            relativePath: FILE_PATH,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [
+          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' },
+          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'added' },
+        ],
+      },
+    });
+
+    expect(vi.mocked(deps.setStatus).mock.calls).not.toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            state: 'error',
+          }),
+        ],
+      ])
+    );
+    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-1',
+              path: FILE_PATH,
+              content: newContent,
+            }),
+          }),
+        ],
+      })
+    );
+  });
+
   it('invalidates a watcher-removed directory by prefix root identity', async () => {
     const deps = createDeps();
     const service = new WorkspaceCollectionSyncService(deps);
@@ -790,6 +931,26 @@ describe('WorkspaceCollectionSyncService', () => {
       JSON.stringify(vi.mocked(deps.invalidateManagedCacheEntriesByIdentity).mock.calls)
     ).not.toContain('file-root-a-deleted');
     expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('requests strict full-scan traversal before planning missing-file deletes', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        propagateDirectoryReadErrors: true,
+      })
+    );
   });
 
   it('scans only the changed watcher directory subtree', async () => {

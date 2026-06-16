@@ -934,8 +934,14 @@ export function WorkspaceCollectionSyncProvider({
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
           }
+          const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
+          const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
+          if (syncLoopGenerationRef.current !== myGeneration) {
+            return;
+          }
           await service
             .sync({
+              dbRootId,
               enabled,
               indexingPolicyPreset,
               managedCollectionId,

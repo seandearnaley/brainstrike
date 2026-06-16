@@ -53,9 +53,10 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       });
       continue;
     }
-    // Adapter "path": bare dir name on web, absolute path on desktop — the
-    // same value migration 038 backfilled into roots.path from source_root_path.
-    const matched = dbByPath.get(root.handle.path);
+    // Desktop adapter paths are absolute filesystem identities and may match
+    // legacy rows. Web/FSA "paths" are only bare directory names, so matching
+    // them would collapse two different roots named "project".
+    const matched = platformKind === 'path' ? dbByPath.get(root.handle.path) : undefined;
     if (matched) {
       mapping.set(root.rootId, matched.id);
       continue;
@@ -68,7 +69,10 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
         [root.rootId, platformKind, root.displayName, root.handle.path]
       );
     } catch (error) {
-      // ON CONFLICT (id) does not cover the idx_roots_path unique index: a
+      if (platformKind !== 'path') {
+        throw error;
+      }
+      // ON CONFLICT (id) does not cover the desktop path unique index: a
       // concurrent writer (another window racing this reconcile) can land a
       // same-path row between our SELECT and this INSERT. Converge on the
       // existing row instead of aborting the remaining roots.

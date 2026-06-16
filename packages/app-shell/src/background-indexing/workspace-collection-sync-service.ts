@@ -5,12 +5,9 @@ import type {
   EmbeddingSet,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
-  ManagedCacheEntryMetadata,
   ManagedCacheInvalidationResult,
-  ManagedCacheInvalidationTarget,
 } from '@brainstrike/db';
 import type { FileContentProcessor } from '@brainstrike/file-explorer-hooks';
-import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type {
   ChunkingWorkerPort,
   EnhancedImportProgress,
@@ -33,27 +30,17 @@ import type {
   WorkspaceCollectionSyncScanSummary,
   WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import type { FileSystemChange, IFileNode } from '@brainstrike/types';
-import {
-  type BackgroundIndexingPolicyPreset,
-  createBackgroundIndexingEntryPolicy,
-} from '@brainstrike/utils';
+import type { FileSystemChange } from '@brainstrike/types';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import {
-  isAbsoluteFileSystemPath,
-  normalizeSelectionPathForFolder,
-} from '@brainstrike/utils/relative-file-path';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
-  collectPreparedChangesInBatches,
-  flattenFileNodes,
   type PreparedChangesSummary,
   runRootFolderCacheImport,
 } from './workspace-collection-sync-import';
 import {
   createAbortError,
-  createScanningStatusReporter,
   dispatchQueueDrainedEvent,
   getBackfillDrainPollDelayMs,
   isAbortError,
@@ -64,6 +51,10 @@ import {
   toWorkspaceCollectionSyncImportProgress,
   waitForAbortableDelay,
 } from './workspace-collection-sync-progress';
+import {
+  collectPreparedWorkspaceSyncChanges,
+  type PreparedSyncChanges,
+} from './workspace-collection-sync-scan';
 import { isWorkspaceIndexBlockedError } from './workspace-index-blocked-error';
 
 const logger = createLogger('WorkspaceCollectionSyncService');
@@ -83,6 +74,7 @@ interface RootDirectoryHandle {
   name: string;
   path: string;
   platform: 'electron' | 'web';
+  rootId?: string;
 }
 
 export interface WorkspaceCollectionSyncServiceDependencies {
@@ -126,7 +118,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
    * table, awaiting the reconciliation result. Returns `null` if the path is
    * not mapped (logs once per path). ALWAYS settles — never hangs.
    */
-  resolveDbRootId: (rootPath: string) => Promise<string | null>;
+  resolveDbRootId: (rootPath: string, adapterRootId?: string | null) => Promise<string | null>;
   resolveQosPolicy: () => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
@@ -144,6 +136,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
 }
 
 export interface WorkspaceCollectionSyncRequest {
+  dbRootId?: string | null;
   enabled: boolean;
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   managedCollectionId: string | null;
@@ -174,75 +167,6 @@ interface ActiveBackfillTracking {
   requestId: string;
   rootPath: string;
   unsubscribe: (() => void) | null;
-}
-
-interface PreparedSyncChanges {
-  invalidationTargets: ManagedCacheInvalidationTarget[];
-  prepared: PreparedChangesSummary;
-}
-
-interface ScopedChangeAccumulator {
-  changedFileNodesByPath: Map<string, IFileNode>;
-  forceReadRelativePaths: Set<string>;
-  invalidationTargets: ManagedCacheInvalidationTarget[];
-}
-
-type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
-
-function toSlashPath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/\/+$/u, '');
-}
-
-function joinRootRelativePath(rootPath: string, relativePath: string): string {
-  const normalizedRoot = toSlashPath(rootPath);
-  return `${normalizedRoot}/${relativePath.replace(/^\/+/u, '')}`;
-}
-
-function getPathName(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments.at(-1) ?? path;
-}
-
-function getParentRelativePath(relativePath: string): string | null {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/\/+$/u, '');
-  const separatorIndex = normalized.lastIndexOf('/');
-  return separatorIndex === -1 ? null : normalized.slice(0, separatorIndex);
-}
-
-function isDirectoryNode(node: IFileNode): boolean {
-  return node.type === 'directory';
-}
-
-function isFileNode(node: IFileNode): boolean {
-  return node.type === 'file';
-}
-
-function collectFullScanMissingFileInvalidations(args: {
-  existingEntries: readonly ManagedCacheEntryMetadata[];
-  fileNodes: readonly IFileNode[];
-  rootId: string;
-  rootPath: string;
-}): ManagedCacheInvalidationTarget[] {
-  const scannedRelativePaths = new Set(
-    args.fileNodes.map((node) =>
-      normalizeSelectionPathForFolder(node.path, args.rootPath, {
-        label: 'Background cache file path',
-      })
-    )
-  );
-  return args.existingEntries.flatMap((entry) => {
-    if (entry.rootId !== args.rootId || scannedRelativePaths.has(entry.relativePath)) {
-      return [];
-    }
-    return [
-      {
-        expectedFileRecordId: entry.fileRecordId,
-        mode: 'exact',
-        relativePath: entry.relativePath,
-        rootId: args.rootId,
-      } satisfies ManagedCacheInvalidationTarget,
-    ];
-  });
 }
 
 export class WorkspaceCollectionSyncService {
@@ -511,7 +435,12 @@ export class WorkspaceCollectionSyncService {
 
     // Short-circuit: '' is never a valid lookup key, and passing it would
     // pollute the warn-once set with a misleading entry on path-less runs.
-    const dbRootId = rootPath ? await this.deps.resolveDbRootId(rootPath) : null;
+    const dbRootId =
+      request.dbRootId === undefined
+        ? rootPath
+          ? await this.deps.resolveDbRootId(rootPath, request.rootDirectoryHandle?.rootId)
+          : null
+        : request.dbRootId;
     return {
       collection,
       activeRootPath: rootPath ?? '',
@@ -596,534 +525,27 @@ export class WorkspaceCollectionSyncService {
     abortSignal: AbortSignal;
     qosPolicy: WorkspaceIndexingQosPolicy;
   }): Promise<PreparedSyncChanges> {
-    const { request, context, abortSignal, qosPolicy } = args;
-    if (request.scope?.mode === 'paths') {
-      return await this.collectPreparedScopedChanges({
-        abortSignal,
-        changes: request.scope.changes,
-        context,
-        qosPolicy,
-        request,
-      });
-    }
-
-    const entryPolicy = createBackgroundIndexingEntryPolicy({
-      preset: request.indexingPolicyPreset,
-    });
-    const statusReporter = createScanningStatusReporter((path) => {
-      this.setScanningStatus(context, path);
-    });
-    let excludedEntries = 0;
-
-    try {
-      const tree = await readFullTreeWithOptions(
-        this.deps.fileSystemAdapter,
-        request.rootDirectoryHandle as RootDirectoryHandle,
-        {
-          abortSignal,
-          entryPolicy,
-          onEntrySkipped: (entry) => {
-            if (entry.reason === 'entry-policy') {
-              excludedEntries += 1;
-            }
-          },
-          updateProgress: (path?: string) => {
-            statusReporter.report(path ?? null);
-          },
-        }
-      );
-      throwIfAborted(abortSignal);
-
-      const existingEntries = await this.deps.fileRecordRepository.listManagedCacheEntryMetadata(
-        context.collection.id
-      );
-      throwIfAborted(abortSignal);
-      const fileNodes = flattenFileNodes(tree);
-      const rootId = context.dbRootId ?? '';
-
-      const prepared = await collectPreparedChangesInBatches({
-        abortSignal,
-        existingEntries,
-        fileNodes,
-        fileSystemAdapter: this.deps.fileSystemAdapter,
-        onCurrentFile: (path) => {
-          statusReporter.report(path);
-        },
-        qosPolicy,
-        // rootId is the managed-cache dedup identity (source_root_path retired).
-        // runSyncPass short-circuits a null dbRootId BEFORE the scan, so this is
-        // effectively non-null here; `?? ''` is only a typed floor for the
-        // string | null field (an empty id would match no stored row anyway).
-        rootId,
-        rootPath: context.activeRootPath,
-        ...(this.deps.fileContentProcessor
-          ? { fileContentProcessor: this.deps.fileContentProcessor }
-          : {}),
-      });
-      statusReporter.flush(null);
-      return {
-        invalidationTargets: collectFullScanMissingFileInvalidations({
-          existingEntries,
-          fileNodes,
-          rootId,
-          rootPath: context.activeRootPath,
-        }),
-        prepared: {
-          ...prepared,
-          excludedEntries,
-        },
-      };
-    } finally {
-      statusReporter.dispose();
-    }
-  }
-
-  private normalizeScopedChangePath(change: FileSystemChange, rootPath: string): string {
-    const normalizedPath = change.path.replace(/\\/g, '/');
-    const normalizedRoot = toSlashPath(rootPath);
-    if (isAbsoluteFileSystemPath(normalizedPath)) {
-      const pathLower = normalizedPath.toLowerCase();
-      const rootLower = normalizedRoot.toLowerCase();
-      if (!(pathLower === rootLower || pathLower.startsWith(`${rootLower}/`))) {
-        throw new Error(`Workspace Index watcher path is outside the active root: ${change.path}`);
-      }
-    }
-    return normalizeSelectionPathForFolder(normalizedPath, rootPath, {
-      label: 'Workspace Index watcher path',
-    });
-  }
-
-  private toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): RootDirectoryHandle {
-    const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
-    return {
-      kind: 'directory',
-      name: node.name,
-      path: node.path,
-      platform: nodeHandle.platform ?? rootHandle.platform,
-      ...(nodeHandle._internal === undefined ? {} : { _internal: nodeHandle._internal }),
-    };
-  }
-
-  private toSyntheticFileNode(args: {
-    relativePath: string;
-    rootHandle: RootDirectoryHandle;
-    rootPath: string;
-  }): IFileNode {
-    const absolutePath = joinRootRelativePath(args.rootPath, args.relativePath);
-    return {
-      depth: args.relativePath.split('/').filter(Boolean).length,
-      handle: {
-        kind: 'file',
-        name: getPathName(args.relativePath),
-        path: absolutePath,
-        platform: args.rootHandle.platform,
-      } as unknown as IFileNode['handle'],
-      name: getPathName(args.relativePath),
-      path: absolutePath,
-      rootFolderId: args.rootPath,
-      selectionState: 'unchecked',
-      type: 'file',
-    };
-  }
-
-  private async readDirectoryWithProgress(args: {
-    abortSignal: AbortSignal;
-    handle: RootDirectoryHandle;
-    statusReporter: ReturnType<typeof createScanningStatusReporter>;
-  }): Promise<IFileNode[]> {
-    throwIfAborted(args.abortSignal);
-    args.statusReporter.report(args.handle.path);
-    const nodes = await this.deps.fileSystemAdapter.readDirectory(args.handle, {
-      includeMetadata: true,
-    });
-    throwIfAborted(args.abortSignal);
-    return nodes;
-  }
-
-  private async resolveDirectoryHandleForRelativePath(args: {
-    abortSignal: AbortSignal;
-    entryPolicy: WorkspaceIndexingEntryPolicy;
-    onExcludedEntry: () => void;
-    relativePath: string;
-    rootHandle: RootDirectoryHandle;
-    rootPath: string;
-    statusReporter: ReturnType<typeof createScanningStatusReporter>;
-  }): Promise<RootDirectoryHandle | null> {
-    const segments = args.relativePath.split('/').filter(Boolean);
-    let currentHandle = args.rootHandle;
-    let currentRelativePath = '';
-    for (const segment of segments) {
-      const children = await this.readDirectoryWithProgress({
-        abortSignal: args.abortSignal,
-        handle: currentHandle,
-        statusReporter: args.statusReporter,
-      });
-      const nextRelativePath = currentRelativePath ? `${currentRelativePath}/${segment}` : segment;
-      const matchingDirectory = children.find((node) => {
-        if (!isDirectoryNode(node)) {
-          return false;
-        }
-        if (node.name === segment) {
-          return true;
-        }
-        try {
-          return (
-            this.normalizeScopedChangePath(
-              { kind: 'directory', path: node.path, type: 'modified' },
-              args.rootPath
-            ) === nextRelativePath
-          );
-        } catch {
-          return false;
-        }
-      });
-      if (!matchingDirectory) {
-        return null;
-      }
-      if (
-        !args.entryPolicy.shouldTraverseDirectory({
-          directoryName: matchingDirectory.name,
-          relativePath: nextRelativePath,
-        })
-      ) {
-        args.onExcludedEntry();
-        return null;
-      }
-      currentHandle = this.toDirectoryHandle(matchingDirectory, args.rootHandle);
-      currentRelativePath = nextRelativePath;
-    }
-    return currentHandle;
-  }
-
-  private async resolveChangedFileNode(args: {
-    abortSignal: AbortSignal;
-    entryPolicy: WorkspaceIndexingEntryPolicy;
-    onExcludedEntry: () => void;
-    relativePath: string;
-    rootHandle: RootDirectoryHandle;
-    rootPath: string;
-    statusReporter: ReturnType<typeof createScanningStatusReporter>;
-  }): Promise<IFileNode | null> {
-    const parentRelativePath = getParentRelativePath(args.relativePath);
-    const parentHandle = parentRelativePath
-      ? await this.resolveDirectoryHandleForRelativePath({
-          abortSignal: args.abortSignal,
-          entryPolicy: args.entryPolicy,
-          onExcludedEntry: args.onExcludedEntry,
-          relativePath: parentRelativePath,
-          rootHandle: args.rootHandle,
-          rootPath: args.rootPath,
-          statusReporter: args.statusReporter,
-        })
-      : args.rootHandle;
-    const fileName = getPathName(args.relativePath);
-    let node = this.toSyntheticFileNode({
-      relativePath: args.relativePath,
-      rootHandle: args.rootHandle,
-      rootPath: args.rootPath,
-    });
-    if (parentHandle) {
-      const siblings = await this.readDirectoryWithProgress({
-        abortSignal: args.abortSignal,
-        handle: parentHandle,
-        statusReporter: args.statusReporter,
-      });
-      const matchingNode = siblings.find((candidate) => {
-        if (!(isFileNode(candidate) && candidate.name === fileName)) {
-          return false;
-        }
-        try {
-          return (
-            this.normalizeScopedChangePath(
-              { kind: 'file', path: candidate.path, type: 'modified' },
-              args.rootPath
-            ) === args.relativePath
-          );
-        } catch {
-          return false;
-        }
-      });
-      if (matchingNode) {
-        node = matchingNode;
-      }
-    }
-    if (
-      !args.entryPolicy.shouldIncludeFile({
-        fileName: node.name,
-        fileSize: node.size ?? 0,
-        relativePath: args.relativePath,
-      })
-    ) {
-      args.onExcludedEntry();
-      return null;
-    }
-    return node;
-  }
-
-  private async readScopedDirectoryTree(args: {
-    abortSignal: AbortSignal;
-    directoryHandle: RootDirectoryHandle;
-    entryPolicy: WorkspaceIndexingEntryPolicy;
-    onExcludedEntry: () => void;
-    rootHandle: RootDirectoryHandle;
-    rootPath: string;
-    statusReporter: ReturnType<typeof createScanningStatusReporter>;
-  }): Promise<IFileNode[]> {
-    const children = await this.readDirectoryWithProgress({
+    return await collectPreparedWorkspaceSyncChanges({
       abortSignal: args.abortSignal,
-      handle: args.directoryHandle,
-      statusReporter: args.statusReporter,
-    });
-    const fileNodes: IFileNode[] = [];
-    for (const node of children) {
-      const relativePath = this.normalizeScopedChangePath(
-        {
-          kind: node.type === 'directory' ? 'directory' : 'file',
-          path: node.path,
-          type: 'modified',
-        },
-        args.rootPath
-      );
-      if (isDirectoryNode(node)) {
-        if (
-          !args.entryPolicy.shouldTraverseDirectory({
-            directoryName: node.name,
-            relativePath,
-          })
-        ) {
-          args.onExcludedEntry();
-          continue;
-        }
-        fileNodes.push(
-          ...(await this.readScopedDirectoryTree({
-            abortSignal: args.abortSignal,
-            directoryHandle: this.toDirectoryHandle(node, args.rootHandle),
-            entryPolicy: args.entryPolicy,
-            onExcludedEntry: args.onExcludedEntry,
-            rootHandle: args.rootHandle,
-            rootPath: args.rootPath,
-            statusReporter: args.statusReporter,
-          }))
-        );
-        continue;
-      }
-      if (!isFileNode(node)) {
-        continue;
-      }
-      if (
-        !args.entryPolicy.shouldIncludeFile({
-          fileName: node.name,
-          fileSize: node.size ?? 0,
-          relativePath,
-        })
-      ) {
-        args.onExcludedEntry();
-        continue;
-      }
-      fileNodes.push(node);
-    }
-    return fileNodes;
-  }
-
-  private createScopedRemovalInvalidationTarget(args: {
-    change: FileSystemChange;
-    relativePath: string;
-    rootId: string;
-  }): ManagedCacheInvalidationTarget {
-    return args.change.kind === 'directory'
-      ? {
-          mode: 'prefix',
-          relativePathPrefix: args.relativePath,
-          rootId: args.rootId,
-        }
-      : {
-          mode: 'exact',
-          relativePath: args.relativePath,
-          rootId: args.rootId,
-        };
-  }
-
-  private async collectChangedDirectoryFileNodes(args: {
-    abortSignal: AbortSignal;
-    entryPolicy: WorkspaceIndexingEntryPolicy;
-    onExcludedEntry: () => void;
-    relativePath: string;
-    rootHandle: RootDirectoryHandle;
-    rootPath: string;
-    statusReporter: ReturnType<typeof createScanningStatusReporter>;
-  }): Promise<IFileNode[]> {
-    if (
-      !args.entryPolicy.shouldTraverseDirectory({
-        directoryName: getPathName(args.relativePath),
-        relativePath: args.relativePath,
-      })
-    ) {
-      args.onExcludedEntry();
-      return [];
-    }
-    const directoryHandle = await this.resolveDirectoryHandleForRelativePath({
-      abortSignal: args.abortSignal,
-      entryPolicy: args.entryPolicy,
-      onExcludedEntry: args.onExcludedEntry,
-      relativePath: args.relativePath,
-      rootHandle: args.rootHandle,
-      rootPath: args.rootPath,
-      statusReporter: args.statusReporter,
-    });
-    if (!directoryHandle) {
-      return [];
-    }
-    return await this.readScopedDirectoryTree({
-      abortSignal: args.abortSignal,
-      directoryHandle,
-      entryPolicy: args.entryPolicy,
-      onExcludedEntry: args.onExcludedEntry,
-      rootHandle: args.rootHandle,
-      rootPath: args.rootPath,
-      statusReporter: args.statusReporter,
-    });
-  }
-
-  private async collectScopedChange(args: {
-    abortSignal: AbortSignal;
-    accumulator: ScopedChangeAccumulator;
-    change: FileSystemChange;
-    context: ResolvedSyncContext;
-    entryPolicy: WorkspaceIndexingEntryPolicy;
-    onExcludedEntry: () => void;
-    rootHandle: RootDirectoryHandle;
-    statusReporter: ReturnType<typeof createScanningStatusReporter>;
-  }): Promise<void> {
-    const relativePath = this.normalizeScopedChangePath(args.change, args.context.rootPath);
-    if (args.change.type === 'removed') {
-      args.accumulator.invalidationTargets.push(
-        this.createScopedRemovalInvalidationTarget({
-          change: args.change,
-          relativePath,
-          rootId: args.context.dbRootId ?? '',
-        })
-      );
-      return;
-    }
-
-    if (args.change.kind === 'file') {
-      const fileNode = await this.resolveChangedFileNode({
-        abortSignal: args.abortSignal,
-        entryPolicy: args.entryPolicy,
-        onExcludedEntry: args.onExcludedEntry,
-        relativePath,
-        rootHandle: args.rootHandle,
+      context: {
+        activeRootPath: args.context.activeRootPath,
+        collectionId: args.context.collection.id,
+        dbRootId: args.context.dbRootId,
         rootPath: args.context.rootPath,
-        statusReporter: args.statusReporter,
-      });
-      if (fileNode) {
-        args.accumulator.changedFileNodesByPath.set(relativePath, fileNode);
-        args.accumulator.forceReadRelativePaths.add(relativePath);
-      }
-      return;
-    }
-
-    const subtreeFileNodes = await this.collectChangedDirectoryFileNodes({
-      abortSignal: args.abortSignal,
-      entryPolicy: args.entryPolicy,
-      onExcludedEntry: args.onExcludedEntry,
-      relativePath,
-      rootHandle: args.rootHandle,
-      rootPath: args.context.rootPath,
-      statusReporter: args.statusReporter,
-    });
-    for (const fileNode of subtreeFileNodes) {
-      const subtreeRelativePath = this.normalizeScopedChangePath(
-        { kind: 'file', path: fileNode.path, type: 'modified' },
-        args.context.rootPath
-      );
-      args.accumulator.changedFileNodesByPath.set(subtreeRelativePath, fileNode);
-    }
-  }
-
-  private async collectPreparedScopedChanges(args: {
-    abortSignal: AbortSignal;
-    changes: readonly FileSystemChange[];
-    context: ResolvedSyncContext;
-    qosPolicy: WorkspaceIndexingQosPolicy;
-    request: WorkspaceCollectionSyncRequest;
-  }): Promise<PreparedSyncChanges> {
-    const rootHandle = args.request.rootDirectoryHandle;
-    if (!rootHandle) {
-      return {
-        invalidationTargets: [],
-        prepared: {
-          changes: [],
-          excludedEntries: 0,
-          statRefreshes: [],
-          totalFiles: 0,
-          unchangedCount: 0,
-        },
-      };
-    }
-    const entryPolicy = createBackgroundIndexingEntryPolicy({
-      preset: args.request.indexingPolicyPreset,
-    });
-    const statusReporter = createScanningStatusReporter((path) => {
-      this.setScanningStatus(args.context, path);
-    });
-    let excludedEntries = 0;
-    const onExcludedEntry = (): void => {
-      excludedEntries += 1;
-    };
-    const accumulator: ScopedChangeAccumulator = {
-      changedFileNodesByPath: new Map<string, IFileNode>(),
-      forceReadRelativePaths: new Set<string>(),
-      invalidationTargets: [],
-    };
-
-    try {
-      for (const change of args.changes) {
-        await this.collectScopedChange({
-          abortSignal: args.abortSignal,
-          accumulator,
-          change,
-          context: args.context,
-          entryPolicy,
-          onExcludedEntry,
-          rootHandle,
-          statusReporter,
-        });
-      }
-      throwIfAborted(args.abortSignal);
-
-      const existingEntries = await this.deps.fileRecordRepository.listManagedCacheEntryMetadata(
-        args.context.collection.id
-      );
-      throwIfAborted(args.abortSignal);
-
-      const prepared = await collectPreparedChangesInBatches({
-        abortSignal: args.abortSignal,
-        existingEntries,
-        fileNodes: [...accumulator.changedFileNodesByPath.values()],
+      },
+      deps: {
+        fileRecordRepository: this.deps.fileRecordRepository,
         fileSystemAdapter: this.deps.fileSystemAdapter,
-        forceReadRelativePaths: accumulator.forceReadRelativePaths,
-        onCurrentFile: (path) => {
-          statusReporter.report(path);
+        onScanningPath: (path) => {
+          this.setScanningStatus(args.context, path);
         },
-        qosPolicy: args.qosPolicy,
-        rootId: args.context.dbRootId ?? '',
-        rootPath: args.context.activeRootPath,
         ...(this.deps.fileContentProcessor
           ? { fileContentProcessor: this.deps.fileContentProcessor }
           : {}),
-      });
-      statusReporter.flush(null);
-      return {
-        invalidationTargets: accumulator.invalidationTargets,
-        prepared: {
-          ...prepared,
-          excludedEntries,
-        },
-      };
-    } finally {
-      statusReporter.dispose();
-    }
+      },
+      qosPolicy: args.qosPolicy,
+      request: args.request,
+    });
   }
 
   private setScanSummary(

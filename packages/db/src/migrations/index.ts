@@ -39,6 +39,7 @@ import { migration037FileRecordMtimeMs } from './037-file-record-mtime-ms.js';
 import { migration038PgTrgmGrepIndex } from './038-pg-trgm-grep-index.js';
 import { migration039RootsTable } from './039-roots-table.js';
 import { migration040RetireSourceRootPath } from './040-retire-source-root-path.js';
+import { migration041RootsPathIdentity } from './041-roots-path-identity.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -84,6 +85,7 @@ export const migrations: Migration[] = [
   migration038PgTrgmGrepIndex,
   migration039RootsTable,
   migration040RetireSourceRootPath,
+  migration041RootsPathIdentity,
 ];
 
 // Export base migrations (without chunks table) for test environments

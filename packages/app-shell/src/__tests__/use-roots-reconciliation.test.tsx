@@ -163,6 +163,30 @@ describe('useRootsReconciliation', () => {
     expect(resolved).toBe(dbId);
   });
 
+  it('resolves same-named FSA roots by adapter root id instead of path', async () => {
+    const restoreRoots = vi.fn(
+      async (): Promise<RootDescriptor[]> => [
+        grantedRoot('adapter-root-a', 'project'),
+        grantedRoot('adapter-root-b', 'project'),
+      ]
+    );
+    const adapter = makeAdapter({ restoreRoots, platform: 'web' as const });
+    const { db } = makeDb();
+
+    const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+    await waitFor(() => {
+      expect(restoreRoots).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(result.current.resolveDbRootId('project', 'adapter-root-a')).resolves.toBe(
+      'adapter-root-a'
+    );
+    await expect(result.current.resolveDbRootId('project', 'adapter-root-b')).resolves.toBe(
+      'adapter-root-b'
+    );
+  });
+
   // (g) resolveDbRootId resolves null and warns for an unknown path
   it('resolveDbRootId resolves null and warns for an unknown path', async () => {
     setLogLevel(LogLevel.WARN);

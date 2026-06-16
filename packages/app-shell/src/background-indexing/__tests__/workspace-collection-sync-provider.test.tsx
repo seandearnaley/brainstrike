@@ -933,6 +933,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
       ['/workspace/root-a', 'root-a-id'],
       ['/workspace/root-b', 'root-b-id'],
     ]);
+    resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
+      rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
+    );
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
     try {
@@ -971,6 +974,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
       expect(syncSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          dbRootId: 'db-root-b-id',
           rootDirectoryHandle: expect.objectContaining({
             path: '/workspace/root-b',
             rootId: 'root-b-id',
@@ -981,6 +985,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
           },
         })
       );
+      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/root-b', 'root-b-id');
     } finally {
       syncSpy.mockRestore();
     }
