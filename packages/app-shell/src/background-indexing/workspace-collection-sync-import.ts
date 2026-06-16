@@ -257,6 +257,14 @@ function applyDiscoveredPreparedFiles(args: {
       continue;
     }
     if (existing.contentHash === discovered.contentHash) {
+      if (!hasCompletedChunking(existing)) {
+        args.changes.push({
+          ...discovered,
+          id: existing.fileRecordId,
+          mode: 'replace',
+        });
+        continue;
+      }
       unchangedCount += 1;
       // Unchanged rows never write, so stamp missing/stale stats here or
       // pre-migration rows miss the stat-cache on every future sync.
@@ -513,7 +521,20 @@ function isStatCacheHit(
   if (preparation.mtimeMs === null) {
     return false;
   }
+  if (!hasCompletedChunking(existing)) {
+    return false;
+  }
   return existing.size === preparation.size && existing.mtimeMs === preparation.mtimeMs;
+}
+
+function hasCompletedChunking(existing: ManagedCacheEntryMetadata): boolean {
+  if (existing.chunksProcessedAt === undefined) {
+    return true;
+  }
+  if (existing.chunksProcessedAt === null) {
+    return false;
+  }
+  return typeof existing.chunksProcessedAt === 'string' && existing.chunksProcessedAt.length > 0;
 }
 
 export async function collectPreparedChangesInBatches(args: {

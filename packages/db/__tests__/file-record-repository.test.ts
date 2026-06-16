@@ -145,18 +145,28 @@ describe('FileRecordRepository', () => {
   });
 
   it('round-trips root_id metadata for managed cache entries', async () => {
+    const chunkedAt = '2026-06-16T18:00:00.000Z';
     await seedManagedCacheEntry(db, repo, {
       id: 'roundtrip-a',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/index.ts',
       rootId: 'root-a',
     });
+    await db.query(
+      'UPDATE file_records SET chunks_count = $1, chunks_processed_at = $2 WHERE id = $3',
+      [3, chunkedAt, 'roundtrip-a']
+    );
 
     const entries = await repo.listManagedCacheEntryMetadata(
       '00000000-0000-0000-0000-000000000101'
     );
     expect(entries).toEqual([
-      expect.objectContaining({ fileRecordId: 'roundtrip-a', rootId: 'root-a' }),
+      expect.objectContaining({
+        chunksCount: 3,
+        chunksProcessedAt: chunkedAt,
+        fileRecordId: 'roundtrip-a',
+        rootId: 'root-a',
+      }),
     ]);
   });
 

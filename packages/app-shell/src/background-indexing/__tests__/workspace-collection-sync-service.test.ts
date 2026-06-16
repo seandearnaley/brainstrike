@@ -566,6 +566,75 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('reprocesses stat-matching files whose prior import never completed chunking', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        lastModified: 1000,
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            rootId: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            chunksCount: 0,
+            chunksProcessedAt: null,
+            mtimeMs: 1000,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+    expect(runEnhancedImportMock).toHaveBeenCalledOnce();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rootId: ROOT_PATH,
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-1',
+              path: FILE_PATH,
+              content: unchangedContent,
+            }),
+          }),
+        ],
+      })
+    );
+  });
+
   it('force-reads a watcher-modified file and replaces only the matching db root identity', async () => {
     const oldContent = 'export const value = 1;';
     const newContent = 'export const value = 2;';

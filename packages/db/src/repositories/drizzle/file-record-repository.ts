@@ -237,6 +237,8 @@ export class DrizzleFileRecordRepository {
         contentHash: fileRecords.contentHash,
         size: fileRecords.size,
         mtimeMs: fileRecords.mtimeMs,
+        chunksCount: fileRecords.chunksCount,
+        chunksProcessedAt: fileRecords.chunksProcessedAt,
         updatedAt: fileRecords.updatedAt,
       })
       .from(fileRecords)
@@ -264,6 +266,8 @@ export class DrizzleFileRecordRepository {
           contentHash: row.contentHash ?? '',
           size: row.size,
           mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
+          chunksCount: row.chunksCount,
+          chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
           updatedAt: row.updatedAt.toISOString(),
         } satisfies ManagedCacheEntryMetadata,
       ];
