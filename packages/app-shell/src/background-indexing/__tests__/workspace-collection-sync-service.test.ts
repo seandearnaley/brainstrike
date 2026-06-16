@@ -1892,7 +1892,7 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.fileRecordRepository.update).not.toHaveBeenCalled();
   });
 
-  it('imports with collection-assignment semantics and then backfills through the runtime pipeline', async () => {
+  it('imports with transactional chunk enqueue and then backfills through the runtime pipeline', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -1913,8 +1913,17 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).toHaveBeenCalledWith(
       expect.objectContaining({
         embedding: expect.objectContaining({
-          enabled: false,
+          enabled: true,
+          model: 'openai::text-embedding-3-small',
           resolveTargetEmbeddingSetId: expect.any(Function),
+        }),
+        ports: expect.objectContaining({
+          embeddingQueue: expect.objectContaining({
+            enqueueBatch: expect.any(Function),
+          }),
+          sql: expect.objectContaining({
+            runInTransaction: expect.any(Function),
+          }),
         }),
       })
     );

@@ -4,6 +4,7 @@ import type {
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
 import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
+import { runEnhancedImport } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
@@ -483,6 +484,14 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
 
 const COMPOSITE_KEY = `${ROOT}::a.ts`;
 
+function makeMinimalDb() {
+  const query = vi.fn().mockResolvedValue({ rows: [] });
+  return {
+    query,
+    transaction: vi.fn(async (fn) => fn({ query })),
+  };
+}
+
 function makeMinimalChange(): PreparedCacheChange {
   return {
     compositeKey: COMPOSITE_KEY,
@@ -528,6 +537,66 @@ function makeMinimalFileContentProcessor(change: PreparedCacheChange): FileConte
 }
 
 describe('runRootFolderCacheImport — rootId threading', () => {
+  it('passes a durable embedding queue port so chunking can enqueue jobs before final backfill', async () => {
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = makeMinimalCollection();
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch,
+      abortSignal: new AbortController().signal,
+      changes: [change],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection,
+      db: makeMinimalDb() as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(vi.mocked(runEnhancedImport)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embedding: expect.objectContaining({
+          enabled: true,
+          resolveTargetEmbeddingSetId: expect.any(Function),
+        }),
+        ports: expect.objectContaining({
+          embeddingQueue: expect.objectContaining({
+            enqueueBatch: expect.any(Function),
+          }),
+          sql: expect.objectContaining({
+            runInTransaction: expect.any(Function),
+          }),
+        }),
+      })
+    );
+  });
+
   it('passes rootId to applyManagedCacheBatch when rootId is provided', async () => {
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
       async () => {}
@@ -552,7 +621,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection,
-      db: { query: vi.fn().mockResolvedValue({ rows: [] }) } as never,
+      db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
@@ -600,7 +669,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection,
-      db: { query: vi.fn().mockResolvedValue({ rows: [] }) } as never,
+      db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),

@@ -4,10 +4,12 @@ import type {
   DbHandle,
   EmbeddingSet,
   FileImportResult,
+  IDatabase,
   ImportProgress,
   ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -22,6 +24,7 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -706,8 +709,23 @@ export async function runRootFolderCacheImport(args: {
   if (!firstChange) {
     return;
   }
+  if (!db.transaction) {
+    throw new Error(
+      'Workspace Index background import requires transactional database support for atomic chunk/job enqueue.'
+    );
+  }
+  const sql = {
+    query: db.query.bind(db),
+    runInTransaction: db.transaction.bind(db),
+  };
+  const embeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
+    db,
+    createQueue: (executor) => new JobQueue(executor),
+    defaultExpectedDimension: collection.dimensions,
+  });
   const embeddingConfig = {
-    enabled: false,
+    enabled: true,
+    model: collection.modelKey,
     service: null,
     chunkRepository,
     resolveTargetEmbeddingSetId: () => collection.id,
@@ -849,6 +867,10 @@ export async function runRootFolderCacheImport(args: {
           chunkingWorkerPort,
         },
         embedding: embeddingConfig,
+        ports: {
+          embeddingQueue,
+          sql,
+        },
         progressHandlers: {
           emit: (progress) => {
             const batchChunking = progress.chunkingProgress;
@@ -874,7 +896,7 @@ export async function runRootFolderCacheImport(args: {
       });
       await waitForBackgroundPermit({ label: 'background import assignment' });
       await backfillEmbeddingSetAssignments(
-        { query: db.query.bind(db) },
+        sql,
         collection.id,
         batchResults.filter((result) => result.imported).map((result) => result.id)
       );
