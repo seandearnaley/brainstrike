@@ -445,6 +445,35 @@
 }
 
 /**
+ * Card entrance: a one-shot, GPU-friendly transform/opacity animation that
+ * replaces the old per-card motion `layout` prop (which forced FLIP
+ * measurement on every streamed token). Runs once on mount — no per-frame cost.
+ */
+@keyframes bs-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.assistant-ui-panel .bs-tool-timeline,
+.assistant-ui-panel .bs-run-timeline {
+  animation: bs-card-enter 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-tool-timeline,
+  .assistant-ui-panel .bs-run-timeline {
+    animation: none;
+  }
+}
+
+/**
  * ACTIVITY GROUP: one collapsible panel per assistant turn that owns every
  * tool call (and the reasoning fold). While the turn is active it pins a live
  * "current step + elapsed" summary; when the turn finishes it auto-collapses to

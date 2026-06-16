@@ -1,6 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, CircleDashed } from 'lucide-react';
-import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
@@ -246,14 +245,12 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const tint = categoryTintClasses(category);
 
   return (
-    <m.div
+    <div
       className={`bs-tool-timeline my-1.5 rounded-lg border ${
         isError ? 'border-destructive/50 bg-destructive/5' : tint.card
       }`}
       data-testid="tool-fallback"
       data-tool-category={category}
-      layout
-      transition={{ duration: 0.16, ease: 'easeOut' }}
     >
       <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
         <Tooltip>
@@ -358,7 +355,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           )}
         </div>
       )}
-    </m.div>
+    </div>
   );
 };
 

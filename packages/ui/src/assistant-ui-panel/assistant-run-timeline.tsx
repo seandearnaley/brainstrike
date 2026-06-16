@@ -13,7 +13,6 @@ import {
   CircleDashed,
   Radio,
 } from 'lucide-react';
-import * as m from 'motion/react-m';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
@@ -414,12 +413,10 @@ export function AssistantRunTimeline({
   // the visually dominant element in the thread, so lifecycle/memory events
   // stay compact with status, label, inline detail, and timing on one line.
   return (
-    <m.div
+    <div
       className={`bs-run-timeline rounded-md ${isFailed ? 'bg-destructive/5' : ''}`}
       data-testid="assistant-run-timeline"
       data-tool-category={category}
-      layout
-      transition={{ duration: 0.16, ease: 'easeOut' }}
     >
       <div className="flex min-w-0 items-center gap-2 px-2 py-1">
         <Tooltip>
@@ -491,7 +488,7 @@ export function AssistantRunTimeline({
           metadataEntries={metadataEntries}
         />
       ) : null}
-    </m.div>
+    </div>
   );
 }
 
