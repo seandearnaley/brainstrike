@@ -36,7 +36,7 @@ function buildRootPathIndexes(
   const dbByPath = new Map(
     dbRows.filter((r): r is DbRootRow & { path: string } => r.path !== null).map((r) => [r.path, r])
   );
-  const legacyDbByPath = new Map(
+  const fsaBridgeDbByPath = new Map(
     dbRows
       .filter((r): r is DbRootRow & { path: string } => r.path !== null && r.kind === 'legacy')
       .map((r) => [r.path, r])
@@ -47,13 +47,13 @@ function buildRootPathIndexes(
       adapterPathCounts.set(root.handle.path, (adapterPathCounts.get(root.handle.path) ?? 0) + 1);
     }
   }
-  return { adapterPathCounts, dbByPath, legacyDbByPath };
+  return { adapterPathCounts, dbByPath, fsaBridgeDbByPath };
 }
 
 function findExistingRootMatch(args: {
   adapterPathCounts: ReadonlyMap<string, number>;
   dbByPath: ReadonlyMap<string, DbRootRow & { path: string }>;
-  legacyDbByPath: ReadonlyMap<string, DbRootRow & { path: string }>;
+  fsaBridgeDbByPath: ReadonlyMap<string, DbRootRow & { path: string }>;
   platformKind: ReconcileRootsArgs['platformKind'];
   root: RootDescriptor;
 }): DbRootRow | undefined {
@@ -63,24 +63,7 @@ function findExistingRootMatch(args: {
   if (args.adapterPathCounts.get(args.root.handle.path) !== 1) {
     return;
   }
-  return args.legacyDbByPath.get(args.root.handle.path);
-}
-
-async function promoteLegacyFsaRoot(args: {
-  matched: DbRootRow;
-  query: RootsQueryFn;
-  root: RootDescriptor;
-}): Promise<void> {
-  if (args.matched.kind !== 'legacy') {
-    return;
-  }
-  await args.query(
-    `UPDATE roots
-     SET kind = 'fsa', display_name = $2, last_verified_at = NOW()
-     WHERE id = $1
-       AND kind = 'legacy'`,
-    [args.matched.id, args.root.displayName]
-  );
+  return args.fsaBridgeDbByPath.get(args.root.handle.path);
 }
 
 async function insertRoot(args: {
@@ -118,8 +101,8 @@ async function resolvePathUniqueRace(args: {
 
 /**
  * Ensures a DB roots row exists for every adapter root (registration, not
- * broad reconciliation — only unique legacy FSA bridges are promoted). DB roots.id is
- * canonical for file_records.root_id; new roots are inserted under the
+ * broad reconciliation — unique legacy FSA bridges keep their legacy row ids).
+ * DB roots.id is canonical for file_records.root_id; new roots are inserted under the
  * adapter's RootId so the two identities coincide. Pre-existing rows are
  * matched by path only to respect the idx_roots_path unique index and are
  * never modified. Session-only roots (persisted:false) and dead handles
@@ -132,7 +115,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
 
   const result = await query('SELECT id, kind, path FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
-  const { adapterPathCounts, dbByPath, legacyDbByPath } = buildRootPathIndexes(
+  const { adapterPathCounts, dbByPath, fsaBridgeDbByPath } = buildRootPathIndexes(
     adapterRoots,
     dbRows
   );
@@ -153,15 +136,12 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
     const matched = findExistingRootMatch({
       adapterPathCounts,
       dbByPath,
-      legacyDbByPath,
+      fsaBridgeDbByPath,
       platformKind,
       root,
     });
     if (matched) {
       mapping.set(root.rootId, matched.id);
-      if (platformKind === 'fsa') {
-        await promoteLegacyFsaRoot({ matched, query, root });
-      }
       continue;
     }
     try {

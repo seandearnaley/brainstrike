@@ -59,7 +59,7 @@ describe('reconcileRoots', () => {
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(true);
   });
 
-  it('maps a unique FSA root onto its legacy DB row and promotes the row to fsa', async () => {
+  it('maps a unique FSA root onto its legacy DB row without modifying it', async () => {
     const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'my-project' }];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
@@ -73,8 +73,30 @@ describe('reconcileRoots', () => {
 
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
-    const updateCall = query.mock.calls.find(([sql]) => (sql as string).includes('UPDATE roots'));
-    expect(updateCall?.[1]).toEqual(['legacy-db-1', 'my-project']);
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
+  });
+
+  it('keeps a promoted unique FSA bridge idempotent across reconciles', async () => {
+    const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'my-project' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const first = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+      platformKind: 'fsa',
+      query,
+    });
+    const second = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(first.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
+    expect(second.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
   });
 
   it('skips roots with persisted:false or permissionState unknown (no DB rows for session-only ids)', async () => {

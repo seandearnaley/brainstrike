@@ -162,6 +162,10 @@ function normalizeScopedChangePath(change: FileSystemChange, rootPath: string): 
   });
 }
 
+function isRootSelfPath(path: string, rootPath: string): boolean {
+  return toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath);
+}
+
 function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): RootDirectoryHandle {
   const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
   return {
@@ -539,8 +543,11 @@ async function collectScopedChange(args: {
   rootHandle: RootDirectoryHandle;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<void> {
-  const relativePath = normalizeScopedChangePath(args.change, args.context.rootPath);
   if (args.change.type === 'removed') {
+    if (isRootSelfPath(args.change.path, args.context.rootPath)) {
+      return;
+    }
+    const relativePath = normalizeScopedChangePath(args.change, args.context.rootPath);
     if (relativePath === '') {
       return;
     }
@@ -548,6 +555,7 @@ async function collectScopedChange(args: {
     return;
   }
 
+  const relativePath = normalizeScopedChangePath(args.change, args.context.rootPath);
   if (args.change.kind === 'file') {
     const fileNode = await resolveChangedFileNode({
       abortSignal: args.abortSignal,

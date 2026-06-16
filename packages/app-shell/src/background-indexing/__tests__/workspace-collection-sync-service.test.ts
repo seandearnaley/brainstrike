@@ -716,6 +716,7 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
     expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(deps.setStatus).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'error' }));
   });
 
   it('does not invalidate a file path that is recreated in the same watcher batch', async () => {
