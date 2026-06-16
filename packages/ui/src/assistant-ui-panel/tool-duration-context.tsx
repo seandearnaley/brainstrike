@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, type ReactNode, use } from 'react';
 
 /**
  * Per-turn map of toolCallId → execution time (ms). The chain provides it
@@ -19,6 +19,6 @@ export function ToolDurationProvider({
 }
 
 export function useToolDurationMs(toolCallId: string | undefined): number | undefined {
-  const durations = useContext(ToolDurationContext);
+  const durations = use(ToolDurationContext);
   return toolCallId === undefined ? undefined : durations[toolCallId];
 }

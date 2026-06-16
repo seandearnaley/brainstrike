@@ -4,13 +4,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function runEventTimestamp(data: Record<string, unknown>): number | undefined {
+  const timestamp =
+    typeof data['timestamp'] === 'string' ? Date.parse(data['timestamp']) : Number.NaN;
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+}
+
+function runEventToolCallId(data: Record<string, unknown>): string | undefined {
+  const metadata = data['metadata'];
+  const toolCallId = isRecord(metadata) ? metadata['toolCallId'] : undefined;
+  return typeof toolCallId === 'string' ? toolCallId : undefined;
+}
+
 /**
- * Map each tool call's id to its execution time (ms), read from the turn's
- * persisted `tool.completed` / `tool.failed` run events (which carry
- * `durationMs` + `metadata.toolCallId`). Tool-call message parts themselves
- * carry no timing, so this is the only source. Pure + unit-tested.
+ * Map each tool call's id to its execution time (ms), computed from the gap
+ * between its `tool.started` and `tool.completed`/`tool.failed` run-event
+ * TIMESTAMPS (matched by `metadata.toolCallId`). The producer
+ * (`makeRunEventChunk` in the agent runtime) stamps every event but does NOT
+ * attach a `durationMs` field, so the timestamp delta is the real source — not
+ * a `durationMs` that never exists in production. Pure + unit-tested against
+ * realistic event shapes.
  */
 export function collectToolDurations(parts: readonly unknown[]): Record<string, number> {
+  const startedAt = new Map<string, number>();
   const durations: Record<string, number> = {};
 
   for (const part of parts) {
@@ -21,14 +37,22 @@ export function collectToolDurations(parts: readonly unknown[]): Record<string, 
     if (!isRecord(data)) {
       continue;
     }
-    if (data['kind'] !== 'tool.completed' && data['kind'] !== 'tool.failed') {
+    const kind = data['kind'];
+    if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') {
       continue;
     }
-    const durationMs = data['durationMs'];
-    const metadata = data['metadata'];
-    const toolCallId = isRecord(metadata) ? metadata['toolCallId'] : undefined;
-    if (typeof toolCallId === 'string' && typeof durationMs === 'number') {
-      durations[toolCallId] = durationMs;
+    const toolCallId = runEventToolCallId(data);
+    const timestamp = runEventTimestamp(data);
+    if (toolCallId === undefined || timestamp === undefined) {
+      continue;
+    }
+    if (kind === 'tool.started') {
+      startedAt.set(toolCallId, timestamp);
+      continue;
+    }
+    const start = startedAt.get(toolCallId);
+    if (start !== undefined && timestamp >= start) {
+      durations[toolCallId] = timestamp - start;
     }
   }
 

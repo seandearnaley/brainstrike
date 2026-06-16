@@ -2,28 +2,44 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import { collectToolDurations } from '../tool-durations';
 
-const runEvent = (data: Record<string, unknown>) => ({
+// Mirrors the REAL event shape `makeRunEventChunk` emits: a stamped event whose
+// metadata carries `toolCallId` (and `toolName`), with NO `durationMs` field.
+const toolEvent = (kind: string, toolCallId: string, timestamp: string) => ({
   name: ASSISTANT_RUN_EVENT_DATA_NAME,
-  data: { id: 'e', label: 'x', status: 'completed', timestamp: '2026-06-16T10:00:00Z', ...data },
+  data: {
+    id: `${kind}-${toolCallId}`,
+    kind,
+    label: 'Tool',
+    status: kind === 'tool.failed' ? 'failed' : 'completed',
+    timestamp,
+    metadata: { toolCallId, toolName: 'brainstrike.grepSearch' },
+  },
 });
 
 describe('collectToolDurations', () => {
-  it('maps toolCallId to durationMs from tool.completed and tool.failed events', () => {
+  it('computes duration from the tool.started→terminal timestamp gap, by toolCallId', () => {
     const result = collectToolDurations([
-      runEvent({ kind: 'tool.started', metadata: { toolCallId: 'a' } }),
-      runEvent({ durationMs: 1200, kind: 'tool.completed', metadata: { toolCallId: 'a' } }),
-      runEvent({ durationMs: 300, kind: 'tool.failed', metadata: { toolCallId: 'b' } }),
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      toolEvent('tool.completed', 'a', '2026-06-16T10:00:01.200Z'),
+      toolEvent('tool.started', 'b', '2026-06-16T10:00:02.000Z'),
+      toolEvent('tool.failed', 'b', '2026-06-16T10:00:02.300Z'),
       { type: 'tool-call', toolCallId: 'a' },
     ]);
     expect(result).toEqual({ a: 1200, b: 300 });
   });
 
-  it('ignores terminal events lacking a toolCallId or a numeric duration', () => {
+  it('ignores a terminal event with no matching start, or missing toolCallId/timestamp', () => {
     expect(
       collectToolDurations([
-        runEvent({ durationMs: 100, kind: 'tool.completed', metadata: {} }),
-        runEvent({ kind: 'tool.completed', metadata: { toolCallId: 'c' } }),
-        runEvent({ durationMs: 'nope', kind: 'tool.completed', metadata: { toolCallId: 'd' } }),
+        toolEvent('tool.completed', 'orphan', '2026-06-16T10:00:00.000Z'),
+        {
+          name: ASSISTANT_RUN_EVENT_DATA_NAME,
+          data: { kind: 'tool.completed', timestamp: '2026-06-16T10:00:00.000Z', metadata: {} },
+        },
+        {
+          name: ASSISTANT_RUN_EVENT_DATA_NAME,
+          data: { kind: 'tool.completed', metadata: { toolCallId: 'x' } },
+        },
       ])
     ).toEqual({});
   });
