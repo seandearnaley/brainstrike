@@ -135,9 +135,9 @@ jobs:
       # `turbo run test --affected`. `!./` excludes the root workspace
       # (which would otherwise run its root-level `test` script that
       # delegates back to turbo over every workspace, defeating the scoping).
-      # --if-present skips packages that don't define a `test` script (e.g.
-      # apps/docs). Turbo silently skipped them via its task graph; pnpm
-      # errors without this flag. Per https://pnpm.io/cli/run:
+      # --if-present skips packages that don't define a `test` script. Turbo
+      # silently skipped them via its task graph; pnpm errors without this
+      # flag. Per https://pnpm.io/cli/run:
       # "Use the --if-present flag to avoid exiting with a non-zero exit
       # code when the script is undefined."
       - name: Pull request affected unit tests

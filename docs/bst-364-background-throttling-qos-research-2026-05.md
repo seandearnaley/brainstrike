@@ -14,7 +14,6 @@ The current app already reflects most of the target architecture:
 
 - Visible desktop window keeps Chromium background throttling enabled. `apps/desktop/src/create-window.ts` creates the primary `BrowserWindow` with `backgroundThrottling: true` in `webPreferences`.
 - Hidden renderer hosts disable throttling. `apps/desktop/src/renderer-host-lifecycle.ts` sets `backgroundThrottling: false` only on the small hidden host window.
-- `apps/docs/docs/architecture/desktop-app.md` explicitly documents that only the hidden host disables throttling and the visible window keeps Chromium throttling enabled.
 - Main process does not run embeddings. `apps/desktop/src/main.ts` states that embedding worker configuration remains renderer-only through the hidden embedding host.
 - `apps/desktop/src/embedding-host-manager.ts` scopes `powerSaveBlocker` to `status.state === 'running' && status.active`, uses `prevent-app-suspension`, and stops the blocker after a 5 second sustained idle grace.
 - Unit tests already cover the blocker lifecycle in `apps/desktop/src/__tests__/embedding-host-manager.test.ts`: short idle gaps keep the blocker active, sustained idle stops it, and error/stopped states stop it immediately.

@@ -376,8 +376,5 @@ Official docs checked during this analysis:
 Relevant local docs:
 
 - `docs/bst-364-background-throttling-qos-research-2026-05.md`
-- `apps/docs/docs/architecture/embedding-pipeline.md`
-- `apps/docs/docs/reference/adr/queue-boundaries.md`
 - `docs/superpowers/specs/2026-06-05-embedding-host-query-coordination-design.md`
 - `docs/superpowers/plans/2026-06-05-embedding-host-query-coordination.md`
-

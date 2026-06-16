@@ -62,8 +62,6 @@ packages/
   token-cache/, workers/, file-import/
 ```
 
-See also: [`apps/docs/docs/getting-started/onboarding.md`](apps/docs/docs/getting-started/onboarding.md) and [`apps/docs/docs/development/monorepo-workflow.md`](apps/docs/docs/development/monorepo-workflow.md) for deep dives into architecture and workflow.
-
 ---
 
 ## Queue & Embedding Platform (2025-2026)
@@ -83,10 +81,6 @@ See also: [`apps/docs/docs/getting-started/onboarding.md`](apps/docs/docs/gettin
 - **Persistence**: Queue state and job history are stored in the local database (`@brainstrike/db`); survives app restarts.
 - **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It is currently exercised in tests and not yet wired into the apps.
 - **Embedding cache (opt-in)**: `@brainstrike/db` provides an embedding cache table and repository; `startEmbeddingWorker({ embeddingCache })` can use it for content-level dedupe but it is not wired by default.
-
-Refer to [`apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md`](apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md) (Post-Review Deltas) and
-[`apps/docs/docs/archive/cold/arch-logs/20250905-170000-db-embedding-modernization-2025.md`](apps/docs/docs/archive/cold/arch-logs/20250905-170000-db-embedding-modernization-2025.md) for the phased plan. API shapes:
-[`apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md`](apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md).
 
 Web UX notes:
 - Vector Status (Right Panel → DB) surfaces Start/Stop/Reset for optional manual control and exposes coverage, throughput, and retry actions.
@@ -115,8 +109,6 @@ Performance tests are separated from functional E2E tests to speed up developmen
 - **Performance tests**: Run on-demand via `pnpm test:e2e:perf` or scheduled daily
 - **PR performance testing**: Add `run-perf` label to any PR to trigger performance tests
 - **Manual execution**: GitHub Actions → "Performance E2E" → Run workflow
-
-See [`apps/docs/docs/testing/performance-testing.md`](apps/docs/docs/testing/performance-testing.md) for detailed documentation.
 
 ---
 

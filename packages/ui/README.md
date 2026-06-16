@@ -117,8 +117,6 @@ function MyIde() {
 }
 ```
 
-See [`ide-layout.md`](../../apps/docs/docs/reference/platform/ide-layout.md) for a deeper overview.
-
 ## Assistant UI Ownership
 
 The assistant UI package owns presentational chat and control surfaces. Runtime contracts, provider catalogs, memory state, and transport behavior belong outside this package.

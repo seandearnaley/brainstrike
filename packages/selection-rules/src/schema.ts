@@ -3,8 +3,6 @@
  *
  * A versioned schema for rule-based file selection in BrainStrike.
  * Rules are evaluated in precedence order to produce a materialized selection.
- *
- * @see apps/docs/docs/reference/adr/selection-rules-v1.md for full ADR
  */
 
 // ============================================================================

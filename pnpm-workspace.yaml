@@ -7,7 +7,6 @@ overrides:
   react-dom: ^19.2.4
   react-helmet-async>react: ^19.0.0
   react-helmet-async>react-dom: ^19.0.0
-  webpack: 5.105.1
 allowBuilds:
   '@biomejs/biome': false
   '@jacobwolf/biome-unnecessary-effect': true

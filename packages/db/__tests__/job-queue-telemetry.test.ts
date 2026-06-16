@@ -10,8 +10,6 @@ import { wasmLoader } from '../src/wasm-loader.js';
  *
  * Verifies that JobQueue emits consistent telemetry events
  * using the unified queue telemetry schema defined in ADR-0002.
- *
- * @see apps/docs/docs/reference/adr/queue-boundaries.md
  */
 describe('JobQueue telemetry (BST-163)', () => {
   let db: PGlite;
