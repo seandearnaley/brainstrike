@@ -537,6 +537,60 @@ function makeMinimalFileContentProcessor(change: PreparedCacheChange): FileConte
 }
 
 describe('runRootFolderCacheImport — rootId threading', () => {
+  it('rejects missing collection model keys before file import starts', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = {
+      ...makeMinimalCollection(),
+      modelKey: '   ',
+    };
+
+    await expect(
+      runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection,
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow(
+      'Workspace Index managed collection requires a model key before chunk embedding jobs can be enqueued.'
+    );
+
+    expect(runEnhancedImport).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
   it('passes a durable embedding queue port so chunking can enqueue jobs before final backfill', async () => {
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
       async () => {}

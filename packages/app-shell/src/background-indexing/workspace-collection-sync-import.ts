@@ -51,6 +51,14 @@ function assertPositiveQosCapacity(value: number, label: string): void {
   }
 }
 
+function assertManagedCollectionModelKey(modelKey: string): void {
+  if (modelKey.trim().length === 0) {
+    throw new Error(
+      'Workspace Index managed collection requires a model key before chunk embedding jobs can be enqueued.'
+    );
+  }
+}
+
 interface RootFolderCacheMutableRecord {
   content: string;
   contentHash: string;
@@ -709,6 +717,10 @@ export async function runRootFolderCacheImport(args: {
   if (!firstChange) {
     return;
   }
+  assertManagedCollectionModelKey(collection.modelKey);
+  // Background workspace import enqueues embed_chunk jobs in the same
+  // transaction that inserts chunks. A missing transaction means the DB handle
+  // is miswired for this path; do not fall back to non-atomic enqueue.
   if (!db.transaction) {
     throw new Error(
       'Workspace Index background import requires transactional database support for atomic chunk/job enqueue.'

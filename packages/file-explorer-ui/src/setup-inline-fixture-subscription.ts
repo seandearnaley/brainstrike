@@ -169,6 +169,8 @@ function createIndexingDebugApi(): IndexingDebugApi {
           ),
           readRows(
             query,
+            // Debug-only backlog snapshot: `oldest_updated_at` is the oldest
+            // current row write time, not the original discovery/enqueue time.
             'SELECT embedding_set_id, root_id, COUNT(*)::int AS file_count, MIN(updated_at) AS oldest_updated_at FROM file_records WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL AND chunks_processed_at IS NULL GROUP BY embedding_set_id, root_id ORDER BY embedding_set_id, root_id',
             accessIssues,
             'file_records_chunking_backlog'
