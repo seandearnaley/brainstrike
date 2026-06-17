@@ -1,10 +1,20 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, CircleDashed } from 'lucide-react';
-import * as m from 'motion/react-m';
-import { type ComponentProps, type ReactElement, useId, useMemo, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
+import { resolveToolDisplayPolicy } from './assistant-detail-level';
+import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import { useToolDurationMs } from './tool-duration-context';
+import { formatActivityDuration } from './tool-durations';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
@@ -205,13 +215,23 @@ export function summarizeResult(result: ToolResult): string | undefined {
  * - Error: shows the error message inline in red
  */
 export const ToolFallback: ToolCallMessagePartComponent = ({
+  toolCallId,
   toolName,
   args,
   argsText,
   result,
   status,
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const { detailLevel } = useAssistantDetailLevel();
+  const policy = resolveToolDisplayPolicy(detailLevel);
+  const durationMs = useToolDurationMs(toolCallId);
+  const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
+
+  // Follow the Detail level (policy.defaultExpanded) until the user explicitly
+  // toggles this card — so switching to Developer auto-expands already-rendered
+  // cards (and Compact re-collapses them), while an explicit toggle still wins.
+  const [userCollapsed, setUserCollapsed] = useState<boolean | null>(null);
+  const isCollapsed = userCollapsed ?? !policy.defaultExpanded;
   const detailsId = useId();
 
   const hasResult = result !== undefined;
@@ -221,27 +241,25 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
   const errorMessage = resolveErrorMessage(status, result);
-  const showDetails = !isRunning && (Boolean(argsText) || hasResult);
+  const showDetails = policy.showDetailsExpander && !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 
   const primaryArg = useMemo(() => extractPrimaryArg(args, argsText), [args, argsText]);
   const resultSummary = useMemo(
-    () => (isError ? undefined : summarizeResult(result)),
-    [isError, result]
+    () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
+    [isError, policy.showResultSummary, result]
   );
 
   const category = classifyToolName(toolName);
   const tint = categoryTintClasses(category);
 
   return (
-    <m.div
+    <div
       className={`bs-tool-timeline my-1.5 rounded-lg border ${
         isError ? 'border-destructive/50 bg-destructive/5' : tint.card
       }`}
       data-testid="tool-fallback"
       data-tool-category={category}
-      layout
-      transition={{ duration: 0.16, ease: 'easeOut' }}
     >
       <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
         <Tooltip>
@@ -280,61 +298,134 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
             textClassName="truncate"
           />
         ) : null}
+        {!isRunning && durationLabel ? (
+          <span
+            className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
+            title="Execution time"
+          >
+            {durationLabel}
+          </span>
+        ) : null}
         {resultSummary ? (
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
             {resultSummary}
           </span>
         ) : null}
-        {showDetails && (
-          <Button
-            aria-controls={isCollapsed ? undefined : detailsId}
-            aria-expanded={!isCollapsed}
-            aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
-            className="size-6 shrink-0 text-muted-foreground"
-            onClick={() => setIsCollapsed((prev) => !prev)}
-            size="icon"
-            title={isCollapsed ? 'Expand details' : 'Collapse details'}
-            variant="ghost"
-          >
-            {isCollapsed ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <ChevronUp className="size-3.5" />
-            )}
-          </Button>
-        )}
+        {showDetails ? (
+          <DetailsToggleButton
+            detailsId={detailsId}
+            isCollapsed={isCollapsed}
+            onToggle={() => setUserCollapsed(!isCollapsed)}
+          />
+        ) : null}
       </div>
 
       {isError && errorMessage ? (
         <p className="px-2.5 pb-1.5 text-destructive text-xs">{errorMessage}</p>
       ) : null}
 
-      {showDetails && !isCollapsed && (
-        <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
-          {argsText && (
-            <div className="px-3 py-1">
-              <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-                Arguments:
-              </p>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
-                {argsText}
-              </pre>
-            </div>
-          )}
-          {hasResult && !isError && (
-            <div className="px-3 pb-2">
-              <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-                Result:
-              </p>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
-                {formattedResult}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </m.div>
+      {showDetails && !isCollapsed ? (
+        <ToolDetailsPane
+          argsText={argsText}
+          detailsId={detailsId}
+          formattedResult={formattedResult}
+          hasResult={hasResult}
+          isError={isError}
+          showRawIo={policy.showRawIo}
+          toolCallId={toolCallId}
+          toolName={toolName}
+        />
+      ) : null}
+    </div>
   );
 };
 
 ToolFallback.displayName = 'ToolFallback';
+
+/** Expand/collapse control for a tool card's details panes. */
+function DetailsToggleButton({
+  detailsId,
+  isCollapsed,
+  onToggle,
+}: {
+  detailsId: string;
+  isCollapsed: boolean;
+  onToggle: () => void;
+}) {
+  const label = isCollapsed ? 'Expand details' : 'Collapse details';
+  return (
+    <Button
+      aria-controls={isCollapsed ? undefined : detailsId}
+      aria-expanded={!isCollapsed}
+      aria-label={label}
+      className="size-6 shrink-0 text-muted-foreground"
+      onClick={onToggle}
+      size="icon"
+      title={label}
+      variant="ghost"
+    >
+      {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
+    </Button>
+  );
+}
+
+function ToolDetailLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+      {children}
+    </p>
+  );
+}
+
+/** The expanded args/result panes, plus a developer-only metadata block. */
+function ToolDetailsPane({
+  argsText,
+  detailsId,
+  formattedResult,
+  hasResult,
+  isError,
+  showRawIo,
+  toolCallId,
+  toolName,
+}: {
+  argsText: string | undefined;
+  detailsId: string;
+  formattedResult: string | undefined;
+  hasResult: boolean;
+  isError: boolean;
+  showRawIo: boolean;
+  toolCallId: string;
+  toolName: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
+      {showRawIo ? (
+        <div className="px-3 py-1">
+          <ToolDetailLabel>Metadata:</ToolDetailLabel>
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+            <dt className="text-muted-foreground">toolCallId</dt>
+            <dd className="min-w-0 break-words text-foreground/90">{toolCallId}</dd>
+            <dt className="text-muted-foreground">tool</dt>
+            <dd className="min-w-0 break-words text-foreground/90">{toolName}</dd>
+          </dl>
+        </div>
+      ) : null}
+      {argsText ? (
+        <div className="px-3 py-1">
+          <ToolDetailLabel>Arguments:</ToolDetailLabel>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+            {argsText}
+          </pre>
+        </div>
+      ) : null}
+      {hasResult && !isError ? (
+        <div className="px-3 pb-2">
+          <ToolDetailLabel>Result:</ToolDetailLabel>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+            {formattedResult}
+          </pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}

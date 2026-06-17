@@ -32,7 +32,6 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from 'lucide-react';
-import * as m from 'motion/react-m';
 import {
   type FC,
   type ReactNode,
@@ -50,12 +49,19 @@ import { Button } from '../button';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
+import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
+import { shouldShowBackgroundActivity } from './assistant-detail-level';
+import {
+  AssistantDetailLevelProvider,
+  useAssistantDetailLevel,
+} from './assistant-detail-level-context';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import {
   AssistantRunTimeline,
+  isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
 } from './assistant-run-timeline';
@@ -66,20 +72,39 @@ import {
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { ThreadContextMeter } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { ExpandableMessageContent } from './expandable-message-content';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
+import { ToolDurationProvider } from './tool-duration-context';
+import { collectToolDurations } from './tool-durations';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
+  // Memory/context background activity (observational memory, semantic recall,
+  // context prep, run steps) is internal bookkeeping that wraps the tool calls
+  // people care about. Hide every run-event row unless the Detail level is
+  // Developer — the default thread is just the grouped tool cards + the answer.
+  // EXCEPTION: terminal run failures/cancellations always surface, so a broken
+  // turn is never silently swallowed (see isAlwaysVisibleRunEvent).
+  const { detailLevel } = useAssistantDetailLevel();
+  const showRow = shouldShowBackgroundActivity(detailLevel) || isAlwaysVisibleRunEvent(data);
+  // Both selectors are O(total parts) and re-run on every streamed state change.
+  // In the default (non-Developer) case — now the common path for every hidden
+  // memory/context/run-step row — short-circuit INSIDE the selector so the scans
+  // are skipped entirely, not run only to discard the result. The ≤1-per-turn
+  // forced failure row pays for the scan, but the flood still skips it. Hooks
+  // still run unconditionally (rules-of-hooks safe); only one string primitive
+  // is selected.
   const statusOverride = useAuiState((state) =>
-    resolveAssistantRunEventStatus(state.thread.messages, data)
+    showRow ? resolveAssistantRunEventStatus(state.thread.messages, data) : undefined
   );
-  // The render plan scans all message parts (O(total parts)) and re-evaluates
-  // on every streamed state change, so compute it ONCE per update and select a
-  // string primitive — stable re-render semantics without a second scan.
   const renderPlanKey = useAuiState((state) => {
+    if (!showRow) {
+      return 'hidden';
+    }
     const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
     return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
   });
@@ -88,7 +113,11 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   }
   const repeatCount = Number(renderPlanKey.slice('visible:'.length));
   return (
-    <AssistantRunTimeline data={data} repeatCount={repeatCount} statusOverride={statusOverride} />
+    <AssistantRunTimeline
+      data={data}
+      repeatCount={repeatCount}
+      {...(statusOverride ? { statusOverride } : {})}
+    />
   );
 };
 
@@ -296,30 +325,135 @@ function isReasoningPart(part: unknown): boolean {
   );
 }
 
+function reasoningToggleLabel(collapsed: boolean, isContinuation: boolean): string {
+  if (collapsed) {
+    return isContinuation ? 'Show additional reasoning' : 'Show reasoning';
+  }
+  return isContinuation ? 'Hide additional reasoning' : 'Hide reasoning';
+}
+
+/**
+ * The collapsible reasoning fold: a pill that toggles the reasoning panel.
+ * Tool cards always render inside the panel (the reasoning collapse only hides
+ * reasoning parts), so the panel stays mounted to keep `aria-controls` valid.
+ */
+const ChainReasoningFold: FC<{
+  children: ReactNode;
+  collapsed: boolean;
+  isContinuation: boolean;
+  isReasoningRunning: boolean;
+  onToggle: () => void;
+  panelId: string;
+}> = ({ children, collapsed, isContinuation, isReasoningRunning, onToggle, panelId }) => (
+  <>
+    <button
+      aria-controls={panelId}
+      aria-expanded={!collapsed}
+      aria-label={reasoningToggleLabel(collapsed, isContinuation)}
+      className={cn(
+        'inline-flex h-8 max-w-full items-center rounded-full border border-border/70 bg-muted/20 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35',
+        isContinuation ? 'w-8 justify-center px-0' : 'gap-2 px-2.5'
+      )}
+      data-testid="local-chain-of-thought"
+      onClick={onToggle}
+      type="button"
+    >
+      {isReasoningRunning ? (
+        <AssistantThinkingIndicator
+          className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
+          markClassName="size-4"
+          showText={!isContinuation}
+          textClassName="truncate"
+        />
+      ) : (
+        <span
+          className={cn('bs-thinking-indicator min-w-0', isContinuation ? 'justify-center' : '')}
+          data-testid="assistant-reasoning-indicator"
+        >
+          <BrainstrikeThinkingMark
+            className="bs-thinking-mark-static size-4"
+            testId="assistant-reasoning-static-mark"
+          />
+          {isContinuation ? null : <span className="truncate">Reasoning</span>}
+        </span>
+      )}
+      {isContinuation ? null : collapsed ? (
+        <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : (
+        <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+    </button>
+    <div
+      className={cn(
+        'bs-chain-of-thought-panel mt-2 empty:mt-0',
+        collapsed ? '' : 'border-border/70 border-l pl-3'
+      )}
+      id={panelId}
+    >
+      {children}
+    </div>
+  </>
+);
+
+function isActivityPart(part: unknown): boolean {
+  if (!(part && typeof part === 'object')) {
+    return false;
+  }
+  const type = (part as { type?: unknown }).type;
+  return type === 'tool-call' || type === 'reasoning';
+}
+
+/** Stable React key for an activity row: the tool call id, else its position. */
+function activityPartKey(part: unknown, index: number): string {
+  if (part && typeof part === 'object') {
+    const id = (part as { toolCallId?: unknown }).toolCallId;
+    if (typeof id === 'string' && id.length > 0) {
+      return id;
+    }
+  }
+  return `activity-${index}`;
+}
+
 const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
-  const hasReasoningParts = useAuiState((state) =>
-    state.chainOfThought.parts.some(isReasoningPart)
-  );
+  const messageParts = useAuiState((state) => state.message.parts);
+  const hasReasoningParts = useAuiState((state) => state.message.parts.some(isReasoningPart));
   const isReasoningRunning = useAuiState((state) =>
-    state.chainOfThought.parts.some(isRunningReasoningPart)
+    state.message.parts.some(isRunningReasoningPart)
   );
-  const isContinuation = useAuiState((state) => {
-    const [firstChainPart] = state.chainOfThought.parts;
-    if (!firstChainPart) {
-      return false;
+  const isMessageRunning = useAuiState(
+    (state) => (state.message as { status?: { type?: string } }).status?.type === 'running'
+  );
+  // The Mastra agent loop puts each tool call in its own step, which
+  // assistant-ui splits into a SEPARATE chain-of-thought group. To group the
+  // whole turn into ONE Activity panel ("Worked · N steps"), the FIRST chain
+  // renders every tool/reasoning part of the message (by index, so streaming
+  // binding is preserved) and every later chain renders nothing.
+  const isFirstChain = useAuiState((state) => {
+    const firstActivity = state.message.parts.find(isActivityPart);
+    if (!firstActivity) {
+      return true;
     }
-
-    const startIndex = state.message.parts.indexOf(firstChainPart);
-    if (startIndex <= 0) {
-      return false;
-    }
-
-    return state.message.parts
-      .slice(0, startIndex)
-      .some((part) => part.type === 'reasoning' || part.type === 'tool-call');
+    return state.chainOfThought.parts.find(isActivityPart) === firstActivity;
   });
+  // `index:stableKey` for each activity part, built in ONE pass (the selector
+  // re-runs on every streamed update). Selecting a string primitive keeps
+  // re-render semantics stable; the stable key avoids array-index keys.
+  const activityKey = useAuiState((state) => {
+    const entries: string[] = [];
+    for (const [index, part] of state.message.parts.entries()) {
+      if (isActivityPart(part)) {
+        entries.push(`${index}:${activityPartKey(part, index)}`);
+      }
+    }
+    return entries.join(',');
+  });
+
+  const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
+  const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
+  const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
+
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
 
@@ -331,89 +465,77 @@ const LocalChainOfThought: FC = () => {
     aui.chainOfThought().setCollapsed(true);
   }, [aui]);
 
-  // Tool calls are the primary evidence of what the agent did, so they are
-  // ALWAYS rendered. Only reasoning parts live behind the collapsible pill;
-  // a chain with no reasoning (tool calls only) renders the cards directly
-  // with no fold and no indent.
-  const chainParts = (
-    <ChainOfThoughtPrimitive.Parts
-      components={{
-        /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Layout" key */
-        Layout: ({ children }) => <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>,
-        /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
-        Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
-        tools: {
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-          Fallback: ToolFallback,
-        },
-      }}
-    />
+  // Later chains are already covered by the first chain's turn-level group.
+  if (!isFirstChain) {
+    return null;
+  }
+
+  const activityEntries =
+    activityKey === ''
+      ? []
+      : activityKey.split(',').map((entry) => {
+          const separator = entry.indexOf(':');
+          return { index: Number(entry.slice(0, separator)), key: entry.slice(separator + 1) };
+        });
+
+  // Render each tool/reasoning part by index — this keeps assistant-ui's live
+  // streaming binding while letting us group across step boundaries.
+  const activityParts = activityEntries.map(({ index, key }) => (
+    <div className="mb-2 last:mb-0 empty:mb-0" key={key}>
+      <MessagePrimitive.PartByIndex
+        components={{
+          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
+          Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
+          tools: {
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
+            Fallback: ToolFallback,
+          },
+        }}
+        index={index}
+      />
+    </div>
+  ));
+
+  // Only reasoning lives behind the collapsible pill; tool cards always render.
+  const reasoningSection = hasReasoningParts ? (
+    <ChainReasoningFold
+      collapsed={collapsed}
+      isContinuation={false}
+      isReasoningRunning={isReasoningRunning}
+      onToggle={() => aui.chainOfThought().setCollapsed(!collapsed)}
+      panelId={reasoningPanelId}
+    >
+      {activityParts}
+    </ChainReasoningFold>
+  ) : (
+    activityParts
   );
 
-  if (!hasReasoningParts) {
-    return (
-      <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
-        {chainParts}
-      </ChainOfThoughtPrimitive.Root>
+  const isActivityActive = toolActivity.runningCount > 0 || isReasoningRunning || isMessageRunning;
+  // A FINISHED lone tool call (no reasoning) is more useful as just the card —
+  // the "Worked · 1 step" wrapper adds nothing. While the turn is still active
+  // we always group, so streaming tools land in a stable container instead of a
+  // bare card that pops into a group when the second tool arrives.
+  const isSingleTool = !isActivityActive && toolActivity.stepCount === 1 && !hasReasoningParts;
+
+  let content: ReactNode = reasoningSection;
+  if (isSingleTool) {
+    content = activityParts;
+  } else if (toolActivity.stepCount > 0) {
+    content = (
+      <AssistantActivityGroup
+        fallbackMs={activityFallbackMs}
+        isActive={isActivityActive}
+        summary={toolActivity}
+      >
+        {reasoningSection}
+      </AssistantActivityGroup>
     );
   }
 
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
-      <button
-        aria-controls={reasoningPanelId}
-        aria-expanded={!collapsed}
-        aria-label={
-          collapsed
-            ? isContinuation
-              ? 'Show additional reasoning'
-              : 'Show reasoning'
-            : isContinuation
-              ? 'Hide additional reasoning'
-              : 'Hide reasoning'
-        }
-        className={cn(
-          'inline-flex h-8 max-w-full items-center rounded-full border border-border/70 bg-muted/20 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35',
-          isContinuation ? 'w-8 justify-center px-0' : 'gap-2 px-2.5'
-        )}
-        data-testid="local-chain-of-thought"
-        onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
-        type="button"
-      >
-        {isReasoningRunning ? (
-          <AssistantThinkingIndicator
-            className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
-            markClassName="size-4"
-            showText={!isContinuation}
-            textClassName="truncate"
-          />
-        ) : (
-          <span
-            className={cn('bs-thinking-indicator min-w-0', isContinuation ? 'justify-center' : '')}
-            data-testid="assistant-reasoning-indicator"
-          >
-            <BrainstrikeThinkingMark
-              className="bs-thinking-mark-static size-4"
-              testId="assistant-reasoning-static-mark"
-            />
-            {isContinuation ? null : <span className="truncate">Reasoning</span>}
-          </span>
-        )}
-        {isContinuation ? null : collapsed ? (
-          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
-      </button>
-      <div
-        className={cn(
-          'bs-chain-of-thought-panel mt-2 empty:mt-0',
-          collapsed ? '' : 'border-border/70 border-l pl-3'
-        )}
-        id={reasoningPanelId}
-      >
-        {chainParts}
-      </div>
+      <ToolDurationProvider durations={toolDurations}>{content}</ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
 };
@@ -456,73 +578,6 @@ const ThreadHistoryControl: FC<{
         )}
         <span>{hiddenMessageCount} previous messages</span>
       </button>
-    </div>
-  );
-};
-
-const ExpandableMessageContent: FC<{
-  children: ReactNode;
-  className: string;
-  collapsedHeight?: number;
-  testId?: string;
-}> = ({ children, className, collapsedHeight = 176, testId }) => {
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const contentId = useId();
-  const [expanded, setExpanded] = useState(false);
-  const [hasOverflow, setHasOverflow] = useState(false);
-  const [contentHeight, setContentHeight] = useState(collapsedHeight);
-
-  useEffect(() => {
-    const node = contentRef.current;
-    if (!node) {
-      return;
-    }
-
-    const measure = (): void => {
-      const nextContentHeight = node.scrollHeight;
-      setContentHeight(nextContentHeight);
-      setHasOverflow(nextContentHeight > collapsedHeight + 1);
-    };
-
-    measure();
-    if (typeof ResizeObserver === 'undefined') {
-      return;
-    }
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
-  }, [collapsedHeight, children]);
-
-  const collapsed = hasOverflow && !expanded;
-
-  return (
-    <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
-      <m.div
-        animate={{ maxHeight: collapsed ? collapsedHeight : contentHeight }}
-        className="bs-expandable-message-body"
-        id={contentId}
-        initial={false}
-        ref={contentRef}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-      >
-        {children}
-      </m.div>
-      {collapsed ? <div aria-hidden="true" className="bs-expandable-message-fade" /> : null}
-      {hasOverflow ? (
-        <button
-          aria-controls={contentId}
-          aria-expanded={expanded}
-          aria-label={expanded ? 'Show less message content' : 'Show more message content'}
-          className="bs-expandable-message-toggle"
-          onClick={() => setExpanded((current) => !current)}
-          type="button"
-        >
-          {expanded ? 'Show less' : 'Show more'}
-        </button>
-      ) : null}
     </div>
   );
 };
@@ -1074,70 +1129,72 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
-    <section
-      aria-label="Assistant chat"
-      className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
-      data-testid="chat-panel"
-    >
-      {isLocalProvider && modelName && !localViaDataStream ? (
-        <LocalRuntimeChat
-          completePreparedRequest={completePreparedRequest}
-          contextWindow={contextWindow}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          key={threadKey ? `local:${threadKey}` : 'local'}
-          loadLocalLlmBackend={loadLocalLlmBackend}
-          localLoadingState={localLoadingState}
-          modelId={modelName}
-          onLoadingStateChange={handleLocalLoadingStateChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          {...(onUsage ? { onUsage } : {})}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      ) : (
-        <DataStreamRuntimeChat
-          api={api}
-          completePreparedRequest={completePreparedRequest}
-          contextWindow={contextWindow}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          historyAdapter={historyAdapter}
-          key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
-          localLoadingState={localLoadingState}
-          modelName={modelName}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          prepareLocalModel={prepareLocalModel}
-          {...(onUsage ? { onUsage } : {})}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      )}
-    </section>
+    <AssistantDetailLevelProvider>
+      <section
+        aria-label="Assistant chat"
+        className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-testid="chat-panel"
+      >
+        {isLocalProvider && modelName && !localViaDataStream ? (
+          <LocalRuntimeChat
+            completePreparedRequest={completePreparedRequest}
+            contextWindow={contextWindow}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            key={threadKey ? `local:${threadKey}` : 'local'}
+            loadLocalLlmBackend={loadLocalLlmBackend}
+            localLoadingState={localLoadingState}
+            modelId={modelName}
+            onLoadingStateChange={handleLocalLoadingStateChange}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onStreamActivity={onStreamActivity}
+            onThreadRunStart={onThreadRunStart}
+            {...(onUsage ? { onUsage } : {})}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            prepareRequestData={prepareRequestData}
+            providerGroups={groupedProviders}
+            providerSettings={providerSettings}
+            requestData={requestData}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        ) : (
+          <DataStreamRuntimeChat
+            api={api}
+            completePreparedRequest={completePreparedRequest}
+            contextWindow={contextWindow}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            historyAdapter={historyAdapter}
+            key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
+            localLoadingState={localLoadingState}
+            modelName={modelName}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onStreamActivity={onStreamActivity}
+            onThreadRunStart={onThreadRunStart}
+            prepareLocalModel={prepareLocalModel}
+            {...(onUsage ? { onUsage } : {})}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            prepareRequestData={prepareRequestData}
+            providerGroups={groupedProviders}
+            providerSettings={providerSettings}
+            requestData={requestData}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        )}
+      </section>
+    </AssistantDetailLevelProvider>
   );
 };
 
