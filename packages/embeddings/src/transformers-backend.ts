@@ -225,6 +225,7 @@ export class TransformersBackend {
   private _queue: QueueAdapter | null = null;
   private _streamingClient: StreamingEmbeddingWorkerClient | null = null;
   private _streamingWorkerUrl: string | null = null;
+  private _streamBatchSize: number | null = null;
   private _targetDimensions: number | null = null;
   private _selectedDType: EmbeddingDType | null = null;
 
@@ -253,6 +254,7 @@ export class TransformersBackend {
     this._quantized = config.quantized;
     this._selectedDType = this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
     this._streamingWorkerUrl = config.streamingWorkerUrl ?? null;
+    this._streamBatchSize = this.resolveStreamBatchSize(config.streamBatchSize);
 
     if (TransformersBackend._verboseOrtLogs) {
       logger.debug(
@@ -440,8 +442,22 @@ export class TransformersBackend {
       targetDimension,
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
-      maxBatchSize: Math.max(1, texts.length),
+      maxBatchSize: this.resolveWorkerMaxBatchSize(texts.length),
     };
+  }
+
+  private resolveStreamBatchSize(value: number | undefined): number | null {
+    if (value === undefined) {
+      return null;
+    }
+    if (Number.isInteger(value) && value > 0) {
+      return value;
+    }
+    throw new Error(`streamBatchSize must be a positive integer, received "${String(value)}".`);
+  }
+
+  private resolveWorkerMaxBatchSize(textCount: number): number {
+    return Math.max(1, Math.min(textCount, this._streamBatchSize ?? textCount));
   }
 
   private resolveDeviceHint(): 'webgpu' | 'wasm' {

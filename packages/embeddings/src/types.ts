@@ -16,6 +16,8 @@ export interface EmbeddingConfig {
   quantized?: boolean;
   /** Model revision/version */
   revision?: string;
+  /** Maximum local streaming inference batch size. */
+  streamBatchSize?: number;
   /** Explicit worker URL for streamed local embedding execution. */
   streamingWorkerUrl?: string;
 }

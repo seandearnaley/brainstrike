@@ -18,6 +18,7 @@ export interface DownloadModelOptions {
 }
 
 export interface SimpleEmbeddingServiceOptions {
+  readonly streamBatchSize?: number;
   readonly streamingWorkerUrl?: string;
 }
 
@@ -43,6 +44,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',
       quantized: false,
+      ...(options.streamBatchSize ? { streamBatchSize: options.streamBatchSize } : {}),
       ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
     };
     this._backend.setTargetDimensions(DEFAULT_EMBEDDING_DIMENSION);

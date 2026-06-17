@@ -104,6 +104,10 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '';
+    import.meta.env['VITE_EMBED_COMPLETION_OVERLAP_BATCHES'] = '';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'] = '';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = '';
+    import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
   });
 
@@ -118,6 +122,10 @@ describe('createEmbeddingWorkerConfig', () => {
       concurrency: 1,
       interBatchDelayMs: 75,
       leaseMs: 60_000,
+      maxPendingCompletionBatches: 2,
+      maxPendingCompletionBytes: 786_432,
+      maxPendingCompletionChunks: 32,
+      streamBatchSize: 8,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
       resolveClaimBatchSize: expect.any(Function),
@@ -468,9 +476,13 @@ describe('createEmbeddingWorkerConfig', () => {
   it('uses configured env vars and forwards logs and download progress updates', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '3';
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '4';
+    import.meta.env['VITE_EMBED_COMPLETION_OVERLAP_BATCHES'] = '3';
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'] = '123456';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = '9';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = 'local:test-model';
+    import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '5';
     const { scheduledDb } = createScheduledTestDb();
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
@@ -481,7 +493,11 @@ describe('createEmbeddingWorkerConfig', () => {
       concurrency: 3,
       interBatchDelayMs: 75,
       leaseMs: 45_000,
+      maxPendingCompletionBatches: 3,
+      maxPendingCompletionBytes: 123_456,
+      maxPendingCompletionChunks: 9,
       modelKey: 'local:test-model',
+      streamBatchSize: 5,
       waitForBackgroundPermit: expect.any(Function),
     });
 
@@ -536,6 +552,22 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_LEASE_MS must be a positive integer, received "abc".'
+    );
+  });
+
+  it('fails fast when stream batch size is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '0';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_STREAM_BATCH_SIZE must be a positive integer, received "0".'
+    );
+  });
+
+  it('fails fast when pending completion limits are malformed', () => {
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = 'abc';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS must be a positive integer, received "abc".'
     );
   });
 });

@@ -68,11 +68,17 @@ class FakeEmbeddingService implements EmbeddingService {
 }
 
 class ChunkedStreamingEmbeddingService extends FakeEmbeddingService {
+  private batchStartObserver: ((startIndex: number) => void) | null = null;
+
   constructor(
     private readonly streamBatchSize: number,
     private readonly delayAfterBatchMs: number
   ) {
     super();
+  }
+
+  onBatchStart(observer: (startIndex: number) => void): void {
+    this.batchStartObserver = observer;
   }
 
   override async generateEmbeddingsStream(
@@ -86,6 +92,7 @@ class ChunkedStreamingEmbeddingService extends FakeEmbeddingService {
     for (let startIndex = 0; startIndex < texts.length; startIndex += this.streamBatchSize) {
       const endIndex = Math.min(texts.length, startIndex + this.streamBatchSize);
       const results = await this.generateEmbeddings(texts.slice(startIndex, endIndex));
+      this.batchStartObserver?.(startIndex);
       await onBatch({ startIndex, endIndex, results });
       await new Promise((resolve) => setTimeout(resolve, this.delayAfterBatchMs));
     }
@@ -139,6 +146,20 @@ function readIdleBackoffLogs(
     }
     return [meta];
   });
+}
+
+function createDeferred<T = void>(): {
+  promise: Promise<T>;
+  reject: (error: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, reject, resolve };
 }
 
 interface InsertEmbeddingJobOptions {
@@ -655,6 +676,222 @@ describe('Embedding Worker Batch Optimization', () => {
       `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
     );
     expect(Number(failed.rows[0]?.count)).toBe(0);
+  });
+
+  it('starts the next streamed inference batch before the prior DB completion resolves', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'overlap-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'overlap-b' });
+
+    const service = new ChunkedStreamingEmbeddingService(1, 0);
+    const batchStarts: number[] = [];
+    service.onBatchStart((startIndex) => {
+      batchStarts.push(startIndex);
+    });
+
+    const firstCompletionRelease = createDeferred();
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        if (completeBatchSpy.mock.calls.length === 1) {
+          await firstCompletionRelease.promise;
+        }
+        return await originalCompleteEmbeddingChunkBatch.apply(this, args);
+      });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 2,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      service,
+    });
+
+    let assertionError: unknown;
+    try {
+      await waitFor(async () => completeBatchSpy.mock.calls.length === 1, 10_000);
+      try {
+        await waitFor(async () => batchStarts.length >= 2, 500);
+      } catch (error) {
+        assertionError = error;
+      }
+    } finally {
+      firstCompletionRelease.resolve();
+      await controller.stop();
+      completeBatchSpy.mockRestore();
+    }
+
+    if (assertionError) {
+      throw assertionError;
+    }
+    expect(batchStarts).toEqual([0, 1]);
+  });
+
+  it('bounds streamed inference overlap while DB completion capacity is full', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'bounded-overlap-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'bounded-overlap-b' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'bounded-overlap-c' });
+
+    const service = new ChunkedStreamingEmbeddingService(1, 0);
+    const batchStarts: number[] = [];
+    service.onBatchStart((startIndex) => {
+      batchStarts.push(startIndex);
+    });
+
+    const firstCompletionRelease = createDeferred();
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        if (completeBatchSpy.mock.calls.length === 1) {
+          await firstCompletionRelease.promise;
+        }
+        return await originalCompleteEmbeddingChunkBatch.apply(this, args);
+      });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 3,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      maxPendingCompletionBatches: 1,
+      modelKey,
+      service,
+    });
+
+    let assertionError: unknown;
+    let blockedBatchStarts: number[] = [];
+    try {
+      await waitFor(async () => batchStarts.length >= 2, 10_000);
+      try {
+        await waitFor(async () => batchStarts.length >= 3, 500);
+      } catch (error) {
+        assertionError = error;
+      }
+      expect(assertionError).toBeInstanceOf(Error);
+      blockedBatchStarts = [...batchStarts];
+      assertionError = null;
+    } finally {
+      firstCompletionRelease.resolve();
+      await controller.stop();
+      completeBatchSpy.mockRestore();
+    }
+
+    if (assertionError) {
+      throw assertionError;
+    }
+    expect(blockedBatchStarts).toEqual([0, 1]);
+  });
+
+  it('does not leave claimed jobs running when deferred DB completion fails', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'deferred-failure-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'deferred-failure-b' });
+    await db.query(
+      `UPDATE job_queue
+       SET max_attempts = 1
+       WHERE id IN ('job-deferred-failure-a', 'job-deferred-failure-b')`
+    );
+
+    const service = new ChunkedStreamingEmbeddingService(1, 0);
+    const batchStarts: number[] = [];
+    service.onBatchStart((startIndex) => {
+      batchStarts.push(startIndex);
+    });
+
+    const firstCompletionFailure = createDeferred();
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        if (completeBatchSpy.mock.calls.length === 1) {
+          await firstCompletionFailure.promise;
+          throw new Error('deferred completion failed');
+        }
+        return await originalCompleteEmbeddingChunkBatch.apply(this, args);
+      });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 2,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      service,
+    });
+
+    try {
+      await waitFor(async () => batchStarts.length >= 2, 10_000);
+      firstCompletionFailure.resolve();
+      await waitFor(async () => {
+        const running = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'running'`
+        );
+        return Number(running.rows[0]?.count) === 0;
+      }, 10_000);
+    } finally {
+      await controller.stop();
+      completeBatchSpy.mockRestore();
+    }
+
+    const states = await db.query<{ state: string }>(
+      `SELECT state FROM job_queue
+       WHERE id IN ('job-deferred-failure-a', 'job-deferred-failure-b')
+       ORDER BY id`
+    );
+    expect(states.rows.map((row) => row.state).sort()).toEqual(['failed', 'succeeded']);
+  });
+
+  it('reports inactive after streamed inference finishes while DB completion remains pending', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'activity-db-pending' });
+
+    const firstCompletionRelease = createDeferred();
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        await firstCompletionRelease.promise;
+        return await originalCompleteEmbeddingChunkBatch.apply(this, args);
+      });
+    const activityChanges: boolean[] = [];
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 1,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      onWorkerActivityChange: (active) => {
+        activityChanges.push(active);
+      },
+      service: new ChunkedStreamingEmbeddingService(1, 0),
+    });
+
+    try {
+      await waitFor(async () => completeBatchSpy.mock.calls.length === 1, 10_000);
+      await waitFor(async () => activityChanges.at(-1) === false, 10_000);
+      expect(activityChanges).toEqual([true, false]);
+    } finally {
+      firstCompletionRelease.resolve();
+      await controller.stop();
+      completeBatchSpy.mockRestore();
+    }
   });
 
   it('coalesces full indexing stats refreshes across streamed completion batches', async () => {

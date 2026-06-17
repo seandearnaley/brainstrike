@@ -31,6 +31,10 @@ const logger = createLogger('EmbeddingWorkerConfig');
 const DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE = 16;
 const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
+const DESKTOP_EMBED_MAX_PENDING_COMPLETION_BATCHES = 2;
+const DESKTOP_EMBED_MAX_PENDING_COMPLETION_BYTES = 786_432;
+const DESKTOP_EMBED_MAX_PENDING_COMPLETION_CHUNKS = 32;
+const DESKTOP_EMBED_STREAM_BATCH_SIZE = 8;
 const DESKTOP_PRESSURE_POLL_MS = 50;
 const DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS = 10;
 const DESKTOP_POWER_SNAPSHOT_CACHE_MS = 1000;
@@ -40,9 +44,13 @@ const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
 
 type PositiveIntegerEmbeddingEnvKey =
   | 'VITE_EMBED_CLAIM_BATCH_SIZE'
+  | 'VITE_EMBED_COMPLETION_OVERLAP_BATCHES'
   | 'VITE_EMBED_CONCURRENCY'
   | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
-  | 'VITE_EMBED_LEASE_MS';
+  | 'VITE_EMBED_LEASE_MS'
+  | 'VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'
+  | 'VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'
+  | 'VITE_EMBED_STREAM_BATCH_SIZE';
 
 interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
@@ -243,6 +251,22 @@ export function createEmbeddingWorkerConfig(
     DESKTOP_EMBED_INTER_BATCH_DELAY_MS
   );
   const leaseMs = parsePositiveIntegerEnv('VITE_EMBED_LEASE_MS', 60_000);
+  const maxPendingCompletionBatches = parsePositiveIntegerEnv(
+    'VITE_EMBED_COMPLETION_OVERLAP_BATCHES',
+    DESKTOP_EMBED_MAX_PENDING_COMPLETION_BATCHES
+  );
+  const maxPendingCompletionBytes = parsePositiveIntegerEnv(
+    'VITE_EMBED_MAX_PENDING_COMPLETION_BYTES',
+    DESKTOP_EMBED_MAX_PENDING_COMPLETION_BYTES
+  );
+  const maxPendingCompletionChunks = parsePositiveIntegerEnv(
+    'VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS',
+    DESKTOP_EMBED_MAX_PENDING_COMPLETION_CHUNKS
+  );
+  const streamBatchSize = parsePositiveIntegerEnv(
+    'VITE_EMBED_STREAM_BATCH_SIZE',
+    DESKTOP_EMBED_STREAM_BATCH_SIZE
+  );
   const modelKey = import.meta.env['VITE_EMBED_MODEL_KEY'];
 
   return {
@@ -251,6 +275,10 @@ export function createEmbeddingWorkerConfig(
     concurrency,
     interBatchDelayMs,
     leaseMs,
+    maxPendingCompletionBatches,
+    maxPendingCompletionBytes,
+    maxPendingCompletionChunks,
+    streamBatchSize,
     ...createDesktopPressureControls(db, claimBatchSize, gate),
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
