@@ -14,6 +14,7 @@ import type {
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStreamBatch,
+  EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
 } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
@@ -99,6 +100,7 @@ export interface EmbeddingWorkerOptions {
   now?: () => number;
   onDownloadProgress?: (modelId: string, progress: number) => void;
   onFatalError?: (error: Error) => void;
+  onRuntimeMetadataChange?: (metadata: EmbeddingWorkerRuntimeMetadata) => void;
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string;
   reinitEveryN?: number;
@@ -130,7 +132,7 @@ type StreamingEmbeddingService = EmbeddingService & {
   generateEmbeddingsStream: (
     texts: string[],
     onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ) => Promise<void>;
+  ) => Promise<unknown>;
 };
 
 class LocalEmbeddingStreamCallbackError extends Error {
@@ -439,6 +441,36 @@ export async function startEmbeddingWorker(
     nextIdlePollDelayMs = idlePollBackoff.initialMs;
   }
 
+  function reportRuntimeMetadata(metadata: EmbeddingWorkerRuntimeMetadata | undefined): void {
+    if (!metadata) {
+      return;
+    }
+    try {
+      options.onRuntimeMetadataChange?.(metadata);
+    } catch (error) {
+      workerLogger.warn('Embedding runtime metadata callback failed', { error });
+    }
+  }
+
+  function parseRuntimeMetadata(value: unknown): EmbeddingWorkerRuntimeMetadata | undefined {
+    if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+      return;
+    }
+    const candidate = value as Partial<EmbeddingWorkerRuntimeMetadata>;
+    if (
+      (candidate.device === 'webgpu' || candidate.device === 'wasm') &&
+      typeof candidate.dtype === 'string' &&
+      typeof candidate.fallbackApplied === 'boolean'
+    ) {
+      return {
+        device: candidate.device,
+        dtype: candidate.dtype,
+        fallbackApplied: candidate.fallbackApplied,
+      };
+    }
+    return;
+  }
+
   function assertLocalModelSwitchAllowed(targetModelId: string): void {
     const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
     if (targetModelId === activeModelId || !isElectronMainProcess() || allowMainRuntime) {
@@ -698,6 +730,7 @@ export async function startEmbeddingWorker(
         );
       }
     }
+    reportRuntimeMetadata(results.find((result) => result.runtime)?.runtime);
 
     return results;
   }
@@ -1043,7 +1076,7 @@ export async function startEmbeddingWorker(
     const streamingService = assertStreamingService(service);
 
     try {
-      await streamingService.generateEmbeddingsStream(
+      const runtimeMetadata = await streamingService.generateEmbeddingsStream(
         cacheMisses.map((item) => item.chunk.content),
         async (batch) => {
           if (checkLease()) {
@@ -1081,6 +1114,7 @@ export async function startEmbeddingWorker(
           }
         }
       );
+      reportRuntimeMetadata(parseRuntimeMetadata(runtimeMetadata));
     } catch (error) {
       if (error instanceof LocalEmbeddingStreamCallbackError) {
         throw error.originalError instanceof Error ? error.originalError : error;

@@ -67,10 +67,18 @@ export interface EmbeddingResult {
   embedding: number[];
   /** Model used for generation */
   model: string;
+  /** Runtime metadata reported by the local embedding worker when available */
+  runtime?: EmbeddingWorkerRuntimeMetadata;
   /** Token usage information */
   usage?: {
     totalTokens?: number;
   };
+}
+
+export interface EmbeddingWorkerRuntimeMetadata {
+  readonly device: 'webgpu' | 'wasm';
+  readonly dtype: string;
+  readonly fallbackApplied: boolean;
 }
 
 export interface EmbeddingStreamBatch {
@@ -151,7 +159,7 @@ export interface EmbeddingService {
   generateEmbeddingsStream?(
     texts: string[],
     onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ): Promise<void>;
+  ): Promise<unknown>;
 
   /** Generate an embedding optimized for search queries */
   generateQueryEmbedding(text: string): Promise<EmbeddingResult>;

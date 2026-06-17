@@ -8,6 +8,7 @@ import type {
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingStreamBatch,
+  EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
 } from './types';
 
@@ -302,7 +303,7 @@ export class TransformersBackend {
     texts: string[],
     modelId: string,
     onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ): Promise<void> {
+  ): Promise<undefined | EmbeddingWorkerRuntimeMetadata> {
     if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
@@ -312,7 +313,7 @@ export class TransformersBackend {
 
     const client = this.ensureStreamingClient();
     try {
-      await client.stream(this.createWorkerRequest(texts, modelId), {
+      const metadata = await client.stream(this.createWorkerRequest(texts, modelId), {
         onBatch: async (event) => {
           const results = event.vectors.map((vector) => {
             const embedding = Array.from(vector) as number[];
@@ -331,6 +332,11 @@ export class TransformersBackend {
       });
 
       TransformersBackend._inferenceCount += texts.length;
+      return {
+        device: metadata.device,
+        dtype: metadata.dtype,
+        fallbackApplied: metadata.fallbackApplied,
+      };
     } catch (error) {
       logger.debug('Embedding worker streaming failed', {
         modelId,
@@ -377,6 +383,11 @@ export class TransformersBackend {
           embedding,
           dimensions: response.metadata.dimensions ?? embedding.length,
           model: modelId,
+          runtime: {
+            device: response.metadata.device,
+            dtype: response.metadata.dtype,
+            fallbackApplied: response.metadata.fallbackApplied,
+          },
         };
       });
     } catch (error) {

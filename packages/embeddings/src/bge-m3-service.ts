@@ -166,7 +166,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
   async generateEmbeddingsStream(
     texts: string[],
     onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ): Promise<void> {
+  ): Promise<unknown> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -178,7 +178,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
         this._currentModelKey
       )
     );
-    await this._backend.generateEmbeddingsStream(withPrompts, this._config.modelId, onBatch);
+    return await this._backend.generateEmbeddingsStream(withPrompts, this._config.modelId, onBatch);
   }
 
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {

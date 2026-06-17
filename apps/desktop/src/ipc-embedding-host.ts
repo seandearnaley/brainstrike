@@ -2,12 +2,12 @@ import { ipcMain } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
   assertEmbeddingHostQueryEmbeddingResponseReport,
+  assertEmbeddingHostStatus,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
   EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
-  EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STOP_CHANNEL,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
@@ -18,7 +18,7 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
   const unregisterLifecycle =
     registerBackgroundRuntimeLifecycleIpcHandlers<EmbeddingHostStatusReport>({
       manager,
-      assertStatus: EMBEDDING_HOST_STATUS_ADAPTER.assertStatus,
+      assertStatus: assertEmbeddingHostStatus,
       channels: {
         ensureStarted: EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
         stop: EMBEDDING_HOST_STOP_CHANNEL,

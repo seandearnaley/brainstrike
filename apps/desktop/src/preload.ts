@@ -260,6 +260,15 @@ type LlmHostLifecycleState = EmbeddingHostLifecycleState;
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
+  readonly embeddingRuntime?: {
+    readonly actualWorkerMetadata: {
+      readonly device: 'webgpu' | 'wasm';
+      readonly dtype: string;
+      readonly fallbackApplied: boolean;
+    } | null;
+    readonly backendMismatch: boolean;
+    readonly selectedDevicePreference: 'webgpu' | 'wasm';
+  };
   readonly lastError: string | null;
   readonly runtimeId: string;
   readonly runtimeKind: 'embedding-host';

@@ -83,8 +83,20 @@ export interface EmbeddingHostQueryEmbeddingPayload {
 }
 
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;
-export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'>;
-export type EmbeddingHostStatusReport = BackgroundRuntimeStatus<'embedding-host'>;
+export interface EmbeddingHostWorkerRuntimeMetadata {
+  readonly device: 'webgpu' | 'wasm';
+  readonly dtype: string;
+  readonly fallbackApplied: boolean;
+}
+export interface EmbeddingHostRuntimeMetadata {
+  readonly actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null;
+  readonly backendMismatch: boolean;
+  readonly selectedDevicePreference: 'webgpu' | 'wasm';
+}
+export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'> & {
+  readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
+};
+export type EmbeddingHostStatusReport = EmbeddingHostStatus;
 export type EmbeddingHostCommand = RuntimeRequestEnvelope<'control', EmbeddingHostCommandPayload>;
 export type EmbeddingHostQueryEmbeddingRequest = RuntimeRequestEnvelope<
   'query-embedding',
@@ -178,6 +190,72 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
     payload: { action },
+  };
+}
+
+function assertEmbeddingWorkerRuntimeMetadata(value: unknown): EmbeddingHostWorkerRuntimeMetadata {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error(
+      'Embedding host status embeddingRuntime.actualWorkerMetadata must be an object.'
+    );
+  }
+  const candidate = value as Record<string, unknown>;
+  const device = candidate['device'];
+  if (device !== 'webgpu' && device !== 'wasm') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.actualWorkerMetadata.device must be "webgpu" or "wasm".'
+    );
+  }
+  const dtype = assertNonEmptyString(
+    candidate['dtype'],
+    'Embedding host status embeddingRuntime.actualWorkerMetadata.dtype must be a non-empty string.'
+  );
+  const fallbackApplied = candidate['fallbackApplied'];
+  if (typeof fallbackApplied !== 'boolean') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.actualWorkerMetadata.fallbackApplied must be a boolean.'
+    );
+  }
+  return { device, dtype, fallbackApplied };
+}
+
+function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntimeMetadata {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host status embeddingRuntime must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const selectedDevicePreference = candidate['selectedDevicePreference'];
+  if (selectedDevicePreference !== 'webgpu' && selectedDevicePreference !== 'wasm') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.selectedDevicePreference must be "webgpu" or "wasm".'
+    );
+  }
+  const backendMismatch = candidate['backendMismatch'];
+  if (typeof backendMismatch !== 'boolean') {
+    throw new Error('Embedding host status embeddingRuntime.backendMismatch must be a boolean.');
+  }
+  const actualWorkerMetadata = candidate['actualWorkerMetadata'];
+  return {
+    selectedDevicePreference,
+    backendMismatch,
+    actualWorkerMetadata:
+      actualWorkerMetadata === null
+        ? null
+        : assertEmbeddingWorkerRuntimeMetadata(actualWorkerMetadata),
+  };
+}
+
+export function assertEmbeddingHostStatus(value: unknown): EmbeddingHostStatusReport {
+  const baseStatus = EMBEDDING_HOST_STATUS_ADAPTER.assertStatus(value);
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return baseStatus;
+  }
+  const embeddingRuntime = (value as Record<string, unknown>)['embeddingRuntime'];
+  return {
+    ...baseStatus,
+    ...(embeddingRuntime === undefined
+      ? {}
+      : { embeddingRuntime: assertEmbeddingHostRuntimeMetadata(embeddingRuntime) }),
   };
 }
 

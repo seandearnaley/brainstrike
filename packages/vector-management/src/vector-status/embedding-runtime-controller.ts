@@ -29,7 +29,21 @@ export interface EmbeddingRuntimeBackfillInfo {
   readonly source: EmbeddingRuntimeBackfillSource;
 }
 
-export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 'embedding-worker'>;
+export interface EmbeddingHostRuntimeMetadata {
+  readonly actualWorkerMetadata: {
+    readonly device: 'webgpu' | 'wasm';
+    readonly dtype: string;
+    readonly fallbackApplied: boolean;
+  } | null;
+  readonly backendMismatch: boolean;
+  readonly selectedDevicePreference: 'webgpu' | 'wasm';
+}
+
+export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<
+  'embedding-host' | 'embedding-worker'
+> & {
+  readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
+};
 
 /**
  * Result of enqueueBackfill. `{ canceled: true }` is returned (desktop only) when
@@ -60,6 +74,7 @@ export interface EmbeddingRuntimeController {
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
+  readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
   readonly lastError: string | null;
   readonly runtimeId: string;
   readonly runtimeKind: 'embedding-host';

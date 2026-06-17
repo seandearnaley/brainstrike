@@ -205,7 +205,7 @@ describe('EmbeddingHostRuntime', () => {
     expect(getEmbeddingQueueMock).toHaveBeenCalledTimes(1);
   });
 
-  it('uses detected WASM when vector preference is not user-configured', async () => {
+  it('rejects automatic WASM detection when vector preference is not user-configured', async () => {
     storeState.hasHydrated = true;
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = false;
@@ -224,13 +224,19 @@ describe('EmbeddingHostRuntime', () => {
     render(<EmbeddingHostRuntime />);
 
     await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect(reportStatusMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          device: 'wasm',
+          lastError: expect.stringContaining('WebGPU'),
+          state: 'error',
         })
       );
     });
-    expect(setDetectedDevicePrefMock).toHaveBeenCalledWith('wasm');
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        device: 'wasm',
+      })
+    );
+    expect(setDetectedDevicePrefMock).not.toHaveBeenCalledWith('wasm');
   });
 
   it('passes an embedding cache repository to the worker', async () => {

@@ -24,6 +24,22 @@ const mockWorkerControls = {
   workerLocalRunning: false,
   startingWorker: false,
   startWorkerError: null as string | null,
+  workerStatus: null as null | {
+    active: boolean;
+    embeddingRuntime?: {
+      actualWorkerMetadata: {
+        device: 'webgpu' | 'wasm';
+        dtype: string;
+        fallbackApplied: boolean;
+      } | null;
+      backendMismatch: boolean;
+      selectedDevicePreference: 'webgpu' | 'wasm';
+    };
+    lastError: string | null;
+    runtimeId: string;
+    runtimeKind: 'embedding-host' | 'embedding-worker';
+    state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+  },
   startWorker: vi.fn().mockResolvedValue(undefined),
   stopWorker: vi.fn().mockResolvedValue(undefined),
   resetWorker: vi.fn().mockResolvedValue(undefined),
@@ -280,6 +296,7 @@ function resetMockState(): void {
   mockWorkerControls.workerLocalRunning = false;
   mockWorkerControls.startingWorker = false;
   mockWorkerControls.startWorkerError = null;
+  mockWorkerControls.workerStatus = null;
   mockWorkerControls.startWorker.mockReset().mockResolvedValue(undefined);
   mockWorkerControls.stopWorker.mockReset().mockResolvedValue(undefined);
   mockWorkerControls.resetWorker.mockReset().mockResolvedValue(undefined);
@@ -373,6 +390,29 @@ describe('VectorStatusWithDb', () => {
     const select = screen.getByRole('combobox', { name: /Preferred device/i });
     expect(select).toBeInTheDocument();
     expect((select as HTMLSelectElement).value).toBe('wasm');
+  });
+
+  it('surfaces actual backend mismatch from embedding host metadata', () => {
+    mockWorkerControls.workerStatus = {
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:test',
+      runtimeKind: 'embedding-host',
+      state: 'running',
+      embeddingRuntime: {
+        actualWorkerMetadata: {
+          device: 'wasm',
+          dtype: 'fp32',
+          fallbackApplied: true,
+        },
+        backendMismatch: true,
+        selectedDevicePreference: 'webgpu',
+      },
+    };
+
+    render(<VectorStatusWithDb />);
+
+    expect(screen.getByText('Backend mismatch: pref WebGPU, actual WASM')).toBeInTheDocument();
   });
 
   it('renders reinit input', () => {

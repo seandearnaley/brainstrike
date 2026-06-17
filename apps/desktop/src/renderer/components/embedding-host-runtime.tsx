@@ -1,5 +1,6 @@
 import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
 import {
+  type DeviceCapabilities,
   detectDeviceCapabilities,
   type EmbeddingDeviceType,
   type EmbeddingResult,
@@ -28,13 +29,17 @@ import {
   type EmbeddingHostCommand,
   type EmbeddingHostQueryEmbeddingRequest,
   type EmbeddingHostQueryEmbeddingResponseReport,
+  type EmbeddingHostRuntimeMetadata,
   type EmbeddingHostStatus,
+  type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
 const QUERY_DRAIN_TIMEOUT_MS = 5000;
+const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
+  'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
 let embeddingQueueBootstrapPromise: Promise<void> | null = null;
 
 async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
@@ -129,6 +134,7 @@ function createEmbeddingHostStatus(
   state: EmbeddingHostStatus['state'],
   options?: {
     active?: boolean;
+    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
     lastError?: string | null;
   }
 ): EmbeddingHostStatus {
@@ -138,6 +144,7 @@ function createEmbeddingHostStatus(
     state,
     active: options?.active ?? false,
     lastError: options?.lastError ?? null,
+    ...(options?.embeddingRuntime ? { embeddingRuntime: options.embeddingRuntime } : {}),
   };
 }
 
@@ -146,6 +153,7 @@ function reportEmbeddingHostRuntimeStatus(
   state: EmbeddingHostStatus['state'],
   options?: {
     active?: boolean;
+    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
     lastError?: string | null;
   }
 ): void {
@@ -157,6 +165,7 @@ function reportEmbeddingHostRuntimeStatusForRuntimeId(
   state: EmbeddingHostStatus['state'],
   options?: {
     active?: boolean;
+    embeddingRuntime?: EmbeddingHostRuntimeMetadata | null;
     lastError?: string | null;
   }
 ): void {
@@ -165,6 +174,7 @@ function reportEmbeddingHostRuntimeStatusForRuntimeId(
 
 function createFatalErrorHandler(
   runtimeIdRef: MutableRefObject<string>,
+  embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>,
   fatalErrorRef: MutableRefObject<string | null>,
   activeRef: MutableRefObject<boolean>
 ): (error: Error) => void {
@@ -177,6 +187,7 @@ function createFatalErrorHandler(
       runtimeId: runtimeIdRef.current,
     });
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+      embeddingRuntime: embeddingRuntimeRef.current,
       lastError: message,
     });
   };
@@ -215,6 +226,35 @@ interface QueryEmbeddingServiceState {
   readonly service: SimpleEmbeddingService;
 }
 
+function createEmbeddingRuntimeMetadata(
+  selectedDevicePreference: EmbeddingDeviceType,
+  actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null
+): EmbeddingHostRuntimeMetadata {
+  return {
+    actualWorkerMetadata,
+    backendMismatch:
+      actualWorkerMetadata !== null &&
+      (actualWorkerMetadata.device !== selectedDevicePreference ||
+        actualWorkerMetadata.fallbackApplied),
+    selectedDevicePreference,
+  };
+}
+
+function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): Error {
+  const details = [
+    detected.recommendationReason,
+    detected.webgpuUnavailableReason,
+    detected.webgpuApiPresent ? null : 'WebGPU API is not present.',
+    detected.webgpuAdapterAvailable ? null : 'WebGPU adapter is unavailable.',
+    detected.webWorkersAvailable ? null : 'Web Workers are unavailable.',
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  return new Error(
+    details.length > 0
+      ? `${AUTOMATIC_WASM_RECOMMENDATION_ERROR} ${details.join(' ')}`
+      : AUTOMATIC_WASM_RECOMMENDATION_ERROR
+  );
+}
+
 async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceType> {
   const vectorPreferences = await ensureVectorPreferencesHydrated({
     forceReload: true,
@@ -225,6 +265,12 @@ async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceT
 
   const detected = await detectDeviceCapabilities();
   const detectedDevice = detected.recommendedDevice;
+  if (detectedDevice === 'wasm') {
+    if (vectorPreferences.devicePref !== 'webgpu') {
+      useVectorPreferencesStore.getState().setDetectedDevicePref('webgpu');
+    }
+    throw createAutomaticWasmRecommendationError(detected);
+  }
   if (vectorPreferences.devicePref !== detectedDevice) {
     useVectorPreferencesStore.getState().setDetectedDevicePref(detectedDevice);
   }
@@ -364,6 +410,7 @@ async function getQueryEmbeddingService(
 async function handleQueryEmbeddingRequest(options: {
   readonly activeRef: MutableRefObject<boolean>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
@@ -374,6 +421,7 @@ async function handleQueryEmbeddingRequest(options: {
   const {
     activeRef,
     db,
+    embeddingRuntimeRef,
     fatalErrorRef,
     gate,
     queryEmbeddingActiveCountRef,
@@ -383,7 +431,10 @@ async function handleQueryEmbeddingRequest(options: {
   } = options;
 
   queryEmbeddingActiveCountRef.current += 1;
-  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', { active: true });
+  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+    active: true,
+    embeddingRuntime: embeddingRuntimeRef.current,
+  });
   try {
     if (fatalErrorRef.current) {
       throw new Error(fatalErrorRef.current);
@@ -423,12 +474,14 @@ async function handleQueryEmbeddingRequest(options: {
     queryEmbeddingActiveCountRef.current = Math.max(queryEmbeddingActiveCountRef.current - 1, 0);
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
       active: activeRef.current || queryEmbeddingActiveCountRef.current > 0,
+      embeddingRuntime: embeddingRuntimeRef.current,
     });
   }
 }
 
 function createActivityChangeHandler(
   runtimeIdRef: MutableRefObject<string>,
+  embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>,
   fatalErrorRef: MutableRefObject<string | null>,
   activeRef: MutableRefObject<boolean>
 ): (active: boolean) => void {
@@ -439,6 +492,7 @@ function createActivityChangeHandler(
     activeRef.current = active;
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
       active,
+      embeddingRuntime: embeddingRuntimeRef.current,
     });
   };
 }
@@ -455,6 +509,7 @@ interface StartEmbeddingHostWorkerOptions {
   readonly activeRef: MutableRefObject<boolean>;
   readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly isDisposed: () => boolean;
@@ -469,6 +524,7 @@ async function startEmbeddingHostWorkerRuntime({
   activeRef,
   controllerRef,
   db,
+  embeddingRuntimeRef,
   fatalErrorRef,
   gate,
   isDisposed,
@@ -493,6 +549,7 @@ async function startEmbeddingHostWorkerRuntime({
   try {
     await ensureEmbeddingQueueBootstrapLoaded();
     const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
+    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null);
     const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
       ...workerConfig,
@@ -500,6 +557,13 @@ async function startEmbeddingHostWorkerRuntime({
       embeddingCache: createEmbeddingCacheRepository(workerConfig.db),
       initializeLocalModelOnStart: false,
       onFatalError,
+      onRuntimeMetadataChange: (metadata) => {
+        embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, metadata);
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+          active: activeRef.current,
+          embeddingRuntime: embeddingRuntimeRef.current,
+        });
+      },
       onWorkerActivityChange,
       stopOnFatalLocalError: true,
       streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
@@ -518,6 +582,7 @@ async function startEmbeddingHostWorkerRuntime({
     const fatalError = fatalErrorRef.current;
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
       active: fatalError ? false : activeRef.current,
+      embeddingRuntime: embeddingRuntimeRef.current,
       lastError: fatalError,
     });
   } catch (error) {
@@ -538,6 +603,7 @@ async function startEmbeddingHostWorkerRuntime({
 export function EmbeddingHostRuntime(): null {
   const db = usePGliteDatabase();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
+  const embeddingRuntimeRef = useRef<EmbeddingHostRuntimeMetadata | null>(null);
   const fatalErrorRef = useRef<string | null>(null);
   const startingRef = useRef(false);
   const activeRef = useRef(false);
@@ -553,9 +619,15 @@ export function EmbeddingHostRuntime(): null {
     }
 
     let disposed = false;
-    const onFatalError = createFatalErrorHandler(runtimeIdRef, fatalErrorRef, activeRef);
+    const onFatalError = createFatalErrorHandler(
+      runtimeIdRef,
+      embeddingRuntimeRef,
+      fatalErrorRef,
+      activeRef
+    );
     const onWorkerActivityChange = createActivityChangeHandler(
       runtimeIdRef,
+      embeddingRuntimeRef,
       fatalErrorRef,
       activeRef
     );
@@ -565,6 +637,7 @@ export function EmbeddingHostRuntime(): null {
         activeRef,
         controllerRef,
         db,
+        embeddingRuntimeRef,
         fatalErrorRef,
         gate: gateRef.current,
         isDisposed: () => disposed,
@@ -666,6 +739,7 @@ export function EmbeddingHostRuntime(): null {
         void handleQueryEmbeddingRequest({
           activeRef,
           db,
+          embeddingRuntimeRef,
           fatalErrorRef,
           gate: gateRef.current,
           queryEmbeddingActiveCountRef,
