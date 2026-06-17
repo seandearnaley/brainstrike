@@ -13,13 +13,16 @@ export type WorkspaceIndexingQosState =
   | 'system-constrained';
 
 export type WorkspaceIndexingQosReason =
+  | 'accelerator-idle'
   | 'balanced'
   | 'battery'
   | 'foreground-db-pressure'
   | 'foreground-query'
   | 'idle-ac'
   | 'manual-paused'
+  | 'memory-pressure'
   | 'normal-db-pressure'
+  | 'progress-stalled'
   | 'provider-rate-limited'
   | 'recent-user-input'
   | 'thermal-critical'
@@ -29,6 +32,50 @@ export type WorkspaceIndexingQosReason =
 export type WorkspaceIndexingIdleState = 'active' | 'idle' | 'locked' | 'unknown';
 export type WorkspaceIndexingPowerSource = 'ac' | 'battery' | 'unknown';
 export type WorkspaceIndexingThermalState = 'critical' | 'fair' | 'nominal' | 'serious' | 'unknown';
+
+export type WorkspaceIndexingMemoryPressure =
+  | {
+      available: false;
+    }
+  | {
+      available: true;
+      pressure: 'high' | 'normal';
+      retainedHeapRatio: number | null;
+    };
+
+export type WorkspaceIndexingQueueDepth =
+  | {
+      available: false;
+    }
+  | {
+      activeEmbeddingJobs: number;
+      available: true;
+    };
+
+export type WorkspaceIndexingAcceleratorPressure =
+  | {
+      available: false;
+    }
+  | {
+      available: true;
+      idleRatio: number;
+    };
+
+export type WorkspaceIndexingProgressWindow =
+  | {
+      available: false;
+    }
+  | {
+      available: true;
+      stalledForMs: number | null;
+    };
+
+export interface WorkspaceIndexingPipelineInputs {
+  accelerator: WorkspaceIndexingAcceleratorPressure;
+  memory: WorkspaceIndexingMemoryPressure;
+  progress: WorkspaceIndexingProgressWindow;
+  queueDepth: WorkspaceIndexingQueueDepth;
+}
 
 export type WorkspaceIndexingDatabasePressure =
   | {
@@ -46,6 +93,7 @@ export interface WorkspaceIndexingQosInputs {
   idleState: WorkspaceIndexingIdleState;
   idleTimeMs: number | null;
   manualPaused: boolean;
+  pipeline: WorkspaceIndexingPipelineInputs;
   powerSource: WorkspaceIndexingPowerSource;
   providerRateLimited: boolean;
   recentUserInputMs: number | null;
@@ -74,6 +122,9 @@ export interface WorkspaceIndexingQosPolicy {
 
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 const IDLE_AC_MIN_IDLE_MS = 60_000;
+const ACCELERATOR_IDLE_BOOST_THRESHOLD = 0.35;
+const ACCELERATOR_IDLE_QUEUE_DEPTH_THRESHOLD = 128;
+const STALLED_PROGRESS_WINDOW_MS = 120_000;
 
 const PAUSED_POLICY: WorkspaceIndexingQosPolicy = {
   allowNewWork: false,
@@ -109,7 +160,12 @@ function createForegroundYieldingPolicy(
 function createSystemConstrainedPolicy(
   reason: Extract<
     WorkspaceIndexingQosReason,
-    'battery' | 'provider-rate-limited' | 'thermal-critical' | 'thermal-serious'
+    | 'battery'
+    | 'memory-pressure'
+    | 'progress-stalled'
+    | 'provider-rate-limited'
+    | 'thermal-critical'
+    | 'thermal-serious'
   >
 ): WorkspaceIndexingQosPolicy {
   return {
@@ -176,6 +232,14 @@ function createIdleAcPolicy(): WorkspaceIndexingQosPolicy {
   };
 }
 
+function createAcceleratorIdlePolicy(): WorkspaceIndexingQosPolicy {
+  return {
+    ...createIdleAcPolicy(),
+    reason: 'accelerator-idle',
+    state: 'balanced',
+  };
+}
+
 function createBalancedPolicy(inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy {
   return {
     allowNewWork: true,
@@ -195,6 +259,30 @@ function createBalancedPolicy(inputs: WorkspaceIndexingQosInputs): WorkspaceInde
     streamBatchSize: 8,
     workerClaimBatchSize: 16,
   };
+}
+
+function hasHighMemoryPressure(inputs: WorkspaceIndexingQosInputs): boolean {
+  return inputs.pipeline.memory.available && inputs.pipeline.memory.pressure === 'high';
+}
+
+function hasStalledProgress(inputs: WorkspaceIndexingQosInputs): boolean {
+  return (
+    inputs.pipeline.progress.available &&
+    typeof inputs.pipeline.progress.stalledForMs === 'number' &&
+    inputs.pipeline.progress.stalledForMs >= STALLED_PROGRESS_WINDOW_MS
+  );
+}
+
+function shouldBoostForAcceleratorIdle(inputs: WorkspaceIndexingQosInputs): boolean {
+  return (
+    inputs.pipeline.accelerator.available &&
+    inputs.pipeline.accelerator.idleRatio >= ACCELERATOR_IDLE_BOOST_THRESHOLD &&
+    inputs.pipeline.queueDepth.available &&
+    inputs.pipeline.queueDepth.activeEmbeddingJobs >= ACCELERATOR_IDLE_QUEUE_DEPTH_THRESHOLD &&
+    inputs.powerSource !== 'battery' &&
+    !hasHighMemoryPressure(inputs) &&
+    !hasStalledProgress(inputs)
+  );
 }
 
 function hasRecentUserInput(recentUserInputMs: number | null): boolean {
@@ -274,6 +362,12 @@ export function resolveWorkspaceIndexingQosPolicy(
   if (inputs.dbPressure.foregroundPressure) {
     return createForegroundYieldingPolicy('foreground-db-pressure');
   }
+  if (hasHighMemoryPressure(inputs)) {
+    return createSystemConstrainedPolicy('memory-pressure');
+  }
+  if (hasStalledProgress(inputs)) {
+    return createSystemConstrainedPolicy('progress-stalled');
+  }
   if (inputs.powerSource === 'battery') {
     return createSystemConstrainedPolicy('battery');
   }
@@ -294,6 +388,9 @@ export function resolveWorkspaceIndexingQosPolicy(
   }
   if (isIdleOnAc(inputs)) {
     return createIdleAcPolicy();
+  }
+  if (shouldBoostForAcceleratorIdle(inputs)) {
+    return createAcceleratorIdlePolicy();
   }
   return createBalancedPolicy(inputs);
 }

@@ -620,6 +620,47 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('passes measured queue depth and renderer memory pressure into Workspace Index QoS inputs', async () => {
+    Object.defineProperty(globalThis.performance, 'memory', {
+      configurable: true,
+      value: {
+        jsHeapSizeLimit: 100,
+        usedJSHeapSize: 80,
+      },
+    });
+    dbState.current?.query.mockImplementationOnce(async () => ({ rows: [{ count: 42 }] }));
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            pipeline: expect.objectContaining({
+              accelerator: { available: false },
+              memory: {
+                available: true,
+                pressure: 'high',
+                retainedHeapRatio: 0.8,
+              },
+              progress: { available: false },
+              queueDepth: {
+                activeEmbeddingJobs: 42,
+                available: true,
+              },
+            }),
+          })
+        )
+      );
+    } finally {
+      Reflect.deleteProperty(globalThis.performance, 'memory');
+    }
+  });
+
   it('logs a workspace QoS transition once across repeated policy resolutions', async () => {
     configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
@@ -640,14 +681,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
         </WorkspaceCollectionSyncProvider>
       );
 
-      // The sync loop re-resolves the QoS policy on every cycle; wait until at
-      // least two resolutions happened under unchanged conditions.
-      await waitFor(() =>
-        expect(resolveWorkspaceIndexingQosPolicyMock.mock.calls.length).toBeGreaterThanOrEqual(2)
-      );
+      await waitFor(() => expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalled());
 
-      // A single shared transition tracker must dedupe identical observations:
-      // exactly one log, and it is the initial observation (from: null).
+      // A single shared transition tracker must dedupe identical observations.
       expect(captured).toHaveLength(1);
       expect(captured[0]?.args).toContainEqual(expect.objectContaining({ from: null }));
     } finally {

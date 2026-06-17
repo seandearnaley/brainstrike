@@ -16,6 +16,20 @@ const baseInputs: WorkspaceIndexingQosInputs = {
   idleState: 'active',
   idleTimeMs: 0,
   manualPaused: false,
+  pipeline: {
+    accelerator: {
+      available: false,
+    },
+    memory: {
+      available: false,
+    },
+    progress: {
+      available: false,
+    },
+    queueDepth: {
+      available: false,
+    },
+  },
   powerSource: 'ac',
   providerRateLimited: false,
   recentUserInputMs: null,
@@ -154,6 +168,100 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
       reason: 'thermal-serious',
       state: 'system-constrained',
       workerClaimBatchSize: 1,
+    });
+  });
+
+  it('constrains work immediately under high memory pressure and recovers when memory clears', () => {
+    const pressured = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        memory: {
+          available: true,
+          pressure: 'high',
+          retainedHeapRatio: 0.82,
+        },
+      },
+    });
+    const recovered = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        memory: {
+          available: true,
+          pressure: 'normal',
+          retainedHeapRatio: 0.48,
+        },
+      },
+      windowVisible: false,
+    });
+
+    expect(pressured).toMatchObject({
+      reason: 'memory-pressure',
+      state: 'system-constrained',
+      workerClaimBatchSize: 1,
+    });
+    expect(recovered).toMatchObject({
+      reason: 'balanced',
+      state: 'balanced',
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('boosts unpressured queued work when accelerator idle ratio is high', () => {
+    const policy = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        accelerator: {
+          available: true,
+          idleRatio: 0.5,
+        },
+        queueDepth: {
+          activeEmbeddingJobs: 256,
+          available: true,
+        },
+      },
+      windowVisible: false,
+    });
+
+    expect(policy).toMatchObject({
+      importBatchSize: 48,
+      maxPendingCompletionChunks: 64,
+      reason: 'accelerator-idle',
+      state: 'balanced',
+      streamBatchSize: 16,
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('constrains work when progress is stalled and recovers when progress resumes', () => {
+    const stalled = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        progress: {
+          available: true,
+          stalledForMs: 120_000,
+        },
+      },
+    });
+    const recovered = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        progress: {
+          available: true,
+          stalledForMs: 0,
+        },
+      },
+      windowVisible: false,
+    });
+
+    expect(stalled).toMatchObject({
+      reason: 'progress-stalled',
+      state: 'system-constrained',
+      workerClaimBatchSize: 1,
+    });
+    expect(recovered).toMatchObject({
+      reason: 'balanced',
+      state: 'balanced',
+      workerClaimBatchSize: 16,
     });
   });
 

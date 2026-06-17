@@ -43,6 +43,7 @@ import {
   createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingPipelineInputs,
   type WorkspaceIndexingQosPolicy,
 } from '@brainstrike/utils/workspace-indexing-qos';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
@@ -78,6 +79,13 @@ import {
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 
 export { FILE_EXPLORER_REFRESH_EVENT };
+
+const HIGH_RETAINED_HEAP_RATIO = 0.75;
+
+interface BrowserPerformanceMemory {
+  readonly jsHeapSizeLimit?: number;
+  readonly usedJSHeapSize?: number;
+}
 
 /**
  * The sync service signals foreground-style import progress through `setImporting`.
@@ -377,6 +385,54 @@ function createReadDatabasePressure(
   return async () => toWorkspaceIndexingDatabasePressure(await schedulerSnapshot());
 }
 
+function readRendererMemoryPressure(): WorkspaceIndexingPipelineInputs['memory'] {
+  const memory = (globalThis.performance as Performance & { memory?: BrowserPerformanceMemory })
+    .memory;
+  const used = memory?.usedJSHeapSize;
+  const limit = memory?.jsHeapSizeLimit;
+  if (
+    typeof used !== 'number' ||
+    typeof limit !== 'number' ||
+    !Number.isFinite(used) ||
+    !Number.isFinite(limit) ||
+    limit <= 0
+  ) {
+    return { available: false };
+  }
+  const retainedHeapRatio = used / limit;
+  return {
+    available: true,
+    pressure: retainedHeapRatio >= HIGH_RETAINED_HEAP_RATIO ? 'high' : 'normal',
+    retainedHeapRatio,
+  };
+}
+
+function createReadPipelineInputs(db: DbHandle): () => Promise<WorkspaceIndexingPipelineInputs> {
+  return async () => {
+    const result = await db.query<{ count: number | string }>(
+      `SELECT COUNT(*)::int AS count
+         FROM job_queue
+        WHERE queue = 'embeddings'
+          AND job_type = 'embed_chunk'
+          AND state IN ('queued', 'running')`
+    );
+    const rawCount = result.rows[0]?.count;
+    const activeEmbeddingJobs = typeof rawCount === 'number' ? rawCount : Number(rawCount ?? 0);
+    if (!Number.isFinite(activeEmbeddingJobs) || activeEmbeddingJobs < 0) {
+      throw new Error('Workspace Index QoS received an invalid embedding queue depth.');
+    }
+    return {
+      accelerator: { available: false },
+      memory: readRendererMemoryPressure(),
+      progress: { available: false },
+      queueDepth: {
+        activeEmbeddingJobs,
+        available: true,
+      },
+    };
+  };
+}
+
 function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapshot>) | null {
   if (typeof window === 'undefined') {
     return null;
@@ -553,6 +609,10 @@ export function WorkspaceCollectionSyncProvider({
     () => (backgroundDb ? createReadDatabasePressure(backgroundDb) : null),
     [backgroundDb]
   );
+  const readPipelineInputs = useMemo(
+    () => (backgroundDb ? createReadPipelineInputs(backgroundDb) : null),
+    [backgroundDb]
+  );
   const readPowerSnapshot = useMemo(() => createReadPowerSnapshot(), []);
   const backgroundRepositories = useMemo(() => {
     if (!backgroundDb) {
@@ -672,7 +732,7 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
-    if (!readDatabasePressure) {
+    if (!(readDatabasePressure && readPipelineInputs)) {
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
     }
     const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
@@ -686,6 +746,7 @@ export function WorkspaceCollectionSyncProvider({
       idleState: powerSnapshot?.idleState ?? 'unknown',
       idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
       manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
+      pipeline: await readPipelineInputs(),
       powerSource: powerSnapshot?.powerSource ?? 'unknown',
       // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
       // backfill exposes provider throttling as durable state.
@@ -696,7 +757,13 @@ export function WorkspaceCollectionSyncProvider({
     });
     observeQosTransition(policy);
     return policy;
-  }, [observeQosTransition, readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
+  }, [
+    observeQosTransition,
+    readDatabasePressure,
+    readPipelineInputs,
+    readPowerSnapshot,
+    readRecentUserInputMs,
+  ]);
 
   const missingRuntimeDependencies = useMemo(() => {
     const missing: string[] = [];
