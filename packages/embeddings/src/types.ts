@@ -92,6 +92,11 @@ export interface EmbeddingStreamBatch {
   startIndex: number;
 }
 
+export interface EmbeddingStreamOptions {
+  /** Maximum local inference sub-batch size for this stream. */
+  streamBatchSize?: number;
+}
+
 /**
  * Result of similarity calculation between two embeddings
  */
@@ -160,7 +165,8 @@ export interface EmbeddingService {
    */
   generateEmbeddingsStream?(
     texts: string[],
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
   ): Promise<unknown>;
 
   /** Generate an embedding optimized for search queries */

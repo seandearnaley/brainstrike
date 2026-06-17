@@ -50,10 +50,17 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
       allowNewWork: !foregroundYielding,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
+      completionOverlapBatches: foregroundYielding ? 1 : interactive || constrained ? 1 : 2,
       contentReadBatchSize: foregroundYielding ? 0 : 24,
       contentReadConcurrency: foregroundYielding ? 0 : 1,
       importBatchSize: foregroundYielding ? 0 : 24,
       interBatchDelayMs: foregroundYielding ? 250 : 75,
+      maxPendingCompletionBytes: foregroundYielding
+        ? 3072
+        : interactive || constrained
+          ? 98_304
+          : 786_432,
+      maxPendingCompletionChunks: foregroundYielding ? 1 : interactive || constrained ? 8 : 32,
       progressThrottleMs: 500,
       reason: foregroundYielding
         ? 'foreground-db-pressure'
@@ -72,6 +79,7 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
           : constrained
             ? 'system-constrained'
             : 'balanced',
+      streamBatchSize: foregroundYielding ? 1 : interactive || constrained ? 2 : 8,
       workerClaimBatchSize: foregroundYielding ? 0 : interactive || constrained ? 1 : 16,
     };
   };
@@ -129,6 +137,7 @@ describe('createEmbeddingWorkerConfig', () => {
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
       resolveClaimBatchSize: expect.any(Function),
+      resolvePipelineCapacity: expect.any(Function),
       waitForBackgroundPermit: expect.any(Function),
     });
     expect(db.query).not.toHaveBeenCalled();
@@ -401,6 +410,45 @@ describe('createEmbeddingWorkerConfig', () => {
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
+  });
+
+  it('drops and restores desktop pipeline capacity with foreground database pressure', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { priority: 'foreground', label: 'test foreground query' }
+    );
+
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolvePipelineCapacity?.()).resolves.toMatchObject({
+      maxPendingCompletionBatches: 1,
+      maxPendingCompletionBytes: 3072,
+      maxPendingCompletionChunks: 1,
+      streamBatchSize: 1,
+    });
+
+    releaseForegroundWork();
+    await foregroundWork;
+
+    await expect(config.resolvePipelineCapacity?.()).resolves.toMatchObject({
+      maxPendingCompletionBatches: 2,
+      maxPendingCompletionBytes: 786_432,
+      maxPendingCompletionChunks: 32,
+      streamBatchSize: 8,
+    });
   });
 
   it('shrinks desktop claims after recent high-latency normal database work', async () => {

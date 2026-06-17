@@ -9,6 +9,7 @@ import type {
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStatus,
+  EmbeddingStreamOptions,
   SimilarityResult,
 } from '../types';
 import type { EmbeddingStatsRefreshController } from '../worker/embedding-worker';
@@ -87,10 +88,12 @@ class ChunkedStreamingEmbeddingService extends FakeEmbeddingService {
       startIndex: number;
       endIndex: number;
       results: EmbeddingResult[];
-    }) => Promise<void> | void
+    }) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
   ): Promise<void> {
-    for (let startIndex = 0; startIndex < texts.length; startIndex += this.streamBatchSize) {
-      const endIndex = Math.min(texts.length, startIndex + this.streamBatchSize);
+    const streamBatchSize = options?.streamBatchSize ?? this.streamBatchSize;
+    for (let startIndex = 0; startIndex < texts.length; startIndex += streamBatchSize) {
+      const endIndex = Math.min(texts.length, startIndex + streamBatchSize);
       const results = await this.generateEmbeddings(texts.slice(startIndex, endIndex));
       this.batchStartObserver?.(startIndex);
       await onBatch({ startIndex, endIndex, results });
@@ -892,6 +895,49 @@ describe('Embedding Worker Batch Optimization', () => {
       await controller.stop();
       completeBatchSpy.mockRestore();
     }
+  });
+
+  it('uses dynamically resolved stream batch capacity for local streaming groups', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'dynamic-capacity-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'dynamic-capacity-b' });
+
+    const service = new ChunkedStreamingEmbeddingService(99, 0);
+    const batchStarts: number[] = [];
+    service.onBatchStart((startIndex) => {
+      batchStarts.push(startIndex);
+    });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 2,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      resolvePipelineCapacity: () => ({
+        maxPendingCompletionBatches: 2,
+        maxPendingCompletionBytes: 786_432,
+        maxPendingCompletionChunks: 32,
+        streamBatchSize: 1,
+      }),
+      service,
+    });
+
+    try {
+      await waitFor(async () => {
+        const res = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+        );
+        return Number(res.rows[0]?.count) === 2;
+      }, 10_000);
+    } finally {
+      await controller.stop();
+    }
+
+    expect(batchStarts).toEqual([0, 1]);
   });
 
   it('coalesces full indexing stats refreshes across streamed completion batches', async () => {

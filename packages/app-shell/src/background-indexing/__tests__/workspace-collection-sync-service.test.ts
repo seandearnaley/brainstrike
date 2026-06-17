@@ -36,6 +36,24 @@ const DB_ROOT_A_ID = 'db-root-a';
 const DB_ROOT_B_ID = 'db-root-b';
 const ROOT_B_COMPOSITE_KEY = encodeFileSelection(ROOT_B_PATH, FILE_PATH);
 
+function createTestQosPolicy(
+  policy: Omit<
+    WorkspaceIndexingQosPolicy,
+    | 'completionOverlapBatches'
+    | 'maxPendingCompletionBytes'
+    | 'maxPendingCompletionChunks'
+    | 'streamBatchSize'
+  >
+): WorkspaceIndexingQosPolicy {
+  return {
+    completionOverlapBatches: 1,
+    maxPendingCompletionBytes: 3072,
+    maxPendingCompletionChunks: 1,
+    streamBatchSize: 1,
+    ...policy,
+  };
+}
+
 function createMockNodeHandle(args: {
   kind: 'directory' | 'file';
   name: string;
@@ -152,7 +170,7 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('waits and retries when startup QoS temporarily yields scan work to foreground DB pressure', async () => {
-    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -165,7 +183,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
+    });
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -207,7 +225,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
   it('backs off before re-resolving foreground-yielding QoS when the permit returns immediately', async () => {
     vi.useFakeTimers();
-    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -220,7 +238,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
+    });
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -264,7 +282,7 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
-    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -277,8 +295,8 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
-    const pausedPolicy: WorkspaceIndexingQosPolicy = {
+    });
+    const pausedPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -291,7 +309,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'paused',
       workerClaimBatchSize: 0,
-    };
+    });
     const log = {
       error: vi.fn(),
       warn: vi.fn(),
@@ -1973,7 +1991,7 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('waits for import QoS before entering importing status', async () => {
-    const importYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const importYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -1986,7 +2004,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
+    });
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({

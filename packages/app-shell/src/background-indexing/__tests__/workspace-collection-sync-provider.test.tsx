@@ -38,6 +38,24 @@ import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-pr
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
 import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
 
+function createTestQosPolicy(
+  policy: Omit<
+    WorkspaceIndexingQosPolicy,
+    | 'completionOverlapBatches'
+    | 'maxPendingCompletionBytes'
+    | 'maxPendingCompletionChunks'
+    | 'streamBatchSize'
+  >
+): WorkspaceIndexingQosPolicy {
+  return {
+    completionOverlapBatches: 1,
+    maxPendingCompletionBytes: 3072,
+    maxPendingCompletionChunks: 1,
+    streamBatchSize: 1,
+    ...policy,
+  };
+}
+
 const {
   runEnhancedImportMock,
   readFullTreeWithOptionsMock,
@@ -647,7 +665,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       sampledAt: Date.now(),
       thermalState: 'nominal',
     }));
-    const foregroundYieldingPolicy: WorkspaceIndexingQosPolicy = {
+    const foregroundYieldingPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -660,8 +678,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
-    const balancedPolicy: WorkspaceIndexingQosPolicy = {
+    });
+    const balancedPolicy = createTestQosPolicy({
       allowNewWork: true,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 128,
@@ -674,7 +692,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       scanBatchSize: 250,
       state: 'balanced',
       workerClaimBatchSize: 1,
-    };
+    });
     resolveWorkspaceIndexingQosPolicyMock
       .mockReturnValueOnce(foregroundYieldingPolicy)
       .mockReturnValue(balancedPolicy);

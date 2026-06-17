@@ -57,14 +57,18 @@ export interface WorkspaceIndexingQosPolicy {
   allowNewWork: boolean;
   allowPowerSaveBlocker: boolean;
   backfillQueueDepth: number;
+  completionOverlapBatches: number;
   contentReadBatchSize: number;
   contentReadConcurrency: number;
   importBatchSize: number;
   interBatchDelayMs: number;
+  maxPendingCompletionBytes: number;
+  maxPendingCompletionChunks: number;
   progressThrottleMs: number;
   reason: WorkspaceIndexingQosReason;
   scanBatchSize: number;
   state: WorkspaceIndexingQosState;
+  streamBatchSize: number;
   workerClaimBatchSize: number;
 }
 
@@ -75,14 +79,18 @@ const PAUSED_POLICY: WorkspaceIndexingQosPolicy = {
   allowNewWork: false,
   allowPowerSaveBlocker: false,
   backfillQueueDepth: 0,
+  completionOverlapBatches: 1,
   contentReadBatchSize: 0,
   contentReadConcurrency: 0,
   importBatchSize: 0,
   interBatchDelayMs: 1000,
+  maxPendingCompletionBytes: 3072,
+  maxPendingCompletionChunks: 1,
   progressThrottleMs: 1000,
   reason: 'manual-paused',
   scanBatchSize: 0,
   state: 'paused',
+  streamBatchSize: 1,
   workerClaimBatchSize: 0,
 };
 
@@ -108,14 +116,18 @@ function createSystemConstrainedPolicy(
     allowNewWork: true,
     allowPowerSaveBlocker: false,
     backfillQueueDepth: 32,
+    completionOverlapBatches: 1,
     contentReadBatchSize: 4,
     contentReadConcurrency: 1,
     importBatchSize: 4,
     interBatchDelayMs: 1000,
+    maxPendingCompletionBytes: 49_152,
+    maxPendingCompletionChunks: 4,
     progressThrottleMs: 1000,
     reason,
     scanBatchSize: 8,
     state: 'system-constrained',
+    streamBatchSize: 1,
     workerClaimBatchSize: 1,
   };
 }
@@ -127,14 +139,18 @@ function createInteractivePolicy(
     allowNewWork: true,
     allowPowerSaveBlocker: false,
     backfillQueueDepth: 64,
+    completionOverlapBatches: 1,
     contentReadBatchSize: 8,
     contentReadConcurrency: 1,
     importBatchSize: 8,
     interBatchDelayMs: 250,
+    maxPendingCompletionBytes: 98_304,
+    maxPendingCompletionChunks: 8,
     progressThrottleMs: 500,
     reason,
     scanBatchSize: 16,
     state: 'interactive',
+    streamBatchSize: 2,
     workerClaimBatchSize: 1,
   };
 }
@@ -144,14 +160,18 @@ function createIdleAcPolicy(): WorkspaceIndexingQosPolicy {
     allowNewWork: true,
     allowPowerSaveBlocker: true,
     backfillQueueDepth: 512,
+    completionOverlapBatches: 3,
     contentReadBatchSize: 48,
     contentReadConcurrency: 4,
     importBatchSize: 48,
     interBatchDelayMs: 50,
+    maxPendingCompletionBytes: 1_572_864,
+    maxPendingCompletionChunks: 64,
     progressThrottleMs: 250,
     reason: 'idle-ac',
     scanBatchSize: 96,
     state: 'idle-ac',
+    streamBatchSize: 16,
     workerClaimBatchSize: 16,
   };
 }
@@ -161,14 +181,18 @@ function createBalancedPolicy(inputs: WorkspaceIndexingQosInputs): WorkspaceInde
     allowNewWork: true,
     allowPowerSaveBlocker: inputs.powerSource !== 'battery',
     backfillQueueDepth: 256,
+    completionOverlapBatches: 2,
     contentReadBatchSize: 24,
     contentReadConcurrency: 4,
     importBatchSize: 24,
     interBatchDelayMs: 100,
+    maxPendingCompletionBytes: 786_432,
+    maxPendingCompletionChunks: 32,
     progressThrottleMs: 500,
     reason: inputs.windowVisible ? 'window-visible' : 'balanced',
     scanBatchSize: 48,
     state: 'balanced',
+    streamBatchSize: 8,
     workerClaimBatchSize: 16,
   };
 }

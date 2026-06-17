@@ -15,6 +15,7 @@ import type {
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStreamBatch,
+  EmbeddingStreamOptions,
   EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
 } from '../types';
@@ -79,6 +80,13 @@ const workerLogger = createLogger('EmbeddingWorker');
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
+export interface EmbeddingWorkerPipelineCapacity {
+  maxPendingCompletionBatches: number;
+  maxPendingCompletionBytes: number;
+  maxPendingCompletionChunks: number;
+  streamBatchSize: number;
+}
+
 export interface EmbeddingWorkerOptions {
   cacheDir?: string;
   claimBatchSize?: number;
@@ -108,6 +116,10 @@ export interface EmbeddingWorkerOptions {
   queue?: string;
   reinitEveryN?: number;
   resolveClaimBatchSize?: () => number | null | Promise<number | null>;
+  resolvePipelineCapacity?: () =>
+    | EmbeddingWorkerPipelineCapacity
+    | null
+    | Promise<EmbeddingWorkerPipelineCapacity | null>;
   service?: EmbeddingService;
   statsRefreshCompletedChunkThreshold?: number;
   statsRefreshMinIntervalMs?: number;
@@ -147,7 +159,8 @@ const WORKER_METRICS_INTERVAL_MS_ENV = 'WORKER_METRICS_INTERVAL_MS';
 type StreamingEmbeddingService = EmbeddingService & {
   generateEmbeddingsStream: (
     texts: string[],
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
   ) => Promise<unknown>;
 };
 
@@ -322,6 +335,19 @@ export async function startEmbeddingWorker(
     claimBatchSize * DEFAULT_EMBEDDING_DIMENSION * 4,
     'maxPendingCompletionBytes'
   );
+  const streamBatchSize = resolvePositiveIntegerOption(
+    options.streamBatchSize,
+    claimBatchSize,
+    'streamBatchSize'
+  );
+  const staticPipelineCapacity: EmbeddingWorkerPipelineCapacity = {
+    maxPendingCompletionBatches,
+    maxPendingCompletionBytes,
+    maxPendingCompletionChunks,
+    streamBatchSize,
+  };
+  const shouldOverrideStreamBatchSize =
+    options.streamBatchSize !== undefined || typeof options.resolvePipelineCapacity === 'function';
   const statsRefreshMinIntervalMs = resolvePositiveIntegerOption(
     options.statsRefreshMinIntervalMs,
     DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS,
@@ -428,6 +454,38 @@ export async function startEmbeddingWorker(
       lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
       return null;
     }
+  }
+
+  async function resolveEffectivePipelineCapacity(): Promise<EmbeddingWorkerPipelineCapacity> {
+    if (!options.resolvePipelineCapacity) {
+      return staticPipelineCapacity;
+    }
+    const resolved = await options.resolvePipelineCapacity();
+    if (resolved === null) {
+      return staticPipelineCapacity;
+    }
+    return {
+      maxPendingCompletionBatches: resolvePositiveIntegerOption(
+        resolved.maxPendingCompletionBatches,
+        staticPipelineCapacity.maxPendingCompletionBatches,
+        'resolvePipelineCapacity.maxPendingCompletionBatches'
+      ),
+      maxPendingCompletionBytes: resolvePositiveIntegerOption(
+        resolved.maxPendingCompletionBytes,
+        staticPipelineCapacity.maxPendingCompletionBytes,
+        'resolvePipelineCapacity.maxPendingCompletionBytes'
+      ),
+      maxPendingCompletionChunks: resolvePositiveIntegerOption(
+        resolved.maxPendingCompletionChunks,
+        staticPipelineCapacity.maxPendingCompletionChunks,
+        'resolvePipelineCapacity.maxPendingCompletionChunks'
+      ),
+      streamBatchSize: resolvePositiveIntegerOption(
+        resolved.streamBatchSize,
+        staticPipelineCapacity.streamBatchSize,
+        'resolvePipelineCapacity.streamBatchSize'
+      ),
+    };
   }
 
   await assertVectorEmbeddingColumn(options.db);
@@ -1073,6 +1131,7 @@ export async function startEmbeddingWorker(
   }
 
   function createStreamingCompletionWriter(
+    capacity: EmbeddingWorkerPipelineCapacity,
     completedJobIds: Set<string>,
     onJobsCompleted?: (jobIds: Set<string>) => void
   ): {
@@ -1109,9 +1168,9 @@ export async function startEmbeddingWorker(
     const waitForCapacity = async (chunkCount: number, byteCount: number): Promise<void> => {
       while (
         pendingBatches > 0 &&
-        (pendingBatches + 1 > maxPendingCompletionBatches ||
-          pendingChunks + chunkCount > maxPendingCompletionChunks ||
-          pendingBytes + byteCount > maxPendingCompletionBytes)
+        (pendingBatches + 1 > capacity.maxPendingCompletionBatches ||
+          pendingChunks + chunkCount > capacity.maxPendingCompletionChunks ||
+          pendingBytes + byteCount > capacity.maxPendingCompletionBytes)
       ) {
         throwIfFailed();
         await new Promise<void>((resolve) => {
@@ -1179,7 +1238,12 @@ export async function startEmbeddingWorker(
     onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     const modelKey = jobModel.compositeKey;
-    const completionWriter = createStreamingCompletionWriter(completedJobIds, onJobsCompleted);
+    const pipelineCapacity = await resolveEffectivePipelineCapacity();
+    const completionWriter = createStreamingCompletionWriter(
+      pipelineCapacity,
+      completedJobIds,
+      onJobsCompleted
+    );
     let lastStreamBatchFinishedAt = performance.now();
     const cacheHits = await lookupCacheHits(
       options.embeddingCache,
@@ -1262,7 +1326,10 @@ export async function startEmbeddingWorker(
             } catch (error) {
               throw new LocalEmbeddingStreamCallbackError(error);
             }
-          }
+          },
+          shouldOverrideStreamBatchSize
+            ? { streamBatchSize: pipelineCapacity.streamBatchSize }
+            : undefined
         )
       );
       reportRuntimeMetadata(parseRuntimeMetadata(runtimeMetadata));

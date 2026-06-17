@@ -8,6 +8,7 @@ import type {
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingStreamBatch,
+  EmbeddingStreamOptions,
   EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
 } from './types';
@@ -304,7 +305,8 @@ export class TransformersBackend {
   async generateEmbeddingsStream(
     texts: string[],
     modelId: string,
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
   ): Promise<undefined | EmbeddingWorkerRuntimeMetadata> {
     if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
@@ -315,23 +317,26 @@ export class TransformersBackend {
 
     const client = this.ensureStreamingClient();
     try {
-      const metadata = await client.stream(this.createWorkerRequest(texts, modelId), {
-        onBatch: async (event) => {
-          const results = event.vectors.map((vector) => {
-            const embedding = Array.from(vector) as number[];
-            return {
-              embedding,
-              dimensions: embedding.length,
-              model: modelId,
-            };
-          });
-          await onBatch({
-            startIndex: event.startIndex,
-            endIndex: event.endIndex,
-            results,
-          });
-        },
-      });
+      const metadata = await client.stream(
+        this.createWorkerRequest(texts, modelId, options?.streamBatchSize),
+        {
+          onBatch: async (event) => {
+            const results = event.vectors.map((vector) => {
+              const embedding = Array.from(vector) as number[];
+              return {
+                embedding,
+                dimensions: embedding.length,
+                model: modelId,
+              };
+            });
+            await onBatch({
+              startIndex: event.startIndex,
+              endIndex: event.endIndex,
+              results,
+            });
+          },
+        }
+      );
 
       TransformersBackend._inferenceCount += texts.length;
       return {
@@ -430,7 +435,7 @@ export class TransformersBackend {
     return `embed-${generateUUID()}`;
   }
 
-  private createWorkerRequest(texts: string[], modelId: string) {
+  private createWorkerRequest(texts: string[], modelId: string, streamBatchSize?: number) {
     const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
     return {
       kind: 'embed' as const,
@@ -442,7 +447,7 @@ export class TransformersBackend {
       targetDimension,
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
-      maxBatchSize: this.resolveWorkerMaxBatchSize(texts.length),
+      maxBatchSize: this.resolveWorkerMaxBatchSize(texts.length, streamBatchSize),
     };
   }
 
@@ -456,8 +461,9 @@ export class TransformersBackend {
     throw new Error(`streamBatchSize must be a positive integer, received "${String(value)}".`);
   }
 
-  private resolveWorkerMaxBatchSize(textCount: number): number {
-    return Math.max(1, Math.min(textCount, this._streamBatchSize ?? textCount));
+  private resolveWorkerMaxBatchSize(textCount: number, streamBatchSize?: number): number {
+    const batchSize = this.resolveStreamBatchSize(streamBatchSize) ?? this._streamBatchSize;
+    return Math.max(1, Math.min(textCount, batchSize ?? textCount));
   }
 
   private resolveDeviceHint(): 'webgpu' | 'wasm' {

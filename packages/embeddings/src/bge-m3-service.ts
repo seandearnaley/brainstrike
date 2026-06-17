@@ -8,6 +8,7 @@ import type {
   EmbeddingService,
   EmbeddingStatus,
   EmbeddingStreamBatch,
+  EmbeddingStreamOptions,
   ModelConfig,
   SimilarityResult,
 } from './types';
@@ -167,7 +168,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
   async generateEmbeddingsStream(
     texts: string[],
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
   ): Promise<unknown> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
@@ -180,7 +182,12 @@ export class SimpleEmbeddingService implements EmbeddingService {
         this._currentModelKey
       )
     );
-    return await this._backend.generateEmbeddingsStream(withPrompts, this._config.modelId, onBatch);
+    return await this._backend.generateEmbeddingsStream(
+      withPrompts,
+      this._config.modelId,
+      onBatch,
+      options
+    );
   }
 
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {

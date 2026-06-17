@@ -87,9 +87,55 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
       allowNewWork: true,
       allowPowerSaveBlocker: true,
       contentReadConcurrency: 4,
+      completionOverlapBatches: 3,
       importBatchSize: 48,
+      maxPendingCompletionChunks: 64,
       reason: 'idle-ac',
       state: 'idle-ac',
+      streamBatchSize: 16,
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('keeps balanced capacity high enough to feed streaming inference and completion overlap', () => {
+    const policy = resolve({ windowVisible: false });
+
+    expect(policy).toMatchObject({
+      completionOverlapBatches: 2,
+      contentReadConcurrency: 4,
+      importBatchSize: 24,
+      maxPendingCompletionChunks: 32,
+      state: 'balanced',
+      streamBatchSize: 8,
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('drops pipeline capacity under foreground pressure and restores it after pressure clears', () => {
+    const pressured = resolve({
+      dbPressure: {
+        available: true,
+        foregroundPressure: true,
+        normalPressure: false,
+      },
+      windowVisible: false,
+    });
+    const recovered = resolve({ windowVisible: false });
+
+    expect(pressured).toMatchObject({
+      allowNewWork: false,
+      completionOverlapBatches: 1,
+      maxPendingCompletionChunks: 1,
+      state: 'foreground-yielding',
+      streamBatchSize: 1,
+      workerClaimBatchSize: 0,
+    });
+    expect(recovered).toMatchObject({
+      allowNewWork: true,
+      completionOverlapBatches: 2,
+      maxPendingCompletionChunks: 32,
+      state: 'balanced',
+      streamBatchSize: 8,
       workerClaimBatchSize: 16,
     });
   });

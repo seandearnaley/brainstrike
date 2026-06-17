@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/db';
 import type {
   EmbeddingWorkerOptions,
+  EmbeddingWorkerPipelineCapacity,
   ForegroundEmbeddingGate,
 } from '@brainstrike/embeddings/worker';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
@@ -188,6 +189,48 @@ function resolveDesktopClaimBatchSize(
 
 type BackgroundPermit = NonNullable<EmbeddingWorkerOptions['waitForBackgroundPermit']>;
 
+function resolveDesktopPipelineCapacity(
+  snapshot: DatabaseWorkSchedulerSnapshot,
+  fallback: {
+    readonly maxPendingCompletionBatches: number;
+    readonly maxPendingCompletionBytes: number;
+    readonly maxPendingCompletionChunks: number;
+    readonly streamBatchSize: number;
+  },
+  powerSnapshot: WorkspaceIndexingPowerSnapshot | null,
+  foregroundQueryActive: boolean,
+  observeQosTransition: (policy: WorkspaceIndexingQosPolicy) => void
+): EmbeddingWorkerPipelineCapacity | null {
+  const policy = resolveWorkspaceIndexingQosPolicy({
+    dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
+    foregroundQueryActive,
+    idleState: powerSnapshot?.idleState ?? 'active',
+    idleTimeMs: powerSnapshot?.idleTimeMs ?? 0,
+    manualPaused: false,
+    powerSource: powerSnapshot?.powerSource ?? 'unknown',
+    providerRateLimited: false,
+    recentUserInputMs: null,
+    thermalState: powerSnapshot?.thermalState ?? 'unknown',
+    windowVisible: false,
+  });
+  observeQosTransition(policy);
+  return {
+    maxPendingCompletionBatches: Math.min(
+      policy.completionOverlapBatches,
+      fallback.maxPendingCompletionBatches
+    ),
+    maxPendingCompletionBytes: Math.min(
+      policy.maxPendingCompletionBytes,
+      fallback.maxPendingCompletionBytes
+    ),
+    maxPendingCompletionChunks: Math.min(
+      policy.maxPendingCompletionChunks,
+      fallback.maxPendingCompletionChunks
+    ),
+    streamBatchSize: Math.min(policy.streamBatchSize, fallback.streamBatchSize),
+  };
+}
+
 /**
  * Wrap a DB-pressure permit so the worker also yields the GPU to an in-flight
  * foreground query embedding — but ONLY at the claim boundary (never completion),
@@ -210,9 +253,18 @@ export function composeClaimPermit(
 
 function createDesktopPressureControls(
   db: IDatabase,
-  idleClaimBatchSize: number,
+  fallback: {
+    readonly claimBatchSize: number;
+    readonly maxPendingCompletionBatches: number;
+    readonly maxPendingCompletionBytes: number;
+    readonly maxPendingCompletionChunks: number;
+    readonly streamBatchSize: number;
+  },
   gate: ForegroundEmbeddingGate | undefined
-): Pick<EmbeddingWorkerOptions, 'resolveClaimBatchSize' | 'waitForBackgroundPermit'> {
+): Pick<
+  EmbeddingWorkerOptions,
+  'resolveClaimBatchSize' | 'resolvePipelineCapacity' | 'waitForBackgroundPermit'
+> {
   const snapshotSource = createPressureSnapshotSource(db);
   const readPowerSnapshot = createReadPowerSnapshot();
   const pressureController = createDatabasePressureController({
@@ -227,7 +279,17 @@ function createDesktopPressureControls(
       const snapshot = await snapshotSource.getSnapshot();
       return resolveDesktopClaimBatchSize(
         snapshot,
-        idleClaimBatchSize,
+        fallback.claimBatchSize,
+        readPowerSnapshot ? await readPowerSnapshot() : null,
+        gate?.isActive() ?? false,
+        observeQosTransition
+      );
+    },
+    resolvePipelineCapacity: async () => {
+      const snapshot = await snapshotSource.getSnapshot();
+      return resolveDesktopPipelineCapacity(
+        snapshot,
+        fallback,
         readPowerSnapshot ? await readPowerSnapshot() : null,
         gate?.isActive() ?? false,
         observeQosTransition
@@ -279,7 +341,17 @@ export function createEmbeddingWorkerConfig(
     maxPendingCompletionBytes,
     maxPendingCompletionChunks,
     streamBatchSize,
-    ...createDesktopPressureControls(db, claimBatchSize, gate),
+    ...createDesktopPressureControls(
+      db,
+      {
+        claimBatchSize,
+        maxPendingCompletionBatches,
+        maxPendingCompletionBytes,
+        maxPendingCompletionChunks,
+        streamBatchSize,
+      },
+      gate
+    ),
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
       if (meta) {
