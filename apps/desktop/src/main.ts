@@ -61,6 +61,7 @@ import {
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
+import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
@@ -1209,7 +1210,7 @@ if (singleInstanceLockAcquired) {
 
           // Always log — if entries stop appearing, the event loop is stuck.
           // NOTE: pino API requires (obj, msg) order to merge fields into the entry.
-          if (cpuPercent > 0.1 || p99 > 100 || max > 500) {
+          if (isMainProcessHealthDegraded({ loopLagMaxMs: max, loopLagP99Ms: p99 })) {
             logger.warn(payload, 'main-process-health');
           } else {
             logger.debug(payload, 'main-process-health');
