@@ -1064,7 +1064,14 @@ export function WorkspaceCollectionSyncProvider({
 
   const readDebugSnapshot = useCallback(async (): Promise<WorkspaceIndexDebugSnapshot> => {
     const accessIssues: Array<{ reason: string; source: string }> = [];
-    const query = backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined;
+    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const query =
+      typeof electronQuery === 'function'
+        ? (((sql: string, params?: unknown[]) =>
+            electronQuery(sql, params) as Promise<{
+              rows?: unknown[];
+            }>) satisfies WorkspaceIndexDebugDbQuery)
+        : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
     const [
       expectedCounts,
       roots,
