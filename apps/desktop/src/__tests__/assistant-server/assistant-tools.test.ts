@@ -582,6 +582,20 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('does not expose raw filesystem errors for skipped workspace context files', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths: ['/missing.ts'],
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.readWorkspaceContext'].execute({ context: {} });
+
+    expect(result.skippedFiles).toEqual([{ path: '/missing.ts', reason: 'missing' }]);
+    expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('reads selected workspace context through curated tapestry line ranges', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
@@ -837,6 +851,8 @@ describe('assistant-tools', () => {
       skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
       notifiedWindowCount: 1,
     });
+    expect(result.skippedFiles[0]).not.toHaveProperty('message');
+    expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
     expect(send).toHaveBeenCalledWith('assistant:workspace-context-selection-update', {
       folderId: 'root-1',
       filePaths: ['/src/main.ts'],
