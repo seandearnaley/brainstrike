@@ -657,6 +657,7 @@ async function getDetectedRuntimeProviders(
           providerSettings[providerId]
         );
         const status = await probeRuntimeViaBridgeOrService(runtimeId, {
+          diagnosticLogLevel: 'debug',
           ...(endpoint ? { endpoint } : {}),
         });
         return { providerId, status };
