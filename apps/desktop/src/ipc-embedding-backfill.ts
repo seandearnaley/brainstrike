@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createRequestId } from '@brainstrike/worker-runtime';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import {
   BackfillMaintenanceCoordinator,
   type GpuMemoryReclaimConfig,
@@ -45,8 +45,14 @@ const EMBEDDING_BACKFILL_SET_ID_PATTERN = /^[A-Za-z0-9._:-]+$/u;
 
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
+  progressTargets: Map<WebContents, EmbeddingBackfillProgressTarget>;
   requestId: string;
   source: EmbeddingBackfillSource;
+}
+
+interface EmbeddingBackfillProgressTarget {
+  sender: WebContents;
+  unavailableRef: { current: boolean };
 }
 
 export interface EmbeddingBackfillRequest {
@@ -174,35 +180,43 @@ export function isDisposedRenderFrameSendError(error: unknown): boolean {
   return error.message.toLowerCase().includes('frame was disposed');
 }
 
-function sendDesktopBackfillProgress(params: {
-  backfillProgressTargetUnavailableRef: { current: boolean };
+function createDesktopBackfillProgressTarget(
+  event: IpcMainInvokeEvent
+): EmbeddingBackfillProgressTarget {
+  return {
+    sender: event.sender,
+    unavailableRef: { current: false },
+  };
+}
+
+function registerDesktopBackfillProgressTarget(
+  inFlight: EmbeddingBackfillInFlightState,
+  event: IpcMainInvokeEvent
+): EmbeddingBackfillProgressTarget {
+  const target = createDesktopBackfillProgressTarget(event);
+  inFlight.progressTargets.set(event.sender, target);
+  return target;
+}
+
+function sendDesktopBackfillProgressToTarget(params: {
   current: number;
-  event: IpcMainInvokeEvent;
   message?: string;
   normalizedEmbeddingSetId: string;
   requestId: string;
   source: EmbeddingBackfillSource;
   stage: string;
+  target: EmbeddingBackfillProgressTarget;
   total: number;
-}): void {
-  const {
-    backfillProgressTargetUnavailableRef,
-    current,
-    event,
-    message,
-    normalizedEmbeddingSetId,
-    requestId,
-    source,
-    stage,
-    total,
-  } = params;
+}): boolean {
+  const { current, message, normalizedEmbeddingSetId, requestId, source, stage, target, total } =
+    params;
 
-  if (backfillProgressTargetUnavailableRef.current || event.sender.isDestroyed()) {
-    backfillProgressTargetUnavailableRef.current = true;
-    return;
+  if (target.unavailableRef.current || target.sender.isDestroyed()) {
+    target.unavailableRef.current = true;
+    return false;
   }
   try {
-    event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+    target.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: normalizedEmbeddingSetId,
       requestId,
       source,
@@ -213,41 +227,56 @@ function sendDesktopBackfillProgress(params: {
     });
   } catch (error) {
     if (isDisposedRenderFrameSendError(error)) {
-      backfillProgressTargetUnavailableRef.current = true;
+      target.unavailableRef.current = true;
       logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
         embeddingSetId: normalizedEmbeddingSetId,
         requestId,
       });
-      return;
+      return false;
     }
     throw error;
+  }
+  return true;
+}
+
+function broadcastDesktopBackfillProgress(params: {
+  current: number;
+  message?: string;
+  normalizedEmbeddingSetId: string;
+  requestId: string;
+  source: EmbeddingBackfillSource;
+  stage: string;
+  total: number;
+}): void {
+  const inFlight = embeddingBackfillsInFlight.get(params.normalizedEmbeddingSetId);
+  if (!inFlight) {
+    return;
+  }
+  for (const [sender, target] of inFlight.progressTargets) {
+    const delivered = sendDesktopBackfillProgressToTarget({
+      ...params,
+      target,
+    });
+    if (!delivered) {
+      inFlight.progressTargets.delete(sender);
+    }
   }
 }
 
 function createDesktopBackfillProgressReporter(params: {
-  backfillProgressTargetUnavailableRef: { current: boolean };
   backfillRequestId: string;
-  event: IpcMainInvokeEvent;
   normalizedEmbeddingSetId: string;
   source: EmbeddingBackfillSource;
 }): (done: number, total: number) => void {
-  const {
-    backfillProgressTargetUnavailableRef,
-    backfillRequestId,
-    event,
-    normalizedEmbeddingSetId,
-    source,
-  } = params;
+  const { backfillRequestId, normalizedEmbeddingSetId, source } = params;
 
   return (done: number, total: number) => {
     const inFlight = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
     if (inFlight) {
       inFlight.progress = { current: done, total };
     }
-    sendDesktopBackfillProgress({
-      backfillProgressTargetUnavailableRef,
+    broadcastDesktopBackfillProgress({
       current: done,
-      event,
       normalizedEmbeddingSetId,
       requestId: backfillRequestId,
       source,
@@ -280,12 +309,27 @@ export async function runDesktopEmbeddingBackfill(params: {
   const inFlightBackfill = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
   if (inFlightBackfill) {
     if (source === 'background-indexing') {
+      const target = registerDesktopBackfillProgressTarget(inFlightBackfill, event);
       logger.info('Desktop background indexing backfill attached to existing run', {
         embeddingSetId: normalizedEmbeddingSetId,
         existingRequestId: inFlightBackfill.requestId,
         existingSource: inFlightBackfill.source,
         progress: inFlightBackfill.progress,
       });
+      if (inFlightBackfill.progress) {
+        sendDesktopBackfillProgressToTarget({
+          current: inFlightBackfill.progress.current,
+          normalizedEmbeddingSetId,
+          requestId: inFlightBackfill.requestId,
+          source: inFlightBackfill.source,
+          stage: 'backfill',
+          target,
+          total: inFlightBackfill.progress.total,
+        });
+        if (target.unavailableRef.current) {
+          inFlightBackfill.progressTargets.delete(event.sender);
+        }
+      }
       return { requestId: inFlightBackfill.requestId };
     }
     throw new Error(`Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`);
@@ -294,17 +338,19 @@ export async function runDesktopEmbeddingBackfill(params: {
   const backfillRequestId = createRequestId(
     source === 'background-indexing' ? 'background-indexing-backfill' : 'embedding-backfill'
   );
-  const backfillProgressTargetUnavailableRef = { current: false };
   const maintenanceCoordinator = new BackfillMaintenanceCoordinator(
     gpuMemoryReclaimConfig,
     normalizedEmbeddingSetId,
     hostManager
   );
-  embeddingBackfillsInFlight.set(normalizedEmbeddingSetId, {
+  const inFlightState: EmbeddingBackfillInFlightState = {
     requestId: backfillRequestId,
     progress: null,
+    progressTargets: new Map(),
     source,
-  });
+  };
+  registerDesktopBackfillProgressTarget(inFlightState, event);
+  embeddingBackfillsInFlight.set(normalizedEmbeddingSetId, inFlightState);
 
   const runBackfill = async (): Promise<void> => {
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
@@ -331,9 +377,7 @@ export async function runDesktopEmbeddingBackfill(params: {
       jobQueue,
       normalizedEmbeddingSetId,
       createDesktopBackfillProgressReporter({
-        backfillProgressTargetUnavailableRef,
         backfillRequestId,
-        event,
         normalizedEmbeddingSetId,
         source,
       }),
@@ -372,10 +416,8 @@ export async function runDesktopEmbeddingBackfill(params: {
         current: 0,
         total: 0,
       };
-      sendDesktopBackfillProgress({
-        backfillProgressTargetUnavailableRef,
+      broadcastDesktopBackfillProgress({
         current: progress.current,
-        event,
         normalizedEmbeddingSetId,
         requestId: backfillRequestId,
         source,
@@ -408,10 +450,8 @@ export async function runDesktopEmbeddingBackfill(params: {
           current: 0,
           total: 0,
         };
-        sendDesktopBackfillProgress({
-          backfillProgressTargetUnavailableRef,
+        broadcastDesktopBackfillProgress({
           current: progress.current,
-          event,
           message,
           normalizedEmbeddingSetId,
           requestId: backfillRequestId,

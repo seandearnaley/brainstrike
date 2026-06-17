@@ -351,4 +351,51 @@ describe('desktop embedding backfill termination logging', () => {
       );
     });
   });
+
+  it('delivers terminal errors to duplicate background-indexing attachers when the original sender is gone', async () => {
+    const originalEvent = createDeadSenderEvent();
+    const attachedEvent = createLiveSenderEvent();
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    let rejectBackfill: ((error: Error) => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (_db: unknown, _jobQueue: unknown, _embeddingSetId: string, onProgress: unknown) => {
+        (onProgress as (done: number, total: number) => void)(1, 1);
+        resolveBackfillStarted?.();
+        await new Promise<void>((_resolve, reject) => {
+          rejectBackfill = reject;
+        });
+      }
+    );
+
+    const first = await runDesktopEmbeddingBackfill({
+      ...createRunParams('set-background-reattach', 'background-indexing'),
+      event: originalEvent,
+    });
+    await backfillStarted;
+    const second = await runDesktopEmbeddingBackfill({
+      ...createRunParams('set-background-reattach', 'background-indexing'),
+      event: attachedEvent,
+    });
+
+    expect(second.requestId).toBe(first.requestId);
+    rejectBackfill?.(new Error('drain failed'));
+
+    await vi.waitFor(() => {
+      expect(attachedEvent.sender.send).toHaveBeenCalledWith(
+        EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+        expect.objectContaining({
+          embeddingSetId: 'set-background-reattach',
+          requestId: first.requestId,
+          source: 'background-indexing',
+          stage: 'error',
+          current: 1,
+          total: 1,
+          message: 'drain failed',
+        })
+      );
+    });
+  });
 });
