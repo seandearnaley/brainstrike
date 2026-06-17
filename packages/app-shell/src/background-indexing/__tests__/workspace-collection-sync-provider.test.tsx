@@ -1636,7 +1636,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
   });
 
-  it('reports an error when the shared runtime dependencies are unavailable while enabled', async () => {
+  it('waits when shared runtime dependencies are not ready while enabled', async () => {
     dbState.current = null;
 
     render(
@@ -1648,9 +1648,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'error',
-          lastError:
-            'Background indexing runtime is unavailable: db, backgroundDb, waitForBackgroundPermit, backgroundRepositories.',
+          state: 'waiting',
+          lastError: null,
         })
       )
     );

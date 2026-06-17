@@ -36,6 +36,7 @@ export interface WorkspaceIndexDebugSnapshot {
   managedCollectionId: string | null;
   memorySample: unknown;
   roots: unknown[];
+  runtimeReadiness: unknown;
   selectedDevicePreference: unknown;
   syncStatus: unknown;
 }

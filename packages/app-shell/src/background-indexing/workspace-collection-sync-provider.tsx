@@ -905,14 +905,14 @@ export function WorkspaceCollectionSyncProvider({
       if (!service) {
         if (enabled) {
           setSyncStatus({
-            state: 'error',
+            state: 'waiting',
             managedCollectionId,
             managedCollectionName: null,
             activeRootPath: rootDirectoryHandle?.path ?? null,
             currentFilePath: null,
             queuedFiles: 0,
             processedFiles: 0,
-            lastError: createRuntimeUnavailableMessage(missingRuntimeDependencies),
+            lastError: null,
           });
         } else {
           resetSyncStatus();
@@ -1206,6 +1206,11 @@ export function WorkspaceCollectionSyncProvider({
       managedCollectionId,
       memorySample: readWorkspaceIndexMemorySample(),
       roots,
+      runtimeReadiness: {
+        message: service ? null : createRuntimeUnavailableMessage(missingRuntimeDependencies),
+        missingDependencies: missingRuntimeDependencies,
+        serviceAvailable: Boolean(service),
+      },
       selectedDevicePreference,
       syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
     };
@@ -1213,9 +1218,11 @@ export function WorkspaceCollectionSyncProvider({
     backgroundDb,
     countExpectedDebugRoots,
     managedCollectionId,
+    missingRuntimeDependencies,
     readDatabaseSchedulerSnapshot,
     readDebugHostStatus,
     selectedDevicePreference,
+    service,
   ]);
 
   const workspaceIndexDebugApi = useMemo<WorkspaceIndexDebugApi>(
