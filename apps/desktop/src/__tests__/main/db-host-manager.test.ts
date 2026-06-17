@@ -451,6 +451,47 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('logs request context when a query request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const queryPromise = database.query(
+        'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
+        ['set-timeout']
+      );
+      const timeoutAssertion = expect(queryPromise).rejects.toThrow(
+        'DB host request timed out: query'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await timeoutAssertion;
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        'DB host request timed out',
+        expect.objectContaining({
+          elapsedMs: 5,
+          paramsCount: 1,
+          pendingCount: 1,
+          requestKind: 'query',
+          sqlPreview: 'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
+          timeoutMs: 5,
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the initialization timeout for the first DB host startup request', async () => {
     vi.useFakeTimers();
     try {

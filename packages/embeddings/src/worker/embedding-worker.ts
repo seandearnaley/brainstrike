@@ -133,6 +133,17 @@ type StreamingEmbeddingService = EmbeddingService & {
   ) => Promise<void>;
 };
 
+class LocalEmbeddingStreamCallbackError extends Error {
+  readonly originalError: unknown;
+
+  constructor(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    super(message);
+    this.name = 'LocalEmbeddingStreamCallbackError';
+    this.originalError = error;
+  }
+}
+
 function readProcessEnvValue(name: string): string | undefined {
   return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
     name
@@ -442,11 +453,11 @@ export async function startEmbeddingWorker(
   }
 
   function logLocalModelInitialization(shouldReinitialize: boolean): void {
-    workerLogger.warn(
-      shouldReinitialize
-        ? 'Reinitializing embedding service; this blocks the main thread'
-        : 'Initializing deferred local embedding model for claimed work'
-    );
+    if (shouldReinitialize) {
+      workerLogger.warn('Reinitializing embedding service; this blocks the main thread');
+      return;
+    }
+    workerLogger.info('Initializing deferred local embedding model for claimed work');
   }
 
   async function resolveLocalModelConfig(
@@ -1035,38 +1046,48 @@ export async function startEmbeddingWorker(
       await streamingService.generateEmbeddingsStream(
         cacheMisses.map((item) => item.chunk.content),
         async (batch) => {
-          if (checkLease()) {
-            throw new Error('Lease lost during processing');
-          }
+          try {
+            if (checkLease()) {
+              throw new Error('Lease lost during processing');
+            }
 
-          const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
-          if (batchItems.length !== batch.results.length) {
-            throw new Error(
-              `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
-            );
-          }
-
-          const embeddings = batch.results.map((result, index) => {
-            if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
+            const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
+            if (batchItems.length !== batch.results.length) {
               throw new Error(
-                `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+                `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
               );
             }
-            return result.embedding;
-          });
 
-          await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
-          storeToCacheAsync(
-            options.embeddingCache,
-            batchItems,
-            embeddings,
-            modelKey,
-            expectedDimension,
-            trackCacheWrite
-          );
+            const embeddings = batch.results.map((result, index) => {
+              if (
+                !Array.isArray(result.embedding) ||
+                result.embedding.length !== expectedDimension
+              ) {
+                throw new Error(
+                  `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+                );
+              }
+              return result.embedding;
+            });
+
+            await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
+            storeToCacheAsync(
+              options.embeddingCache,
+              batchItems,
+              embeddings,
+              modelKey,
+              expectedDimension,
+              trackCacheWrite
+            );
+          } catch (error) {
+            throw new LocalEmbeddingStreamCallbackError(error);
+          }
         }
       );
     } catch (error) {
+      if (error instanceof LocalEmbeddingStreamCallbackError) {
+        throw error.originalError instanceof Error ? error.originalError : error;
+      }
       throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
     }
 

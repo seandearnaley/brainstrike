@@ -110,8 +110,20 @@ export interface DbHostManagerOptions {
 
 interface PendingRequest {
   readonly reject: (reason: unknown) => void;
+  readonly requestKind: DbHostRequest['kind'];
   readonly resolve: (value: unknown) => void;
+  readonly startedAt: number;
+  readonly timeoutMs: number;
   readonly timer: ReturnType<typeof setTimeout>;
+}
+
+interface RequestTimeoutDiagnostics {
+  readonly liveId?: string;
+  readonly paramsCount?: number;
+  readonly payloadQueryPreview?: string;
+  readonly requestKind: DbHostRequest['kind'];
+  readonly sqlPreview?: string;
+  readonly transactionId?: string;
 }
 
 function toError(error: DbHostSerializedError): Error {
@@ -142,6 +154,62 @@ function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
     request.kind === 'transaction:commit' ||
     request.kind === 'transaction:rollback'
   );
+}
+
+function createQueryPreview(query: string): string {
+  return query.replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function getParamsCount(params: readonly unknown[] | undefined): number | undefined {
+  return params === undefined ? undefined : params.length;
+}
+
+function createParamsCountDiagnostic(params: readonly unknown[] | undefined): {
+  readonly paramsCount?: number;
+} {
+  const paramsCount = getParamsCount(params);
+  return paramsCount === undefined ? {} : { paramsCount };
+}
+
+function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeoutDiagnostics {
+  switch (request.kind) {
+    case 'query':
+    case 'exec':
+      return {
+        requestKind: request.kind,
+        sqlPreview: createQueryPreview(request.sql),
+        ...createParamsCountDiagnostic(request.params),
+      };
+    case 'transaction:query':
+    case 'transaction:exec':
+      return {
+        requestKind: request.kind,
+        transactionId: request.transactionId,
+        sqlPreview: createQueryPreview(request.sql),
+        ...createParamsCountDiagnostic(request.params),
+      };
+    case 'transaction:commit':
+    case 'transaction:rollback':
+    case 'transaction:start':
+      return {
+        requestKind: request.kind,
+        transactionId: request.transactionId,
+      };
+    case 'live:start':
+      return {
+        requestKind: request.kind,
+        payloadQueryPreview: createQueryPreview(request.payload.query),
+        ...createParamsCountDiagnostic(request.payload.params),
+      };
+    case 'live:refresh':
+    case 'live:stop':
+      return {
+        requestKind: request.kind,
+        liveId: request.liveId,
+      };
+    default:
+      return { requestKind: request.kind };
+  }
 }
 
 function resolveDefaultEntryPath(): string {
@@ -374,8 +442,19 @@ class DefaultDbHostManager implements DbHostManager {
     const envelope: DbHostRequestEnvelope = { id, kind: 'request', request };
     return await new Promise<TResult>((resolve, reject) => {
       const timeoutMs = this.#getRequestTimeoutMs(request);
+      const startedAt = Date.now();
+      const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
       const timer = setTimeout(() => {
         const error = new Error(`DB host request timed out: ${request.kind}`);
+        logger.warn('DB host request timed out', {
+          ...timeoutDiagnostics,
+          elapsedMs: Math.max(0, Date.now() - startedAt),
+          pendingByKind: this.#getPendingRequestCountsByKind(),
+          pendingCount: this.#pending.size,
+          requestId: id,
+          timeoutMs,
+          willTerminateHost: requiresHostTerminationOnTimeout(request),
+        });
         this.#pending.delete(id);
         reject(error);
         if (requiresHostTerminationOnTimeout(request)) {
@@ -384,11 +463,22 @@ class DefaultDbHostManager implements DbHostManager {
       }, timeoutMs);
       this.#pending.set(id, {
         reject,
+        requestKind: request.kind,
         resolve: resolve as (value: unknown) => void,
+        startedAt,
         timer,
+        timeoutMs,
       });
       host.postMessage(envelope);
     });
+  }
+
+  #getPendingRequestCountsByKind(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const pending of this.#pending.values()) {
+      counts[pending.requestKind] = (counts[pending.requestKind] ?? 0) + 1;
+    }
+    return counts;
   }
 
   #getRequestTimeoutMs(request: DbHostRequest): number {

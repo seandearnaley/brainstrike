@@ -120,6 +120,48 @@ describe('db-host-entry', () => {
     });
   });
 
+  it('emits structured slow-request diagnostics while a query is still running', async () => {
+    vi.useFakeTimers();
+    try {
+      const query = vi.fn(() => new Promise(() => undefined));
+      dbMainMocks.getDatabase.mockResolvedValue({ query });
+      const { listeners, parentPort } = installParentPortMock();
+      await import('../../db-host-entry');
+
+      listeners[0]?.({
+        data: {
+          id: 'slow-query-request',
+          kind: 'request',
+          request: {
+            kind: 'query',
+            sql: 'SELECT * FROM file_chunks WHERE embedding IS NULL',
+            params: ['set-1'],
+          },
+        },
+      });
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(parentPort.postMessage).toHaveBeenCalledWith({
+        context: expect.objectContaining({
+          activeDurationMs: 5000,
+          paramsCount: 1,
+          pendingControlRequests: 0,
+          pendingGeneralRequests: 0,
+          pendingTransactionRequests: 0,
+          requestId: 'slow-query-request',
+          requestKind: 'query',
+          sqlPreview: 'SELECT * FROM file_chunks WHERE embedding IS NULL',
+        }),
+        kind: 'log',
+        level: 'warn',
+        message: 'DB host request still running',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects non-array query params before calling PGlite', async () => {
     const query = vi.fn(async () => ({ rows: [] }));
     dbMainMocks.getDatabase.mockResolvedValue({ query });

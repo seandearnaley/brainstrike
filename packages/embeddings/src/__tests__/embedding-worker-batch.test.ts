@@ -402,6 +402,58 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding completion' });
   });
 
+  it('retries transient database completion failures without stopping the local worker as fatal', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const onFatalError = vi.fn();
+    await insertQueuedEmbeddingJob({
+      db,
+      modelKey,
+      now,
+      prefix: 'transient-db-completion',
+    });
+
+    let remainingCompletionFailures = 1;
+    const wrappedDb: IDatabase = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('UPDATE file_chunks AS fc') && remainingCompletionFailures > 0) {
+          remainingCompletionFailures -= 1;
+          throw new Error(
+            "Error invoking remote method 'db:query': Error: DB host request timed out: query"
+          );
+        }
+        return await (db as unknown as IDatabase).query(sql, params);
+      },
+    };
+
+    const controller = await startEmbeddingWorker({
+      db: wrappedDb,
+      claimBatchSize: 1,
+      concurrency: 1,
+      interBatchDelayMs: 10,
+      leaseMs: 2000,
+      modelKey,
+      onFatalError,
+      service: new FakeEmbeddingService(),
+      stopOnFatalLocalError: true,
+      log: () => {},
+    });
+
+    try {
+      await waitFor(async () => {
+        const res = await db.query<{ state: string }>(
+          `SELECT state FROM job_queue WHERE id = 'job-transient-db-completion'`
+        );
+        return res.rows[0]?.state === 'succeeded';
+      }, 10_000);
+    } finally {
+      await controller.stop();
+    }
+
+    expect(onFatalError).not.toHaveBeenCalled();
+    expect(remainingCompletionFailures).toBe(0);
+  });
+
   it('uses a resolved claim batch size when polling the queue', async () => {
     const claimManySpy = vi.spyOn(JobQueue.prototype, 'claimMany');
     const resolveClaimBatchSize = vi.fn(async () => 3);
