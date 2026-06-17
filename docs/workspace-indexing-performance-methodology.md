@@ -54,7 +54,7 @@ integratedToBottleneckRatio =
   integratedChunksPerSecond / min(stageCeilings)
 ```
 
-Stage ceilings must be measured on the same machine and backend as the integrated run. The benchmark CLI accepts explicit mode names for the final benchmark contract, but the current implementation validates integrated full-run evidence and uses externally supplied stage ceilings. Do not publish a bottleneck ratio unless those ceilings were measured on the same machine/backend and passed explicitly:
+Stage ceilings must be measured on the same machine and backend as the integrated run. The current CLI validates integrated full-run evidence and uses externally supplied stage ceilings. It rejects non-integrated `--mode` values until the Electron stage benchmark harness exists, because silently ignoring requested stage measurements would produce false evidence. Do not publish a bottleneck ratio unless those ceilings were measured on the same machine/backend and passed explicitly:
 
 ```bash
 node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \

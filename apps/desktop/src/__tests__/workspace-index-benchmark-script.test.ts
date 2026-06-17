@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  assertRunnableBenchmarkModes,
   findLatestWorkspaceIndexEvidencePath,
   parseArgs,
 } from '../../scripts/benchmark-workspace-index-pipeline.mjs';
@@ -35,6 +36,14 @@ describe('workspace index benchmark script', () => {
       'integrated',
     ]);
     expect(options.requireDevice).toBe('webgpu');
+  });
+
+  it('fails loudly instead of silently ignoring unimplemented stage benchmark modes', () => {
+    const options = parseArgs(['--mode', 'embedding-ceiling']);
+
+    expect(() => assertRunnableBenchmarkModes(options)).toThrow(
+      'requires the Electron stage benchmark harness'
+    );
   });
 
   it('finds the newest full-run evidence in Playwright blob-report output', async () => {

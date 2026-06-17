@@ -304,6 +304,17 @@ export function parseArgs(argv = process.argv.slice(2)) {
   return options;
 }
 
+export function assertRunnableBenchmarkModes(options) {
+  const unsupportedModes = options.modes.filter((mode) => mode !== 'integrated');
+  if (unsupportedModes.length > 0) {
+    throw new Error(
+      `Workspace Index benchmark mode '${unsupportedModes[0]}' requires the Electron stage benchmark harness. Current CLI only validates integrated full-run evidence; refusing to silently ignore requested stage mode(s): ${unsupportedModes.join(
+        ', '
+      )}.`
+    );
+  }
+}
+
 async function findEvidenceFiles(root) {
   if (!existsSync(root)) {
     return [];
@@ -351,6 +362,7 @@ async function runCli(argv = process.argv.slice(2)) {
     );
     return;
   }
+  assertRunnableBenchmarkModes(options);
   const evidencePath =
     options.evidencePath ?? (await findLatestWorkspaceIndexEvidencePath());
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
