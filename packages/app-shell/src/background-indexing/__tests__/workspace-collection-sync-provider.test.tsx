@@ -2312,6 +2312,86 @@ describe('WorkspaceCollectionSyncProvider', () => {
     ).toBeUndefined();
   });
 
+  it('includes chunked records and chunk stats grouped by root and embedding set in debug snapshots', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    const queryMock = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM roots')) {
+        return { rows: [] };
+      }
+      if (sql.includes('chunked_records_by_root_query_marker')) {
+        return {
+          rows: [
+            {
+              chunk_count: 2,
+              chunks_processed_at: '2026-06-17T00:00:00.000Z',
+              id: 'file-record-1',
+              relative_path: 'src/index.ts',
+              root_id: 'root-id-1',
+            },
+          ],
+        };
+      }
+      if (sql.includes('chunks_by_root_and_set_query_marker')) {
+        return {
+          rows: [
+            {
+              chunk_count: 2,
+              embedded_chunk_count: 1,
+              embedding_set_id: 'workspace-index-set',
+              pending_chunk_count: 1,
+              root_id: 'root-id-1',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          query: queryMock,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const debugApi = (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+            snapshot: () => Promise<{
+              chunkStatsByRootAndSet?: unknown[];
+              chunkedRecordsByRoot?: unknown[];
+            }>;
+          };
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+      const snapshot = await debugApi?.snapshot();
+
+      expect(snapshot?.chunkedRecordsByRoot).toEqual([
+        expect.objectContaining({
+          id: 'file-record-1',
+          relative_path: 'src/index.ts',
+          root_id: 'root-id-1',
+        }),
+      ]);
+      expect(snapshot?.chunkStatsByRootAndSet).toEqual([
+        expect.objectContaining({
+          embedding_set_id: 'workspace-index-set',
+          root_id: 'root-id-1',
+        }),
+      ]);
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
   it('exposes the workspace index debug API in desktop E2E mode without renderer process env', () => {
     vi.stubEnv('NODE_ENV', 'production');
     (

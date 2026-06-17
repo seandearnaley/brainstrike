@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { getMainBufferedLogs, getRendererLogRecords } from './embedding-worker-renderer.shared';
@@ -36,12 +36,20 @@ interface WorkspaceIndexEvidenceSample {
 const ROOTS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS';
 const SINGLE_ROOT_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH';
 const DEVICE_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE';
+const EVIDENCE_PATH_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_EVIDENCE_PATH';
 const MAX_IDLE_MS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_MAX_IDLE_MS';
 const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
 const POLL_MS = 5000;
 const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 120_000;
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
+
+function resolveStableEvidencePath(): string {
+  const configured = process.env[EVIDENCE_PATH_ENV]?.trim();
+  return configured
+    ? path.resolve(configured)
+    : path.resolve('test-results', 'full-workspace-index-evidence.json');
+}
 
 function parseConfiguredRoots(): string[] {
   const rawRoots = process.env[ROOTS_ENV]?.trim() || process.env[SINGLE_ROOT_ENV]?.trim() || '';
@@ -351,23 +359,24 @@ test.describe('Full Workspace Index run', () => {
       throw new Error('Workspace Index completed without actual embedding worker metadata');
     }
 
+    const evidence = {
+      completedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
+      fatalLogMatches,
+      requiredDevice,
+      roots,
+      samples,
+      terminalCounts: readTerminalCounts(finalSnapshot),
+      terminalWorkerMetadata: actualWorkerMetadata,
+    };
+    const evidenceJson = JSON.stringify(evidence, null, 2);
     await writeFile(
       testInfo.outputPath('full-workspace-index-evidence.json'),
-      JSON.stringify(
-        {
-          completedAt: new Date().toISOString(),
-          durationMs: Date.now() - startedAt,
-          fatalLogMatches,
-          requiredDevice,
-          roots,
-          samples,
-          terminalCounts: readTerminalCounts(finalSnapshot),
-          terminalWorkerMetadata: actualWorkerMetadata,
-        },
-        null,
-        2
-      ),
+      evidenceJson,
       'utf8'
     );
+    const stableEvidencePath = resolveStableEvidencePath();
+    await mkdir(path.dirname(stableEvidencePath), { recursive: true });
+    await writeFile(stableEvidencePath, evidenceJson, 'utf8');
   });
 });

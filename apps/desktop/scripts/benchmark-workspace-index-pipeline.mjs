@@ -5,10 +5,18 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const DEFAULT_EVIDENCE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../test-results'
-);
+const DESKTOP_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DEFAULT_EVIDENCE_ROOTS = [
+  path.join(DESKTOP_APP_ROOT, 'test-results'),
+  path.join(DESKTOP_APP_ROOT, 'blob-report'),
+];
+const BENCHMARK_MODES = new Set([
+  'embedding-ceiling',
+  'db-completion-ceiling',
+  'chunking-ceiling',
+  'import-ceiling',
+  'integrated',
+]);
 
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
@@ -245,6 +253,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
     evidencePath: null,
     maxRetainedHeapMb: null,
     minIntegratedToBottleneckRatio: null,
+    modes: ['integrated'],
+    profile: null,
     requireDevice: null,
     stageCeilings: {},
   };
@@ -265,6 +275,17 @@ export function parseArgs(argv = process.argv.slice(2)) {
       options.maxRetainedHeapMb = Number(next());
     } else if (arg === '--min-ratio') {
       options.minIntegratedToBottleneckRatio = Number(next());
+    } else if (arg === '--mode') {
+      const mode = next();
+      if (!BENCHMARK_MODES.has(mode)) {
+        throw new Error(
+          `Unknown benchmark mode: ${mode}. Expected one of: ${[...BENCHMARK_MODES].join(', ')}`
+        );
+      }
+      if (options.modes.length === 1 && options.modes[0] === 'integrated') {
+        options.modes = [];
+      }
+      options.modes.push(mode);
     } else if (arg === '--stage-ceiling') {
       const [key, rawValue] = next().split('=');
       const value = Number(rawValue);
@@ -273,7 +294,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
       }
       options.stageCeilings[key] = value;
     } else if (arg === '--profile') {
-      next();
+      options.profile = next();
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
     } else {
@@ -300,11 +321,16 @@ async function findEvidenceFiles(root) {
   return nested.flat();
 }
 
-async function readLatestEvidencePath() {
-  const files = await findEvidenceFiles(DEFAULT_EVIDENCE_ROOT);
+export async function findLatestWorkspaceIndexEvidencePath(options = {}) {
+  const searchRoots = Array.isArray(options.searchRoots)
+    ? options.searchRoots
+    : DEFAULT_EVIDENCE_ROOTS;
+  const files = (await Promise.all(searchRoots.map((root) => findEvidenceFiles(root)))).flat();
   if (files.length === 0) {
     throw new Error(
-      `No full-workspace-index-evidence.json found under ${DEFAULT_EVIDENCE_ROOT}. Run the full Workspace Index verifier or pass --evidence.`
+      `No full-workspace-index-evidence.json found under ${searchRoots.join(
+        ', '
+      )}. Run the full Workspace Index verifier or pass --evidence.`
     );
   }
   const stats = await Promise.all(
@@ -321,11 +347,12 @@ async function runCli(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
     console.log(
-      'Usage: node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs --evidence <path> --require-device webgpu [--stage-ceiling embeddingCeilingChunksPerSecond=20]'
+      'Usage: node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs --profile isolated --require-device webgpu [--mode integrated] [--evidence <path>] [--stage-ceiling embeddingCeilingChunksPerSecond=20]'
     );
     return;
   }
-  const evidencePath = options.evidencePath ?? (await readLatestEvidencePath());
+  const evidencePath =
+    options.evidencePath ?? (await findLatestWorkspaceIndexEvidencePath());
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
   const result = analyzeWorkspaceIndexEvidence(evidence, options);
   console.log(

@@ -240,6 +240,15 @@ function createEmbeddingRuntimeMetadata(
   };
 }
 
+function createBackendMismatchError(metadata: EmbeddingHostRuntimeMetadata): string | null {
+  const actual = metadata.actualWorkerMetadata;
+  if (!(metadata.backendMismatch && actual)) {
+    return null;
+  }
+  const fallbackSuffix = actual.fallbackApplied ? ' with fallbackApplied=true' : '';
+  return `Embedding backend mismatch: selected ${metadata.selectedDevicePreference}, actual ${actual.device}${fallbackSuffix}.`;
+}
+
 function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): Error {
   const details = [
     detected.recommendationReason,
@@ -559,9 +568,14 @@ async function startEmbeddingHostWorkerRuntime({
       onFatalError,
       onRuntimeMetadataChange: (metadata) => {
         embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, metadata);
-        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
-          active: activeRef.current,
+        const backendMismatchError = createBackendMismatchError(embeddingRuntimeRef.current);
+        if (backendMismatchError) {
+          fatalErrorRef.current = backendMismatchError;
+        }
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, backendMismatchError ? 'error' : 'running', {
+          active: backendMismatchError ? false : activeRef.current,
           embeddingRuntime: embeddingRuntimeRef.current,
+          lastError: backendMismatchError,
         });
       },
       onWorkerActivityChange,

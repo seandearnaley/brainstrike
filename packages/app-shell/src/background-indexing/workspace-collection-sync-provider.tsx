@@ -1114,7 +1114,9 @@ export function WorkspaceCollectionSyncProvider({
       expectedCounts,
       roots,
       fileRecordsByRoot,
+      chunkedRecordsByRoot,
       chunkStatsByRoot,
+      chunkStatsByRootAndSet,
       jobQueue,
       recentEmbeddingCompletions,
       databaseScheduler,
@@ -1144,6 +1146,24 @@ export function WorkspaceCollectionSyncProvider({
       ),
       readWorkspaceIndexDebugRows(
         query,
+        `/* chunked_records_by_root_query_marker */
+         SELECT fr.root_id,
+                fr.id,
+                fr.relative_path,
+                fr.chunks_processed_at,
+                COUNT(fc.id)::int AS chunk_count
+           FROM file_records fr
+           LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
+          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+            AND fr.chunks_processed_at IS NOT NULL
+          GROUP BY fr.root_id, fr.id, fr.relative_path, fr.chunks_processed_at
+          ORDER BY fr.root_id, fr.relative_path`,
+        [managedCollectionId],
+        accessIssues,
+        'chunked_records_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
         `SELECT fr.root_id,
                 COUNT(fc.id)::int AS chunk_count,
                 COUNT(fc.embedding)::int AS embedded_chunk_count,
@@ -1156,6 +1176,23 @@ export function WorkspaceCollectionSyncProvider({
         [managedCollectionId],
         accessIssues,
         'chunks_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* chunks_by_root_and_set_query_marker */
+         SELECT fr.root_id,
+                fc.embedding_set_id,
+                COUNT(fc.id)::int AS chunk_count,
+                COUNT(fc.embedding)::int AS embedded_chunk_count,
+                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+           FROM file_chunks fc
+           JOIN file_records fr ON fr.id = fc.file_record_id
+          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          GROUP BY fr.root_id, fc.embedding_set_id
+          ORDER BY fr.root_id, fc.embedding_set_id`,
+        [managedCollectionId],
+        accessIssues,
+        'chunks_by_root_and_set'
       ),
       readWorkspaceIndexDebugRows(
         query,
@@ -1193,6 +1230,8 @@ export function WorkspaceCollectionSyncProvider({
       ...(accessIssues.length > 0 ? { accessIssues } : {}),
       chunkingHostStatus,
       chunkStatsByRoot,
+      chunkStatsByRootAndSet,
+      chunkedRecordsByRoot,
       databaseScheduler,
       embeddingHostStatus: {
         ...((embeddingHostStatus && typeof embeddingHostStatus === 'object'

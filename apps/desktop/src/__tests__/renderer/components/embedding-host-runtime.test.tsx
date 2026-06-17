@@ -255,6 +255,39 @@ describe('EmbeddingHostRuntime', () => {
     expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(dbHandle);
   });
 
+  it('reports an error status when actual worker backend differs from the selected preference', async () => {
+    storeState.hasHydrated = true;
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'wasm',
+        dtype: 'q8',
+        fallbackApplied: true,
+      });
+      return {
+        stop: stopMock,
+      };
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            actualWorkerMetadata: expect.objectContaining({
+              device: 'wasm',
+              fallbackApplied: true,
+            }),
+            backendMismatch: true,
+            selectedDevicePreference: 'webgpu',
+          }),
+          lastError: expect.stringContaining('backend'),
+          state: 'error',
+        })
+      );
+    });
+  });
+
   it('resets the worker when it receives a strict reset command envelope', async () => {
     storeState.hasHydrated = true;
 

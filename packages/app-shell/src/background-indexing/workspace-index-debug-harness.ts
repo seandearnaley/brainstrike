@@ -26,8 +26,10 @@ export interface WorkspaceIndexDebugAccessIssue {
 
 export interface WorkspaceIndexDebugSnapshot {
   accessIssues?: WorkspaceIndexDebugAccessIssue[];
+  chunkedRecordsByRoot: unknown[];
   chunkingHostStatus: unknown;
   chunkStatsByRoot: unknown[];
+  chunkStatsByRootAndSet: unknown[];
   databaseScheduler: unknown;
   embeddingHostStatus: unknown;
   expectedCounts: WorkspaceIndexExpectedFileCount[];

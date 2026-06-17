@@ -17,6 +17,7 @@ pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index
 ```
 
 The verifier artifact records timestamped debug snapshots, terminal file/chunk counts, selected device preference, actual embedding worker metadata, memory samples, and fatal log matches.
+The verifier writes the same artifact to Playwright's output directory and to the stable ignored path `apps/desktop/test-results/full-workspace-index-evidence.json` unless `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_EVIDENCE_PATH` is set.
 
 ## Validation Command
 
@@ -53,7 +54,7 @@ integratedToBottleneckRatio =
   integratedChunksPerSecond / min(stageCeilings)
 ```
 
-Stage ceilings must be measured on the same machine and backend as the integrated run. Until dedicated stage modes exist, pass measured values explicitly:
+Stage ceilings must be measured on the same machine and backend as the integrated run. The benchmark CLI accepts explicit mode names for the final benchmark contract, but the current implementation validates integrated full-run evidence and uses externally supplied stage ceilings. Do not publish a bottleneck ratio unless those ceilings were measured on the same machine/backend and passed explicitly:
 
 ```bash
 node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
