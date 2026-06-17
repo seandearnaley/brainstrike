@@ -138,15 +138,6 @@ function countRelativeDepth(relativePath: string, maxDepth?: number): number {
   return depth;
 }
 
-function addImplicitParentDirectories(path: string, directories: Set<string>): void {
-  let separatorIndex = path.indexOf('/');
-  while (separatorIndex !== -1) {
-    // Avoid split/slice/join arrays while constructing large in-memory trees.
-    directories.add(path.slice(0, separatorIndex));
-    separatorIndex = path.indexOf('/', separatorIndex + 1);
-  }
-}
-
 /**
  * Sort rules by type precedence, then by priority within type.
  */
@@ -673,7 +664,11 @@ export class InMemoryTreeAdapter implements TreeAdapter {
 
     // Add implicit parent directories
     for (const path of this.files.keys()) {
-      addImplicitParentDirectories(path, this.directories);
+      const parts = path.split('/');
+      for (let i = 1; i < parts.length; i += 1) {
+        const parentPath = parts.slice(0, i).join('/');
+        this.directories.add(parentPath);
+      }
     }
   }
 
