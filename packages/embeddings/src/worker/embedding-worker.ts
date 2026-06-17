@@ -1046,30 +1046,27 @@ export async function startEmbeddingWorker(
       await streamingService.generateEmbeddingsStream(
         cacheMisses.map((item) => item.chunk.content),
         async (batch) => {
-          try {
-            if (checkLease()) {
-              throw new Error('Lease lost during processing');
-            }
+          if (checkLease()) {
+            throw new LocalEmbeddingStreamCallbackError(new Error('Lease lost during processing'));
+          }
 
-            const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
-            if (batchItems.length !== batch.results.length) {
+          const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
+          if (batchItems.length !== batch.results.length) {
+            throw new Error(
+              `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
+            );
+          }
+
+          const embeddings = batch.results.map((result, index) => {
+            if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
               throw new Error(
-                `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
+                `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
               );
             }
+            return result.embedding;
+          });
 
-            const embeddings = batch.results.map((result, index) => {
-              if (
-                !Array.isArray(result.embedding) ||
-                result.embedding.length !== expectedDimension
-              ) {
-                throw new Error(
-                  `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
-                );
-              }
-              return result.embedding;
-            });
-
+          try {
             await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
             storeToCacheAsync(
               options.embeddingCache,

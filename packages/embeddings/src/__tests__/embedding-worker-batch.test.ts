@@ -92,6 +92,17 @@ class ChunkedStreamingEmbeddingService extends FakeEmbeddingService {
   }
 }
 
+class WrongDimensionStreamingEmbeddingService extends FakeEmbeddingService {
+  override async generateEmbedding(_text: string): Promise<EmbeddingResult> {
+    return {
+      embedding: new Array(10).fill(0.1),
+      dimensions: 10,
+      model: 'wrong-dimension-stream-model',
+      usage: { totalTokens: 10 },
+    };
+  }
+}
+
 const PGLITE_SETUP_TIMEOUT_MS = 90_000;
 const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;
 
@@ -452,6 +463,62 @@ describe('Embedding Worker Batch Optimization', () => {
 
     expect(onFatalError).not.toHaveBeenCalled();
     expect(remainingCompletionFailures).toBe(0);
+  });
+
+  it('stops claiming new jobs when a local stream emits wrong embedding dimensions', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const onFatalError = vi.fn();
+    await insertQueuedEmbeddingJob({
+      db,
+      modelKey,
+      now,
+      prefix: 'fatal-stream-dim-a',
+    });
+    await insertQueuedEmbeddingJob({
+      db,
+      modelKey,
+      now,
+      prefix: 'fatal-stream-dim-b',
+    });
+    await db.query(
+      `UPDATE job_queue SET max_attempts = 1 WHERE id IN ('job-fatal-stream-dim-a', 'job-fatal-stream-dim-b')`
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 1,
+      concurrency: 1,
+      interBatchDelayMs: 10,
+      leaseMs: 2000,
+      modelKey,
+      onFatalError,
+      service: new WrongDimensionStreamingEmbeddingService(),
+      stopOnFatalLocalError: true,
+      log: () => {},
+    });
+
+    try {
+      await waitFor(async () => {
+        const res = await db.query<{ state: string }>(
+          `SELECT state FROM job_queue WHERE id = 'job-fatal-stream-dim-a'`
+        );
+        return res.rows[0]?.state === 'failed';
+      }, 10_000);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    } finally {
+      await controller.stop();
+    }
+
+    const followUpJob = await db.query<{ state: string }>(
+      `SELECT state FROM job_queue WHERE id = 'job-fatal-stream-dim-b'`
+    );
+
+    expect(followUpJob.rows[0]?.state).toBe('queued');
+    expect(onFatalError).toHaveBeenCalledTimes(1);
+    expect(onFatalError.mock.calls[0]?.[0].message).toContain(
+      "Local embedding execution failed for 'local::jinaai/jina-embeddings-v2-base-code': Embedding dimension mismatch"
+    );
   });
 
   it('uses a resolved claim batch size when polling the queue', async () => {
