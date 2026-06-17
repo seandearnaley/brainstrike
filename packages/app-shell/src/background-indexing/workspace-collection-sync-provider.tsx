@@ -97,6 +97,13 @@ const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
 
+function createRuntimeUnavailableMessage(missingDependencies: string[]): string {
+  if (missingDependencies.length === 0) {
+    return 'Background indexing runtime is unavailable.';
+  }
+  return `Background indexing runtime is unavailable: ${missingDependencies.join(', ')}.`;
+}
+
 function createClearedProgressPatch(): Pick<
   WorkspaceCollectionSyncStatusPatch,
   | 'backfillRequestId'
@@ -691,6 +698,36 @@ export function WorkspaceCollectionSyncProvider({
     return policy;
   }, [observeQosTransition, readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
 
+  const missingRuntimeDependencies = useMemo(() => {
+    const missing: string[] = [];
+    if (!db) {
+      missing.push('db');
+    }
+    if (!backgroundDb) {
+      missing.push('backgroundDb');
+    }
+    if (!waitForBackgroundPermit) {
+      missing.push('waitForBackgroundPermit');
+    }
+    if (backgroundRepositories) {
+      if (!backgroundRepositories.fileRecordRepository) {
+        missing.push('fileRecordRepository');
+      }
+      if (!backgroundRepositories.chunkRepository) {
+        missing.push('chunkRepository');
+      }
+      if (!backgroundRepositories.embeddingSetsRepository) {
+        missing.push('embeddingSetsRepository');
+      }
+    } else {
+      missing.push('backgroundRepositories');
+    }
+    if (!fileSystemAdapter) {
+      missing.push('fileSystemAdapter');
+    }
+    return missing;
+  }, [backgroundDb, backgroundRepositories, db, fileSystemAdapter, waitForBackgroundPermit]);
+
   const service = useMemo(() => {
     if (
       !(
@@ -875,7 +912,7 @@ export function WorkspaceCollectionSyncProvider({
             currentFilePath: null,
             queuedFiles: 0,
             processedFiles: 0,
-            lastError: 'Background indexing runtime is unavailable.',
+            lastError: createRuntimeUnavailableMessage(missingRuntimeDependencies),
           });
         } else {
           resetSyncStatus();
@@ -997,6 +1034,7 @@ export function WorkspaceCollectionSyncProvider({
       isAccessLoading,
       isTreeRestorationReady,
       managedCollectionId,
+      missingRuntimeDependencies,
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,

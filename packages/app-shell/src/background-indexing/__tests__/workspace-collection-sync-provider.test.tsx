@@ -1649,7 +1649,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
           state: 'error',
-          lastError: 'Background indexing runtime is unavailable.',
+          lastError:
+            'Background indexing runtime is unavailable: db, backgroundDb, waitForBackgroundPermit, backgroundRepositories.',
         })
       )
     );
