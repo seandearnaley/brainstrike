@@ -9,6 +9,7 @@ export type JobType = 'embed_chunk';
 export interface JobRow {
   attempts: number;
   backoff_ms: number;
+  chunk_id?: string | null;
   created_at: string;
   dedupe_key?: string | null;
   error?: string | null;
@@ -59,6 +60,14 @@ function fromRow(row: JobRow): Job {
     updated_at: row.updated_at,
   };
   return job;
+}
+
+function extractEmbedChunkId(jobType: JobType, payload: unknown): string | null {
+  if (jobType !== 'embed_chunk' || !(payload && typeof payload === 'object')) {
+    return null;
+  }
+  const chunkId = (payload as { chunkId?: unknown }).chunkId;
+  return typeof chunkId === 'string' && chunkId.length > 0 ? chunkId : null;
 }
 
 function computeElapsedMs(startIso: string, endIso: string): number | null {
@@ -240,6 +249,7 @@ export class JobQueue {
     const maxAttempts =
       params.maxAttempts ?? this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
     const dedupe = params.dedupeKey ?? null;
+    const chunkId = extractEmbedChunkId(params.jobType, params.payload);
 
     // Portable idempotent enqueue using CTEs (works with partial unique index)
     const inserted = await this.db.query<JobRow>(
@@ -256,10 +266,10 @@ export class JobQueue {
        ),
        ins AS (
          INSERT INTO job_queue (
-           id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
+           id, queue, job_type, payload, chunk_id, state, run_at, attempts, max_attempts, backoff_ms,
            lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
          )
-         SELECT $1,$2,$3,$4,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
+         SELECT $1,$2,$3,$4,$9,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
          WHERE NOT EXISTS (SELECT 1 FROM existing)
          RETURNING *
        )
@@ -276,6 +286,7 @@ export class JobQueue {
         maxAttempts,
         dedupe,
         now,
+        chunkId,
       ]
     );
 
@@ -353,8 +364,8 @@ export class JobQueue {
     const idTypeCast = idType === 'uuid' ? 'uuid' : 'text';
     return `WITH input AS (
              SELECT * FROM unnest(
-               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[]
-             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key)
+               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[], $8::text[]
+             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key, chunk_id)
            ),
            existing AS (
              SELECT jq.id, jq.dedupe_key, i.run_at_text
@@ -371,12 +382,12 @@ export class JobQueue {
            ),
            ins AS (
              INSERT INTO job_queue (
-               id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
+               id, queue, job_type, payload, chunk_id, state, run_at, attempts, max_attempts, backoff_ms,
                lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
              )
              SELECT
-               i.id, i.queue, i.job_type, i.payload, 'queued', i.run_at_text, 0, i.max_attempts, 0,
-               NULL, NULL, NULL, i.dedupe_key, NULL, $8, $8
+               i.id, i.queue, i.job_type, i.payload, i.chunk_id, 'queued', i.run_at_text, 0, i.max_attempts, 0,
+               NULL, NULL, NULL, i.dedupe_key, NULL, $9, $9
              FROM input i
              WHERE NOT EXISTS (SELECT 1 FROM existing e WHERE e.dedupe_key = i.dedupe_key)
              RETURNING *
@@ -424,6 +435,7 @@ export class JobQueue {
     const runAts: string[] = [];
     const maxAttemptsArr: number[] = [];
     const dedupeKeys: (string | null)[] = [];
+    const chunkIds: (string | null)[] = [];
 
     const defaultMaxAttempts = this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
 
@@ -435,6 +447,7 @@ export class JobQueue {
       runAts.push(p.runAt ?? now);
       maxAttemptsArr.push(p.maxAttempts ?? defaultMaxAttempts);
       dedupeKeys.push(p.dedupeKey ?? null);
+      chunkIds.push(extractEmbedChunkId(p.jobType, p.payload));
     }
 
     const sql = this.buildBatchQuery(idType);
@@ -447,6 +460,7 @@ export class JobQueue {
       runAts,
       maxAttemptsArr,
       dedupeKeys,
+      chunkIds,
       now,
     ]);
 

@@ -515,11 +515,11 @@ async function cancelQueuedOrRunningEmbeddingJobsForChunks(
               lease_token = NULL,
               leased_until = NULL,
               worker_id = NULL,
-              error = 'Managed-cache ${operation} deleted chunk ' || (payload->>'chunkId') || ' before embedding.',
+              error = 'Managed-cache ${operation} deleted chunk ' || chunk_id || ' before embedding.',
               updated_at = $1
         WHERE job_type = 'embed_chunk'
           AND state IN ('queued', 'running')
-          AND payload->>'chunkId' = ANY($2::text[])
+          AND chunk_id = ANY($2::text[])
         RETURNING 1
      )
      SELECT COUNT(*)::text AS count

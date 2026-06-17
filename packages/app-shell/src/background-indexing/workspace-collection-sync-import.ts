@@ -421,6 +421,19 @@ async function applyBackgroundImportBatch(args: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const sampleRelativePaths = mutations.slice(0, 10).map((entry) => entry.relativePath);
+    logger.warn('Workspace Index managed-cache batch import failed', {
+      batchFileCount: mutations.length,
+      collectionId: args.collectionId,
+      error: message,
+      mutationModes: {
+        import: mutations.filter((entry) => entry.mode === 'import').length,
+        replace: mutations.filter((entry) => entry.mode === 'replace').length,
+      },
+      rootId: args.rootId ?? null,
+      sampleRelativePaths,
+      truncatedRelativePathCount: Math.max(0, mutations.length - sampleRelativePaths.length),
+    });
     return {
       errors: [
         ...skippedErrors,

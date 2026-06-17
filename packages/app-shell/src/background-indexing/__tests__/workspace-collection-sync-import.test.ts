@@ -854,6 +854,94 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     );
   });
 
+  it('logs managed-cache batch failures with root-relative file context', async () => {
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
+    const dbTimeout = new Error(
+      "Error invoking remote method 'db:query': Error: DB host request timed out: query"
+    );
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {
+        throw dbTimeout;
+      }
+    );
+    const firstChange = makeMinimalChange();
+    const secondCompositeKey = `${ROOT}::nested/b.ts`;
+    const secondChange: PreparedCacheChange = {
+      ...makeMinimalChange(),
+      compositeKey: secondCompositeKey,
+      contentHash: 'hash-b',
+      id: 'file-id-b',
+      name: 'b.ts',
+      relativePath: 'nested/b.ts',
+      request: {
+        compositeKey: secondCompositeKey,
+        fileNode: makeFileNode('nested/b.ts', 50, 1001),
+        fileSystemAdapter: {} as FileSystemAdapter,
+      },
+      size: 50,
+    };
+
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [firstChange, secondChange],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const failureLog = captured.find((record) =>
+        record.message?.includes('Workspace Index managed-cache batch import failed')
+      );
+      expect(failureLog).toBeDefined();
+      expect(failureLog?.args ?? []).toContainEqual(
+        expect.objectContaining({
+          batchFileCount: 2,
+          collectionId: 'collection-1',
+          error: dbTimeout.message,
+          mutationModes: { import: 2, replace: 0 },
+          rootId: 'root-db-1',
+          sampleRelativePaths: ['a.ts', 'nested/b.ts'],
+        })
+      );
+    } finally {
+      removeListener();
+    }
+  });
+
   it('passes rootId to applyManagedCacheBatch when rootId is provided', async () => {
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
       async () => {}
