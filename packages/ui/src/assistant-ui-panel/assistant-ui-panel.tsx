@@ -61,6 +61,7 @@ import { AssistantMessageText, preloadMarkdownText } from './assistant-message-t
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import {
   AssistantRunTimeline,
+  isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
 } from './assistant-run-timeline';
@@ -86,18 +87,22 @@ const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
   // context prep, run steps) is internal bookkeeping that wraps the tool calls
   // people care about. Hide every run-event row unless the Detail level is
   // Developer — the default thread is just the grouped tool cards + the answer.
+  // EXCEPTION: terminal run failures/cancellations always surface, so a broken
+  // turn is never silently swallowed (see isAlwaysVisibleRunEvent).
   const { detailLevel } = useAssistantDetailLevel();
-  const showBackground = shouldShowBackgroundActivity(detailLevel);
+  const showRow = shouldShowBackgroundActivity(detailLevel) || isAlwaysVisibleRunEvent(data);
   // Both selectors are O(total parts) and re-run on every streamed state change.
   // In the default (non-Developer) case — now the common path for every hidden
   // memory/context/run-step row — short-circuit INSIDE the selector so the scans
-  // are skipped entirely, not run only to discard the result. Hooks still run
-  // unconditionally (rules-of-hooks safe); only one string primitive is selected.
+  // are skipped entirely, not run only to discard the result. The ≤1-per-turn
+  // forced failure row pays for the scan, but the flood still skips it. Hooks
+  // still run unconditionally (rules-of-hooks safe); only one string primitive
+  // is selected.
   const statusOverride = useAuiState((state) =>
-    showBackground ? resolveAssistantRunEventStatus(state.thread.messages, data) : undefined
+    showRow ? resolveAssistantRunEventStatus(state.thread.messages, data) : undefined
   );
   const renderPlanKey = useAuiState((state) => {
-    if (!showBackground) {
+    if (!showRow) {
       return 'hidden';
     }
     const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
