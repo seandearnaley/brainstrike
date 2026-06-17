@@ -90,3 +90,7 @@
 ## 2026-06-13 - Ancestor path chains avoid recursive spread
 **Learning:** `packages/utils/src/path-ancestors.ts` builds ancestor directory chains for recursive selection count updates. The recursive `[...buildAncestorDirectoryChain(parent)]` path measured roughly 43-56ms for a 4,000-deep chain after warmup on Node 24.16.0 and throws `RangeError: Maximum call stack size exceeded` at 12,000 nested directories; the iterative parent walk measured roughly 37-44ms for the 4,000-deep case and completed the 12,000-deep case in ~101ms.
 **Action:** Keep ancestor chain construction iterative and avoid reintroducing recursive spread copies in path ancestor utilities.
+
+## 2026-06-17 - Selection rule implicit parents avoid split arrays
+**Learning:** `packages/selection-rules/src/engine.ts` synthesizes implicit parent directories for every file path when constructing `InMemoryTreeAdapter`. The old `path.split('/').slice(...).join('/')` loop allocated segment arrays and parent arrays per file; measured 2671.59ms over 100k nested paths x 30 rounds on Node 24.16.0. An `indexOf('/')` scan with direct parent slices measured 2479.01ms with the same directory checksum.
+**Action:** Keep implicit parent synthesis on the `addImplicitParentDirectories()` index scan and avoid reintroducing split/slice/join arrays in in-memory tree construction.
