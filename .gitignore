@@ -154,4 +154,8 @@ icons/.generated/
 packages/db/__tests__/__screenshots__/
 apps/desktop/e2e-artifacts/
 
+# Vitest browser-mode (real Chromium) run artifacts
+**/.vitest-attachments/
+packages/ui/src/**/__screenshots__/
+
 .claude

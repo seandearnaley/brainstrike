@@ -76,9 +76,16 @@ vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../src/assistant-ui-panel/tool-fallback', () => ({
-  ToolFallback: () => <div data-testid="tool-fallback" />,
-}));
+// Stub the heavy ToolFallback card but keep the real `extractPrimaryArg`
+// helper — the Activity group summary imports it from this module.
+vi.mock('../../src/assistant-ui-panel/tool-fallback', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../src/assistant-ui-panel/tool-fallback')>();
+  return {
+    ...actual,
+    ToolFallback: () => <div data-testid="tool-fallback" />,
+  };
+});
 
 vi.mock('../../src/assistant-ui-panel/tooltip-icon-button', () => ({
   TooltipIconButton: ({

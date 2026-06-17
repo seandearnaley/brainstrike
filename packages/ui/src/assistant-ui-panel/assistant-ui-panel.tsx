@@ -50,7 +50,13 @@ import { Button } from '../button';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
+import {
+  AssistantActivityGroup,
+  runEventsSpanMs,
+  summarizeToolActivity,
+} from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
+import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
@@ -296,6 +302,76 @@ function isReasoningPart(part: unknown): boolean {
   );
 }
 
+function reasoningToggleLabel(collapsed: boolean, isContinuation: boolean): string {
+  if (collapsed) {
+    return isContinuation ? 'Show additional reasoning' : 'Show reasoning';
+  }
+  return isContinuation ? 'Hide additional reasoning' : 'Hide reasoning';
+}
+
+/**
+ * The collapsible reasoning fold: a pill that toggles the reasoning panel.
+ * Tool cards always render inside the panel (the reasoning collapse only hides
+ * reasoning parts), so the panel stays mounted to keep `aria-controls` valid.
+ */
+const ChainReasoningFold: FC<{
+  children: ReactNode;
+  collapsed: boolean;
+  isContinuation: boolean;
+  isReasoningRunning: boolean;
+  onToggle: () => void;
+  panelId: string;
+}> = ({ children, collapsed, isContinuation, isReasoningRunning, onToggle, panelId }) => (
+  <>
+    <button
+      aria-controls={panelId}
+      aria-expanded={!collapsed}
+      aria-label={reasoningToggleLabel(collapsed, isContinuation)}
+      className={cn(
+        'inline-flex h-8 max-w-full items-center rounded-full border border-border/70 bg-muted/20 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35',
+        isContinuation ? 'w-8 justify-center px-0' : 'gap-2 px-2.5'
+      )}
+      data-testid="local-chain-of-thought"
+      onClick={onToggle}
+      type="button"
+    >
+      {isReasoningRunning ? (
+        <AssistantThinkingIndicator
+          className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
+          markClassName="size-4"
+          showText={!isContinuation}
+          textClassName="truncate"
+        />
+      ) : (
+        <span
+          className={cn('bs-thinking-indicator min-w-0', isContinuation ? 'justify-center' : '')}
+          data-testid="assistant-reasoning-indicator"
+        >
+          <BrainstrikeThinkingMark
+            className="bs-thinking-mark-static size-4"
+            testId="assistant-reasoning-static-mark"
+          />
+          {isContinuation ? null : <span className="truncate">Reasoning</span>}
+        </span>
+      )}
+      {isContinuation ? null : collapsed ? (
+        <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : (
+        <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+    </button>
+    <div
+      className={cn(
+        'bs-chain-of-thought-panel mt-2 empty:mt-0',
+        collapsed ? '' : 'border-border/70 border-l pl-3'
+      )}
+      id={panelId}
+    >
+      {children}
+    </div>
+  </>
+);
+
 const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
@@ -320,6 +396,22 @@ const LocalChainOfThought: FC = () => {
       .slice(0, startIndex)
       .some((part) => part.type === 'reasoning' || part.type === 'tool-call');
   });
+  // Turn-level tool activity: drives the grouped, collapsible Activity panel.
+  const chainOfThoughtParts = useAuiState((state) => state.chainOfThought.parts);
+  const messageParts = useAuiState((state) => state.message.parts);
+  const isMessageRunning = useAuiState(
+    (state) => (state.message as { status?: { type?: string } }).status?.type === 'running'
+  );
+  const toolActivity = useMemo(
+    () => summarizeToolActivity(chainOfThoughtParts),
+    [chainOfThoughtParts]
+  );
+  const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
+  const hasToolParts = toolActivity.stepCount > 0;
+  // Stay "active" (expanded) while any tool runs, while reasoning streams, or
+  // while the message is still producing output. Tool/reasoning-running alone
+  // keeps the contract correct even if the message-status read is unavailable.
+  const isActivityActive = toolActivity.runningCount > 0 || isReasoningRunning || isMessageRunning;
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
 
@@ -350,70 +442,36 @@ const LocalChainOfThought: FC = () => {
     />
   );
 
-  if (!hasReasoningParts) {
-    return (
-      <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
-        {chainParts}
-      </ChainOfThoughtPrimitive.Root>
-    );
-  }
+  // Reasoning fold (button + collapsible panel) when the turn has reasoning;
+  // otherwise the tool cards render directly. Either way this is the content
+  // the Activity panel groups under its summary header.
+  const reasoningSection = hasReasoningParts ? (
+    <ChainReasoningFold
+      collapsed={collapsed}
+      isContinuation={isContinuation}
+      isReasoningRunning={isReasoningRunning}
+      onToggle={() => aui.chainOfThought().setCollapsed(!collapsed)}
+      panelId={reasoningPanelId}
+    >
+      {chainParts}
+    </ChainReasoningFold>
+  ) : (
+    chainParts
+  );
 
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
-      <button
-        aria-controls={reasoningPanelId}
-        aria-expanded={!collapsed}
-        aria-label={
-          collapsed
-            ? isContinuation
-              ? 'Show additional reasoning'
-              : 'Show reasoning'
-            : isContinuation
-              ? 'Hide additional reasoning'
-              : 'Hide reasoning'
-        }
-        className={cn(
-          'inline-flex h-8 max-w-full items-center rounded-full border border-border/70 bg-muted/20 text-left font-medium text-foreground text-xs transition-colors hover:bg-muted/35',
-          isContinuation ? 'w-8 justify-center px-0' : 'gap-2 px-2.5'
-        )}
-        data-testid="local-chain-of-thought"
-        onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
-        type="button"
-      >
-        {isReasoningRunning ? (
-          <AssistantThinkingIndicator
-            className={cn('min-w-0', isContinuation ? 'justify-center' : '')}
-            markClassName="size-4"
-            showText={!isContinuation}
-            textClassName="truncate"
-          />
-        ) : (
-          <span
-            className={cn('bs-thinking-indicator min-w-0', isContinuation ? 'justify-center' : '')}
-            data-testid="assistant-reasoning-indicator"
-          >
-            <BrainstrikeThinkingMark
-              className="bs-thinking-mark-static size-4"
-              testId="assistant-reasoning-static-mark"
-            />
-            {isContinuation ? null : <span className="truncate">Reasoning</span>}
-          </span>
-        )}
-        {isContinuation ? null : collapsed ? (
-          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
-      </button>
-      <div
-        className={cn(
-          'bs-chain-of-thought-panel mt-2 empty:mt-0',
-          collapsed ? '' : 'border-border/70 border-l pl-3'
-        )}
-        id={reasoningPanelId}
-      >
-        {chainParts}
-      </div>
+      {hasToolParts ? (
+        <AssistantActivityGroup
+          fallbackMs={activityFallbackMs}
+          isActive={isActivityActive}
+          summary={toolActivity}
+        >
+          {reasoningSection}
+        </AssistantActivityGroup>
+      ) : (
+        reasoningSection
+      )}
     </ChainOfThoughtPrimitive.Root>
   );
 };
@@ -1074,70 +1132,72 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     useLocalModelLoading({ localViaDataStream, modelName });
 
   return (
-    <section
-      aria-label="Assistant chat"
-      className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
-      data-testid="chat-panel"
-    >
-      {isLocalProvider && modelName && !localViaDataStream ? (
-        <LocalRuntimeChat
-          completePreparedRequest={completePreparedRequest}
-          contextWindow={contextWindow}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          key={threadKey ? `local:${threadKey}` : 'local'}
-          loadLocalLlmBackend={loadLocalLlmBackend}
-          localLoadingState={localLoadingState}
-          modelId={modelName}
-          onLoadingStateChange={handleLocalLoadingStateChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          {...(onUsage ? { onUsage } : {})}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      ) : (
-        <DataStreamRuntimeChat
-          api={api}
-          completePreparedRequest={completePreparedRequest}
-          contextWindow={contextWindow}
-          disabled={disabled}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          historyAdapter={historyAdapter}
-          key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
-          localLoadingState={localLoadingState}
-          modelName={modelName}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onStreamActivity={onStreamActivity}
-          onThreadRunStart={onThreadRunStart}
-          prepareLocalModel={prepareLocalModel}
-          {...(onUsage ? { onUsage } : {})}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          prepareRequestData={prepareRequestData}
-          providerGroups={groupedProviders}
-          providerSettings={providerSettings}
-          requestData={requestData}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      )}
-    </section>
+    <AssistantDetailLevelProvider>
+      <section
+        aria-label="Assistant chat"
+        className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
+        data-testid="chat-panel"
+      >
+        {isLocalProvider && modelName && !localViaDataStream ? (
+          <LocalRuntimeChat
+            completePreparedRequest={completePreparedRequest}
+            contextWindow={contextWindow}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            key={threadKey ? `local:${threadKey}` : 'local'}
+            loadLocalLlmBackend={loadLocalLlmBackend}
+            localLoadingState={localLoadingState}
+            modelId={modelName}
+            onLoadingStateChange={handleLocalLoadingStateChange}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onStreamActivity={onStreamActivity}
+            onThreadRunStart={onThreadRunStart}
+            {...(onUsage ? { onUsage } : {})}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            prepareRequestData={prepareRequestData}
+            providerGroups={groupedProviders}
+            providerSettings={providerSettings}
+            requestData={requestData}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        ) : (
+          <DataStreamRuntimeChat
+            api={api}
+            completePreparedRequest={completePreparedRequest}
+            contextWindow={contextWindow}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            historyAdapter={historyAdapter}
+            key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
+            localLoadingState={localLoadingState}
+            modelName={modelName}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onStreamActivity={onStreamActivity}
+            onThreadRunStart={onThreadRunStart}
+            prepareLocalModel={prepareLocalModel}
+            {...(onUsage ? { onUsage } : {})}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            prepareRequestData={prepareRequestData}
+            providerGroups={groupedProviders}
+            providerSettings={providerSettings}
+            requestData={requestData}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        )}
+      </section>
+    </AssistantDetailLevelProvider>
   );
 };
 
