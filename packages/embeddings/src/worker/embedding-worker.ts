@@ -48,7 +48,6 @@ import {
   assertVectorEmbeddingColumn,
   resolveEmbeddingSetDimension,
   resolveIdType,
-  updateChunkEmbeddingBatch,
 } from './embedding-worker-db-io';
 import { classifyFailure, JobProcessingError } from './embedding-worker-failures';
 import {
@@ -962,13 +961,14 @@ export async function startEmbeddingWorker(
     }
 
     const completedJobIds = new Set<string>();
-    const updates: Array<{
-      id: string;
+    const jobCompletions: Array<{
+      chunkId: string;
       embedding: number[];
-      embeddingSetId: string;
       embeddingHash: string;
+      embeddingSetId: string;
+      id: string;
+      leaseToken: string;
     }> = [];
-    const jobCompletions: Array<{ id: string; leaseToken: string }> = [];
 
     for (let index = 0; index < toProcess.length; index++) {
       const item = toProcess[index];
@@ -977,39 +977,44 @@ export async function startEmbeddingWorker(
         throw new Error(`Missing item or embedding at index ${index} in batch.`);
       }
       const targetSetId = resolveTargetSetId(item.payload);
-      updates.push({
-        id: item.chunk.id,
+      jobCompletions.push({
+        chunkId: item.chunk.id,
         embedding,
-        embeddingSetId: targetSetId,
         embeddingHash: item.expectedHash,
+        embeddingSetId: targetSetId,
+        id: item.job.id,
+        leaseToken: item.job.lease_token,
       });
-      jobCompletions.push({ id: item.job.id, leaseToken: item.job.lease_token });
     }
 
-    if (updates.length > 0) {
+    let completedJobs: Job[] = [];
+    if (jobCompletions.length > 0) {
       await waitForBackgroundPermit('embedding completion');
-      await updateChunkEmbeddingBatch(options.db, updates, fileChunkIdType);
+      completedJobs = await jq.completeEmbeddingChunkBatch(jobCompletions);
     }
-
-    const completedJobs = await jq.completeBatch(jobCompletions);
 
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
     onJobsCompleted?.(completedJobIds);
-    const completedEmbeddingSetIds = updates.map((update) => update.embeddingSetId);
+    const completedEmbeddingSetIds = completedJobs
+      .map((job) => job.embedding_set_id)
+      .filter((embeddingSetId): embeddingSetId is string => typeof embeddingSetId === 'string');
     const completedEmbeddingSetCount = new Set(completedEmbeddingSetIds).size;
     log('embedding_completion_batch', {
       completedJobCount: completedJobIds.size,
       embeddingSetCount: completedEmbeddingSetCount,
-      updateCount: updates.length,
+      updateCount: completedJobs.length,
     });
     try {
-      await statsRefreshController.recordCompletions(completedEmbeddingSetIds, updates.length);
+      await statsRefreshController.recordCompletions(
+        completedEmbeddingSetIds,
+        completedJobs.length
+      );
       await statsRefreshController.flushIfDue();
     } catch (error) {
       workerLogger.warn('Failed to update embedding completion stats', {
-        completedChunkCount: updates.length,
+        completedChunkCount: completedJobs.length,
         embeddingSetCount: completedEmbeddingSetCount,
         error,
       });
@@ -1028,8 +1033,8 @@ export async function startEmbeddingWorker(
     for (const id of newlyCompleted) {
       completedJobIds.add(id);
     }
-    metrics.jobsProcessed += toProcess.length;
-    processedSinceInit += toProcess.length;
+    metrics.jobsProcessed += newlyCompleted.size;
+    processedSinceInit += newlyCompleted.size;
     consecutiveFailures = 0;
   }
 

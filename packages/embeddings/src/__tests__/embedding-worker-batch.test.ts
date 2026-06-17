@@ -1121,7 +1121,7 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(service.getStatus()).toBe('disposed');
   });
 
-  it('marks indexing stats dirty when chunk updates succeed but job completion loses lease', async () => {
+  it('does not mark indexing stats dirty when embedding completion loses lease', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';
     const compositeKey = formatProviderModelKey('local', modelKey);
@@ -1170,7 +1170,7 @@ describe('Embedding Worker Batch Optimization', () => {
     );
 
     const completeBatchSpy = vi
-      .spyOn(JobQueue.prototype, 'completeBatch')
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
       .mockResolvedValueOnce([]);
     const originalQuery = db.query.bind(db);
     let dirtyWriteCount = 0;
@@ -1192,18 +1192,17 @@ describe('Embedding Worker Batch Optimization', () => {
       statsRefreshCompletedChunkThreshold: 512,
       statsRefreshMinIntervalMs: 60_000,
     });
-    await waitFor(async () => {
-      const res = await db.query<{ count: number }>(
-        'SELECT count(*) as count FROM file_chunks WHERE id = $1 AND embedding IS NOT NULL',
-        [chunkId]
-      );
-      return Number(res.rows[0]?.count) === 1;
-    }, 10_000);
+    await waitFor(async () => completeBatchSpy.mock.calls.length === 1, 10_000);
 
     await controller.stop();
     completeBatchSpy.mockRestore();
 
-    expect(dirtyWriteCount).toBe(1);
+    const chunk = await db.query<{ count: number }>(
+      'SELECT count(*) as count FROM file_chunks WHERE id = $1 AND embedding IS NOT NULL',
+      [chunkId]
+    );
+    expect(Number(chunk.rows[0]?.count)).toBe(0);
+    expect(dirtyWriteCount).toBe(0);
   });
 
   it('does not fail completed embedding jobs when stats maintenance fails', async () => {
