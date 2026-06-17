@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createSelectionRuleEngine,
   type FileNode,
@@ -72,6 +72,26 @@ describe('engine', () => {
 
       expect(tree.pathExists('src')).toBe(true);
       expect(Array.from(tree.getFilesUnderRoot('src'))).toEqual(['src/components/Button.tsx']);
+    });
+
+    it('synthesizes implicit parent directories without splitting every file path', () => {
+      let tree: InMemoryTreeAdapter | null = null;
+      const splitSpy = vi.spyOn(String.prototype, 'split');
+      let splitCalls = 0;
+      try {
+        tree = new InMemoryTreeAdapter([
+          { path: 'src/components/Button.tsx', isDirectory: false },
+          { path: 'src/components/forms/Input.tsx', isDirectory: false },
+        ]);
+      } finally {
+        splitCalls = splitSpy.mock.calls.length;
+        splitSpy.mockRestore();
+      }
+
+      expect(splitCalls).toBe(0);
+      expect(tree?.pathExists('src')).toBe(true);
+      expect(tree?.pathExists('src/components')).toBe(true);
+      expect(tree?.pathExists('src/components/forms')).toBe(true);
     });
 
     it('does not treat shared path prefixes as descendants of a root', () => {
