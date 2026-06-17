@@ -480,14 +480,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private areStatusesEqual(left: TStatus, right: TStatus): boolean {
-    // RendererHostStatusShape intentionally treats these four fields as the canonical broadcast
-    // contract. If a host status grows additional UI-significant fields, this comparison must be
-    // updated at the same time so we do not silently suppress meaningful broadcasts.
-    return (
-      left.state === right.state &&
-      left.active === right.active &&
-      left.lastError === right.lastError &&
-      left.runtimeId === right.runtimeId
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every(
+      (key) =>
+        JSON.stringify((left as Record<string, unknown>)[key]) ===
+        JSON.stringify((right as Record<string, unknown>)[key])
     );
   }
 }

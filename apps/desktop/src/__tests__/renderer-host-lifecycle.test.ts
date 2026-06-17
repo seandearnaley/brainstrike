@@ -163,6 +163,24 @@ describe('RendererHostLifecycle', () => {
         fallbackApplied: false,
       },
     });
+
+    lifecycle.setStatus({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'wasm',
+        fallbackApplied: true,
+      },
+    });
+
+    expect(lifecycle.getStatus()).toMatchObject({
+      runtimeMetadata: {
+        device: 'wasm',
+        fallbackApplied: true,
+      },
+    });
   });
 
   it('assigns the host role before beginning renderer load', async () => {

@@ -281,7 +281,8 @@ export function useEmbeddingRuntimeController(
     createRuntimeStatusStore<EmbeddingRuntimeStatus>(
       desktopHost
         ? createBackgroundRuntimeStatus('embedding-host', 'embedding-host:stopped', 'stopped')
-        : createStoppedLocalStatus(localRuntimeIdRef.current)
+        : createStoppedLocalStatus(localRuntimeIdRef.current),
+      { allowedExtensionKeys: ['embeddingRuntime'] }
     )
   );
   const backfillListenersRef = useRef(
