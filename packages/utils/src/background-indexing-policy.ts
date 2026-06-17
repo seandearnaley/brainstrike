@@ -79,6 +79,29 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '__generated__',
 ]);
 
+const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
+  '.git',
+  '.turbo',
+  '.cache',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.vercel',
+  '.parcel-cache',
+  '.vite',
+  '.pnpm-store',
+  'node_modules',
+  'coverage',
+  'dist',
+  'build',
+  'playwright-report',
+  'test-results',
+  'tmp',
+  'temp',
+  'out',
+  'target',
+]);
+
 const BALANCED_EXCLUDED_FILE_NAMES = new Set([
   'package-lock.json',
   'pnpm-lock.yaml',
@@ -164,6 +187,13 @@ function isWithinSizeLimit(fileSize: number | undefined): boolean {
 }
 
 function shouldSkipBalancedDirectory(relativePath: string): boolean {
+  return shouldSkipDirectoryBySegment(relativePath, BALANCED_EXCLUDED_DIRECTORY_SEGMENTS);
+}
+
+function shouldSkipDirectoryBySegment(
+  relativePath: string,
+  excludedSegments: ReadonlySet<string>
+): boolean {
   let segmentStart = 0;
 
   for (let index = 0; index <= relativePath.length; index += 1) {
@@ -174,13 +204,21 @@ function shouldSkipBalancedDirectory(relativePath: string): boolean {
     const segment = relativePath.slice(segmentStart, index).trim();
     // Directory traversal calls this for every visited folder; scanning avoids
     // allocating a split/map/filter array per path.
-    if (segment.length > 0 && BALANCED_EXCLUDED_DIRECTORY_SEGMENTS.has(segment.toLowerCase())) {
+    if (segment.length > 0 && excludedSegments.has(segment.toLowerCase())) {
       return true;
     }
     segmentStart = index + 1;
   }
 
   return false;
+}
+
+function shouldSkipFullRootDirectory(relativePath: string): boolean {
+  const normalizedPath = relativePath.toLowerCase();
+  if (normalizedPath === '.claude/worktrees' || normalizedPath.startsWith('.claude/worktrees/')) {
+    return true;
+  }
+  return shouldSkipDirectoryBySegment(relativePath, FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS);
 }
 
 function shouldSkipBalancedFile(input: BackgroundIndexingFileInput): boolean {
@@ -228,7 +266,7 @@ export function createBackgroundIndexingEntryPolicy(
       label: option.label,
       description: option.description,
       shouldIncludeFile: shouldIncludeFullRootFile,
-      shouldTraverseDirectory: () => true,
+      shouldTraverseDirectory: ({ relativePath }) => !shouldSkipFullRootDirectory(relativePath),
     };
   }
 

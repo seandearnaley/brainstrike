@@ -141,12 +141,31 @@ describe('background-indexing-policy', () => {
         relativePath: 'public/assets/app.min.js',
       })
     ).toBe(true);
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'coverage',
-        relativePath: 'coverage',
-      })
-    ).toBe(true);
+  });
+
+  it('full-root policy still skips hard generated and cache directories', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+    for (const relativePath of [
+      '.git',
+      '.turbo',
+      '.turbo/cache',
+      'node_modules',
+      '.pnpm-store',
+      '.next',
+      'dist',
+      'build',
+      'coverage',
+      'test-results',
+      '.claude/worktrees',
+    ]) {
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+        })
+      ).toBe(false);
+    }
   });
 
   it('skips binary and oversized files regardless of preset', () => {
