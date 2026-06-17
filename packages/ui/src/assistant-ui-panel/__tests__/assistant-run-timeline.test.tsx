@@ -5,6 +5,7 @@ import { TooltipProvider } from '../../tooltip';
 import {
   AssistantRunTimeline,
   getMatchingCompletedKind,
+  isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
 } from '../assistant-run-timeline';
@@ -39,6 +40,35 @@ describe('getMatchingCompletedKind', () => {
   });
   it('maps non-run *.started to *.completed', () => {
     expect(getMatchingCompletedKind('memory.semantic.started')).toBe('memory.semantic.completed');
+  });
+});
+
+describe('isAlwaysVisibleRunEvent', () => {
+  const ts = '2026-06-16T10:00:00.000Z';
+  const event = (kind: string, status: string) => ({
+    id: 'e',
+    kind,
+    label: kind,
+    status,
+    timestamp: ts,
+  });
+
+  it('forces run-level failure and cancellation rows to stay visible', () => {
+    expect(isAlwaysVisibleRunEvent(event('run.failed', 'failed'))).toBe(true);
+    expect(isAlwaysVisibleRunEvent(event('run.cancelled', 'cancelled'))).toBe(true);
+  });
+
+  it('does not force background bookkeeping or already-carded tool failures', () => {
+    // tool.failed already surfaces on its ToolFallback card — never double-report.
+    expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);
+    expect(isAlwaysVisibleRunEvent(event('memory.semantic.completed', 'completed'))).toBe(false);
+    expect(isAlwaysVisibleRunEvent(event('run.finished', 'completed'))).toBe(false);
+    expect(isAlwaysVisibleRunEvent(event('run.started', 'running'))).toBe(false);
+  });
+
+  it('returns false for non-run-event data', () => {
+    expect(isAlwaysVisibleRunEvent(null)).toBe(false);
+    expect(isAlwaysVisibleRunEvent({ kind: 'run.failed' })).toBe(false);
   });
 });
 

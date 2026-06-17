@@ -14,6 +14,7 @@ import {
   AssistantUiPanel,
   ProviderSettingsPanel,
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
+import { TooltipProvider } from '../tooltip';
 
 const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
   runtime: 'test-runtime',
@@ -453,6 +454,52 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.queryByTestId('assistant-run-timeline')).not.toBeInTheDocument();
+  });
+
+  it('still surfaces run.failed/run.cancelled at default detail (failures never silently hidden)', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    const dataUi = useAssistantDataUIMock.mock.calls
+      .map((call) => call[0] as { name?: string; render?: React.ComponentType<{ data: unknown }> })
+      .find((entry) => entry.name === ASSISTANT_RUN_EVENT_DATA_NAME);
+    const RunEventPart = dataUi?.render;
+    if (!RunEventPart) {
+      throw new Error('Expected a run-event data renderer to be registered.');
+    }
+
+    // No AssistantDetailLevelProvider → standard default → background hidden,
+    // yet a terminal run failure must still render so the turn isn't silently
+    // swallowed.
+    const { rerender } = render(
+      <TooltipProvider>
+        <RunEventPart
+          data={{
+            id: 'evt-fail',
+            kind: 'run.failed',
+            label: 'Run failed',
+            status: 'failed',
+            timestamp: '2026-06-16T10:00:00.000Z',
+          }}
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByTestId('assistant-run-timeline')).toBeInTheDocument();
+    expect(screen.getByText('Run failed')).toBeInTheDocument();
+
+    rerender(
+      <TooltipProvider>
+        <RunEventPart
+          data={{
+            id: 'evt-cancel',
+            kind: 'run.cancelled',
+            label: 'Run cancelled',
+            status: 'cancelled',
+            timestamp: '2026-06-16T10:00:01.000Z',
+          }}
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByText('Run cancelled')).toBeInTheDocument();
   });
 
   it('renders completed chain-of-thought with a static reasoning mark', () => {

@@ -78,6 +78,23 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
   );
 }
 
+/**
+ * Run-event rows that must surface even when background activity is hidden
+ * (non-Developer detail). A failed or cancelled TURN would otherwise be silently
+ * swallowed: tool-level failures already surface on their ToolFallback cards, and
+ * a run rejected before any stream part renders via AssistantMessageError — but a
+ * mid-run failure/cancellation has neither, so its terminal run-event row is the
+ * only visible signal. Matched by `kind` (not `status`) on purpose: `tool.failed`
+ * is also `status: 'failed'`, and re-surfacing it here would double-report the
+ * card.
+ */
+export function isAlwaysVisibleRunEvent(data: unknown): boolean {
+  if (!isAssistantRunEvent(data)) {
+    return false;
+  }
+  return data.kind === 'run.failed' || data.kind === 'run.cancelled';
+}
+
 export function getMessageParts(message: unknown): readonly unknown[] {
   if (!isRecord(message)) {
     return [];
