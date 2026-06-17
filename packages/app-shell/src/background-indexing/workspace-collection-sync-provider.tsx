@@ -49,6 +49,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -936,6 +937,7 @@ export function WorkspaceCollectionSyncProvider({
             return;
           }
           const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
+          // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
@@ -977,6 +979,7 @@ export function WorkspaceCollectionSyncProvider({
       triggerWorkspaceIndexBootstrap,
     ]
   );
+  const triggerSyncFromEvent = useEffectEvent(triggerSync);
 
   useEffect(() => {
     setBackgroundWorkManualPause(paused);
@@ -1007,14 +1010,14 @@ export function WorkspaceCollectionSyncProvider({
 
   useEffect(() => {
     const handleRefresh = (event: Event): void => {
-      triggerSync(parseRefreshSyncScope(event));
+      triggerSyncFromEvent(parseRefreshSyncScope(event));
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     return () => {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
-  }, [triggerSync]);
+  }, []);
 
   useEffect(() => {
     const handleQueueDrained = (event: Event): void => {
@@ -1029,14 +1032,14 @@ export function WorkspaceCollectionSyncProvider({
       ) {
         return;
       }
-      triggerSync({ mode: 'full' });
+      triggerSyncFromEvent({ mode: 'full' });
     };
 
     window.addEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
     return () => {
       window.removeEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
     };
-  }, [managedCollectionId, triggerSync]);
+  }, [managedCollectionId]);
 
   // Recovery point for a backfill killed while the window was hidden (e.g. a
   // top-level navigation mid-backfill): re-sync on return to visibility so the
