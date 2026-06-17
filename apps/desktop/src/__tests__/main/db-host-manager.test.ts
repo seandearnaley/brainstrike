@@ -485,45 +485,8 @@ describe('DbHostManager', () => {
           requestKind: 'query',
           sqlPreview: 'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
           timeoutMs: 5,
-          willTerminateHost: true,
         })
       );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('terminates the utility DB host when a query request times out', async () => {
-    vi.useFakeTimers();
-    try {
-      const { createDbHostManager } = await import('../../db-host-manager');
-      const manager = createDbHostManager({
-        entryPath: '/mock/db-host-entry.js',
-        requestTimeoutMs: 5,
-      });
-      const databasePromise = manager.getDatabase();
-      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-        initialized: true,
-      });
-      const database = await databasePromise;
-
-      const queryPromise = database.query('SELECT pg_sleep(60)');
-      const queryAssertion = expect(queryPromise).rejects.toThrow(
-        'DB host request timed out: query'
-      );
-      const firstHost = latestProcess();
-
-      await vi.advanceTimersByTimeAsync(5);
-
-      await queryAssertion;
-      expect(firstHost.kill).toHaveBeenCalledTimes(1);
-
-      const nextDiagnosticsPromise = manager.getDiagnostics();
-      expect(forkMock).toHaveBeenCalledTimes(2);
-      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-        hasDatabaseHandle: true,
-      });
-      await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
     } finally {
       vi.useRealTimers();
     }
