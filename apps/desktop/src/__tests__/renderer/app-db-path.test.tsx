@@ -86,6 +86,7 @@ describe('App database path resolution', () => {
           clearAll: vi.fn(),
           diagnostics: vi.fn(),
           exec: vi.fn(),
+          insertChunksAndEnqueueEmbeddingJobs: vi.fn(),
           query: vi.fn(),
           resetLocal: vi.fn(),
           test: vi.fn(),
