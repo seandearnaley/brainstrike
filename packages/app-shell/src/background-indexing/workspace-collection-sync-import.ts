@@ -39,6 +39,21 @@ import {
 } from './workspace-collection-sync-progress';
 
 const logger = createLogger('WorkspaceCollectionSyncImport');
+const TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index background import requires transactional chunk/job enqueue support.';
+
+interface FirstEmbedChunkJobEnqueueMarker {
+  batchNumber: number;
+  chunkCount: number;
+  fileRecordId: string;
+}
+
+function hasTransactionalChunkJobEnqueueSupport(db: DbHandle): boolean {
+  return (
+    typeof db.transaction === 'function' ||
+    typeof db.insertChunksAndEnqueueEmbeddingJobs === 'function'
+  );
+}
 
 type WorkspaceIndexingImportQosPolicy = Pick<
   WorkspaceIndexingQosPolicy,
@@ -403,6 +418,11 @@ async function applyBackgroundImportBatch(args: {
 
   try {
     await args.waitForBackgroundPermit({ label: 'background import batch' });
+    logger.info('Workspace Index import batch managed-cache apply started', {
+      batchFileCount: mutations.length,
+      collectionId: args.collectionId,
+      rootId: args.rootId ?? null,
+    });
     await args.applyManagedCacheBatch({
       embeddingSetId: args.collectionId,
       changes: mutations.map((entry) => entry.mutation),
@@ -768,26 +788,66 @@ export async function runRootFolderCacheImport(args: {
     return;
   }
   assertManagedCollectionModelKey(collection.modelKey);
+  if (!hasTransactionalChunkJobEnqueueSupport(db)) {
+    throw new Error(TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR);
+  }
+  const firstEmbedChunkJobEnqueueRef: { current: FirstEmbedChunkJobEnqueueMarker | null } = {
+    current: null,
+  };
+  const logFirstEmbedChunkJobEnqueued = (args: {
+    batchNumber: number;
+    chunkCount: number;
+    fileRecordId: string;
+  }): void => {
+    if (firstEmbedChunkJobEnqueueRef.current || args.chunkCount <= 0) {
+      return;
+    }
+    firstEmbedChunkJobEnqueueRef.current = args;
+    logger.info('Workspace Index first durable embed_chunk job enqueued', {
+      batchNumber: args.batchNumber,
+      chunkCount: args.chunkCount,
+      collectionId: collection.id,
+      fileRecordId: args.fileRecordId,
+      rootId: rootId ?? null,
+    });
+  };
+  const insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs
+    ? db.insertChunksAndEnqueueEmbeddingJobs.bind(db)
+    : null;
+  let activeBatchNumber = 0;
   const sql = {
     query: db.query.bind(db),
-    ...(db.insertChunksAndEnqueueEmbeddingJobs
+    ...(insertChunksAndEnqueueEmbeddingJobs
       ? {
-          insertChunksAndEnqueueEmbeddingJobs: db.insertChunksAndEnqueueEmbeddingJobs.bind(db),
+          insertChunksAndEnqueueEmbeddingJobs: (async (chunks, fileRecordId, options) => {
+            await insertChunksAndEnqueueEmbeddingJobs(chunks, fileRecordId, options);
+            logFirstEmbedChunkJobEnqueued({
+              batchNumber: activeBatchNumber,
+              chunkCount: chunks.length,
+              fileRecordId,
+            });
+          }) satisfies NonNullable<typeof db.insertChunksAndEnqueueEmbeddingJobs>,
         }
       : {}),
     ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
   };
-  if (!(db.transaction || db.insertChunksAndEnqueueEmbeddingJobs)) {
-    logger.warn(
-      'Workspace Index import DB handle does not expose callback transactions; chunk/job recovery relies on backfill reconciliation.',
-      { embeddingSetId: collection.id }
-    );
-  }
-  const embeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
+  const rawEmbeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
     db,
     createQueue: (executor) => new JobQueue(executor),
     defaultExpectedDimension: collection.dimensions,
   });
+  const embeddingQueue = {
+    ...rawEmbeddingQueue,
+    enqueueBatch: async (...params: Parameters<typeof rawEmbeddingQueue.enqueueBatch>) => {
+      const [chunks, fileRecordId] = params;
+      await rawEmbeddingQueue.enqueueBatch(...params);
+      logFirstEmbedChunkJobEnqueued({
+        batchNumber: activeBatchNumber,
+        chunkCount: chunks.length,
+        fileRecordId,
+      });
+    },
+  };
   const embeddingConfig = {
     enabled: true,
     model: collection.modelKey,
@@ -813,6 +873,16 @@ export async function runRootFolderCacheImport(args: {
     for (let index = 0; index < changes.length; index += qosPolicy.importBatchSize) {
       throwIfAborted(abortSignal, 'Background cache import was cancelled.');
       const batch = changes.slice(index, index + qosPolicy.importBatchSize);
+      const batchNumber = Math.floor(index / qosPolicy.importBatchSize) + 1;
+      activeBatchNumber = batchNumber;
+      firstEmbedChunkJobEnqueueRef.current = null;
+      logger.info('Workspace Index import batch content read started', {
+        batchFileCount: batch.length,
+        batchNumber,
+        collectionId: collection.id,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
       const batchMetadataByKey = new Map(
         batch.map(
           (change) =>
@@ -841,6 +911,14 @@ export async function runRootFolderCacheImport(args: {
         { abortSignal }
       );
       throwIfAborted(abortSignal, 'Background cache import was cancelled.');
+      logger.info('Workspace Index import batch content read completed', {
+        batchFileCount: batch.length,
+        batchNumber,
+        collectionId: collection.id,
+        contentEntries: Object.keys(batchContents).length,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
 
       const fileContents = Object.fromEntries(
         batch
@@ -853,6 +931,14 @@ export async function runRootFolderCacheImport(args: {
           .filter((entry): entry is readonly [string, string] => entry !== null)
       );
       const selectedFilePaths = new Set(Object.keys(fileContents));
+      logger.info('Workspace Index import batch chunking started', {
+        batchFileCount: batch.length,
+        batchNumber,
+        collectionId: collection.id,
+        indexableFileCount: selectedFilePaths.size,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
         request: {
@@ -958,7 +1044,22 @@ export async function runRootFolderCacheImport(args: {
           update: () => null,
         },
       });
+      logger.info('Workspace Index import batch chunking completed', {
+        batchFileCount: batch.length,
+        batchNumber,
+        chunksCreated: batchResults.reduce((sum, result) => sum + result.chunksCreated, 0),
+        collectionId: collection.id,
+        importedFiles: batchResults.filter((result) => result.imported).length,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
       await waitForBackgroundPermit({ label: 'background import assignment' });
+      logger.info('Workspace Index import batch assignment reconciliation requested', {
+        batchNumber,
+        collectionId: collection.id,
+        importedFiles: batchResults.filter((result) => result.imported).length,
+        rootId: rootId ?? null,
+      });
       await backfillEmbeddingSetAssignments(
         sql,
         collection.id,

@@ -545,6 +545,9 @@ function makeMinimalIpcDbWithoutCallbackTransaction() {
   return { query };
 }
 
+const TRANSACTIONAL_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index background import requires transactional chunk/job enqueue support.';
+
 function makeMinimalChange(): PreparedCacheChange {
   return {
     compositeKey: COMPOSITE_KEY,
@@ -702,6 +705,113 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           }),
         }),
       })
+    );
+  });
+
+  it('logs the managed import batch lifecycle and first durable enqueue marker', async () => {
+    vi.mocked(runEnhancedImport).mockImplementationOnce(async (params) => {
+      const results = await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      await params.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs?.(
+        [
+          {
+            id: 'chunk-1',
+            fileRecordId: 'file-id-a',
+            content: 'content',
+            contentHash: 'chunk-hash-1',
+            chunkIndex: 0,
+            startLine: 1,
+            endLine: 1,
+            startOffset: 0,
+            endOffset: 7,
+            tokenCount: 1,
+            chunkType: 'sentence',
+            chunkSize: 7,
+            embeddingSetId: 'collection-1',
+          },
+        ] as never,
+        'file-id-a',
+        {
+          model: 'local:model-1',
+          targetEmbeddingSetId: 'collection-1',
+        }
+      );
+      return results.map((result) => ({ ...result, chunksCreated: 1 }));
+    });
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: {
+          ...makeMinimalIpcDbWithoutCallbackTransaction(),
+          insertChunksAndEnqueueEmbeddingJobs: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+    } finally {
+      removeListener();
+    }
+
+    const messages = captured.map((record) => record.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        'Workspace Index import batch content read started',
+        'Workspace Index import batch managed-cache apply started',
+        'Workspace Index import batch chunking started',
+        'Workspace Index first durable embed_chunk job enqueued',
+        'Workspace Index import batch chunking completed',
+        'Workspace Index import batch assignment reconciliation requested',
+      ])
+    );
+    expect(
+      messages.indexOf('Workspace Index first durable embed_chunk job enqueued')
+    ).toBeGreaterThan(messages.indexOf('Workspace Index import batch chunking started'));
+    expect(messages.indexOf('Workspace Index first durable embed_chunk job enqueued')).toBeLessThan(
+      messages.indexOf('Workspace Index import batch chunking completed')
     );
   });
 
@@ -902,6 +1012,54 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         }),
       ])
     );
+  });
+
+  it('rejects DB handles without atomic chunk/job enqueue support before import starts', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+
+    await expect(
+      runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalIpcDbWithoutCallbackTransaction() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow(TRANSACTIONAL_ENQUEUE_REQUIRED_ERROR);
+
+    expect(runEnhancedImport).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatch).not.toHaveBeenCalled();
   });
 
   it('logs managed-cache batch failures with root-relative file context', async () => {

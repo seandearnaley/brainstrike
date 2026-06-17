@@ -1894,12 +1894,41 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('imports with transactional chunk enqueue and then backfills through the runtime pipeline', async () => {
+    const events: string[] = [];
     const deps = createDeps({
+      ensureChunkingWorker: vi.fn(async () => {
+        events.push('ensure-chunking-worker');
+        return {
+          chunkBatch: vi.fn(),
+          chunkFile: vi.fn(),
+          isReady: () => true,
+          terminate: vi.fn(),
+          transportKind: 'local-worker' as const,
+        };
+      }),
+      ensureEmbeddingRuntimeStarted: vi.fn(async () => {
+        events.push('ensure-embedding-runtime-started');
+      }),
+      enqueueBackfill: vi.fn(async () => {
+        events.push('enqueue-backfill');
+        return { requestId: 'background-indexing-backfill:test' };
+      }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
           [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
+    });
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      events.push('run-enhanced-import-start');
+      await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      events.push('run-enhanced-import-complete');
+      return [];
     });
     const service = new WorkspaceCollectionSyncService(deps);
 
@@ -1934,6 +1963,13 @@ describe('WorkspaceCollectionSyncService', () => {
         source: 'background-indexing',
       })
     );
+    expect(events).toEqual([
+      'ensure-embedding-runtime-started',
+      'ensure-chunking-worker',
+      'run-enhanced-import-start',
+      'run-enhanced-import-complete',
+      'enqueue-backfill',
+    ]);
   });
 
   it('waits for import QoS before entering importing status', async () => {

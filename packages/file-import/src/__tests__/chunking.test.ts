@@ -764,6 +764,94 @@ describe('processChunking', () => {
     expect(enqueueJobsForChunksTx).toHaveBeenCalledTimes(1);
   });
 
+  it('enqueues chunks for completed files before all file chunking has finished', async () => {
+    let unblockSecondFile!: () => void;
+    const secondFileBlocked = new Promise<void>((resolve) => {
+      unblockSecondFile = resolve;
+    });
+    const chunkedFileIds: string[] = [];
+    const enqueuedFileIds: string[] = [];
+    let noteFirstFileEnqueued!: () => void;
+    const firstFileEnqueuedBeforeSecondChunked = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Timed out waiting for first file enqueue before second chunk finished.'));
+      }, 1000);
+      noteFirstFileEnqueued = () => {
+        if (enqueuedFileIds.includes('file-1') && !chunkedFileIds.includes('file-2')) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+    });
+
+    mockRepository.findByIds.mockResolvedValue([
+      {
+        id: 'file-1',
+        name: 'file-1.ts',
+        path: '/file-1.ts',
+        content: 'export const one = 1;',
+      },
+      {
+        id: 'file-2',
+        name: 'file-2.ts',
+        path: '/file-2.ts',
+        content: 'export const two = 2;',
+      },
+    ]);
+    const workerPort = createMockChunkingWorkerPort({
+      chunkFile: vi.fn().mockImplementation(async (fileRecordId: string) => {
+        if (fileRecordId === 'file-2') {
+          await secondFileBlocked;
+        }
+        chunkedFileIds.push(fileRecordId);
+        return {
+          fileRecordId,
+          chunks: [
+            createMockPortableChunk({
+              content: `Chunk content for ${fileRecordId}`,
+              contentHash: `hash-${fileRecordId}`,
+              endOffset: `Chunk content for ${fileRecordId}`.length,
+            }),
+          ],
+          strategyUsed: 'sentence',
+          totalTokens: 10,
+          skipped: false,
+        };
+      }),
+    });
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(
+      async (_chunks: FileChunk[], fileRecordId: string) => {
+        enqueuedFileIds.push(fileRecordId);
+        if (fileRecordId === 'file-1') {
+          noteFirstFileEnqueued();
+        }
+      }
+    );
+
+    const chunkingPromise = processChunking(
+      [
+        { id: 'file-1', imported: true, existed: false },
+        { id: 'file-2', imported: true, existed: false },
+      ],
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        chunkingWorkerPort: workerPort,
+        embedQueueEnabled: true,
+        insertChunksAndEnqueueEmbeddingJobs,
+      }
+    );
+
+    await firstFileEnqueuedBeforeSecondChunked;
+    expect(enqueuedFileIds).toEqual(['file-1']);
+    expect(chunkedFileIds).toEqual(['file-1']);
+
+    unblockSecondFile();
+    await chunkingPromise;
+
+    expect(enqueuedFileIds).toEqual(['file-1', 'file-2']);
+  });
+
   it('uses bounded parallelism for host-proxy chunking transport', async () => {
     let activeRequests = 0;
     let maxActiveRequests = 0;
