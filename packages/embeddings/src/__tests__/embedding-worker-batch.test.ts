@@ -795,6 +795,75 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(blockedBatchStarts).toEqual([0, 1]);
   });
 
+  it('rejects a streamed completion batch that exceeds the configured chunk capacity', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'chunk-capacity-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'chunk-capacity-b' });
+    await db.query(
+      `UPDATE job_queue
+       SET max_attempts = 1
+       WHERE id IN ('job-chunk-capacity-a', 'job-chunk-capacity-b')`
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 2,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      maxPendingCompletionChunks: 1,
+      modelKey,
+      service: new ChunkedStreamingEmbeddingService(2, 0),
+    });
+
+    try {
+      await waitFor(async () => {
+        const failed = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
+        );
+        return Number(failed.rows[0]?.count) === 2;
+      }, 10_000);
+    } finally {
+      await controller.stop();
+    }
+  });
+
+  it('rejects a streamed completion batch that exceeds the configured byte capacity', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'byte-capacity' });
+    await db.query(
+      `UPDATE job_queue
+       SET max_attempts = 1
+       WHERE id = 'job-byte-capacity'`
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 1,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      maxPendingCompletionBytes: 1,
+      modelKey,
+      service: new ChunkedStreamingEmbeddingService(1, 0),
+    });
+
+    try {
+      await waitFor(async () => {
+        const failed = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
+        );
+        return Number(failed.rows[0]?.count) === 1;
+      }, 10_000);
+    } finally {
+      await controller.stop();
+    }
+  });
+
   it('does not leave claimed jobs running when deferred DB completion fails', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';

@@ -1166,6 +1166,16 @@ export async function startEmbeddingWorker(
     };
 
     const waitForCapacity = async (chunkCount: number, byteCount: number): Promise<void> => {
+      if (chunkCount > capacity.maxPendingCompletionChunks) {
+        throw new Error(
+          `Invalid input: streamed completion batch has ${chunkCount} chunk(s), exceeding maxPendingCompletionChunks=${capacity.maxPendingCompletionChunks}.`
+        );
+      }
+      if (byteCount > capacity.maxPendingCompletionBytes) {
+        throw new Error(
+          `Invalid input: streamed completion batch has ${byteCount} byte(s), exceeding maxPendingCompletionBytes=${capacity.maxPendingCompletionBytes}.`
+        );
+      }
       while (
         pendingBatches > 0 &&
         (pendingBatches + 1 > capacity.maxPendingCompletionBatches ||
