@@ -215,6 +215,27 @@ vi.mock('@assistant-ui/react', () => {
         const Text = components?.Text ?? TextStub;
         return <Text />;
       },
+      PartByIndex: ({
+        index,
+        components,
+      }: {
+        index: number;
+        components: {
+          Reasoning?: React.ComponentType;
+          tools?: { Fallback?: React.ComponentType<Record<string, unknown>> };
+        };
+      }) => {
+        const part = mockAuiState.message.parts[index] as { type?: string } | undefined;
+        if (part?.type === 'reasoning') {
+          const Reasoning = components.Reasoning ?? (() => null);
+          return <Reasoning />;
+        }
+        if (part?.type === 'tool-call') {
+          const Fallback = components.tools?.Fallback ?? (() => null);
+          return <Fallback {...part} />;
+        }
+        return null;
+      },
       If,
     },
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
@@ -407,6 +428,33 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('hides background run-event rows by default (memory/context bookkeeping)', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    const dataUi = useAssistantDataUIMock.mock.calls
+      .map((call) => call[0] as { name?: string; render?: React.ComponentType<{ data: unknown }> })
+      .find((entry) => entry.name === ASSISTANT_RUN_EVENT_DATA_NAME);
+    const RunEventPart = dataUi?.render;
+    if (!RunEventPart) {
+      throw new Error('Expected a run-event data renderer to be registered.');
+    }
+
+    // No AssistantDetailLevelProvider here → standard default → background hidden.
+    render(
+      <RunEventPart
+        data={{
+          id: 'evt-1',
+          kind: 'memory.semantic.completed',
+          label: 'Recalled memory',
+          status: 'completed',
+          timestamp: '2026-06-16T10:00:00.000Z',
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId('assistant-run-timeline')).not.toBeInTheDocument();
+  });
+
   it('renders completed chain-of-thought with a static reasoning mark', () => {
     mockAuiState = createMockAuiState([null, { status: 'complete' }, completedReasoningPart]);
 
@@ -450,6 +498,33 @@ describe('AssistantUiPanel model picker', () => {
       'bs-thinking-mark-static'
     );
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+  });
+
+  it('groups all of a turn’s tool calls into one Activity panel (N steps, not N groups)', () => {
+    // The Mastra loop splits each tool into its own step/chain; the turn-level
+    // grouping must collapse them into a single "Worked · 3 steps" panel.
+    mockAuiState = createMockAuiState([
+      { status: { type: 'complete' }, toolCallId: 'a', type: 'tool-call' },
+      { status: { type: 'complete' }, toolCallId: 'b', type: 'tool-call' },
+      { status: { type: 'complete' }, toolCallId: 'c', type: 'tool-call' },
+    ]);
+
+    renderCapturedChainOfThought();
+
+    expect(screen.getByTestId('assistant-activity-group')).toBeInTheDocument();
+    expect(screen.getByText(/3 steps/)).toBeInTheDocument();
+    expect(screen.getAllByTestId('tool-fallback')).toHaveLength(3);
+  });
+
+  it('renders a single tool call as just the card, with no group wrapper', () => {
+    mockAuiState = createMockAuiState([
+      { status: { type: 'complete' }, toolCallId: 'a', type: 'tool-call' },
+    ]);
+
+    renderCapturedChainOfThought();
+
+    expect(screen.queryByTestId('assistant-activity-group')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tool-fallback')).toBeInTheDocument();
   });
 
   it('prepares per-run request data when the hosted runtime starts a request', async () => {

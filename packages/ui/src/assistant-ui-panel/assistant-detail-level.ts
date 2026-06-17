@@ -26,9 +26,12 @@ export const ASSISTANT_DETAIL_LEVEL_META: Record<
   AssistantDetailLevel,
   { description: string; label: string }
 > = {
-  compact: { description: 'Calls only — hides internal tool output', label: 'Compact' },
-  standard: { description: 'Calls + result summaries', label: 'Standard' },
-  developer: { description: 'Full raw I/O, timings, tokens', label: 'Developer' },
+  compact: { description: 'Tool calls only', label: 'Compact' },
+  standard: { description: 'Tool calls + result summaries', label: 'Standard' },
+  developer: {
+    description: 'Memory/context activity + raw tool I/O',
+    label: 'Developer',
+  },
 };
 
 export interface ToolDisplayPolicy {
@@ -42,19 +45,13 @@ export interface ToolDisplayPolicy {
   showResultSummary: boolean;
 }
 
-interface ToolDisplayContext {
-  /** Internal brainstrike.* tool (vs an external MCP tool). */
-  isInternal: boolean;
-}
-
 /**
- * Map the Detail level + tool origin to concrete rendering decisions. Pure so
- * the card components stay declarative and the policy is unit-testable.
+ * Map the Detail level to concrete tool-card rendering decisions. Pure verbosity
+ * axis — it never depends on the tool's origin (every tool call is something the
+ * user may care about; "internal" noise is the memory/context background
+ * activity, handled by `shouldShowBackgroundActivity`, not the tool cards).
  */
-export function resolveToolDisplayPolicy(
-  level: AssistantDetailLevel,
-  { isInternal }: ToolDisplayContext
-): ToolDisplayPolicy {
+export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDisplayPolicy {
   if (level === 'developer') {
     return {
       defaultExpanded: true,
@@ -65,11 +62,11 @@ export function resolveToolDisplayPolicy(
   }
 
   if (level === 'compact') {
-    // Hide internal payloads entirely; keep external tool output reachable.
+    // Just the call + status; payloads stay out of the way.
     return {
       defaultExpanded: false,
-      showDetailsExpander: !isInternal,
-      showResultSummary: !isInternal,
+      showDetailsExpander: false,
+      showResultSummary: false,
       showRawIo: false,
     };
   }
@@ -81,4 +78,14 @@ export function resolveToolDisplayPolicy(
     showResultSummary: true,
     showRawIo: false,
   };
+}
+
+/**
+ * Whether the thread shows the memory/context "background activity" run-event
+ * rows (observational memory, semantic recall, context prep, run steps). Hidden
+ * everywhere except Developer — by default the thread is just the grouped tool
+ * calls + the answer, not a flood of internal bookkeeping.
+ */
+export function shouldShowBackgroundActivity(level: AssistantDetailLevel): boolean {
+  return level === 'developer';
 }

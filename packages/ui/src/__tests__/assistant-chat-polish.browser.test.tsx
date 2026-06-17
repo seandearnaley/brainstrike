@@ -2,10 +2,8 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, test } from 'vitest';
-import {
-  AssistantActivityGroup,
-  type ToolActivitySummary,
-} from '../assistant-ui-panel/assistant-activity-group';
+import { AssistantActivityGroup } from '../assistant-ui-panel/assistant-activity-group';
+import type { ToolActivitySummary } from '../assistant-ui-panel/tool-activity';
 // Theme variables (colors, shimmer, tints) so screenshots render faithfully.
 import '../globals.css';
 import '../assistant-ui-panel/overrides.css';
@@ -96,6 +94,23 @@ describe('markdown typography (real browser, with preflight reset)', () => {
       </div>
     );
     expect(getComputedStyle(screen.getByTestId('first')).marginTop).toBe('0px');
+  });
+
+  test('styles the bare fallback code block (Shiki loading/failure) with a container', () => {
+    render(
+      <div className="assistant-ui-panel">
+        <div className="aui-md">
+          <pre data-testid="fallback-pre">
+            <code>const x = 1;</code>
+          </pre>
+        </div>
+      </div>
+    );
+    const pre = screen.getByTestId('fallback-pre');
+    // A real container: non-zero padding + a non-transparent background.
+    expect(Number.parseFloat(getComputedStyle(pre).paddingTop)).toBeGreaterThan(0);
+    expect(getComputedStyle(pre).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(getComputedStyle(pre).overflowX).toBe('auto');
   });
 });
 

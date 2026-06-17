@@ -2,12 +2,8 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  AssistantActivityGroup,
-  runEventsSpanMs,
-  summarizeToolActivity,
-  type ToolActivitySummary,
-} from '../assistant-activity-group';
+import { AssistantActivityGroup } from '../assistant-activity-group';
+import { runEventsSpanMs, summarizeToolActivity, type ToolActivitySummary } from '../tool-activity';
 import { formatActivityDuration } from '../tool-durations';
 
 const toolPart = (overrides: Record<string, unknown>) => ({
@@ -126,6 +122,18 @@ describe('AssistantActivityGroup', () => {
     });
 
     expect(screen.getByText('3.4s')).toBeInTheDocument();
+  });
+
+  it('seeds the live timer from the elapsed fallback (no flash back to 0)', () => {
+    // The group mounts 2s into the turn — the clock must continue from ~2.0s,
+    // not reset to 0 (which flashed 1.8s → 0.2s).
+    render(<AssistantActivityGroup fallbackMs={2000} isActive summary={activeSummary} />);
+    expect(screen.getByText('2.0s')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.getByText('3.0s')).toBeInTheDocument();
   });
 
   it('renders the done summary with elapsed fallback and step count', () => {

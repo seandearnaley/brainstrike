@@ -17,7 +17,11 @@ export const ExpandableMessageContent: FC<{
   const contentId = useId();
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
-  const [contentHeight, setContentHeight] = useState(collapsedHeight);
+  // null until measured. Render uses `measuredHeight ?? collapsedHeight` so the
+  // initial collapsed height is in place on first paint (no flash) without
+  // copying the prop into state (no stale-on-prop-change path).
+  const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
+  const contentHeight = measuredHeight ?? collapsedHeight;
 
   useEffect(() => {
     const node = contentRef.current;
@@ -27,7 +31,7 @@ export const ExpandableMessageContent: FC<{
 
     const measure = (): void => {
       const nextContentHeight = node.scrollHeight;
-      setContentHeight(nextContentHeight);
+      setMeasuredHeight(nextContentHeight);
       setHasOverflow(nextContentHeight > collapsedHeight + 1);
     };
 
