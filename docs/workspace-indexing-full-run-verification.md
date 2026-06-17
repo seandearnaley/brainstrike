@@ -10,6 +10,7 @@ The desktop verifier is opt-in because it indexes real local folders:
 BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS="/abs/root-a:/abs/root-b:/abs/root-c" \
 BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE=webgpu \
 BRAINSTRIKE_E2E_ALLOW_GPU=1 \
+BRAINSTRIKE_E2E_USER_DATA_DIR="$(mktemp -d /tmp/brainstrike-full-index.XXXXXX)" \
 pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index.desktop.test.ts --workers=1 --reporter=line
 ```
 
@@ -21,13 +22,19 @@ pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index
 - Sets Workspace Index policy to `full-root`.
 - Requires `window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__` to be available.
 - Counts expected files through app traversal and app policy, not shell `find`.
-- Fails immediately on blocked/error sync status, debug access issues, selected-device mismatch, DB host timeout text, local embedding execution failure text, uncaught/unhandled log text, or a long no-progress window.
+- Fails immediately on blocked/error sync status, debug access issues, selected-device mismatch, actual backend mismatch once worker metadata exists, `fallbackApplied=true`, DB host timeout text, local embedding execution failure text, uncaught/unhandled log text, or a long no-progress window.
 - Requires two stable terminal polls where expected files equal DB `file_records`, all records are chunked, all chunks are embedded, and no queued/running/failed `embed_chunk` jobs remain.
-- Emits `full-workspace-index-evidence.json` in the Playwright output directory.
+- Emits `full-workspace-index-evidence.json` in the Playwright output directory with timestamped samples, terminal counts, actual worker metadata, memory samples, and fatal log matches.
 
 ## Backend Proof Rule
 
-If the target is WebGPU, a run that used WASM is invalid. Set `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE=webgpu` and inspect the evidence snapshot `selectedDevicePreference`.
+If the target is WebGPU, a run that used WASM is invalid. Set `BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE=webgpu`; the verifier requires terminal `embeddingHost.status.embeddingRuntime.actualWorkerMetadata.device === "webgpu"` and `fallbackApplied === false`.
+
+Analyze the emitted artifact with:
+
+```bash
+node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs --require-device webgpu
+```
 
 ## Focused Development Checks
 

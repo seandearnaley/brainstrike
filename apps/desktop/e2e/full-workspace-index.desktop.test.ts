@@ -12,6 +12,7 @@ interface WorkspaceIndexExpectedCount {
 interface WorkspaceIndexDebugSnapshot {
   accessIssues?: Array<{ reason: string; source: string }>;
   chunkStatsByRoot: Record<string, unknown>[];
+  embeddingHostStatus?: unknown;
   expectedCounts: WorkspaceIndexExpectedCount[];
   fileRecordsByRoot: Record<string, unknown>[];
   jobQueue: Record<string, unknown>[];
@@ -25,12 +26,20 @@ interface WorkspaceIndexDebugSnapshot {
   };
 }
 
+interface WorkspaceIndexEvidenceSample {
+  capturedAt: string;
+  elapsedMs: number;
+  snapshot: WorkspaceIndexDebugSnapshot;
+}
+
 const ROOTS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS';
 const SINGLE_ROOT_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH';
 const DEVICE_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE';
 const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
 const POLL_MS = 5000;
 const NO_PROGRESS_TIMEOUT_MS = 120_000;
+const FATAL_LOG_PATTERN =
+  /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
 
 function parseConfiguredRoots(): string[] {
   const rawRoots = process.env[ROOTS_ENV]?.trim() || process.env[SINGLE_ROOT_ENV]?.trim() || '';
@@ -61,6 +70,21 @@ function sumRows(rows: Record<string, unknown>[], key: string): number {
   return rows.reduce((total, row) => total + readNumber(row, key), 0);
 }
 
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getActualWorkerMetadata(
+  snapshot: WorkspaceIndexDebugSnapshot
+): Record<string, unknown> | null {
+  const hostStatus = readRecord(snapshot.embeddingHostStatus);
+  const status = readRecord(hostStatus?.['status']);
+  const runtime = readRecord(status?.['embeddingRuntime']);
+  return readRecord(runtime?.['actualWorkerMetadata']);
+}
+
 function hasBlockingQueueWork(snapshot: WorkspaceIndexDebugSnapshot): boolean {
   return snapshot.jobQueue.some((row) => {
     const state = String(row['state'] ?? '');
@@ -89,9 +113,29 @@ function assertSnapshotIsHealthy(
       `Workspace Index device mismatch: expected ${requiredDevice}, selected ${selectedDevice}`
     );
   }
+  const actualWorkerMetadata = getActualWorkerMetadata(snapshot);
+  if (actualWorkerMetadata) {
+    const actualDevice = actualWorkerMetadata['device'];
+    if (actualDevice !== requiredDevice) {
+      throw new Error(
+        `Workspace Index actual backend mismatch: expected ${requiredDevice}, actual ${String(
+          actualDevice
+        )}`
+      );
+    }
+    if (actualWorkerMetadata['fallbackApplied'] === true) {
+      throw new Error('Workspace Index actual backend reported fallbackApplied=true');
+    }
+  }
 }
 
-function isTerminalSnapshot(snapshot: WorkspaceIndexDebugSnapshot): boolean {
+function readTerminalCounts(snapshot: WorkspaceIndexDebugSnapshot): {
+  chunkCount: number;
+  chunkedFileCount: number;
+  embeddedChunkCount: number;
+  expectedFileCount: number;
+  fileRecordCount: number;
+} {
   const expectedFileCount = snapshot.expectedCounts.reduce(
     (total, root) => total + root.expectedFileCount,
     0
@@ -100,6 +144,18 @@ function isTerminalSnapshot(snapshot: WorkspaceIndexDebugSnapshot): boolean {
   const chunkedFileCount = sumRows(snapshot.fileRecordsByRoot, 'chunked_file_count');
   const chunkCount = sumRows(snapshot.chunkStatsByRoot, 'chunk_count');
   const embeddedChunkCount = sumRows(snapshot.chunkStatsByRoot, 'embedded_chunk_count');
+  return {
+    chunkCount,
+    chunkedFileCount,
+    embeddedChunkCount,
+    expectedFileCount,
+    fileRecordCount,
+  };
+}
+
+function isTerminalSnapshot(snapshot: WorkspaceIndexDebugSnapshot): boolean {
+  const { chunkCount, chunkedFileCount, embeddedChunkCount, expectedFileCount, fileRecordCount } =
+    readTerminalCounts(snapshot);
   return (
     expectedFileCount > 0 &&
     fileRecordCount === expectedFileCount &&
@@ -219,14 +275,19 @@ test.describe('Full Workspace Index run', () => {
       api.triggerFullSync();
     });
 
-    const snapshots: WorkspaceIndexDebugSnapshot[] = [];
+    const samples: WorkspaceIndexEvidenceSample[] = [];
+    const fatalLogMatches: string[] = [];
     let lastProgressAt = Date.now();
     let lastProgressValue = -1;
     let stableTerminalPolls = 0;
 
     while (Date.now() - startedAt < testInfo.timeout - POLL_MS) {
       const snapshot = await readWorkspaceIndexSnapshot(page);
-      snapshots.push(snapshot);
+      samples.push({
+        capturedAt: new Date().toISOString(),
+        elapsedMs: Date.now() - startedAt,
+        snapshot,
+      });
       assertSnapshotIsHealthy(snapshot, requiredDevice);
 
       const progressValue =
@@ -252,22 +313,24 @@ test.describe('Full Workspace Index run', () => {
         stableTerminalPolls = 0;
       }
 
-      const logs = [...(await getRendererLogRecords(page)), ...(await getMainBufferedLogs(page))];
-      const logText = JSON.stringify(logs);
-      if (
-        /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i.test(
-          logText
-        )
-      ) {
+      const logs = [...(await getRendererLogRecords(page)), ...(await getMainBufferedLogs(page))]
+        .map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry)))
+        .filter((entry) => FATAL_LOG_PATTERN.test(entry));
+      fatalLogMatches.push(...logs);
+      if (fatalLogMatches.length > 0) {
         throw new Error('Workspace Index fatal log pattern detected during full run');
       }
 
       await page.waitForTimeout(POLL_MS);
     }
 
-    const finalSnapshot = snapshots.at(-1);
+    const finalSnapshot = samples.at(-1)?.snapshot;
     if (!(finalSnapshot && isTerminalSnapshot(finalSnapshot))) {
       throw new Error('Workspace Index did not reach terminal full-run completion');
+    }
+    const actualWorkerMetadata = getActualWorkerMetadata(finalSnapshot);
+    if (!actualWorkerMetadata) {
+      throw new Error('Workspace Index completed without actual embedding worker metadata');
     }
 
     await writeFile(
@@ -275,9 +338,13 @@ test.describe('Full Workspace Index run', () => {
       JSON.stringify(
         {
           completedAt: new Date().toISOString(),
+          durationMs: Date.now() - startedAt,
+          fatalLogMatches,
           requiredDevice,
           roots,
-          snapshots,
+          samples,
+          terminalCounts: readTerminalCounts(finalSnapshot),
+          terminalWorkerMetadata: actualWorkerMetadata,
         },
         null,
         2
