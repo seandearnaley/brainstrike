@@ -299,6 +299,7 @@ export const jobQueue = pgTable(
     jobType: text('job_type').notNull(),
     payload: jsonb('payload').$type<unknown>(),
     chunkId: text('chunk_id'),
+    embeddingSetId: text('embedding_set_id'),
     state: text('state')
       .$type<'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired'>()
       .default('queued')
@@ -324,6 +325,9 @@ export const jobQueue = pgTable(
       .where(
         sql`${table.jobType} = 'embed_chunk' AND ${table.chunkId} IS NOT NULL AND ${table.state} IN ('queued','running')`
       ),
+    index('idx_job_queue_embed_set_state')
+      .on(table.queue, table.jobType, table.embeddingSetId, table.state, table.updatedAt)
+      .where(sql`${table.jobType} = 'embed_chunk' AND ${table.embeddingSetId} IS NOT NULL`),
   ]
 );
 

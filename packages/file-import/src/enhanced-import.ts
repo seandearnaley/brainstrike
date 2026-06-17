@@ -1,5 +1,6 @@
 import type {
   ChunkingStrategy,
+  FileChunk,
   FileImportResult,
   IDatabase,
   ImportProgress,
@@ -148,7 +149,21 @@ function dispatchEmbeddingSetUpdateEvent(id: string): void {
 
 export type EmbeddingJobQueuePort = IndexingEmbeddingJobQueuePort<IDatabase>;
 
+export interface AtomicChunkJobEnqueueOptions {
+  readonly dimensionParameter?: ProviderDimensionParameter | null;
+  readonly model?: string | null;
+  readonly provider?: EmbeddingProviderType | null;
+  readonly signal?: AbortSignal | null;
+  readonly targetDimension?: number | null;
+  readonly targetEmbeddingSetId?: string | null;
+}
+
 export interface SqlExecutorPort {
+  insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: readonly FileChunk[],
+    fileRecordId: string,
+    options: AtomicChunkJobEnqueueOptions
+  ) => Promise<void>;
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
   runInTransaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
 }
@@ -769,6 +784,9 @@ interface ChunkingOptionsConfig {
   embedding: EmbeddingConfiguration | undefined;
   embeddingModelId?: string;
   embeddingModelKey?: string;
+  insertChunksAndEnqueueEmbeddingJobs:
+    | SqlExecutorPort['insertChunksAndEnqueueEmbeddingJobs']
+    | undefined;
   processEmbeddingsImpl: typeof processEmbeddings;
   provider?: EmbeddingProviderType;
   queuePort: EmbeddingJobQueuePort | null;
@@ -792,6 +810,7 @@ function buildChunkingOptions(
     provider,
     targetDimension,
     dimensionParameter,
+    insertChunksAndEnqueueEmbeddingJobs,
     update,
     processEmbeddingsImpl,
   } = config;
@@ -819,6 +838,7 @@ function buildChunkingOptions(
     queueActive,
     queuePort,
     runInTransaction,
+    insertChunksAndEnqueueEmbeddingJobs,
     embedding,
     targetSetId,
     ...(embeddingModelId ? { embeddingModelId } : {}),
@@ -852,6 +872,9 @@ interface QueueOptionParams {
   readonly dimensionParameter?: ProviderDimensionParameter;
   readonly embedding: EmbeddingConfiguration | undefined;
   readonly embeddingModelKey?: string;
+  readonly insertChunksAndEnqueueEmbeddingJobs:
+    | SqlExecutorPort['insertChunksAndEnqueueEmbeddingJobs']
+    | undefined;
   readonly provider?: EmbeddingProviderType;
   readonly queueActive: boolean;
   readonly queuePort: EmbeddingJobQueuePort | null;
@@ -868,6 +891,7 @@ function attachQueueOptions(
     queueActive,
     queuePort,
     runInTransaction,
+    insertChunksAndEnqueueEmbeddingJobs,
     embedding,
     embeddingModelKey,
     targetSetId,
@@ -882,6 +906,19 @@ function attachQueueOptions(
     if (runInTransaction) {
       options.runInTransaction = runInTransaction;
     }
+    return;
+  }
+
+  if (insertChunksAndEnqueueEmbeddingJobs) {
+    options.insertChunksAndEnqueueEmbeddingJobs = (chunks, fileRecordId) =>
+      insertChunksAndEnqueueEmbeddingJobs(chunks, fileRecordId, {
+        signal: options.abortSignal ?? null,
+        model: embeddingModelKey ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
+        provider: provider ?? null,
+        targetDimension: targetDimension ?? null,
+        dimensionParameter: dimensionParameter ?? null,
+      });
     return;
   }
 
@@ -1062,10 +1099,12 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     const queuePort = ports?.embeddingQueue ?? null;
     const runInTransaction = ports?.sql?.runInTransaction;
+    const insertChunksAndEnqueueEmbeddingJobs = ports?.sql?.insertChunksAndEnqueueEmbeddingJobs;
 
     const chunkingConfig: ChunkingOptionsConfig = {
       chunking,
       queuePort,
+      insertChunksAndEnqueueEmbeddingJobs,
       runInTransaction,
       embedding,
       targetSetId: targetSetId ?? undefined,

@@ -172,7 +172,7 @@ describe('vector-queue-service', () => {
             ],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
           } as { rows: unknown[] };
@@ -274,7 +274,7 @@ describe('vector-queue-service', () => {
             ],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
           } as { rows: unknown[] };
@@ -343,7 +343,7 @@ describe('vector-queue-service', () => {
             ],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 0, succeeded: 13 }],
           } as { rows: unknown[] };
@@ -457,7 +457,7 @@ describe('vector-queue-service', () => {
             }),
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
           } as { rows: unknown[] };
@@ -529,7 +529,7 @@ describe('vector-queue-service', () => {
             rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           setQueueCountCalls += 1;
           return {
             rows: [
@@ -591,7 +591,7 @@ describe('vector-queue-service', () => {
             rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 1, succeeded: 1 }],
           } as { rows: unknown[] };
@@ -818,7 +818,7 @@ describe('vector-queue-service', () => {
             rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
           } as { rows: unknown[] };
@@ -883,7 +883,7 @@ describe('vector-queue-service', () => {
             rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
           } as { rows: unknown[] };
@@ -945,7 +945,7 @@ describe('vector-queue-service', () => {
             ],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 0, succeeded: 3 }],
           } as { rows: unknown[] };
@@ -1003,7 +1003,7 @@ describe('vector-queue-service', () => {
             rows: [{ modelKey: 'local::test-model', modelId: 'test-model', dimensions: 384 }],
           } as { rows: unknown[] };
         }
-        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+        if (sql.includes('embedding_set_id = $2')) {
           return {
             rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
           } as { rows: unknown[] };

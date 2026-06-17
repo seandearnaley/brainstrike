@@ -3,6 +3,9 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
+  DatabaseWorkOptions,
+  ElectronChunkInsert,
+  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
   IFileNode,
 } from '@brainstrike/types';
 import type {
@@ -101,6 +104,12 @@ declare global {
       db: {
         query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
         exec: (sql: string) => Promise<void>;
+        insertChunksAndEnqueueEmbeddingJobs: (
+          chunks: readonly ElectronChunkInsert[],
+          fileRecordId: string,
+          options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+          workOptions?: DatabaseWorkOptions
+        ) => Promise<void>;
         test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
         clearAll: (confirmationToken?: string) => Promise<{
           success: boolean;

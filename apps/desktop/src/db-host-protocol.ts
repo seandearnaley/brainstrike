@@ -43,6 +43,7 @@ export type DbHostRequest =
   | { readonly kind: 'live:stop'; readonly liveId: string }
   | { readonly kind: 'managed-cache:apply-batch'; readonly payload: unknown }
   | { readonly kind: 'managed-cache:invalidate-by-identity'; readonly payload: unknown }
+  | { readonly kind: 'chunks:insert-and-enqueue-embedding-jobs'; readonly payload: unknown }
   | { readonly kind: 'diagnostics' }
   | { readonly kind: 'reset' }
   | { readonly kind: 'close' };

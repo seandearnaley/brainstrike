@@ -12,6 +12,8 @@ const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated' as const;
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL =
   'db:managed-cache:invalidate-by-identity' as const;
+const DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL =
+  'db:chunks:insert-and-enqueue-embedding-jobs' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 const DB_CLEAR_ALL_CHANNEL = 'db:clearAll' as const;
 const DB_DIAGNOSTICS_CHANNEL = 'db:diagnostics' as const;
@@ -79,6 +81,8 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
   DatabaseWorkOptions,
+  ElectronChunkInsert,
+  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -481,6 +485,17 @@ if (shouldExposeBridge('electronAPI')) {
           DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
           payload,
           options
+        ),
+      insertChunksAndEnqueueEmbeddingJobs: (
+        chunks: readonly ElectronChunkInsert[],
+        fileRecordId: string,
+        options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+        workOptions?: DatabaseWorkOptions
+      ): Promise<void> =>
+        ipcRenderer.invoke(
+          DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+          { chunks, fileRecordId, options },
+          workOptions
         ),
       ping: () => ipcRenderer.invoke(DB_PING_CHANNEL),
       diagnostics: () => ipcRenderer.invoke(DB_DIAGNOSTICS_CHANNEL),

@@ -97,6 +97,7 @@ export interface DbHostManager {
   readonly close: () => Promise<void>;
   readonly getDatabase: () => Promise<RemoteDbClient>;
   readonly getDiagnostics: () => Promise<DbHostDiagnosticsResult>;
+  readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
 }
@@ -436,6 +437,10 @@ class DefaultDbHostManager implements DbHostManager {
     return await this.send({ kind: 'managed-cache:invalidate-by-identity', payload });
   }
 
+  async insertChunksAndEnqueueEmbeddingJobs(payload: unknown): Promise<void> {
+    await this.send({ kind: 'chunks:insert-and-enqueue-embedding-jobs', payload });
+  }
+
   async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
     const host = this.#ensureHost();
     const id = createRequestId();
@@ -446,15 +451,18 @@ class DefaultDbHostManager implements DbHostManager {
       const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
       const timer = setTimeout(() => {
         const error = new Error(`DB host request timed out: ${request.kind}`);
-        logger.warn('DB host request timed out', {
-          ...timeoutDiagnostics,
-          elapsedMs: Math.max(0, Date.now() - startedAt),
-          pendingByKind: this.#getPendingRequestCountsByKind(),
-          pendingCount: this.#pending.size,
-          requestId: id,
-          timeoutMs,
-          willTerminateHost: requiresHostTerminationOnTimeout(request),
-        });
+        logger.warn(
+          {
+            ...timeoutDiagnostics,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            pendingByKind: this.#getPendingRequestCountsByKind(),
+            pendingCount: this.#pending.size,
+            requestId: id,
+            timeoutMs,
+            willTerminateHost: requiresHostTerminationOnTimeout(request),
+          },
+          'DB host request timed out'
+        );
         this.#pending.delete(id);
         reject(error);
         if (requiresHostTerminationOnTimeout(request)) {

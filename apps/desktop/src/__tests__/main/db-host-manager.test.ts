@@ -477,7 +477,6 @@ describe('DbHostManager', () => {
       await timeoutAssertion;
 
       expect(loggerWarnMock).toHaveBeenCalledWith(
-        'DB host request timed out',
         expect.objectContaining({
           elapsedMs: 5,
           paramsCount: 1,
@@ -485,7 +484,8 @@ describe('DbHostManager', () => {
           requestKind: 'query',
           sqlPreview: 'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
           timeoutMs: 5,
-        })
+        }),
+        'DB host request timed out'
       );
     } finally {
       vi.useRealTimers();

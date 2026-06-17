@@ -15,6 +15,18 @@ const dbMainMocks = vi.hoisted(() => ({
 
 vi.mock('../../db-main', () => dbMainMocks);
 
+const dbPackageMocks = vi.hoisted(() => ({
+  insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+}));
+
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...original,
+    insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,
+  };
+});
+
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 
 function restoreParentPort(): void {
@@ -71,6 +83,7 @@ describe('db-host-entry', () => {
     dbMainMocks.initializeMainDatabase.mockReset();
     dbMainMocks.initializeMainDatabase.mockResolvedValue(undefined);
     dbMainMocks.resetLocalDatabase.mockReset();
+    dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs.mockClear();
   });
 
   afterEach(() => {
@@ -421,5 +434,61 @@ describe('db-host-entry', () => {
         ok: false,
       })
     );
+  });
+
+  it('forwards parsed atomic chunk/job enqueue requests without reparsing the renderer envelope', async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    dbMainMocks.getDatabase.mockResolvedValue(db);
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+    const now = new Date().toISOString();
+
+    listeners[0]?.({
+      data: {
+        id: 'atomic-chunk-job',
+        kind: 'request',
+        request: {
+          kind: 'chunks:insert-and-enqueue-embedding-jobs',
+          payload: {
+            chunks: [
+              {
+                chunkIndex: 0,
+                chunkSize: 12,
+                chunkType: 'sentence',
+                content: 'hello world',
+                contentHash: 'chunk-hash',
+                createdAt: now,
+                fileRecordId: 'file-1',
+                id: 'chunk-1',
+                tokenCount: 2,
+                updatedAt: now,
+              },
+            ],
+            dimensionParameter: null,
+            fileRecordId: 'file-1',
+            model: 'local::Xenova/all-MiniLM-L6-v2',
+            provider: 'local',
+            targetDimension: 384,
+            targetEmbeddingSetId: 'workspace-index',
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        fileRecordId: 'file-1',
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        targetDimension: 384,
+      })
+    );
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'atomic-chunk-job',
+      kind: 'response',
+      ok: true,
+      result: { inserted: true },
+    });
   });
 });

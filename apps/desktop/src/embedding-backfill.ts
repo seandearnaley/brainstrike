@@ -29,7 +29,6 @@ export interface EnqueueEmbeddingBackfillOptions {
   progressIntervalBatches?: number;
   progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
-  vacuumIntervalMs?: number;
 }
 
 interface ResolvedEnqueueEmbeddingBackfillOptions {
@@ -41,7 +40,6 @@ interface ResolvedEnqueueEmbeddingBackfillOptions {
   progressIntervalBatches: number;
   progressIntervalMs: number;
   queueCapacityTimeoutMs: number;
-  vacuumIntervalMs: number;
 }
 
 interface EmbeddingSetJobMetadata {
@@ -211,11 +209,6 @@ function resolveEnqueueEmbeddingBackfillOptions(
       EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
       'queueCapacityTimeoutMs'
     ),
-    vacuumIntervalMs: resolvePositiveIntegerOption(
-      options?.vacuumIntervalMs,
-      VACUUM_INTERVAL_MS,
-      'vacuumIntervalMs'
-    ),
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
 }
@@ -244,7 +237,7 @@ async function getEmbeddingSetQueueCounts(
      FROM job_queue
      WHERE queue = $1
        AND job_type = 'embed_chunk'
-       AND payload->>'embeddingSetId' = $2
+       AND embedding_set_id = $2
        AND ($3::text IS NULL OR updated_at >= $3::text)`,
     [EMBEDDINGS_QUEUE, embeddingSetId, updatedAfter ?? null]
   );
@@ -288,20 +281,19 @@ async function countPendingEmbeddingSetJobs(
 ): Promise<number> {
   const result = await db.query<{ count: number | string | null }>(
     `SELECT COUNT(*)::int AS count
-       FROM job_queue
-      WHERE queue = $1
-        AND state IN ('queued', 'running')
-        AND payload->>'embeddingSetId' = $2`,
+      FROM job_queue
+     WHERE queue = $1
+       AND state IN ('queued', 'running')
+        AND embedding_set_id = $2`,
     [EMBEDDINGS_QUEUE, embeddingSetId]
   );
   return Number(result.rows[0]?.count ?? 0);
 }
 
 // PGlite runs PostgreSQL in WASM without autovacuum. Each embedding UPDATE
-// creates MVCC dead tuples that accumulate in WASM memory (which can only
-// grow, never shrink). Periodic VACUUM reclaims dead tuple space, preventing
-// unbounded memory growth during large backfills.
-const VACUUM_INTERVAL_MS = 30_000;
+// creates MVCC dead tuples. Reclaim only after the scoped backfill queue drains:
+// VACUUM is table-wide maintenance and must not occupy the DB host while active
+// embedding workers need claim/complete queries to stay responsive.
 const VACUUM_FAILURE_WARN_EVERY = 10;
 const DRAIN_TICK_FAILURE_WARN_EVERY = 10;
 
@@ -325,7 +317,7 @@ async function vacuumBackfillTables(
     vacuumTable = 'job_queue';
     await db.query('VACUUM job_queue');
     logState.consecutiveVacuumFailures = 0;
-    logger.info('Periodic VACUUM during backfill completed', {
+    logger.info('Post-drain VACUUM after backfill completed', {
       durationMs: now() - startedAt,
       tables: ['file_chunks', 'job_queue'],
     });
@@ -341,40 +333,11 @@ async function vacuumBackfillTables(
       failedTable: vacuumTable,
     };
     if (shouldWarn) {
-      logger.warn('Periodic VACUUM during backfill failed (non-fatal)', logPayload);
+      logger.warn('Post-drain VACUUM after backfill failed (non-fatal)', logPayload);
       return;
     }
-    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', logPayload);
+    logger.debug('Post-drain VACUUM after backfill failed (non-fatal)', logPayload);
   }
-}
-
-interface BackfillVacuumScheduler {
-  forceVacuum: () => Promise<void>;
-  maybeVacuum: () => Promise<void>;
-}
-
-function createBackfillVacuumScheduler(
-  db: Pick<IDatabase, 'query'>,
-  logState: VacuumLogState,
-  intervalMs: number,
-  now: () => number
-): BackfillVacuumScheduler {
-  let lastVacuumAt = now();
-
-  return {
-    forceVacuum: async () => {
-      await vacuumBackfillTables(db, logState, now);
-      lastVacuumAt = now();
-    },
-    maybeVacuum: async () => {
-      const currentTime = now();
-      if (currentTime - lastVacuumAt < intervalMs) {
-        return;
-      }
-      await vacuumBackfillTables(db, logState, now);
-      lastVacuumAt = now();
-    },
-  };
 }
 
 async function waitForEmbeddingSetDrain(
@@ -391,6 +354,7 @@ async function waitForEmbeddingSetDrain(
   while (true) {
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
+      await observeMaintenance?.();
       return await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
     }
     await assertCanContinue?.();
@@ -639,14 +603,51 @@ export async function enqueueEmbeddingBackfill(
     progressIntervalBatches,
     progressIntervalMs,
     queueCapacityTimeoutMs,
-    vacuumIntervalMs,
   } = resolveEnqueueEmbeddingBackfillOptions(options);
   const onDrainTick = options?.onDrainTick;
 
   const runStartedAt = new Date().toISOString();
+  const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
+  const drainTickLogState: DrainTickLogState = { consecutiveDrainTickFailures: 0 };
+  const observeDrainProgress = createDrainProgressObserver(
+    db,
+    embeddingSetId,
+    runStartedAt,
+    onDrainTick,
+    drainTickLogState
+  );
+  const observeMaintenance = async (): Promise<void> => {
+    await observeDrainProgress?.();
+  };
   logger.info('Backfill requested', { embeddingSetId });
   const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
   await repairScopedEmbeddingBackfillQueue(jobQueue, embeddingSetId);
+  const existingPending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
+  if (existingPending > 0) {
+    logger.info('Backfill found existing active scoped jobs; draining before candidate scan', {
+      embeddingSetId,
+      pending: existingPending,
+    });
+    onProgress(0, existingPending);
+    const drainedCounts = await waitForEmbeddingSetDrain(
+      db,
+      embeddingSetId,
+      backlogPollMs,
+      drainTimeoutMs,
+      now,
+      assertCanContinue,
+      runStartedAt,
+      observeMaintenance
+    );
+    if (drainedCounts.failed > 0) {
+      throw new Error(
+        `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
+      );
+    }
+    await vacuumBackfillTables(db, vacuumLogState, now);
+    onProgress(existingPending, existingPending);
+    return finalizeBackfillCounts(embeddingSetId, existingPending, existingPending, drainedCounts);
+  }
   const total = await countBackfillCandidates(db, embeddingSetId);
   logger.info('Embedding set metadata resolved for backfill', {
     embeddingSetId,
@@ -662,21 +663,6 @@ export async function enqueueEmbeddingBackfill(
   let lastReportedDone = -1;
   let availableCapacity = 0;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
-  const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
-  const drainTickLogState: DrainTickLogState = { consecutiveDrainTickFailures: 0 };
-  const vacuumScheduler = createBackfillVacuumScheduler(db, vacuumLogState, vacuumIntervalMs, now);
-  const observeDrainProgress = createDrainProgressObserver(
-    db,
-    embeddingSetId,
-    runStartedAt,
-    onDrainTick,
-    drainTickLogState
-  );
-  const observeMaintenance = async (): Promise<void> => {
-    await observeDrainProgress?.();
-    await vacuumScheduler.maybeVacuum();
-  };
-
   const reportProgress = (
     nextDone: number,
     nextTotal: number,
@@ -776,7 +762,7 @@ export async function enqueueEmbeddingBackfill(
     );
   }
   // Final VACUUM to reclaim all dead tuples from the completed backfill
-  await vacuumScheduler.forceVacuum();
+  await vacuumBackfillTables(db, vacuumLogState, now);
   logger.info('Backfill complete', { embeddingSetId, total, done });
   reportProgress(total, total, { force: true });
   return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);

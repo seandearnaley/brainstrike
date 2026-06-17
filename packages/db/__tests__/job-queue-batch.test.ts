@@ -81,6 +81,28 @@ describe('JobQueue Batch Operations', () => {
       expect(result.rows).toEqual([{ chunk_id: 'batch-chunk-1' }, { chunk_id: 'batch-chunk-2' }]);
     });
 
+    it('persists embedding_set_id for batch-enqueued embedding jobs', async () => {
+      const queue = new JobQueue(db);
+      const jobs = await queue.enqueueBatch([
+        {
+          queue: 'q1',
+          jobType: 'embed_chunk',
+          payload: { chunkId: 'chunk-1', embeddingSetId: 'set-1' },
+        },
+        {
+          queue: 'q1',
+          jobType: 'embed_chunk',
+          payload: { chunkId: 'chunk-2', embeddingSetId: 'set-2' },
+        },
+      ]);
+
+      const result = await db.query<{ embedding_set_id: string | null }>(
+        'SELECT embedding_set_id FROM job_queue WHERE id = ANY($1::text[]) ORDER BY embedding_set_id',
+        [jobs.map((job) => job.id)]
+      );
+      expect(result.rows).toEqual([{ embedding_set_id: 'set-1' }, { embedding_set_id: 'set-2' }]);
+    });
+
     it('deduplicates within batch', async () => {
       const queue = new JobQueue(db);
       const runAt1 = new Date(Date.now() + 1000).toISOString();

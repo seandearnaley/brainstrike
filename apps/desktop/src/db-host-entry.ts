@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   applyManagedCacheBatch,
   escapePGliteLiveQueryFormatPercents,
+  insertChunksAndEnqueueEmbeddingJobs,
   invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
@@ -22,7 +23,10 @@ import {
   initializeMainDatabase,
   resetLocalDatabase,
 } from './db-main';
-import { parseManagedCacheInvalidationsArgs } from './db-shared';
+import {
+  parseInsertChunksAndEnqueueEmbeddingJobsArgs,
+  parseManagedCacheInvalidationsArgs,
+} from './db-shared';
 
 interface ParentPortLike {
   readonly on: (event: 'message', listener: (message: unknown) => void) => void;
@@ -475,6 +479,14 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
         db,
         parseManagedCacheInvalidationsArgs(request.payload)
       );
+    }
+    case 'chunks:insert-and-enqueue-embedding-jobs': {
+      const db = await getQueryableDatabase();
+      await insertChunksAndEnqueueEmbeddingJobs(
+        db,
+        parseInsertChunksAndEnqueueEmbeddingJobsArgs(request.payload)
+      );
+      return { inserted: true };
     }
     case 'diagnostics':
       return getDatabaseDiagnostics();

@@ -31,6 +31,11 @@ vi.mock('electron', () => ({
 // echoes the statements, so the db:transaction success path can be exercised without
 // a real database.
 const { transactionSpy } = vi.hoisted(() => ({ transactionSpy: vi.fn() }));
+const { dbHostManagerMock } = vi.hoisted(() => ({
+  dbHostManagerMock: {
+    insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+  },
+}));
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({
     transaction: async (
@@ -52,6 +57,9 @@ vi.mock('../../db-main', () => ({
   isCorruptionError: () => false,
   handleRuntimeCorruption: vi.fn(),
 }));
+vi.mock('../../db-host-manager', () => ({
+  getDbHostManager: vi.fn(() => dbHostManagerMock),
+}));
 
 import { registerDatabaseIpcHandlers } from '../../ipc-domains/db-ipc';
 
@@ -59,6 +67,7 @@ describe('database IPC domain', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs.mockClear();
     registerDatabaseIpcHandlers({});
   });
 
@@ -154,5 +163,71 @@ describe('database IPC domain', () => {
       "SET LOCAL hnsw.ef_search = '120'",
       'SELECT id FROM file_chunks WHERE embedding_set_id = $1',
     ]);
+  });
+
+  it('forwards atomic chunk/job enqueue payloads to the DB host manager', async () => {
+    const now = new Date().toISOString();
+    await expect(
+      handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.(
+        {} as IpcMainInvokeEvent,
+        {
+          chunks: [
+            {
+              chunkIndex: 0,
+              chunkSize: 12,
+              chunkType: 'sentence',
+              content: 'hello world',
+              contentHash: 'chunk-hash',
+              createdAt: now,
+              fileRecordId: 'file-1',
+              id: 'chunk-1',
+              tokenCount: 2,
+              updatedAt: now,
+            },
+          ],
+          fileRecordId: 'file-1',
+          options: {
+            dimensionParameter: null,
+            model: 'local::Xenova/all-MiniLM-L6-v2',
+            provider: 'local',
+            targetDimension: 384,
+            targetEmbeddingSetId: 'workspace-index',
+          },
+        },
+        { label: 'workspace-index import', priority: 'background' }
+      )
+    ).resolves.toBeUndefined();
+
+    expect(dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith({
+      chunks: [
+        expect.objectContaining({
+          contentHash: 'chunk-hash',
+          fileRecordId: 'file-1',
+          id: 'chunk-1',
+        }),
+      ],
+      dimensionParameter: null,
+      fileRecordId: 'file-1',
+      model: 'local::Xenova/all-MiniLM-L6-v2',
+      provider: 'local',
+      targetDimension: 384,
+      targetEmbeddingSetId: 'workspace-index',
+    });
+  });
+
+  it('rejects malformed atomic chunk/job payloads before DB host scheduling', async () => {
+    await expect(
+      handlers.get('db:chunks:insert-and-enqueue-embedding-jobs')?.({} as IpcMainInvokeEvent, {
+        chunks: [],
+        fileRecordId: 'file-1',
+        options: {
+          model: 'local::Xenova/all-MiniLM-L6-v2',
+          provider: 'local',
+          targetDimension: 0,
+        },
+      })
+    ).rejects.toThrow('Atomic chunk/job enqueue requires a positive targetDimension.');
+
+    expect(dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
   });
 });

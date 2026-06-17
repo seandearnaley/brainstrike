@@ -90,7 +90,7 @@ const ACTIVE_SET_QUEUE_COUNTS_QUERY = `
   FROM job_queue
   WHERE queue = $1
     AND job_type = 'embed_chunk'
-    AND payload->>'embeddingSetId' = $2
+    AND embedding_set_id = $2
 `.trim();
 
 const ISO_UTC_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' as const;

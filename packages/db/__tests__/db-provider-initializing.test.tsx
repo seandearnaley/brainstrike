@@ -17,6 +17,10 @@ type QueryMock = Mock<[string, unknown?, unknown?], Promise<{ rows: unknown[] } 
 interface MockDb {
   close: Mock<[], Promise<void>>;
   exec: Mock<[string, unknown?, unknown?], Promise<unknown>>;
+  insertChunksAndEnqueueEmbeddingJobs?: Mock<
+    [readonly unknown[], string, unknown, unknown?],
+    Promise<void>
+  >;
   query: QueryMock;
   transaction?: Mock<
     [callback: (tx: { query: QueryMock }) => Promise<unknown> | unknown],
@@ -157,6 +161,55 @@ describe('DbProvider initializing state', () => {
     await backgroundDb.query('SELECT job_queue id type');
 
     expect(mockDb.query).toHaveBeenLastCalledWith('SELECT job_queue id type', undefined);
+  });
+
+  it('forwards priority work options through atomic chunk/job enqueue while stripping AbortSignal', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const mockDb = createMockDb({ insertChunksAndEnqueueEmbeddingJobs });
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+
+    const { result } = renderHook(
+      () => {
+        const db = usePGliteDatabase();
+        return { db };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.db).toBeTruthy();
+      },
+      { timeout: 10_000 }
+    );
+
+    const db = result.current.db;
+    if (!db?.insertChunksAndEnqueueEmbeddingJobs) {
+      throw new Error('Expected database handle to expose atomic chunk/job enqueue.');
+    }
+
+    const backgroundDb = createPriorityDbHandle(db, 'background');
+    await backgroundDb.insertChunksAndEnqueueEmbeddingJobs(
+      [],
+      'file-1',
+      {
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        signal: new AbortController().signal,
+        targetDimension: 384,
+      },
+      { label: 'workspace index import', priority: 'background' }
+    );
+
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [],
+      'file-1',
+      {
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        targetDimension: 384,
+      },
+      { label: 'workspace index import', priority: 'background' }
+    );
   });
 
   it('hooks do not trigger duplicate initialization when initializing is true', async () => {

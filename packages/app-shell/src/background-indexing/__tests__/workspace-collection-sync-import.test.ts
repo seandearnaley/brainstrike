@@ -797,60 +797,91 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     );
   });
 
-  it('does not block desktop IPC imports when only statement transactions are exposed', async () => {
+  it('uses desktop atomic chunk/job enqueue when callback transactions are unavailable', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      captured.push(record);
+    });
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
       async () => {}
     );
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
     const change = makeMinimalChange();
     const collection = makeMinimalCollection();
 
-    await runRootFolderCacheImport({
-      applyManagedCacheBatch,
-      abortSignal: new AbortController().signal,
-      changes: [change],
-      chunkRepository: {
-        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        insertChunks: vi.fn().mockResolvedValue(undefined),
-        insertMany: vi.fn().mockResolvedValue([]),
-        findByFileRecordId: vi.fn().mockResolvedValue([]),
-      } as never,
-      chunkingWorkerPort: {
-        chunkBatch: vi.fn().mockResolvedValue([]),
-        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
-        isReady: vi.fn().mockReturnValue(true),
-        transportKind: 'local',
-      } as never,
-      collection,
-      db: makeMinimalIpcDbWithoutCallbackTransaction() as never,
-      fileContentProcessor: makeMinimalFileContentProcessor(change),
-      fileRecordRepository: {
-        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
-        findByCollectionId: vi.fn().mockResolvedValue([]),
-      } as never,
-      onProgress: () => {},
-      qosPolicy: {
-        allowNewWork: true,
-        contentReadBatchSize: 10,
-        contentReadConcurrency: 1,
-        importBatchSize: 10,
-      },
-      rootId: 'root-db-1',
-      setImporting: () => {},
-      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
-    });
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          insertMany: vi.fn().mockResolvedValue([]),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection,
+        db: {
+          ...makeMinimalIpcDbWithoutCallbackTransaction(),
+          insertChunksAndEnqueueEmbeddingJobs,
+        } as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+    } finally {
+      removeListener();
+    }
 
-    expect(vi.mocked(runEnhancedImport)).toHaveBeenCalledWith(
+    const enhancedImportCall = vi.mocked(runEnhancedImport).mock.calls[0]?.[0];
+    expect(enhancedImportCall).toEqual(
       expect.objectContaining({
         ports: expect.objectContaining({
           embeddingQueue: expect.objectContaining({
             enqueueBatch: expect.any(Function),
           }),
-          sql: expect.not.objectContaining({
-            runInTransaction: expect.any(Function),
+          sql: expect.objectContaining({
+            insertChunksAndEnqueueEmbeddingJobs: expect.any(Function),
           }),
         }),
       })
+    );
+    await enhancedImportCall?.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs?.([], 'file-id-a', {
+      model: collection.modelKey,
+      targetEmbeddingSetId: collection.id,
+    });
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith([], 'file-id-a', {
+      model: collection.modelKey,
+      targetEmbeddingSetId: collection.id,
+    });
+    expect(captured).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message:
+            'Workspace Index import DB handle does not expose callback transactions; chunk/job recovery relies on backfill reconciliation.',
+        }),
+      ])
     );
   });
 

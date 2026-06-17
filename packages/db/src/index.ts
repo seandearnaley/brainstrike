@@ -16,6 +16,10 @@ export * from './architecture/db-runtime-baseline.js';
 export * from './atomic-transaction.js';
 export * from './browser-pglite-storage.js';
 export * from './browser-pglite-storage-benchmark.js';
+export {
+  type InsertChunksAndEnqueueEmbeddingJobsArgs,
+  insertChunksAndEnqueueEmbeddingJobs,
+} from './chunk-embedding-job-batch.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';

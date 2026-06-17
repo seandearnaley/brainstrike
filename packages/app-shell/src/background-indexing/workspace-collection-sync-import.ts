@@ -770,9 +770,14 @@ export async function runRootFolderCacheImport(args: {
   assertManagedCollectionModelKey(collection.modelKey);
   const sql = {
     query: db.query.bind(db),
+    ...(db.insertChunksAndEnqueueEmbeddingJobs
+      ? {
+          insertChunksAndEnqueueEmbeddingJobs: db.insertChunksAndEnqueueEmbeddingJobs.bind(db),
+        }
+      : {}),
     ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
   };
-  if (!db.transaction) {
+  if (!(db.transaction || db.insertChunksAndEnqueueEmbeddingJobs)) {
     logger.warn(
       'Workspace Index import DB handle does not expose callback transactions; chunk/job recovery relies on backfill reconciliation.',
       { embeddingSetId: collection.id }

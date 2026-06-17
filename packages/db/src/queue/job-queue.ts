@@ -12,6 +12,7 @@ export interface JobRow {
   chunk_id?: string | null;
   created_at: string;
   dedupe_key?: string | null;
+  embedding_set_id?: string | null;
   error?: string | null;
   id: string;
   job_type: string;
@@ -55,6 +56,7 @@ function fromRow(row: JobRow): Job {
     leasedUntil: row.leased_until ?? null,
     worker_id: row.worker_id ?? null,
     dedupe_key: row.dedupe_key ?? null,
+    embedding_set_id: row.embedding_set_id ?? null,
     error: row.error ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -68,6 +70,14 @@ function extractEmbedChunkId(jobType: JobType, payload: unknown): string | null 
   }
   const chunkId = (payload as { chunkId?: unknown }).chunkId;
   return typeof chunkId === 'string' && chunkId.length > 0 ? chunkId : null;
+}
+
+function extractEmbedEmbeddingSetId(jobType: JobType, payload: unknown): string | null {
+  if (jobType !== 'embed_chunk' || !(payload && typeof payload === 'object')) {
+    return null;
+  }
+  const embeddingSetId = (payload as { embeddingSetId?: unknown }).embeddingSetId;
+  return typeof embeddingSetId === 'string' && embeddingSetId.length > 0 ? embeddingSetId : null;
 }
 
 function computeElapsedMs(startIso: string, endIso: string): number | null {
@@ -250,6 +260,7 @@ export class JobQueue {
       params.maxAttempts ?? this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
     const dedupe = params.dedupeKey ?? null;
     const chunkId = extractEmbedChunkId(params.jobType, params.payload);
+    const embeddingSetId = extractEmbedEmbeddingSetId(params.jobType, params.payload);
 
     // Portable idempotent enqueue using CTEs (works with partial unique index)
     const inserted = await this.db.query<JobRow>(
@@ -260,16 +271,19 @@ export class JobQueue {
        ),
        upd AS (
          UPDATE job_queue
-            SET run_at = LEAST(run_at, $5), updated_at = GREATEST(updated_at, $8)
+            SET run_at = LEAST(run_at, $5),
+                chunk_id = COALESCE(chunk_id, $9),
+                embedding_set_id = COALESCE(embedding_set_id, $10),
+                updated_at = GREATEST(updated_at, $8)
           WHERE id IN (SELECT id FROM existing)
           RETURNING *
        ),
        ins AS (
          INSERT INTO job_queue (
-           id, queue, job_type, payload, chunk_id, state, run_at, attempts, max_attempts, backoff_ms,
+           id, queue, job_type, payload, chunk_id, embedding_set_id, state, run_at, attempts, max_attempts, backoff_ms,
            lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
          )
-         SELECT $1,$2,$3,$4,$9,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
+         SELECT $1,$2,$3,$4,$9,$10,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
          WHERE NOT EXISTS (SELECT 1 FROM existing)
          RETURNING *
        )
@@ -287,6 +301,7 @@ export class JobQueue {
         dedupe,
         now,
         chunkId,
+        embeddingSetId,
       ]
     );
 
@@ -364,8 +379,8 @@ export class JobQueue {
     const idTypeCast = idType === 'uuid' ? 'uuid' : 'text';
     return `WITH input AS (
              SELECT * FROM unnest(
-               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[], $8::text[]
-             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key, chunk_id)
+               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[], $8::text[], $9::text[]
+             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key, chunk_id, embedding_set_id)
            ),
            existing AS (
              SELECT jq.id, jq.dedupe_key, i.run_at_text
@@ -375,19 +390,23 @@ export class JobQueue {
            ),
            upd AS (
              UPDATE job_queue jq
-             SET run_at = LEAST(jq.run_at, e.run_at_text), updated_at = $8
+             SET run_at = LEAST(jq.run_at, e.run_at_text),
+                 chunk_id = COALESCE(jq.chunk_id, i.chunk_id),
+                 embedding_set_id = COALESCE(jq.embedding_set_id, i.embedding_set_id),
+                 updated_at = $10
              FROM existing e
+             JOIN input i ON i.dedupe_key = e.dedupe_key
              WHERE jq.id = e.id
              RETURNING jq.*
            ),
            ins AS (
              INSERT INTO job_queue (
-               id, queue, job_type, payload, chunk_id, state, run_at, attempts, max_attempts, backoff_ms,
+               id, queue, job_type, payload, chunk_id, embedding_set_id, state, run_at, attempts, max_attempts, backoff_ms,
                lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
              )
              SELECT
-               i.id, i.queue, i.job_type, i.payload, i.chunk_id, 'queued', i.run_at_text, 0, i.max_attempts, 0,
-               NULL, NULL, NULL, i.dedupe_key, NULL, $9, $9
+               i.id, i.queue, i.job_type, i.payload, i.chunk_id, i.embedding_set_id, 'queued', i.run_at_text, 0, i.max_attempts, 0,
+               NULL, NULL, NULL, i.dedupe_key, NULL, $10, $10
              FROM input i
              WHERE NOT EXISTS (SELECT 1 FROM existing e WHERE e.dedupe_key = i.dedupe_key)
              RETURNING *
@@ -436,6 +455,7 @@ export class JobQueue {
     const maxAttemptsArr: number[] = [];
     const dedupeKeys: (string | null)[] = [];
     const chunkIds: (string | null)[] = [];
+    const embeddingSetIds: (string | null)[] = [];
 
     const defaultMaxAttempts = this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
 
@@ -448,6 +468,7 @@ export class JobQueue {
       maxAttemptsArr.push(p.maxAttempts ?? defaultMaxAttempts);
       dedupeKeys.push(p.dedupeKey ?? null);
       chunkIds.push(extractEmbedChunkId(p.jobType, p.payload));
+      embeddingSetIds.push(extractEmbedEmbeddingSetId(p.jobType, p.payload));
     }
 
     const sql = this.buildBatchQuery(idType);
@@ -461,6 +482,7 @@ export class JobQueue {
       maxAttemptsArr,
       dedupeKeys,
       chunkIds,
+      embeddingSetIds,
       now,
     ]);
 
@@ -1224,7 +1246,7 @@ export class JobQueue {
     }
     if (options.embeddingSetId) {
       params.push(options.embeddingSetId);
-      conditions.push(`payload->>'embeddingSetId' = $${params.length}`);
+      conditions.push(`embedding_set_id = $${params.length}`);
     }
     const res = await this.db.query<{ count: string }>(
       `WITH cte AS (
@@ -1264,7 +1286,7 @@ export class JobQueue {
     }
     if (options.embeddingSetId) {
       params.push(options.embeddingSetId);
-      conditions.push(`payload->>'embeddingSetId' = $${params.length}`);
+      conditions.push(`embedding_set_id = $${params.length}`);
     }
     const res = await this.db.query<{ count: string }>(
       `WITH cte AS (

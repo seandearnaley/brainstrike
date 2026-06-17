@@ -155,17 +155,26 @@ export interface WorkspaceCollectionSyncProviderProps {
 
 function createBackgroundRepositoryDb(db: DbHandle): {
   exec: (sql: string) => Promise<void>;
+  insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
   query: DbHandle['query'];
 } {
   if (!db.exec) {
     throw new Error('Background indexing requires database exec support.');
   }
-  return {
+  const handle: {
+    exec: (sql: string) => Promise<void>;
+    insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
+    query: DbHandle['query'];
+  } = {
     query: db.query,
     exec: async (sql: string) => {
       await db.exec?.(sql);
     },
   };
+  if (db.insertChunksAndEnqueueEmbeddingJobs) {
+    handle.insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs.bind(db);
+  }
+  return handle;
 }
 
 function isFileSystemChange(value: unknown): value is FileSystemChange {

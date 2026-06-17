@@ -381,6 +381,39 @@ describe('DatabaseWorkScheduler', () => {
     });
   });
 
+  it('applies priority work options to atomic chunk/job enqueue calls', async () => {
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+      insertChunksAndEnqueueEmbeddingJobs: vi.fn(
+        async (
+          _chunks: readonly unknown[],
+          _fileRecordId: string,
+          _options: unknown,
+          _workOptions?: unknown
+        ) => undefined
+      ),
+    };
+
+    const background = createPriorityDbHandle(rawDb, 'background') as typeof rawDb;
+
+    await background.insertChunksAndEnqueueEmbeddingJobs([], 'file-1', {
+      model: 'local::Xenova/all-MiniLM-L6-v2',
+      targetDimension: 384,
+    });
+
+    expect(rawDb.insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [],
+      'file-1',
+      {
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        targetDimension: 384,
+      },
+      { priority: 'background' }
+    );
+  });
+
   it('forwards native PGlite query options while consuming database work options', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const nativeQueryOptions = { rowMode: 'array' };
