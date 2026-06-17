@@ -190,6 +190,34 @@ describe('FileRecordRepository', () => {
     expect(found?.tokenCount).toBe(0);
   });
 
+  it('rejects null bytes in file content before creating records', async () => {
+    const record = createTestRecord({
+      id: 'null-create',
+      content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+      contentHash: 'hash-null-create',
+      processedAt: new Date().toISOString(),
+      tokenCount: 1,
+    });
+
+    await expect(repo.createWithContent(record)).rejects.toThrow(
+      'File record content cannot contain null bytes.'
+    );
+  });
+
+  it('rejects null bytes in file content before updating records', async () => {
+    const record = createTestRecord({ id: 'null-update' });
+    await repo.create(record);
+
+    await expect(
+      repo.updateContent(
+        record.id,
+        `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        'hash-null-update',
+        1
+      )
+    ).rejects.toThrow('File record content cannot contain null bytes.');
+  });
+
   it('finds managed cache entries by embedding set, root id, and relative path', async () => {
     await seedManagedCacheEntry(db, repo, {
       id: 'cache-a',

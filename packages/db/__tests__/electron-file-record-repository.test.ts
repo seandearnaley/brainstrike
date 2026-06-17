@@ -36,6 +36,32 @@ describe('ElectronFileRecordRepository', () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
+  it('rejects null bytes in createWithContent before IPC query', async () => {
+    const record = createTestRecord({
+      content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+      contentHash: 'hash-null-create',
+      processedAt: new Date().toISOString(),
+      tokenCount: 1,
+    });
+
+    await expect(repo.createWithContent(record)).rejects.toThrow(
+      'File record content cannot contain null bytes.'
+    );
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('rejects null bytes in updateContent before IPC query', async () => {
+    await expect(
+      repo.updateContent(
+        'record-1',
+        `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        'hash-null-update',
+        1
+      )
+    ).rejects.toThrow('File record content cannot contain null bytes.');
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('findById maps row to record', async () => {
     const record = createTestRecord();
     query.mockResolvedValueOnce({
@@ -122,6 +148,15 @@ describe('ElectronFileRecordRepository', () => {
       'UPDATE file_records SET name = $1, created_at = $2 WHERE id = $3',
       ['new', 'd1', '123']
     );
+  });
+
+  it('rejects null bytes in generic content updates before IPC query', async () => {
+    await expect(
+      repo.update('record-1', {
+        content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+      })
+    ).rejects.toThrow('File record content cannot contain null bytes.');
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('createWithContent preserves empty string content for chunking-host reads', async () => {

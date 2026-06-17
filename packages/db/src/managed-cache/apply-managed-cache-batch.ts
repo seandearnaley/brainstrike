@@ -1,5 +1,6 @@
 import type { IDatabase } from '../repositories/interfaces.js';
 import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
+import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
 
 interface ManagedCacheRecordBase {
   content: string;
@@ -325,6 +326,14 @@ function assertNoDuplicateMutationIds(changes: readonly ManagedCacheBatchMutatio
       throw new Error(`Managed cache batch contains duplicate file record id ${change.record.id}.`);
     }
     seenIds.add(change.record.id);
+  }
+}
+
+function assertNoNullBytesInManagedCacheContent(
+  changes: readonly ManagedCacheBatchMutation[]
+): void {
+  for (const change of changes) {
+    assertTextContentHasNoNullBytes(change.record.content, 'Managed cache content');
   }
 }
 
@@ -707,6 +716,7 @@ export async function applyManagedCacheBatch(
   }
   assertTotalBatchWithinLimit(args.changes.length);
   assertNoDuplicateMutationIds(args.changes);
+  assertNoNullBytesInManagedCacheContent(args.changes);
 
   const imports = args.changes.flatMap((change) =>
     change.mode === 'import' ? [change.record] : []

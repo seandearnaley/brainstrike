@@ -178,6 +178,31 @@ describe('DrizzleFileChunkRepository', () => {
       const inserted = await repository.insertMany([]);
       expect(inserted).toHaveLength(0);
     });
+
+    it('rejects null bytes in chunk content before batch insert reaches PGlite', async () => {
+      const now = new Date().toISOString();
+
+      await expect(
+        repository.insertMany([
+          {
+            id: '00000000-0000-0000-0000-000000000010',
+            fileRecordId: testFileRecordId,
+            chunkIndex: 0,
+            content: 'chunk 0',
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: '00000000-0000-0000-0000-000000000011',
+            fileRecordId: testFileRecordId,
+            chunkIndex: 1,
+            content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ])
+      ).rejects.toThrow('File chunk content cannot contain null bytes.');
+    });
   });
 
   describe('update', () => {
@@ -225,6 +250,16 @@ describe('DrizzleFileChunkRepository', () => {
       expect(updated?.embedding).toEqual(embedding);
       expect(updated?.embeddingSetId).toBe(testEmbeddingSetId);
       expect(updated?.embeddingUpdatedAt).toBeDefined();
+    });
+
+    it('rejects null bytes in chunk content before update reaches PGlite', async () => {
+      await expect(
+        repository.update({
+          id: '00000000-0000-0000-0000-000000000010',
+          content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          updatedAt: new Date().toISOString(),
+        })
+      ).rejects.toThrow('File chunk content cannot contain null bytes.');
     });
   });
 

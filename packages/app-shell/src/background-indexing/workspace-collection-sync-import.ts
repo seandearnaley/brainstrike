@@ -140,12 +140,26 @@ const INACCESSIBLE_CONTENT_VALUES = new Set([
   'Binary file - preview not available',
   'Error accessing file',
 ]);
+const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
+
+function getContentIndexingError(content: string): string | null {
+  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
+    return content;
+  }
+  const inaccessiblePrefix = INACCESSIBLE_CONTENT_PREFIXES.find((prefix) =>
+    content.startsWith(prefix)
+  );
+  if (inaccessiblePrefix) {
+    return content;
+  }
+  if (content.includes('\0')) {
+    return NULL_BYTE_CONTENT_ERROR;
+  }
+  return null;
+}
 
 function isContentAccessible(content: string): boolean {
-  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
-    return false;
-  }
-  return !INACCESSIBLE_CONTENT_PREFIXES.some((prefix) => content.startsWith(prefix));
+  return getContentIndexingError(content) === null;
 }
 
 export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
@@ -214,15 +228,25 @@ async function collectDiscoveredPreparedFiles(args: {
   fileContents: Record<string, string>;
   metadataByKey: Map<string, FileBatchPreparation>;
   rootId: string;
-}): Promise<Array<DiscoveredPreparedFile | null>> {
+}): Promise<{
+  excludedEntries: number;
+  files: Array<DiscoveredPreparedFile | null>;
+}> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
+  let excludedEntries = 0;
   for (const [compositeKey, content] of Object.entries(args.fileContents)) {
-    if (!isContentAccessible(content)) {
+    const metadata = args.metadataByKey.get(compositeKey);
+    if (!metadata) {
       discoveredFiles.push(null);
       continue;
     }
-    const metadata = args.metadataByKey.get(compositeKey);
-    if (!metadata) {
+    const indexingError = getContentIndexingError(content);
+    if (indexingError) {
+      excludedEntries += 1;
+      logger.warn('Workspace Index skipped file content that cannot be indexed', {
+        reason: indexingError,
+        relativePath: metadata.relativePath,
+      });
       discoveredFiles.push(null);
       continue;
     }
@@ -242,7 +266,7 @@ async function collectDiscoveredPreparedFiles(args: {
       rootId: args.rootId,
     });
   }
-  return discoveredFiles;
+  return { excludedEntries, files: discoveredFiles };
 }
 
 function applyDiscoveredPreparedFiles(args: {
@@ -416,6 +440,17 @@ async function applyBackgroundImportBatch(args: {
       ],
     };
   }
+}
+
+function getSkippedBatchContentError(
+  change: PreparedCacheChange,
+  batchContents: Readonly<Record<string, string>>
+): string {
+  const content = batchContents[change.compositeKey];
+  if (content === undefined) {
+    return 'Background cache import descriptor is missing.';
+  }
+  return getContentIndexingError(content) ?? content;
 }
 
 function buildBatchedEnhancedImportProgress(args: {
@@ -627,6 +662,7 @@ export async function collectPreparedChangesInBatches(args: {
   }
   const changes: PreparedCacheChange[] = [];
   const statRefreshes: StatMetadataRefresh[] = [];
+  let excludedEntries = 0;
   let unchangedCount = skippedUnchanged.length;
 
   for (let index = 0; index < preparations.length; index += qosPolicy.contentReadBatchSize) {
@@ -644,15 +680,16 @@ export async function collectPreparedChangesInBatches(args: {
     );
     throwIfAborted(abortSignal);
 
-    const discoveredFiles = await collectDiscoveredPreparedFiles({
+    const discovered = await collectDiscoveredPreparedFiles({
       fileContents,
       metadataByKey,
       rootId,
     });
+    excludedEntries += discovered.excludedEntries;
     throwIfAborted(abortSignal);
     unchangedCount = applyDiscoveredPreparedFiles({
       changes,
-      discoveredFiles,
+      discoveredFiles: discovered.files,
       existingByIdentity,
       statRefreshes,
       unchangedCount,
@@ -661,7 +698,7 @@ export async function collectPreparedChangesInBatches(args: {
 
   return {
     changes,
-    excludedEntries: 0,
+    excludedEntries,
     statRefreshes,
     totalFiles: fileNodes.length,
     unchangedCount,
@@ -847,9 +884,7 @@ export async function runRootFolderCacheImport(args: {
 
           for (const change of batch) {
             if (!selectedKeys.has(change.compositeKey)) {
-              const content = batchContents[change.compositeKey];
-              const message =
-                content === undefined ? 'Background cache import descriptor is missing.' : content;
+              const message = getSkippedBatchContentError(change, batchContents);
               errors.push({
                 file: change.relativePath,
                 error: message,

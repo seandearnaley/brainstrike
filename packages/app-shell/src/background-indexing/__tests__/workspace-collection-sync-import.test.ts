@@ -476,6 +476,54 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect(result.unchangedCount).toBe(1);
     expect(result.changes).toEqual([]);
   });
+
+  it('keeps a large workspace scan moving when one text file contains a late null byte', async () => {
+    const fileCount = 15_134;
+    const invalidIndex = 12_345;
+    const fileNodes = Array.from({ length: fileCount }, (_, index) =>
+      makeFileNode(`large/file-${index}.txt`, 32, 2000 + index)
+    );
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
+        const contents: Record<string, string> = {};
+        for (const request of requests) {
+          contents[request.compositeKey] = request.fileNode.path.endsWith(
+            `file-${invalidIndex}.txt`
+          )
+            ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+            : `content-of-${request.fileNode.path}`;
+        }
+        return contents;
+      }
+    );
+
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [],
+      fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
+      fileNodes,
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 500,
+        contentReadConcurrency: 4,
+        importBatchSize: 500,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect(result.totalFiles).toBe(fileCount);
+    expect(result.excludedEntries).toBe(1);
+    expect(result.changes).toHaveLength(fileCount - 1);
+    expect(result.changes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relativePath: `large/file-${invalidIndex}.txt` }),
+      ])
+    );
+    expect(processFiles).toHaveBeenCalledTimes(Math.ceil(fileCount / 500));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -654,6 +702,98 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           }),
         }),
       })
+    );
+  });
+
+  it('skips null-byte content as a per-file import error without poisoning the batch', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const cleanChange = makeMinimalChange();
+    const invalidCompositeKey = `${ROOT}::late-null.txt`;
+    const invalidChange: PreparedCacheChange = {
+      ...makeMinimalChange(),
+      compositeKey: invalidCompositeKey,
+      contentHash: 'hash-late-null',
+      id: 'file-id-late-null',
+      name: 'late-null.txt',
+      relativePath: 'late-null.txt',
+      request: {
+        compositeKey: invalidCompositeKey,
+        fileNode: makeFileNode('late-null.txt', 620, 1000),
+        fileSystemAdapter: {} as FileSystemAdapter,
+      },
+      size: 620,
+    };
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
+        const contents: Record<string, string> = {};
+        for (const request of requests) {
+          contents[request.compositeKey] =
+            request.compositeKey === invalidCompositeKey
+              ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+              : `content-of-${request.fileNode.path}`;
+        }
+        return contents;
+      }
+    );
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch,
+      abortSignal: new AbortController().signal,
+      changes: [cleanChange, invalidChange],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection: makeMinimalCollection(),
+      db: makeMinimalDb() as never,
+      fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
+      fileRecordRepository: {
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(applyManagedCacheBatch).toHaveBeenCalledOnce();
+    expect(applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: [
+          expect.objectContaining({
+            record: expect.objectContaining({ id: cleanChange.id }),
+          }),
+        ],
+      })
+    );
+    const enhancedImportResult = await vi.mocked(runEnhancedImport).mock.results[0]?.value;
+    expect(enhancedImportResult).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: cleanChange.id, imported: true }),
+        expect.objectContaining({
+          error: 'File contains null bytes and cannot be indexed.',
+          id: invalidChange.id,
+          imported: false,
+        }),
+      ])
     );
   });
 

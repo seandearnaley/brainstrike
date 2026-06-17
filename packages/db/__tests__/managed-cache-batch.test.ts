@@ -436,6 +436,37 @@ describe('applyManagedCacheBatch', () => {
     ).rejects.toThrow('Managed cache batch mutation requires transactional database support.');
   });
 
+  it('rejects null bytes in managed-cache content before reaching PGlite', async () => {
+    const now = new Date().toISOString();
+    const querySpy = vi.spyOn(db, 'query');
+
+    await expect(
+      applyManagedCacheBatch(db, {
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'file-null-byte',
+              name: 'late-null.txt',
+              path: 'src/late-null.txt',
+              size: 620,
+              createdAt: now,
+              updatedAt: now,
+              processedAt: now,
+              content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+              contentHash: 'hash-null-byte',
+              tokenCount: 155,
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow('Managed cache content cannot contain null bytes.');
+
+    expect(querySpy).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO file_records'));
+  });
+
   it('invalidates only the exact managed-cache identity and leaves the same relative path in another root', async () => {
     await seedRoot('root-other', '/workspace/other');
     await importManagedCacheFile({
