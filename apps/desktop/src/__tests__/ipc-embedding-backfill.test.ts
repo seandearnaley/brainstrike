@@ -304,4 +304,51 @@ describe('desktop embedding backfill termination logging', () => {
       );
     });
   });
+
+  it('emits a terminal complete progress event after detached background-indexing backfill resolves', async () => {
+    const event = createLiveSenderEvent();
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (_db: unknown, _jobQueue: unknown, _embeddingSetId: string, onProgress: unknown) => {
+        (onProgress as (done: number, total: number) => void)(1, 1);
+        resolveBackfillStarted?.();
+        await new Promise<void>((resolve) => {
+          resolveBackfill = resolve;
+        });
+      }
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill({
+        ...createRunParams('set-background-completed', 'background-indexing'),
+        event,
+      })
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+    await backfillStarted;
+    expect(event.sender.send).not.toHaveBeenCalledWith(
+      EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+      expect.objectContaining({ stage: 'complete' })
+    );
+
+    resolveBackfill?.();
+
+    await vi.waitFor(() => {
+      expect(event.sender.send).toHaveBeenCalledWith(
+        EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+        expect.objectContaining({
+          embeddingSetId: 'set-background-completed',
+          source: 'background-indexing',
+          stage: 'complete',
+          current: 1,
+          total: 1,
+        })
+      );
+    });
+  });
 });

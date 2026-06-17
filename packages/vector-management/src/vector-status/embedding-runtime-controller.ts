@@ -204,11 +204,31 @@ async function enqueueLocalBackfill(args: {
         : {}),
       ...(signal ? { signal } : {}),
     });
+    const backfill = args.localBackfills.get(args.embeddingSetId);
+    args.notifyBackfillProgress({
+      embeddingSetId: args.embeddingSetId,
+      requestId,
+      source,
+      stage: 'complete',
+      current: backfill?.progress?.current ?? 0,
+      total: backfill?.progress?.total ?? 0,
+    });
     return { requestId };
   } catch (error) {
     if (signal?.aborted) {
       throw createAbortError('Embedding backfill was canceled.');
     }
+    const message = error instanceof Error ? error.message : String(error);
+    const backfill = args.localBackfills.get(args.embeddingSetId);
+    args.notifyBackfillProgress({
+      embeddingSetId: args.embeddingSetId,
+      requestId,
+      source,
+      stage: 'error',
+      current: backfill?.progress?.current ?? 0,
+      total: backfill?.progress?.total ?? 0,
+      message,
+    });
     throw error;
   } finally {
     const backfill = args.localBackfills.get(args.embeddingSetId);

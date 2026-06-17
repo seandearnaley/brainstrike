@@ -368,6 +368,20 @@ export async function runDesktopEmbeddingBackfill(params: {
   const runBackfillWithLifecycle = async (): Promise<void> => {
     try {
       await runBackfill();
+      const progress = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId)?.progress ?? {
+        current: 0,
+        total: 0,
+      };
+      sendDesktopBackfillProgress({
+        backfillProgressTargetUnavailableRef,
+        current: progress.current,
+        event,
+        normalizedEmbeddingSetId,
+        requestId: backfillRequestId,
+        source,
+        stage: 'complete',
+        total: progress.total,
+      });
     } catch (error) {
       // This invocation's IPC rejection is silently discarded by Electron when the
       // requesting renderer has been torn down (e.g. a top-level navigation

@@ -620,7 +620,7 @@ export class WorkspaceCollectionSyncService {
           ...(progress.message ? { message: progress.message } : {}),
         })
       );
-      if (progress.current >= progress.total) {
+      if (progress.stage === 'complete') {
         this.activeBackfill?.unsubscribe?.();
         this.activeBackfill = null;
         dispatchQueueDrainedEvent(args.collection.id);
