@@ -124,6 +124,8 @@ export interface WorkspaceCollectionSyncServiceDependencies {
       embeddingSetId: string;
       message?: string;
       requestId: string;
+      source?: string;
+      stage?: string;
       total: number;
     }) => void
   ) => () => void;
@@ -593,6 +595,17 @@ export class WorkspaceCollectionSyncService {
         rootPath: args.rootPath,
         unsubscribe: unsubscribeBackfillProgress,
       };
+      if (progress.stage === 'error') {
+        this.activeBackfill?.unsubscribe?.();
+        this.activeBackfill = null;
+        this.setErrorStatus({
+          activeRootPath: args.rootPath,
+          managedCollectionId: args.collection.id,
+          managedCollectionName: args.collection.name ?? null,
+          message: progress.message ?? 'Embedding backfill failed.',
+        });
+        return;
+      }
       this.deps.setStatus(
         mapBackfillProgressToStatus({
           collection: args.collection,

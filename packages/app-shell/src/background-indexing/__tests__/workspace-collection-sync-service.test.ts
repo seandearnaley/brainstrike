@@ -2265,6 +2265,55 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('surfaces detached background backfill terminal errors in Workspace Index status', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        return () => {};
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    if (!progressListener) {
+      throw new Error('Expected backfill progress listener to be registered');
+    }
+    progressListener({
+      embeddingSetId: 'set-1',
+      requestId: 'background-indexing-backfill:test',
+      source: 'background-indexing',
+      stage: 'error',
+      current: 0,
+      total: 0,
+      message: 'metadata missing',
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        managedCollectionId: 'set-1',
+        activeRootPath: ROOT_PATH,
+        lastError: 'metadata missing',
+      })
+    );
+  });
+
   it('cancels an in-flight managed backfill when background indexing is disabled', async () => {
     let rejectBackfill: ((error: unknown) => void) | null = null;
     let resolveBackfillStarted: (() => void) | null = null;

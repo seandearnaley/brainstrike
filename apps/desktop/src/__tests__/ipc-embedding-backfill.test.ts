@@ -17,7 +17,10 @@ vi.mock('../embedding-backfill', () => ({
 }));
 
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from '../embedding-host-shared';
+import {
+  EMBEDDING_BACKFILL_CANCELED_MESSAGE,
+  EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+} from '../embedding-host-shared';
 import {
   cancelDesktopEmbeddingBackfill,
   runDesktopEmbeddingBackfill,
@@ -45,6 +48,15 @@ function createDeadSenderEvent(): IpcMainInvokeEvent {
   return {
     sender: {
       isDestroyed: vi.fn(() => true),
+      send: vi.fn(),
+    },
+  } as unknown as IpcMainInvokeEvent;
+}
+
+function createLiveSenderEvent(): IpcMainInvokeEvent {
+  return {
+    sender: {
+      isDestroyed: vi.fn(() => false),
       send: vi.fn(),
     },
   } as unknown as IpcMainInvokeEvent;
@@ -263,5 +275,33 @@ describe('desktop embedding backfill termination logging', () => {
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
 
     resolveBackfill?.();
+  });
+
+  it('emits a terminal error progress event for detached background-indexing failures', async () => {
+    const event = createLiveSenderEvent();
+    enqueueEmbeddingBackfillMock.mockRejectedValueOnce(new Error('metadata missing'));
+
+    await expect(
+      runDesktopEmbeddingBackfill({
+        ...createRunParams('set-background-failed', 'background-indexing'),
+        event,
+      })
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+
+    await vi.waitFor(() => {
+      expect(event.sender.send).toHaveBeenCalledWith(
+        EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+        expect.objectContaining({
+          embeddingSetId: 'set-background-failed',
+          source: 'background-indexing',
+          stage: 'error',
+          current: 0,
+          total: 0,
+          message: 'metadata missing',
+        })
+      );
+    });
   });
 });

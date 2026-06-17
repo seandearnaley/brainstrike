@@ -174,6 +174,56 @@ export function isDisposedRenderFrameSendError(error: unknown): boolean {
   return error.message.toLowerCase().includes('frame was disposed');
 }
 
+function sendDesktopBackfillProgress(params: {
+  backfillProgressTargetUnavailableRef: { current: boolean };
+  current: number;
+  event: IpcMainInvokeEvent;
+  message?: string;
+  normalizedEmbeddingSetId: string;
+  requestId: string;
+  source: EmbeddingBackfillSource;
+  stage: string;
+  total: number;
+}): void {
+  const {
+    backfillProgressTargetUnavailableRef,
+    current,
+    event,
+    message,
+    normalizedEmbeddingSetId,
+    requestId,
+    source,
+    stage,
+    total,
+  } = params;
+
+  if (backfillProgressTargetUnavailableRef.current || event.sender.isDestroyed()) {
+    backfillProgressTargetUnavailableRef.current = true;
+    return;
+  }
+  try {
+    event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      embeddingSetId: normalizedEmbeddingSetId,
+      requestId,
+      source,
+      stage,
+      current,
+      total,
+      ...(message ? { message } : {}),
+    });
+  } catch (error) {
+    if (isDisposedRenderFrameSendError(error)) {
+      backfillProgressTargetUnavailableRef.current = true;
+      logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
+        embeddingSetId: normalizedEmbeddingSetId,
+        requestId,
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
 function createDesktopBackfillProgressReporter(params: {
   backfillProgressTargetUnavailableRef: { current: boolean };
   backfillRequestId: string;
@@ -194,30 +244,16 @@ function createDesktopBackfillProgressReporter(params: {
     if (inFlight) {
       inFlight.progress = { current: done, total };
     }
-    if (backfillProgressTargetUnavailableRef.current || event.sender.isDestroyed()) {
-      backfillProgressTargetUnavailableRef.current = true;
-      return;
-    }
-    try {
-      event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
-        embeddingSetId: normalizedEmbeddingSetId,
-        requestId: backfillRequestId,
-        source,
-        stage: 'backfill',
-        current: done,
-        total,
-      });
-    } catch (error) {
-      if (isDisposedRenderFrameSendError(error)) {
-        backfillProgressTargetUnavailableRef.current = true;
-        logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
-          embeddingSetId: normalizedEmbeddingSetId,
-          requestId: backfillRequestId,
-        });
-        return;
-      }
-      throw error;
-    }
+    sendDesktopBackfillProgress({
+      backfillProgressTargetUnavailableRef,
+      current: done,
+      event,
+      normalizedEmbeddingSetId,
+      requestId: backfillRequestId,
+      source,
+      stage: 'backfill',
+      total,
+    });
   };
 }
 
@@ -353,6 +389,21 @@ export async function runDesktopEmbeddingBackfill(params: {
           error: message,
           requestId: backfillRequestId,
           source,
+        });
+        const progress = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId)?.progress ?? {
+          current: 0,
+          total: 0,
+        };
+        sendDesktopBackfillProgress({
+          backfillProgressTargetUnavailableRef,
+          current: progress.current,
+          event,
+          message,
+          normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+          source,
+          stage: 'error',
+          total: progress.total,
         });
       }
       throw error;
