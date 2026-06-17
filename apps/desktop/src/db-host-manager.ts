@@ -147,13 +147,7 @@ function createTransactionId(): string {
 }
 
 function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
-  return (
-    request.kind === 'transaction:start' ||
-    request.kind === 'transaction:query' ||
-    request.kind === 'transaction:exec' ||
-    request.kind === 'transaction:commit' ||
-    request.kind === 'transaction:rollback'
-  );
+  return request.kind !== 'diagnostics';
 }
 
 function createQueryPreview(query: string): string {
