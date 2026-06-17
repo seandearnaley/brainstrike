@@ -2,6 +2,7 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useState } from 'react';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
+import { formatActivityDuration } from './tool-durations';
 import { extractPrimaryArg } from './tool-fallback';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,20 +107,6 @@ export function runEventsSpanMs(parts: readonly unknown[]): number | undefined {
     return;
   }
   return max - min;
-}
-
-/** Human duration: `420ms`, `3.4s`, `1m 12s`. */
-export function formatActivityDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${Math.max(0, Math.round(ms))}ms`;
-  }
-  const totalSeconds = ms / 1000;
-  if (totalSeconds < 60) {
-    return `${totalSeconds.toFixed(1)}s`;
-  }
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds % 60);
-  return `${minutes}m ${seconds}s`;
 }
 
 /**
