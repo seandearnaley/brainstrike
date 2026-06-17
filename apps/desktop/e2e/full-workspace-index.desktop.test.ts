@@ -35,9 +35,10 @@ interface WorkspaceIndexEvidenceSample {
 const ROOTS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS';
 const SINGLE_ROOT_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH';
 const DEVICE_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE';
+const MAX_IDLE_MS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_MAX_IDLE_MS';
 const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
 const POLL_MS = 5000;
-const NO_PROGRESS_TIMEOUT_MS = 120_000;
+const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 120_000;
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
 
@@ -205,6 +206,8 @@ test.describe('Full Workspace Index run', () => {
       throw new Error('Full Workspace Index verifier has no configured roots.');
     }
     const requiredDevice = process.env[DEVICE_ENV]?.trim() || 'webgpu';
+    const noProgressTimeoutMs =
+      Number(process.env[MAX_IDLE_MS_ENV]) || DEFAULT_NO_PROGRESS_TIMEOUT_MS;
     const rootsList = roots.map((rootPath, index) => ({
       addedAt: 1_800_000_000_000 + index,
       path: rootPath,
@@ -298,10 +301,10 @@ test.describe('Full Workspace Index run', () => {
         lastProgressValue = progressValue;
         lastProgressAt = Date.now();
       } else if (
-        Date.now() - lastProgressAt > NO_PROGRESS_TIMEOUT_MS &&
+        Date.now() - lastProgressAt > noProgressTimeoutMs &&
         !isTerminalSnapshot(snapshot)
       ) {
-        throw new Error(`Workspace Index made no progress for ${NO_PROGRESS_TIMEOUT_MS}ms`);
+        throw new Error(`Workspace Index made no progress for ${noProgressTimeoutMs}ms`);
       }
 
       if (isTerminalSnapshot(snapshot)) {

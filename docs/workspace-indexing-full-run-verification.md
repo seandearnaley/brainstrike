@@ -9,6 +9,7 @@ The desktop verifier is opt-in because it indexes real local folders:
 ```bash
 BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS="/abs/root-a:/abs/root-b:/abs/root-c" \
 BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE=webgpu \
+BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_MAX_IDLE_MS=600000 \
 BRAINSTRIKE_E2E_ALLOW_GPU=1 \
 BRAINSTRIKE_E2E_USER_DATA_DIR="$(mktemp -d /tmp/brainstrike-full-index.XXXXXX)" \
 pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index.desktop.test.ts --workers=1 --reporter=line
