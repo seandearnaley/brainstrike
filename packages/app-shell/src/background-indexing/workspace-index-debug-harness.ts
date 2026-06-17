@@ -152,6 +152,17 @@ export function readWorkspaceIndexMemorySample(): unknown {
 export function shouldExposeWorkspaceIndexDebugApi(
   env: Record<string, unknown> | undefined
 ): boolean {
+  const desktopLifecycle =
+    typeof window === 'undefined'
+      ? undefined
+      : (
+          window as Window & {
+            desktopLifecycle?: { isTestMode?: boolean };
+          }
+        ).desktopLifecycle;
+  if (desktopLifecycle?.isTestMode === true) {
+    return true;
+  }
   if (globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true') {
     return true;
   }

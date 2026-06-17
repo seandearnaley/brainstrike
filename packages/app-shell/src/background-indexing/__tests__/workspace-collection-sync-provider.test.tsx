@@ -2311,4 +2311,29 @@ describe('WorkspaceCollectionSyncProvider', () => {
       ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__
     ).toBeUndefined();
   });
+
+  it('exposes the workspace index debug API in desktop E2E mode without renderer process env', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    (
+      window as typeof window & {
+        desktopLifecycle?: { isTestMode: boolean };
+      }
+    ).desktopLifecycle = { isTestMode: true };
+
+    const rendered = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    expect(
+      (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown;
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__
+    ).toBeDefined();
+
+    rendered.unmount();
+  });
 });
