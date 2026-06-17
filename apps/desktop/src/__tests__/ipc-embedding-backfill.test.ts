@@ -50,7 +50,10 @@ function createDeadSenderEvent(): IpcMainInvokeEvent {
   } as unknown as IpcMainInvokeEvent;
 }
 
-function createRunParams(embeddingSetId: string) {
+function createRunParams(
+  embeddingSetId: string,
+  source: 'background-indexing' | 'manual' = 'manual'
+) {
   return {
     databaseWorkScheduler: createDatabaseWorkScheduler({ foregroundQuietMs: 0 }),
     event: createDeadSenderEvent(),
@@ -64,7 +67,7 @@ function createRunParams(embeddingSetId: string) {
     hostManager: createHostManager(),
     isBackgrounded: () => true,
     normalizedEmbeddingSetId: embeddingSetId,
-    source: 'background-indexing' as const,
+    source,
   };
 }
 
@@ -211,5 +214,54 @@ describe('desktop embedding backfill termination logging', () => {
     expect(completed[0]?.args).toContainEqual(
       expect.objectContaining({ embeddingSetId: 'set-completed' })
     );
+  });
+
+  it('attaches duplicate background-indexing submissions to the in-flight backfill', async () => {
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveBackfillStarted?.();
+          resolveBackfill = resolve;
+        })
+    );
+
+    const first = runDesktopEmbeddingBackfill(
+      createRunParams('set-background-attach', 'background-indexing')
+    );
+    await backfillStarted;
+    const second = await runDesktopEmbeddingBackfill(
+      createRunParams('set-background-attach', 'background-indexing')
+    );
+
+    expect(second.requestId).toMatch(/^background-indexing-backfill:/);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    resolveBackfill?.();
+    await first;
+  });
+
+  it('returns immediately after scheduling a background-indexing backfill', async () => {
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveBackfill = resolve;
+        })
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill(
+        createRunParams('set-background-immediate', 'background-indexing')
+      )
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+
+    resolveBackfill?.();
   });
 });

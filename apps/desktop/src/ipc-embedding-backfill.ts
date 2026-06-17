@@ -241,7 +241,17 @@ export async function runDesktopEmbeddingBackfill(params: {
     normalizedEmbeddingSetId,
     source,
   } = params;
-  if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
+  const inFlightBackfill = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
+  if (inFlightBackfill) {
+    if (source === 'background-indexing') {
+      logger.info('Desktop background indexing backfill attached to existing run', {
+        embeddingSetId: normalizedEmbeddingSetId,
+        existingRequestId: inFlightBackfill.requestId,
+        existingSource: inFlightBackfill.source,
+        progress: inFlightBackfill.progress,
+      });
+      return { requestId: inFlightBackfill.requestId };
+    }
     throw new Error(`Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`);
   }
 
@@ -260,7 +270,7 @@ export async function runDesktopEmbeddingBackfill(params: {
     source,
   });
 
-  try {
+  const runBackfill = async (): Promise<void> => {
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
     if (hostStatus.state !== 'running') {
       throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
@@ -317,38 +327,53 @@ export async function runDesktopEmbeddingBackfill(params: {
       requestId: backfillRequestId,
       source,
     });
+  };
+
+  const runBackfillWithLifecycle = async (): Promise<void> => {
+    try {
+      await runBackfill();
+    } catch (error) {
+      // This invocation's IPC rejection is silently discarded by Electron when the
+      // requesting renderer has been torn down (e.g. a top-level navigation
+      // mid-backfill), so main MUST log the terminal outcome itself or the
+      // backfill vanishes from the logs without a trace.
+      const message = error instanceof Error ? error.message : String(error);
+      // Classify canceled-vs-failed from the authoritative canceled set (still
+      // populated here; the finally below clears it), not the error message —
+      // a wrapped cancellation must not be logged at error level as a failure.
+      if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
+        logger.info('Desktop embedding backfill canceled', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+          source,
+        });
+      } else {
+        logger.error('Desktop embedding backfill failed', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          error: message,
+          requestId: backfillRequestId,
+          source,
+        });
+      }
+      throw error;
+    } finally {
+      embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
+      embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
+      if (!isBackgrounded()) {
+        flushPendingLiveUpdates();
+      }
+    }
+  };
+
+  if (source === 'background-indexing') {
+    void runBackfillWithLifecycle().catch(() => {
+      // runBackfillWithLifecycle logs the terminal error with request context.
+    });
     return { requestId: backfillRequestId };
-  } catch (error) {
-    // This invocation's IPC rejection is silently discarded by Electron when the
-    // requesting renderer has been torn down (e.g. a top-level navigation
-    // mid-backfill), so main MUST log the terminal outcome itself or the
-    // backfill vanishes from the logs without a trace.
-    const message = error instanceof Error ? error.message : String(error);
-    // Classify canceled-vs-failed from the authoritative canceled set (still
-    // populated here; the finally below clears it), not the error message —
-    // a wrapped cancellation must not be logged at error level as a failure.
-    if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
-      logger.info('Desktop embedding backfill canceled', {
-        embeddingSetId: normalizedEmbeddingSetId,
-        requestId: backfillRequestId,
-        source,
-      });
-    } else {
-      logger.error('Desktop embedding backfill failed', {
-        embeddingSetId: normalizedEmbeddingSetId,
-        error: message,
-        requestId: backfillRequestId,
-        source,
-      });
-    }
-    throw error;
-  } finally {
-    embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
-    embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
-    if (!isBackgrounded()) {
-      flushPendingLiveUpdates();
-    }
   }
+
+  await runBackfillWithLifecycle();
+  return { requestId: backfillRequestId };
 }
 
 export function cancelAllDesktopEmbeddingBackfills(): void {

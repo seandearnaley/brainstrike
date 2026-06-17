@@ -84,6 +84,7 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
 const BACKGROUND_PRESSURE_POLL_MS = 50;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
+const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
 
 function createClearedProgressPatch(): Pick<
   WorkspaceCollectionSyncStatusPatch,
@@ -1014,6 +1015,28 @@ export function WorkspaceCollectionSyncProvider({
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
   }, [triggerSync]);
+
+  useEffect(() => {
+    const handleQueueDrained = (event: Event): void => {
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+      const detail = event.detail as { embeddingSetId?: unknown; queue?: unknown } | null;
+      if (
+        detail?.queue !== 'embeddings' ||
+        typeof detail.embeddingSetId !== 'string' ||
+        detail.embeddingSetId !== managedCollectionId
+      ) {
+        return;
+      }
+      triggerSync({ mode: 'full' });
+    };
+
+    window.addEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
+    return () => {
+      window.removeEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
+    };
+  }, [managedCollectionId, triggerSync]);
 
   // Recovery point for a backfill killed while the window was hidden (e.g. a
   // top-level navigation mid-backfill): re-sync on return to visibility so the

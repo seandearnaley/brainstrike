@@ -42,13 +42,11 @@ import {
 import {
   createAbortError,
   dispatchQueueDrainedEvent,
-  getBackfillDrainPollDelayMs,
   isAbortError,
   mapBackfillProgressToStatus,
   mapEnhancedProgressToStatus,
   throwIfAborted,
   toWorkspaceCollectionSyncChunkingProgress,
-  toWorkspaceCollectionSyncImportProgress,
   waitForAbortableDelay,
 } from './workspace-collection-sync-progress';
 import {
@@ -59,7 +57,6 @@ import { isWorkspaceIndexBlockedError } from './workspace-index-blocked-error';
 
 const logger = createLogger('WorkspaceCollectionSyncService');
 
-const DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS = 10 * 60 * 1000;
 const QOS_RETRY_LABELS = {
   backfill: 'Workspace Index backfill',
   import: 'Workspace Index import',
@@ -79,7 +76,6 @@ interface RootDirectoryHandle {
 
 export interface WorkspaceCollectionSyncServiceDependencies {
   applyManagedCacheBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
-  backfillDrainTimeoutMs?: number;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
   chunkRepository: FileImportChunkRepository & {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
@@ -280,43 +276,6 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  private trackBackfill(args: {
-    collection: EmbeddingSet;
-    managedCollectionName: string | null;
-    requestId: string;
-    rootPath: string;
-    scanSummary?: WorkspaceCollectionSyncScanSummary;
-    state: 'embedding' | 'recovering';
-    chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
-  }): void {
-    this.activeBackfill?.unsubscribe?.();
-    const unsubscribe = this.deps.subscribeToBackfillProgress((progress) => {
-      if (progress.embeddingSetId !== args.collection.id || progress.requestId !== args.requestId) {
-        return;
-      }
-      this.deps.setStatus(
-        mapBackfillProgressToStatus({
-          collection: args.collection,
-          managedCollectionName: args.managedCollectionName,
-          rootPath: args.rootPath,
-          chunkingProgress: args.chunkingProgress,
-          current: progress.current,
-          total: progress.total,
-          requestId: progress.requestId,
-          state: args.state,
-          ...(args.scanSummary ? { scanSummary: args.scanSummary } : {}),
-          ...(progress.message ? { message: progress.message } : {}),
-        })
-      );
-    });
-    this.activeBackfill = {
-      embeddingSetId: args.collection.id,
-      requestId: args.requestId,
-      rootPath: args.rootPath,
-      unsubscribe,
-    };
-  }
-
   private async cancelSupersededBackgroundBackfills(args: {
     exceptEmbeddingSetId?: string;
     inFlightBackfills: Array<{
@@ -328,51 +287,6 @@ export class WorkspaceCollectionSyncService {
     for (const embeddingSetId of getSupersededBackgroundBackfillIds(args)) {
       await this.deps.cancelBackfill(embeddingSetId);
     }
-  }
-
-  private async waitForBackfillToDrain(args: {
-    abortSignal: AbortSignal;
-    collectionId: string;
-    requestId: string;
-  }): Promise<void> {
-    const startedAt = Date.now();
-    const timeoutMs = this.deps.backfillDrainTimeoutMs ?? DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS;
-    let attempt = 0;
-    while (true) {
-      throwIfAborted(args.abortSignal);
-      if (Date.now() - startedAt > timeoutMs) {
-        throw new Error(
-          `Timed out waiting for background indexing backfill to drain for collection ${args.collectionId}.`
-        );
-      }
-      const inFlight = await this.deps.getBackfillsInFlight();
-      const matching = inFlight.find(
-        (backfill) =>
-          backfill.embeddingSetId === args.collectionId && backfill.requestId === args.requestId
-      );
-      if (!matching) {
-        return;
-      }
-      await waitForAbortableDelay(getBackfillDrainPollDelayMs(attempt), args.abortSignal);
-      attempt += 1;
-    }
-  }
-
-  private setRecoveringStatus(args: {
-    collection: EmbeddingSet;
-    rootPath: string;
-    requestId: string;
-  }): void {
-    this.deps.setStatus({
-      state: 'recovering',
-      managedCollectionId: args.collection.id,
-      managedCollectionName: args.collection.name ?? null,
-      activeRootPath: args.rootPath,
-      backfillRequestId: args.requestId,
-      currentFilePath: null,
-      lastError: null,
-      pauseReasons: [],
-    });
   }
 
   private async resolveContext(
@@ -667,14 +581,12 @@ export class WorkspaceCollectionSyncService {
       throw createAbortError('Workspace Index QoS policy does not permit backfill enqueue work.');
     }
     const pendingRequestId = `pending:${args.collection.id}:${Date.now()}`;
-    let resolvedRequestId = pendingRequestId;
     let unsubscribeBackfillProgress: (() => void) | null = null;
 
     unsubscribeBackfillProgress = this.deps.subscribeToBackfillProgress((progress) => {
       if (progress.embeddingSetId !== args.collection.id) {
         return;
       }
-      resolvedRequestId = progress.requestId;
       this.activeBackfill = {
         embeddingSetId: args.collection.id,
         requestId: progress.requestId,
@@ -695,6 +607,11 @@ export class WorkspaceCollectionSyncService {
           ...(progress.message ? { message: progress.message } : {}),
         })
       );
+      if (progress.current >= progress.total) {
+        this.activeBackfill?.unsubscribe?.();
+        this.activeBackfill = null;
+        dispatchQueueDrainedEvent(args.collection.id);
+      }
     });
     this.activeBackfill = {
       embeddingSetId: args.collection.id,
@@ -703,52 +620,36 @@ export class WorkspaceCollectionSyncService {
       unsubscribe: unsubscribeBackfillProgress,
     };
 
-    try {
-      const enqueueResult = await this.deps.enqueueBackfill(args.collection.id, {
-        signal: args.abortSignal,
-        source: 'background-indexing',
-      });
-      if ('canceled' in enqueueResult) {
-        // Desktop main now resolves a benign { canceled: true } for a deliberate
-        // cancellation instead of rejecting the IPC call. Re-raise it locally as an
-        // abort so the existing upstream cancellation handling (isAbortError →
-        // benign, never handleSyncFailure) is byte-identical to the prior
-        // reject-on-cancel behavior; only the spurious main-process handler-error
-        // log is gone.
-        throw createAbortError('Embedding backfill was canceled before it started.');
-      }
-      const { requestId } = enqueueResult;
-      resolvedRequestId = requestId;
-      this.activeBackfill = {
-        embeddingSetId: args.collection.id,
-        requestId,
-        rootPath: args.rootPath,
-        unsubscribe: unsubscribeBackfillProgress,
-      };
-      this.setEmbeddingPendingStatus({
-        backfillRequestId: requestId,
-        chunkingProgress: args.chunkingProgress,
-        collection: args.collection,
-        rootPath: args.rootPath,
-        summary: args.summary,
-      });
-      throwIfAborted(args.abortSignal);
-      await this.waitForBackfillToDrain({
-        abortSignal: args.abortSignal,
-        collectionId: args.collection.id,
-        requestId,
-      });
-      dispatchQueueDrainedEvent(args.collection.id);
-      throwIfAborted(args.abortSignal);
-    } finally {
-      if (
-        this.activeBackfill?.requestId === resolvedRequestId ||
-        resolvedRequestId === pendingRequestId
-      ) {
-        this.activeBackfill?.unsubscribe?.();
-        this.activeBackfill = null;
-      }
+    const enqueueResult = await this.deps.enqueueBackfill(args.collection.id, {
+      signal: args.abortSignal,
+      source: 'background-indexing',
+    });
+    if ('canceled' in enqueueResult) {
+      this.activeBackfill?.unsubscribe?.();
+      this.activeBackfill = null;
+      // Desktop main now resolves a benign { canceled: true } for a deliberate
+      // cancellation instead of rejecting the IPC call. Re-raise it locally as an
+      // abort so the existing upstream cancellation handling (isAbortError →
+      // benign, never handleSyncFailure) is byte-identical to the prior
+      // reject-on-cancel behavior; only the spurious main-process handler-error
+      // log is gone.
+      throw createAbortError('Embedding backfill was canceled before it started.');
     }
+    const { requestId } = enqueueResult;
+    this.activeBackfill = {
+      embeddingSetId: args.collection.id,
+      requestId,
+      rootPath: args.rootPath,
+      unsubscribe: unsubscribeBackfillProgress,
+    };
+    this.setEmbeddingPendingStatus({
+      backfillRequestId: requestId,
+      chunkingProgress: args.chunkingProgress,
+      collection: args.collection,
+      rootPath: args.rootPath,
+      summary: args.summary,
+    });
+    throwIfAborted(args.abortSignal);
   }
 
   private setImportingStatus(
@@ -855,83 +756,6 @@ export class WorkspaceCollectionSyncService {
     await this.deps.cancelBackfill(args.previousTrackedBackfill.embeddingSetId);
   }
 
-  private async handleRecoveredSync(args: {
-    abortController: AbortController;
-    context: ResolvedSyncContext;
-    currentRunId: number;
-    recoveredBackfill: {
-      embeddingSetId: string;
-      progress: { current: number; total: number } | null;
-      requestId: string;
-    };
-    request: WorkspaceCollectionSyncRequest;
-  }): Promise<boolean> {
-    const { abortController, context, currentRunId, recoveredBackfill, request } = args;
-    const { signal } = abortController;
-    try {
-      await this.recoverInFlightBackfill({
-        abortSignal: signal,
-        backfill: recoveredBackfill,
-        context,
-      });
-      if (!(this.isCancelled(currentRunId) || signal.aborted)) {
-        this.setScanningStatus(context, null, { resetProgress: false });
-        await this.runSyncPass({
-          abortSignal: signal,
-          context,
-          request,
-          runId: currentRunId,
-        });
-      }
-    } catch (error) {
-      if (this.isCancelled(currentRunId) || isAbortError(error)) {
-        return true;
-      }
-      this.handleSyncFailure({
-        collection: context.collection,
-        error,
-        rootPath: context.rootPath,
-      });
-    } finally {
-      if (this.currentAbortController === abortController) {
-        this.currentAbortController = null;
-      }
-    }
-    return true;
-  }
-
-  private async recoverInFlightBackfill(args: {
-    abortSignal: AbortSignal;
-    backfill: {
-      embeddingSetId: string;
-      progress: { current: number; total: number } | null;
-      requestId: string;
-    };
-    context: ResolvedSyncContext;
-  }): Promise<void> {
-    this.setRecoveringStatus({
-      collection: args.context.collection,
-      rootPath: args.context.rootPath,
-      requestId: args.backfill.requestId,
-    });
-    this.trackBackfill({
-      collection: args.context.collection,
-      managedCollectionName: args.context.collection.name ?? null,
-      requestId: args.backfill.requestId,
-      rootPath: args.context.rootPath,
-      state: 'recovering',
-      chunkingProgress: null,
-    });
-    await this.waitForBackfillToDrain({
-      abortSignal: args.abortSignal,
-      collectionId: args.context.collection.id,
-      requestId: args.backfill.requestId,
-    });
-    this.activeBackfill?.unsubscribe?.();
-    this.activeBackfill = null;
-    dispatchQueueDrainedEvent(args.context.collection.id);
-  }
-
   private async runSyncPass(args: {
     abortSignal: AbortSignal;
     context: ResolvedSyncContext;
@@ -996,6 +820,7 @@ export class WorkspaceCollectionSyncService {
         if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
           return;
         }
+        return;
       }
       this.setIdleStatus({
         collection: args.context.collection,
@@ -1018,7 +843,6 @@ export class WorkspaceCollectionSyncService {
     });
     this.setImportingStatus(args.context, prepared);
     const scanSummary = this.createScanSummary(prepared);
-    let sawCompleteProgress = false;
     let latestImportProgress: EnhancedImportProgress | null = null;
 
     await runRootFolderCacheImport({
@@ -1036,9 +860,6 @@ export class WorkspaceCollectionSyncService {
       rootId: args.context.dbRootId,
       onProgress: (progress) => {
         latestImportProgress = progress;
-        if (progress.phase === 'complete') {
-          sawCompleteProgress = true;
-        }
         this.deps.setStatus(
           mapEnhancedProgressToStatus(
             progress,
@@ -1072,19 +893,6 @@ export class WorkspaceCollectionSyncService {
     });
     if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
       return;
-    }
-
-    this.setIdleStatus({
-      collection: args.context.collection,
-      rootPath: args.context.rootPath,
-      summary: prepared,
-    });
-    if (!sawCompleteProgress && latestImportProgress) {
-      this.deps.setStatus({
-        chunkingProgress: toWorkspaceCollectionSyncChunkingProgress(latestImportProgress),
-        importProgress: toWorkspaceCollectionSyncImportProgress(latestImportProgress),
-        scanSummary,
-      });
     }
   }
 
@@ -1148,17 +956,6 @@ export class WorkspaceCollectionSyncService {
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
-    if (recoveredBackfill) {
-      await this.handleRecoveredSync({
-        abortController,
-        context,
-        currentRunId,
-        recoveredBackfill,
-        request,
-      });
-      return;
-    }
-
     this.setScanningStatus(context, null, { resetProgress: true });
 
     try {

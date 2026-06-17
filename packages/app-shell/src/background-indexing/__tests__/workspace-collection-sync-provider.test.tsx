@@ -1052,6 +1052,56 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('runs a full follow-up sync when the managed workspace embedding queue drains', async () => {
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      syncSpy.mockClear();
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:queue-drained', {
+            detail: {
+              embeddingSetId: '00000000-0000-0000-0000-000000000101',
+              queue: 'embeddings',
+            },
+          })
+        );
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      expect(syncSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          scope: { mode: 'full' },
+        })
+      );
+
+      syncSpy.mockClear();
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:queue-drained', {
+            detail: {
+              embeddingSetId: '00000000-0000-0000-0000-000000000999',
+              queue: 'embeddings',
+            },
+          })
+        );
+      });
+
+      expect(syncSpy).not.toHaveBeenCalled();
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('falls back to full recovery sync when a watcher event matches no active root', async () => {
     const rootA = {
       kind: 'directory',

@@ -5,7 +5,6 @@ import {
   buildNormalizedChunkingProgress,
   createScanningStatusReporter,
   dispatchQueueDrainedEvent,
-  getBackfillDrainPollDelayMs,
   isAbortError,
   mapBackfillProgressToStatus,
   mapEnhancedProgressToStatus,
@@ -276,9 +275,6 @@ describe('workspace collection sync progress helpers', () => {
   });
 
   it('normalizes chunking progress, fills synthetic batch errors, and reports queue drain events', () => {
-    expect(getBackfillDrainPollDelayMs(-1)).toBe(250);
-    expect(getBackfillDrainPollDelayMs(4)).toBe(2000);
-
     expect(
       buildNormalizedChunkingProgress({
         batchChunking: {

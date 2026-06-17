@@ -391,7 +391,7 @@ describe('WorkspaceCollectionSyncService', () => {
         insertMany: vi.fn(async () => []),
         update: vi.fn(async () => null),
       },
-      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]),
+      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
       subscribeToBackfillProgress: vi.fn((callback) => {
         callback({
           embeddingSetId: 'set-1',
@@ -431,7 +431,8 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        state: 'idle',
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
         scanSummary: expect.objectContaining({
           unchangedFiles: 1,
           changedFiles: 0,
@@ -2117,7 +2118,7 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('preserves detailed scan, chunking, embedding, and queue telemetry through idle completion', async () => {
+  it('preserves detailed scan, chunking, embedding, and queue telemetry while embedding remains active', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -2207,7 +2208,8 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        state: 'idle',
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
         scanSummary: {
           discoveredFiles: 1,
           changedFiles: 1,
@@ -2220,14 +2222,14 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('checks managed backfill in-flight state again after enqueueing before transitioning to idle', async () => {
+  it('leaves embedding work in flight after enqueueing instead of waiting to transition to idle', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
           [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
-      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]),
+      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
       subscribeToBackfillProgress: vi.fn((callback) => {
         callback({
           embeddingSetId: 'set-1',
@@ -2248,7 +2250,7 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
+    expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
     expect(deps.setStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         state: 'embedding',
@@ -2257,7 +2259,8 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        state: 'idle',
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
       })
     );
   });
@@ -2385,52 +2388,20 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.enqueueBackfill).not.toHaveBeenCalled();
   });
 
-  it('enters recovering state when the managed collection already has an in-flight backfill', async () => {
-    const unchangedContent = 'export const value = 1;';
-    const unchangedHash = await generateContentHash(unchangedContent);
+  it('continues scan and import work when the managed collection already has an in-flight backfill', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
-      fileRecordRepository: {
-        findById: vi.fn(async () => null),
-        findByIds: vi.fn(async () => []),
-        listManagedCacheEntryMetadata: vi.fn(async () => [
-          {
-            fileRecordId: 'file-1',
-            embeddingSetId: 'set-1',
-            rootId: ROOT_PATH,
-            relativePath: FILE_PATH,
-            contentHash: unchangedHash,
-            updatedAt: new Date().toISOString(),
-          } satisfies ManagedCacheEntryMetadata,
-        ]),
-        update: vi.fn(async () => undefined),
-        updateStatMetadata: vi.fn(async () => undefined),
-      },
-      getBackfillsInFlight: vi
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            embeddingSetId: 'set-1',
-            requestId: 'background-indexing-backfill:test',
-            progress: { current: 2, total: 4 },
-          },
-        ])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]),
-      subscribeToBackfillProgress: vi.fn((callback) => {
-        callback({
+      getBackfillsInFlight: vi.fn(async () => [
+        {
           embeddingSetId: 'set-1',
           requestId: 'background-indexing-backfill:test',
-          current: 3,
-          total: 4,
-          message: 'chunk 3/4',
-        });
-        return () => {};
-      }),
+          progress: { current: 2, total: 4 },
+        },
+      ]),
     });
     const service = new WorkspaceCollectionSyncService(deps);
 
@@ -2441,52 +2412,50 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.setStatus).toHaveBeenCalledWith(
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(1);
+    expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({
         state: 'recovering',
-        backfillRequestId: 'background-indexing-backfill:test',
       })
     );
-    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
   });
 
-  it('times out when an attached backfill never drains', async () => {
-    vi.useFakeTimers();
-    try {
-      const deps = createDeps({
-        backfillDrainTimeoutMs: 500,
-        getBackfillsInFlight: vi.fn(async () => [
-          {
-            embeddingSetId: 'set-1',
-            requestId: 'background-indexing-backfill:test',
-            progress: { current: 1, total: 4 },
-          },
-        ]),
-      });
-      const service = new WorkspaceCollectionSyncService(deps) as unknown as {
-        waitForBackfillToDrain: (args: {
-          abortSignal: AbortSignal;
-          collectionId: string;
-          requestId: string;
-        }) => Promise<void>;
-      };
-      const abortController = new AbortController();
+  it('does not wait for in-flight backfill drain before discovering missing files', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      getBackfillsInFlight: vi.fn(async () => [
+        {
+          embeddingSetId: 'set-1',
+          requestId: 'background-indexing-backfill:test',
+          progress: { current: 1, total: 4 },
+        },
+      ]),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
 
-      const drainPromise = service.waitForBackfillToDrain({
-        abortSignal: abortController.signal,
-        collectionId: 'set-1',
-        requestId: 'background-indexing-backfill:test',
-      });
-      const drainExpectation = expect(drainPromise).rejects.toThrow(
-        'Timed out waiting for background indexing backfill to drain for collection set-1.'
-      );
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
 
-      await vi.advanceTimersByTimeAsync(1000);
-
-      await drainExpectation;
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).not.toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        lastError:
+          'Timed out waiting for background indexing backfill to drain for collection set-1.',
+      })
+    );
   });
 
   it('imports changed files in bounded batches instead of building a single full-run content map', async () => {
@@ -2536,69 +2505,6 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(batchSizes.every((size) => size <= 24)).toBe(true);
   });
 
-  it('backs off drain polling instead of polling at a fixed interval', async () => {
-    vi.useFakeTimers();
-    try {
-      const deps = createDeps({
-        getBackfillsInFlight: vi
-          .fn()
-          .mockResolvedValueOnce([
-            {
-              embeddingSetId: 'set-1',
-              requestId: 'background-indexing-backfill:test',
-              progress: { current: 1, total: 4 },
-            },
-          ])
-          .mockResolvedValueOnce([
-            {
-              embeddingSetId: 'set-1',
-              requestId: 'background-indexing-backfill:test',
-              progress: { current: 2, total: 4 },
-            },
-          ])
-          .mockResolvedValueOnce([
-            {
-              embeddingSetId: 'set-1',
-              requestId: 'background-indexing-backfill:test',
-              progress: { current: 3, total: 4 },
-            },
-          ])
-          .mockResolvedValueOnce([]),
-      });
-      const service = new WorkspaceCollectionSyncService(deps) as unknown as {
-        waitForBackfillToDrain: (args: {
-          abortSignal: AbortSignal;
-          collectionId: string;
-          requestId: string;
-        }) => Promise<void>;
-      };
-      const abortController = new AbortController();
-
-      const drainPromise = service.waitForBackfillToDrain({
-        abortSignal: abortController.signal,
-        collectionId: 'set-1',
-        requestId: 'background-indexing-backfill:test',
-      });
-
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(249);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
-      await vi.advanceTimersByTimeAsync(499);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(3);
-      await vi.advanceTimersByTimeAsync(999);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(3);
-      await vi.advanceTimersByTimeAsync(1);
-      await drainPromise;
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(4);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('preserves the last import/chunk summary when no explicit complete progress event is emitted', async () => {
     const deps = createDeps({
       fileContentProcessor: {
@@ -2635,10 +2541,8 @@ describe('WorkspaceCollectionSyncService', () => {
 
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        importProgress: expect.objectContaining({
-          completed: 1,
-          total: 1,
-        }),
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
         chunkingProgress: expect.objectContaining({
           filesProcessed: 1,
           chunksCreated: 2,
@@ -2815,66 +2719,6 @@ describe('WorkspaceCollectionSyncService', () => {
 
     expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
     expect(deps.enqueueBackfill).not.toHaveBeenCalled();
-  });
-
-  it('surfaces a recovery failure when an attached backfill never drains during sync', async () => {
-    vi.useFakeTimers();
-    try {
-      const unchangedContent = 'export const value = 1;';
-      const unchangedHash = await generateContentHash(unchangedContent);
-      const deps = createDeps({
-        backfillDrainTimeoutMs: 500,
-        fileContentProcessor: {
-          processFiles: vi.fn(async () => ({
-            [COMPOSITE_KEY]: unchangedContent,
-          })),
-        },
-        fileRecordRepository: {
-          findById: vi.fn(async () => null),
-          findByIds: vi.fn(async () => []),
-          listManagedCacheEntryMetadata: vi.fn(async () => [
-            {
-              fileRecordId: 'file-1',
-              embeddingSetId: 'set-1',
-              rootId: ROOT_PATH,
-              relativePath: FILE_PATH,
-              contentHash: unchangedHash,
-              updatedAt: new Date().toISOString(),
-            } satisfies ManagedCacheEntryMetadata,
-          ]),
-          update: vi.fn(async () => undefined),
-          updateStatMetadata: vi.fn(async () => undefined),
-        },
-        getBackfillsInFlight: vi.fn(async () => [
-          {
-            embeddingSetId: 'set-1',
-            requestId: 'background-indexing-backfill:test',
-            progress: { current: 1, total: 4 },
-          },
-        ]),
-      });
-      const service = new WorkspaceCollectionSyncService(deps);
-
-      const syncPromise = service.sync({
-        enabled: true,
-        indexingPolicyPreset: 'balanced',
-        managedCollectionId: 'set-1',
-        rootDirectoryHandle: createRootHandle(ROOT_PATH),
-      });
-
-      await vi.advanceTimersByTimeAsync(1000);
-      await syncPromise;
-
-      expect(deps.setStatus).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          state: 'error',
-          lastError:
-            'Timed out waiting for background indexing backfill to drain for collection set-1.',
-        })
-      );
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('cancels superseded background-indexing backfills for other collections before syncing the managed collection', async () => {
