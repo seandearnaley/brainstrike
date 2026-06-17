@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { Page } from '@playwright/test';
 import { getMainBufferedLogs, getRendererLogRecords } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -185,6 +186,19 @@ async function readWorkspaceIndexSnapshot(page: {
   });
 }
 
+async function waitForWorkspaceIndexDebugApi(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (
+        globalThis as typeof globalThis & {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown;
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
+    undefined,
+    { timeout: 60_000 }
+  );
+}
+
 test.describe('Full Workspace Index run', () => {
   test.skip(
     parseConfiguredRoots().length === 0,
@@ -261,6 +275,7 @@ test.describe('Full Workspace Index run', () => {
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'full-workspace-index-roots-seeded');
+    await waitForWorkspaceIndexDebugApi(page);
 
     await page.evaluate(async () => {
       const api = (
