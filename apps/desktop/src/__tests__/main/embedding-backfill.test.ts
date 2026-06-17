@@ -293,7 +293,114 @@ describe('embedding-backfill', () => {
     ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 64 });
 
     expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
-    expect(queryOrder).toEqual(['metadata', 'pending', 'pending', 'final-counts']);
+    expect(queryOrder).toEqual([
+      'metadata',
+      'pending',
+      'pending',
+      'final-counts',
+      'candidate-count',
+    ]);
+  });
+
+  it('continues scanning and enqueuing candidates after existing scoped jobs drain', async () => {
+    const queryOrder: string[] = [];
+    let pendingCountCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          pendingCountCalls += 1;
+          return { rows: [{ count: pendingCountCalls === 1 ? 2 : 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          queryOrder.push('candidate-batch');
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: [
+              { id: '10', fileRecordId: '110', contentHash: 'hash-10' },
+              { id: '11', fileRecordId: '111', contentHash: 'hash-11' },
+            ],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          queryOrder.push('final-counts');
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+          };
+        }
+        if (sql.startsWith('VACUUM')) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-after-drain-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+    const progressUpdates: Array<{ done: number; total: number }> = [];
+
+    const counts = await enqueueEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      (done, total) => {
+        progressUpdates.push({ done, total });
+      },
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        progressIntervalBatches: 1,
+        progressIntervalMs: 1,
+      }
+    );
+
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        dedupeKey: '10:set-123:hash-10',
+        payload: expect.objectContaining({ chunkId: '10', embeddingSetId: 'set-123' }),
+      }),
+      expect.objectContaining({
+        dedupeKey: '11:set-123:hash-11',
+        payload: expect.objectContaining({ chunkId: '11', embeddingSetId: 'set-123' }),
+      }),
+    ]);
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 2 },
+      { done: 2, total: 4 },
+      { done: 4, total: 4 },
+    ]);
+    expect(queryOrder).toEqual([
+      'metadata',
+      'pending',
+      'pending',
+      'final-counts',
+      'candidate-count',
+      'candidate-batch',
+      'pending',
+      'final-counts',
+    ]);
+    expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 4 });
   });
 
   it('runs drain maintenance while draining existing scoped jobs before candidate scans', async () => {
@@ -322,7 +429,7 @@ describe('embedding-backfill', () => {
           };
         }
         if (isBackfillCandidateCountQuery(sql)) {
-          throw new Error('Existing scoped jobs should drain without candidate counting.');
+          return { rows: [{ count: 0 }] };
         }
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
@@ -534,7 +641,7 @@ describe('embedding-backfill', () => {
           return { rows: [{ count: pendingCountCalls === 1 ? 4 : 0 }] };
         }
         if (sql.includes('COUNT(*)::int AS count')) {
-          return { rows: [{ count: 4 }] };
+          return { rows: [{ count: 0 }] };
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
@@ -820,7 +927,7 @@ describe('embedding-backfill', () => {
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
-          return { rows: [{ count: 4 }] };
+          return { rows: [{ count: 0 }] };
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;

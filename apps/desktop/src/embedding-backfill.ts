@@ -305,6 +305,24 @@ interface DrainTickLogState {
   consecutiveDrainTickFailures: number;
 }
 
+interface ExistingScopedBackfillDrainResult {
+  counts: EmbeddingBackfillQueueCounts;
+  done: number;
+}
+
+interface DrainExistingScopedBackfillJobsOptions {
+  assertCanContinue?: () => void | Promise<void>;
+  backlogPollMs: number;
+  db: Pick<IDatabase, 'query'>;
+  drainTimeoutMs: number;
+  embeddingSetId: string;
+  existingPending: number;
+  now: () => number;
+  observeMaintenance?: () => void | Promise<void>;
+  onProgress: (done: number, total: number) => void;
+  runStartedAt: string;
+}
+
 async function vacuumBackfillTables(
   db: Pick<IDatabase, 'query'>,
   logState: VacuumLogState,
@@ -478,6 +496,45 @@ async function loadBackfillCandidateBatch(
   return result.rows;
 }
 
+async function drainExistingScopedBackfillJobs({
+  assertCanContinue,
+  backlogPollMs,
+  db,
+  drainTimeoutMs,
+  embeddingSetId,
+  existingPending,
+  now,
+  observeMaintenance,
+  onProgress,
+  runStartedAt,
+}: DrainExistingScopedBackfillJobsOptions): Promise<ExistingScopedBackfillDrainResult | null> {
+  if (existingPending <= 0) {
+    return null;
+  }
+
+  logger.info('Backfill found existing active scoped jobs; draining before candidate scan', {
+    embeddingSetId,
+    pending: existingPending,
+  });
+  onProgress(0, existingPending);
+  const counts = await waitForEmbeddingSetDrain(
+    db,
+    embeddingSetId,
+    backlogPollMs,
+    drainTimeoutMs,
+    now,
+    assertCanContinue,
+    runStartedAt,
+    observeMaintenance
+  );
+  if (counts.failed > 0) {
+    throw new Error(
+      `Backfill failed for embedding set '${embeddingSetId}': ${counts.failed} job(s) failed.`
+    );
+  }
+  return { counts, done: existingPending };
+}
+
 async function enqueueEmbeddingChunkJobsBatch(
   jobQueue: Pick<EmbeddingBackfillJobQueue, 'enqueueBatch'>,
   batch: BackfillCandidate[],
@@ -623,40 +680,35 @@ export async function enqueueEmbeddingBackfill(
   const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
   await repairScopedEmbeddingBackfillQueue(jobQueue, embeddingSetId);
   const existingPending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
-  if (existingPending > 0) {
-    logger.info('Backfill found existing active scoped jobs; draining before candidate scan', {
-      embeddingSetId,
-      pending: existingPending,
-    });
-    onProgress(0, existingPending);
-    const drainedCounts = await waitForEmbeddingSetDrain(
-      db,
-      embeddingSetId,
-      backlogPollMs,
-      drainTimeoutMs,
-      now,
-      assertCanContinue,
-      runStartedAt,
-      observeMaintenance
-    );
-    if (drainedCounts.failed > 0) {
-      throw new Error(
-        `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
-      );
-    }
-    await vacuumBackfillTables(db, vacuumLogState, now);
-    onProgress(existingPending, existingPending);
-    return finalizeBackfillCounts(embeddingSetId, existingPending, existingPending, drainedCounts);
-  }
-  const total = await countBackfillCandidates(db, embeddingSetId);
+  const drainedExisting = await drainExistingScopedBackfillJobs({
+    ...(assertCanContinue ? { assertCanContinue } : {}),
+    backlogPollMs,
+    db,
+    drainTimeoutMs,
+    embeddingSetId,
+    existingPending,
+    now,
+    observeMaintenance,
+    onProgress,
+    runStartedAt,
+  });
+  let done = drainedExisting?.done ?? 0;
+  const candidates = await countBackfillCandidates(db, embeddingSetId);
+  const total = done + candidates;
   logger.info('Embedding set metadata resolved for backfill', {
     embeddingSetId,
     modelKey: metadata.modelKey,
     expectedDimension: metadata.expectedDimension,
-    candidates: total,
+    candidates,
+    preExistingDrained: done,
+    total,
   });
+  if (candidates === 0 && drainedExisting) {
+    await vacuumBackfillTables(db, vacuumLogState, now);
+    onProgress(done, total);
+    return finalizeBackfillCounts(embeddingSetId, total, done, drainedExisting.counts);
+  }
 
-  let done = 0;
   let cursor: string | null = null;
   let exhaustedCursor = false;
   let batchesSinceProgress = 0;
