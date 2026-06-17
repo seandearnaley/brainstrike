@@ -4,10 +4,12 @@ import type {
   DbHandle,
   EmbeddingSet,
   FileImportResult,
+  IDatabase,
   ImportProgress,
   ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -22,6 +24,7 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -45,6 +48,14 @@ type WorkspaceIndexingImportQosPolicy = Pick<
 function assertPositiveQosCapacity(value: number, label: string): void {
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error(`Workspace Index QoS ${label} must be a positive integer.`);
+  }
+}
+
+function assertManagedCollectionModelKey(modelKey: string): void {
+  if (modelKey.trim().length === 0) {
+    throw new Error(
+      'Workspace Index managed collection requires a model key before chunk embedding jobs can be enqueued.'
+    );
   }
 }
 
@@ -257,6 +268,14 @@ function applyDiscoveredPreparedFiles(args: {
       continue;
     }
     if (existing.contentHash === discovered.contentHash) {
+      if (!hasCompletedChunking(existing)) {
+        args.changes.push({
+          ...discovered,
+          id: existing.fileRecordId,
+          mode: 'replace',
+        });
+        continue;
+      }
       unchangedCount += 1;
       // Unchanged rows never write, so stamp missing/stale stats here or
       // pre-migration rows miss the stat-cache on every future sync.
@@ -513,7 +532,20 @@ function isStatCacheHit(
   if (preparation.mtimeMs === null) {
     return false;
   }
+  if (!hasCompletedChunking(existing)) {
+    return false;
+  }
   return existing.size === preparation.size && existing.mtimeMs === preparation.mtimeMs;
+}
+
+function hasCompletedChunking(existing: ManagedCacheEntryMetadata): boolean {
+  if (existing.chunksProcessedAt === undefined) {
+    return true;
+  }
+  if (existing.chunksProcessedAt === null) {
+    return false;
+  }
+  return typeof existing.chunksProcessedAt === 'string' && existing.chunksProcessedAt.length > 0;
 }
 
 export async function collectPreparedChangesInBatches(args: {
@@ -685,11 +717,29 @@ export async function runRootFolderCacheImport(args: {
   if (!firstChange) {
     return;
   }
+  assertManagedCollectionModelKey(collection.modelKey);
+  const sql = {
+    query: db.query.bind(db),
+    ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
+  };
+  if (!db.transaction) {
+    logger.warn(
+      'Workspace Index import DB handle does not expose callback transactions; chunk/job recovery relies on backfill reconciliation.',
+      { embeddingSetId: collection.id }
+    );
+  }
+  const embeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
+    db,
+    createQueue: (executor) => new JobQueue(executor),
+    defaultExpectedDimension: collection.dimensions,
+  });
   const embeddingConfig = {
-    enabled: false,
+    enabled: true,
+    model: collection.modelKey,
     service: null,
     chunkRepository,
     resolveTargetEmbeddingSetId: () => collection.id,
+    targetDimension: collection.dimensions,
   };
   const processor =
     fileContentProcessor ??
@@ -828,6 +878,10 @@ export async function runRootFolderCacheImport(args: {
           chunkingWorkerPort,
         },
         embedding: embeddingConfig,
+        ports: {
+          embeddingQueue,
+          sql,
+        },
         progressHandlers: {
           emit: (progress) => {
             const batchChunking = progress.chunkingProgress;
@@ -853,7 +907,7 @@ export async function runRootFolderCacheImport(args: {
       });
       await waitForBackgroundPermit({ label: 'background import assignment' });
       await backfillEmbeddingSetAssignments(
-        { query: db.query.bind(db) },
+        sql,
         collection.id,
         batchResults.filter((result) => result.imported).map((result) => result.id)
       );

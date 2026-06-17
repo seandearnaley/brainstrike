@@ -297,6 +297,16 @@ describe('setup-inline-fixture-subscription', () => {
             count: 3,
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            embedding_set_id: 'set-1',
+            root_id: 'root-1',
+            file_count: 2,
+            oldest_updated_at: '2026-06-16T00:02:00.000Z',
+          },
+        ],
       });
     window.electronAPI = {
       db: { query },
@@ -359,6 +369,14 @@ describe('setup-inline-fixture-subscription', () => {
           count: 3,
         },
       ],
+      chunkingBacklog: [
+        {
+          embedding_set_id: 'set-1',
+          root_id: 'root-1',
+          file_count: 2,
+          oldest_updated_at: '2026-06-16T00:02:00.000Z',
+        },
+      ],
       hosts: {
         chunking: {
           available: true,
@@ -397,6 +415,11 @@ describe('setup-inline-fixture-subscription', () => {
       "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
       []
     );
+    expect(query).toHaveBeenNthCalledWith(
+      4,
+      'SELECT embedding_set_id, root_id, COUNT(*)::int AS file_count, MIN(updated_at) AS oldest_updated_at FROM file_records WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL AND chunks_processed_at IS NULL GROUP BY embedding_set_id, root_id ORDER BY embedding_set_id, root_id',
+      []
+    );
 
     unsubscribe();
     expect(window.__BRAINSTRIKE_INDEXING_DEBUG__).toBeUndefined();
@@ -417,6 +440,7 @@ describe('setup-inline-fixture-subscription', () => {
       roots: [],
       collectionStats: [],
       queueCounts: [],
+      chunkingBacklog: [],
       hosts: {
         chunking: { available: false, reason: 'chunkingHost bridge unavailable' },
         embedding: { available: false, reason: 'embeddingHost bridge unavailable' },

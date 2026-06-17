@@ -244,7 +244,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   ): Promise<ManagedCacheEntryMetadata[]> {
     // Managed-cache dedup identity is root_id since the source_root_path
     // retirement; rows without a root_id are not part of the managed cache.
-    const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
+    const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, chunks_count, chunks_processed_at, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
     const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
@@ -280,6 +280,13 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
             contentHash: contentHash ?? '',
             ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
             mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
+            chunksCount: parseOptionalStatNumber(row['chunks_count']),
+            chunksProcessedAt:
+              row['chunks_processed_at'] instanceof Date
+                ? row['chunks_processed_at'].toISOString()
+                : typeof row['chunks_processed_at'] === 'string'
+                  ? row['chunks_processed_at']
+                  : null,
             updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
           } satisfies ManagedCacheEntryMetadata,
         ];
