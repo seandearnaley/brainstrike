@@ -707,6 +707,13 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
   it('skips null-byte content as a per-file import error without poisoning the batch', async () => {
     vi.mocked(runEnhancedImport).mockClear();
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
       async () => {}
     );
@@ -739,40 +746,44 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       }
     );
 
-    await runRootFolderCacheImport({
-      applyManagedCacheBatch,
-      abortSignal: new AbortController().signal,
-      changes: [cleanChange, invalidChange],
-      chunkRepository: {
-        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        insertChunks: vi.fn().mockResolvedValue(undefined),
-        findByFileRecordId: vi.fn().mockResolvedValue([]),
-      } as never,
-      chunkingWorkerPort: {
-        chunkBatch: vi.fn().mockResolvedValue([]),
-        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
-        isReady: vi.fn().mockReturnValue(true),
-        transportKind: 'local',
-      } as never,
-      collection: makeMinimalCollection(),
-      db: makeMinimalDb() as never,
-      fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
-      fileRecordRepository: {
-        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
-        findByCollectionId: vi.fn().mockResolvedValue([]),
-      } as never,
-      onProgress: () => {},
-      qosPolicy: {
-        allowNewWork: true,
-        contentReadBatchSize: 10,
-        contentReadConcurrency: 1,
-        importBatchSize: 10,
-      },
-      rootId: 'root-db-1',
-      setImporting: () => {},
-      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
-    });
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [cleanChange, invalidChange],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+    } finally {
+      removeListener();
+    }
 
     expect(applyManagedCacheBatch).toHaveBeenCalledOnce();
     expect(applyManagedCacheBatch).toHaveBeenCalledWith(
@@ -792,6 +803,14 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           error: 'File contains null bytes and cannot be indexed.',
           id: invalidChange.id,
           imported: false,
+        }),
+      ])
+    );
+    expect(captured).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.WARN,
+          message: 'Workspace Index skipped file content that cannot be indexed',
         }),
       ])
     );

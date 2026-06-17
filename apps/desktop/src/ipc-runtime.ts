@@ -71,6 +71,7 @@ function getBridge(): LocalRuntimeIpcBridge {
 // still flow through the bridge at runtime) while matching the service
 // option shape exactly.
 interface SerializableProbeOptions {
+  readonly diagnosticLogLevel?: 'debug' | 'warn';
   readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
   readonly force?: boolean;
 }
@@ -131,14 +132,29 @@ function normaliseEndpointConfig(
   return endpoint;
 }
 
+function normaliseDiagnosticLogLevel(value: unknown): 'debug' | 'warn' | undefined {
+  if (value === 'debug' || value === 'warn') {
+    return value;
+  }
+  return;
+}
+
 function normaliseProbeOptions(value: unknown): SerializableProbeOptions {
   const raw = pickObject(value);
   if (!raw) {
     return {};
   }
-  const result: { endpoint?: { apiToken?: string; baseUrl?: string }; force?: boolean } = {};
+  const result: {
+    diagnosticLogLevel?: 'debug' | 'warn';
+    endpoint?: { apiToken?: string; baseUrl?: string };
+    force?: boolean;
+  } = {};
   if (typeof raw['force'] === 'boolean') {
     result.force = raw['force'];
+  }
+  const diagnosticLogLevel = normaliseDiagnosticLogLevel(raw['diagnosticLogLevel']);
+  if (diagnosticLogLevel) {
+    result.diagnosticLogLevel = diagnosticLogLevel;
   }
   const endpoint = normaliseEndpointConfig(raw['endpoint']);
   if (endpoint) {
@@ -153,6 +169,7 @@ function normaliseListOptions(value: unknown): SerializableListOptions {
     return {};
   }
   const result: {
+    diagnosticLogLevel?: 'debug' | 'warn';
     endpoint?: { apiToken?: string; baseUrl?: string };
     force?: boolean;
     maxVerificationModels?: number;
@@ -166,6 +183,10 @@ function normaliseListOptions(value: unknown): SerializableListOptions {
   }
   if (typeof raw['maxVerificationModels'] === 'number') {
     result.maxVerificationModels = raw['maxVerificationModels'];
+  }
+  const diagnosticLogLevel = normaliseDiagnosticLogLevel(raw['diagnosticLogLevel']);
+  if (diagnosticLogLevel) {
+    result.diagnosticLogLevel = diagnosticLogLevel;
   }
   const endpoint = normaliseEndpointConfig(raw['endpoint']);
   if (endpoint) {

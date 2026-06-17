@@ -13,6 +13,7 @@ export {
   type LocalRuntimeSurface,
   type LocalRuntimeUnavailableState,
   type ProbeLocalRuntimeOptions,
+  type RuntimeDiagnosticLogLevel,
   resolveRuntimeBaseUrl,
 } from './local-runtime-discovery.js';
 export {

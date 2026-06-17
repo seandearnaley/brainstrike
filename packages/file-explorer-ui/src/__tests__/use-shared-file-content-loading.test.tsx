@@ -9,6 +9,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -884,6 +885,13 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     // contains the file — the hook must resolve the UUID to the descriptor's
     // absolute path or desktop tab restoration deadlocks in deferred retries.
     vi.useFakeTimers();
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'FileNodeCache') {
+        captured.push(record);
+      }
+    });
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
       .fn<(path: string) => Promise<string>>()
@@ -929,11 +937,15 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
       ]);
     });
 
-    await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
-      vi.advanceTimersByTime(100);
-      await loadPromise;
-    });
+    try {
+      await act(async () => {
+        const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+        vi.advanceTimersByTime(100);
+        await loadPromise;
+      });
+    } finally {
+      removeListener();
+    }
 
     expect(mockWorker).toHaveBeenCalledWith(
       [expect.objectContaining({ compositeKey, path: '/workspace/root/src/restored.ts' })],
@@ -942,6 +954,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/restored.ts');
     expect(result.current.fileContents[compositeKey]).toBe('restored-tab-content');
     expect(result.current.loadingFiles.size).toBe(0);
+    expect(captured).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.WARN,
+          message: 'Node not found in cache or tree',
+        }),
+      ])
+    );
   });
 
   it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {

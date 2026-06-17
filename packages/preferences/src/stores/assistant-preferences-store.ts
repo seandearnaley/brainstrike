@@ -4,6 +4,7 @@ import {
   type LocalRuntimeId,
   LocalRuntimeModelCatalogService,
   type LocalRuntimeModelCatalogState,
+  type RuntimeDiagnosticLogLevel,
 } from '@brainstrike/assistant-contract/local-runtime';
 import {
   getProviderDefaultModel,
@@ -68,6 +69,7 @@ interface AssistantPreferencesActions {
   getAvailableProviders: () => Promise<SupportedProvider[]>;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getLocalRuntimeModels: (options?: {
+    diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     force?: boolean;
     verifyEmbeddingDimensions?: boolean;
     maxVerificationModels?: number;
@@ -81,9 +83,10 @@ interface AssistantPreferencesActions {
    */
   getLocalRuntimeStatus: (
     runtimeId: LocalRuntimeId,
-    options?: { force?: boolean }
+    options?: { diagnosticLogLevel?: RuntimeDiagnosticLogLevel; force?: boolean }
   ) => Promise<LocalRuntimeAvailabilityState>;
   getLocalRuntimeStatuses: (options?: {
+    diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     force?: boolean;
   }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
   getProviderSettings: (provider: SupportedProvider) => AssistantProviderSettings;
@@ -285,6 +288,7 @@ function summarizeBridgeResult(value: unknown): string {
 async function probeRuntimeViaBridgeOrService(
   runtimeId: LocalRuntimeId,
   options: {
+    readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
     readonly force?: boolean;
   }
@@ -312,6 +316,7 @@ async function probeRuntimeViaBridgeOrService(
 async function listRuntimeModelsViaBridgeOrService(
   runtimeId: LocalRuntimeId,
   options: {
+    readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
     readonly force?: boolean;
     readonly maxVerificationModels?: number;
@@ -1013,6 +1018,9 @@ export const useAssistantPreferencesStore = create<Store>()(
             }
             const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
             const status = await probeRuntimeViaBridgeOrService(runtimeId, {
+              ...(options?.diagnosticLogLevel
+                ? { diagnosticLogLevel: options.diagnosticLogLevel }
+                : {}),
               ...(options?.force ? { force: true } : {}),
               ...(endpoint ? { endpoint } : {}),
             });
@@ -1036,6 +1044,9 @@ export const useAssistantPreferencesStore = create<Store>()(
         }
         const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
         return probeRuntimeViaBridgeOrService(runtimeId, {
+          ...(options?.diagnosticLogLevel
+            ? { diagnosticLogLevel: options.diagnosticLogLevel }
+            : {}),
           ...(options?.force ? { force: true } : {}),
           ...(endpoint ? { endpoint } : {}),
         });
@@ -1068,6 +1079,9 @@ export const useAssistantPreferencesStore = create<Store>()(
             }
             const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
             const catalogState = await listRuntimeModelsViaBridgeOrService(runtimeId, {
+              ...(options?.diagnosticLogLevel
+                ? { diagnosticLogLevel: options.diagnosticLogLevel }
+                : {}),
               ...(options?.force ? { force: true } : {}),
               ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
               ...(typeof options?.maxVerificationModels === 'number'

@@ -243,7 +243,7 @@ async function collectDiscoveredPreparedFiles(args: {
     const indexingError = getContentIndexingError(content);
     if (indexingError) {
       excludedEntries += 1;
-      logger.warn('Workspace Index skipped file content that cannot be indexed', {
+      logger.debug('Workspace Index skipped file content that cannot be indexed', {
         reason: indexingError,
         relativePath: metadata.relativePath,
       });

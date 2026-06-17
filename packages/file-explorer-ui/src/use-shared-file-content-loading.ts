@@ -141,7 +141,8 @@ async function getFileNodeWithRetry(
   fileTree: IFileNode[],
   folderId: string,
   path: string,
-  indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
+  indexGetNode?: (folderId: string, path: string) => IFileNode | undefined,
+  options: { readonly warnOnCacheMiss?: boolean } = {}
 ): Promise<IFileNode | null> {
   const hasIndexLookup = typeof indexGetNode === 'function';
 
@@ -158,7 +159,17 @@ async function getFileNodeWithRetry(
 
   // Fallback to cache lookup
   const treeNodeCount = countTreeNodes(fileTree);
-  let fileNode = getFileNodeFromCache(nodeCacheRef.current, fileTree, folderId, path);
+  const cacheLookupOptions =
+    typeof options.warnOnCacheMiss === 'boolean'
+      ? { warnOnMiss: options.warnOnCacheMiss }
+      : undefined;
+  let fileNode = getFileNodeFromCache(
+    nodeCacheRef.current,
+    fileTree,
+    folderId,
+    path,
+    cacheLookupOptions
+  );
 
   // When the shared index is present, let index/tree updates drive retries instead of polling.
   if (!isFileNodeValid(fileNode, folderId)) {
@@ -598,7 +609,16 @@ async function prepareFileReadRequest(
     return null;
   }
 
-  const fileNode = await getFileNodeWithRetry(nodeCacheRef, fileTree, folderId, path, indexGetNode);
+  const fileNode = await getFileNodeWithRetry(
+    nodeCacheRef,
+    fileTree,
+    folderId,
+    path,
+    indexGetNode,
+    {
+      warnOnCacheMiss: !canLoadWithoutTree,
+    }
+  );
   const handleCache = getHandleCache(fileSystemAdapter);
 
   if (!fileNode) {
