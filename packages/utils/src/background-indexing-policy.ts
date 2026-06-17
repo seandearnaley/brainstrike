@@ -144,6 +144,7 @@ const SPECIAL_TEXT_PREFIXES = [
 ];
 
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
+const HARD_EXCLUDED_DIRECTORY_SUFFIXES = ['.app', '.framework'];
 
 const balancedPathMatcher = createPathFilterMatcher(
   [],
@@ -204,8 +205,14 @@ function shouldSkipDirectoryBySegment(
     const segment = relativePath.slice(segmentStart, index).trim();
     // Directory traversal calls this for every visited folder; scanning avoids
     // allocating a split/map/filter array per path.
-    if (segment.length > 0 && excludedSegments.has(segment.toLowerCase())) {
-      return true;
+    if (segment.length > 0) {
+      const lowerSegment = segment.toLowerCase();
+      if (
+        excludedSegments.has(lowerSegment) ||
+        HARD_EXCLUDED_DIRECTORY_SUFFIXES.some((suffix) => lowerSegment.endsWith(suffix))
+      ) {
+        return true;
+      }
     }
     segmentStart = index + 1;
   }

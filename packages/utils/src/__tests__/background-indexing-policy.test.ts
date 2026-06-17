@@ -168,6 +168,24 @@ describe('background-indexing-policy', () => {
     }
   });
 
+  it('full-root policy skips macOS app and framework bundles', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+    for (const relativePath of [
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app',
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents',
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents/Frameworks/Electron Framework.framework',
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents/Frameworks/Electron Framework.framework/Versions/Current',
+    ]) {
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+        })
+      ).toBe(false);
+    }
+  });
+
   it('skips binary and oversized files regardless of preset', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
 
