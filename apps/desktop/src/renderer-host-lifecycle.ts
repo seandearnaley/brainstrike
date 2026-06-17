@@ -98,7 +98,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   getStatus(): TStatus {
-    return this.options.createStatus(this.status);
+    return this.createStatusSnapshot(this.status);
   }
 
   isHostWindow(window: BrowserWindow): boolean {
@@ -263,7 +263,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           return;
         }
         cleanup();
-        resolve(this.options.createStatus(status));
+        resolve(this.createStatusSnapshot(status));
       };
 
       timeoutId = setTimeout(() => {
@@ -276,7 +276,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   setStatus(status: TStatus): void {
-    const nextStatus = this.options.createStatus(status);
+    const nextStatus = this.createStatusSnapshot(status);
     if (this.areStatusesEqual(this.status, nextStatus)) {
       return;
     }
@@ -319,6 +319,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.pendingWaiterRejectors.clear();
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
+  }
+
+  private createStatusSnapshot(status: TStatus): TStatus {
+    return {
+      ...status,
+      ...this.options.createStatus(status),
+    };
   }
 
   private buildWindow(): BrowserWindow {
