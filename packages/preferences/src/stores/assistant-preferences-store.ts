@@ -26,6 +26,7 @@ import type {
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
+import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
@@ -33,8 +34,6 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
-import { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -107,9 +106,9 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-export { ASSISTANT_PREFERENCES_STORE_NAME };
+export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
 export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
-const STORE_NAME = ASSISTANT_PREFERENCES_STORE_NAME;
+const STORE_NAME = 'assistant-preferences.v1';
 const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
@@ -755,7 +754,62 @@ function buildMigratedSelectedModel(
   return fallback ? `${parsedSelected.provider}${MODEL_KEY_DELIMITER}${fallback}` : null;
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
+function readLocalStorage(): Storage | undefined {
+  try {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    return window.localStorage;
+  } catch {
+    return;
+  }
+}
+
+function createAssistantPreferencesStorage(): StateStorage {
+  const memory = new Map<string, string>();
+
+  return {
+    getItem: (key) => {
+      const storage = readLocalStorage();
+      const raw = storage?.getItem(key) ?? memory.get(key) ?? null;
+      if (raw === null) {
+        return null;
+      }
+
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch {
+        try {
+          storage?.removeItem(key);
+        } catch {
+          // Local storage cleanup is best-effort; the invalid in-memory copy is still cleared.
+        }
+        memory.delete(key);
+        return null;
+      }
+    },
+    removeItem: (key) => {
+      const storage = readLocalStorage();
+      try {
+        storage?.removeItem(key);
+      } catch {
+        // Local storage cleanup is best-effort; the in-memory copy is still cleared.
+      }
+      memory.delete(key);
+    },
+    setItem: (key, value) => {
+      const storage = readLocalStorage();
+      if (storage) {
+        storage.setItem(key, value);
+        return;
+      }
+      memory.set(key, value);
+    },
+  };
+}
+
+const storage = createJSONStorage(() => createAssistantPreferencesStorage());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,

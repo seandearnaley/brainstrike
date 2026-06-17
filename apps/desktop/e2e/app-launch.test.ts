@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
+import { setupAssistantMock } from './utils/assistant-mock';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Electron App Launch', () => {
@@ -16,6 +17,18 @@ test.describe('Electron App Launch', () => {
 
     // Verify the main content is loaded
     await homePage.shouldBeVisible();
+  });
+
+  test('does not start persisted stores without storage', async ({ electronApp, window }) => {
+    await setupAssistantMock(window, { variant: 'simple' });
+
+    const { getBufferedElectronOutput } = await loadElectronHelpers();
+    const output = await getBufferedElectronOutput(electronApp.app);
+    const unavailableStorageWarnings = output.stderr.filter((line) =>
+      line.includes('[zustand persist middleware] Unable to update item')
+    );
+
+    expect(unavailableStorageWarnings).toEqual([]);
   });
 
   test.setTimeout(90_000);
