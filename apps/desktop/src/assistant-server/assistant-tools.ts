@@ -820,9 +820,9 @@ function classifyReadContextError(
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
-    return { path: workspacePath, reason: 'missing', message };
+    return { path: workspacePath, reason: 'missing' };
   }
-  return { path: workspacePath, reason: 'readError', message };
+  return { path: workspacePath, reason: 'readError' };
 }
 
 function buildRangedContextContent(args: {
@@ -1199,9 +1199,9 @@ function classifySelectionPathError(
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
-    return { path: pathValue, reason: 'missing', message };
+    return { path: pathValue, reason: 'missing' };
   }
-  return { path: pathValue, reason: 'readError', message };
+  return { path: pathValue, reason: 'readError' };
 }
 
 async function validateSelectableWorkspaceFile(
