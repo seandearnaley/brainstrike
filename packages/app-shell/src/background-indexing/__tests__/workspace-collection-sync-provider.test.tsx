@@ -2235,4 +2235,62 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     expect(registerRootMock).not.toHaveBeenCalled();
   });
+
+  it('exposes the workspace index debug API only while the provider is mounted', async () => {
+    readFullTreeWithOptionsMock.mockImplementation(async (_adapter, _handle, options) => {
+      options?.onEntrySkipped?.({
+        entryType: 'directory',
+        reason: 'default-ignore',
+        relativePath: 'node_modules',
+      });
+      return [
+        {
+          name: 'index.ts',
+          path: '/workspace/root/src/index.ts',
+          type: 'file',
+          handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
+          rootFolderId: '/workspace/root',
+        },
+      ];
+    });
+
+    const rendered = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    const debugApi = (
+      window as unknown as {
+        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+          countExpected: () => Promise<unknown>;
+        };
+      }
+    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+    expect(debugApi).toBeDefined();
+
+    const counts = await debugApi?.countExpected();
+
+    expect(counts).toEqual([
+      expect.objectContaining({
+        expectedFileCount: 1,
+        includedFiles: ['src/index.ts'],
+        policyPreset: 'balanced',
+        rootPath: '/workspace/root',
+        skippedByReason: expect.objectContaining({
+          generatedOrIgnored: 1,
+        }),
+      }),
+    ]);
+
+    rendered.unmount();
+
+    expect(
+      (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown;
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__
+    ).toBeUndefined();
+  });
 });

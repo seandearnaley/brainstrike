@@ -21,6 +21,7 @@ import {
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import {
   useWorkspaceCollectionSyncStatusStore,
   type WorkspaceCollectionSyncStatusPatch,
@@ -64,6 +65,15 @@ import {
   WorkspaceIndexBlockedError,
 } from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
+import {
+  countExpectedWorkspaceIndexFiles,
+  readWorkspaceIndexDebugRows,
+  readWorkspaceIndexMemorySample,
+  shouldExposeWorkspaceIndexDebugApi,
+  type WorkspaceIndexDebugApi,
+  type WorkspaceIndexDebugDbQuery,
+  type WorkspaceIndexDebugSnapshot,
+} from './workspace-index-debug-harness';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 
@@ -560,9 +570,19 @@ export function WorkspaceCollectionSyncProvider({
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
   );
+  const setIndexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.setIndexingPolicyPreset
+  );
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
+  const selectedDevicePreference = useVectorPreferencesStore((state) => ({
+    devicePref: state.devicePref,
+    devicePrefConfigured: state.devicePrefConfigured,
+    hasHydrated: state.hasHydrated,
+    reinitEveryN: state.reinitEveryN,
+    verboseOrtLogs: state.verboseOrtLogs,
+  }));
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
   const windowVisible = useDocumentVisibility();
@@ -988,6 +1008,209 @@ export function WorkspaceCollectionSyncProvider({
       triggerWorkspaceIndexBootstrap,
     ]
   );
+
+  const readDatabaseSchedulerSnapshot = useCallback(async (): Promise<unknown> => {
+    if (backgroundDb) {
+      const scheduler = getDatabaseWorkScheduler(backgroundDb);
+      if (scheduler) {
+        return scheduler.getSnapshot();
+      }
+    }
+    const schedulerSnapshot =
+      typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+    return schedulerSnapshot ? await schedulerSnapshot() : null;
+  }, [backgroundDb]);
+
+  const countExpectedDebugRoots = useCallback(async () => {
+    const handles =
+      rootDirectoryHandles.length > 0
+        ? rootDirectoryHandles
+        : rootDirectoryHandle
+          ? [rootDirectoryHandle]
+          : [];
+    return await Promise.all(
+      handles.map((handle) =>
+        countExpectedWorkspaceIndexFiles({
+          fileSystemAdapter,
+          policyPreset: indexingPolicyPreset,
+          rootHandle: handle,
+        })
+      )
+    );
+  }, [fileSystemAdapter, indexingPolicyPreset, rootDirectoryHandle, rootDirectoryHandles]);
+
+  const readDebugHostStatus = useCallback(async (bridgeName: 'chunkingHost' | 'embeddingHost') => {
+    const bridge = (window as unknown as Record<typeof bridgeName, unknown>)[bridgeName] as
+      | { getStatus?: () => Promise<unknown> }
+      | undefined;
+    if (typeof bridge?.getStatus !== 'function') {
+      return {
+        available: false,
+        reason: `${bridgeName} bridge unavailable`,
+      };
+    }
+    try {
+      return {
+        available: true,
+        status: await bridge.getStatus(),
+      };
+    } catch (error) {
+      return {
+        available: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, []);
+
+  const readDebugSnapshot = useCallback(async (): Promise<WorkspaceIndexDebugSnapshot> => {
+    const accessIssues: Array<{ reason: string; source: string }> = [];
+    const query = backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined;
+    const [
+      expectedCounts,
+      roots,
+      fileRecordsByRoot,
+      chunkStatsByRoot,
+      jobQueue,
+      recentEmbeddingCompletions,
+      databaseScheduler,
+      chunkingHostStatus,
+      embeddingHostStatus,
+    ] = await Promise.all([
+      countExpectedDebugRoots(),
+      readWorkspaceIndexDebugRows(
+        query,
+        'SELECT id, path, display_name, kind, status, created_at, last_verified_at FROM roots ORDER BY created_at ASC',
+        [],
+        accessIssues,
+        'roots'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT root_id, COUNT(*)::int AS file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NOT NULL)::int AS chunked_file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NULL)::int AS unchunked_file_count
+           FROM file_records
+          WHERE ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY root_id
+          ORDER BY root_id`,
+        [managedCollectionId],
+        accessIssues,
+        'file_records_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT fr.root_id,
+                COUNT(fc.id)::int AS chunk_count,
+                COUNT(fc.embedding)::int AS embedded_chunk_count,
+                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+           FROM file_chunks fc
+           JOIN file_records fr ON fr.id = fc.file_record_id
+          WHERE ($1::text IS NULL OR fc.embedding_set_id = $1::text)
+          GROUP BY fr.root_id
+          ORDER BY fr.root_id`,
+        [managedCollectionId],
+        accessIssues,
+        'chunks_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT queue, job_type, state, COUNT(*)::int AS count,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY queue, job_type, state
+          ORDER BY queue, job_type, state`,
+        [managedCollectionId],
+        accessIssues,
+        'job_queue'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT id, state, worker_id, attempts, updated_at, payload
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND state = 'succeeded'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          ORDER BY updated_at DESC
+          LIMIT 10`,
+        [managedCollectionId],
+        accessIssues,
+        'recent_embedding_completions'
+      ),
+      readDatabaseSchedulerSnapshot(),
+      readDebugHostStatus('chunkingHost'),
+      readDebugHostStatus('embeddingHost'),
+    ]);
+
+    return {
+      ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      chunkingHostStatus,
+      chunkStatsByRoot,
+      databaseScheduler,
+      embeddingHostStatus: {
+        ...((embeddingHostStatus && typeof embeddingHostStatus === 'object'
+          ? embeddingHostStatus
+          : {}) as Record<string, unknown>),
+        recentEmbeddingCompletions,
+      },
+      expectedCounts,
+      fileRecordsByRoot,
+      jobQueue,
+      managedCollectionId,
+      memorySample: readWorkspaceIndexMemorySample(),
+      roots,
+      selectedDevicePreference,
+      syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
+    };
+  }, [
+    backgroundDb,
+    countExpectedDebugRoots,
+    managedCollectionId,
+    readDatabaseSchedulerSnapshot,
+    readDebugHostStatus,
+    selectedDevicePreference,
+  ]);
+
+  const workspaceIndexDebugApi = useMemo<WorkspaceIndexDebugApi>(
+    () =>
+      Object.freeze({
+        configure: ({ policyPreset }: Parameters<WorkspaceIndexDebugApi['configure']>[0]) => {
+          if (policyPreset) {
+            setIndexingPolicyPreset(policyPreset);
+          }
+        },
+        countExpected: countExpectedDebugRoots,
+        snapshot: readDebugSnapshot,
+        triggerFullSync: () => {
+          triggerSync({ mode: 'full' });
+        },
+      }),
+    [countExpectedDebugRoots, readDebugSnapshot, setIndexingPolicyPreset, triggerSync]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const env = (
+      import.meta as ImportMeta & {
+        env?: Record<string, unknown>;
+      }
+    ).env;
+    if (!shouldExposeWorkspaceIndexDebugApi(env)) {
+      window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = undefined;
+      return;
+    }
+    window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = workspaceIndexDebugApi;
+    return () => {
+      if (window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === workspaceIndexDebugApi) {
+        window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = undefined;
+      }
+    };
+  }, [workspaceIndexDebugApi]);
+
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
 
   useEffect(() => {
