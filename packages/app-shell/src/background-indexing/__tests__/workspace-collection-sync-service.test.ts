@@ -585,6 +585,76 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('defers collection-wide backfill when an intermediate root has missing embeddings', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        lastModified: 1000,
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => {
+          throw new Error('Stat-skipped files must not be read.');
+        }),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            rootId: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: 'hash-never-consulted',
+            mtimeMs: 1000,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn(async () => undefined),
+        getCoverageForSet: vi.fn(async () => ({
+          totalChunks: 10,
+          chunksWithEmbeddingsForSet: 1,
+        })),
+        insertMany: vi.fn(async () => []),
+        update: vi.fn(async () => null),
+      },
+      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileContentProcessor?.processFiles).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(deps.ensureEmbeddingRuntimeStarted).not.toHaveBeenCalled();
+    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'idle',
+        processedFiles: 1,
+        queuedFiles: 0,
+      })
+    );
+  });
+
   it('reprocesses stat-matching files whose prior import never completed chunking', async () => {
     const unchangedContent = 'export const value = 1;';
     const unchangedHash = await generateContentHash(unchangedContent);

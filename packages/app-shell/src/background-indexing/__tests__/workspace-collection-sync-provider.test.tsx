@@ -2075,6 +2075,54 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('defers collection-wide embedding backfill until the final root pass', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    const root3 = {
+      kind: 'directory',
+      name: 'workspace3',
+      path: '/workspace/root3',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2, root3];
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(3));
+
+      expect(syncSpy.mock.calls.map((call) => call[0].backfillMode)).toEqual([
+        'defer',
+        'defer',
+        'enqueue',
+      ]);
+      expect(
+        syncSpy.mock.calls.map((call) => (call[0].rootDirectoryHandle as { path: string }).path)
+      ).toEqual(['/workspace/root', '/workspace/root2', '/workspace/root3']);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('stops the stale loop when a new triggerSync fires mid-loop', async () => {
     const root1 = {
       kind: 'directory',

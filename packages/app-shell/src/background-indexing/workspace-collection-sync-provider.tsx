@@ -1066,7 +1066,11 @@ export function WorkspaceCollectionSyncProvider({
       const myGeneration = syncLoopGenerationRef.current;
 
       void (async () => {
-        for (const target of targets) {
+        for (let targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
+          const target = targets[targetIndex];
+          if (!target) {
+            continue;
+          }
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
@@ -1079,6 +1083,7 @@ export function WorkspaceCollectionSyncProvider({
           }
           await service
             .sync({
+              backfillMode: targetIndex === targets.length - 1 ? 'enqueue' : 'defer',
               dbRootId,
               enabled,
               indexingPolicyPreset,

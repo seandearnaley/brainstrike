@@ -134,6 +134,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
 }
 
 export interface WorkspaceCollectionSyncRequest {
+  backfillMode?: 'defer' | 'enqueue';
   dbRootId?: string | null;
   enabled: boolean;
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
@@ -665,6 +666,10 @@ export class WorkspaceCollectionSyncService {
     throwIfAborted(args.abortSignal);
   }
 
+  private shouldEnqueueBackfill(request: WorkspaceCollectionSyncRequest): boolean {
+    return request.backfillMode !== 'defer';
+  }
+
   private setImportingStatus(
     context: ResolvedSyncContext,
     summary: Pick<
@@ -816,6 +821,14 @@ export class WorkspaceCollectionSyncService {
 
     if (prepared.changes.length === 0) {
       if (await this.collectionNeedsBackfill(args.context.collection.id)) {
+        if (!this.shouldEnqueueBackfill(args.request)) {
+          this.setIdleStatus({
+            collection: args.context.collection,
+            rootPath: args.context.rootPath,
+            summary: prepared,
+          });
+          return;
+        }
         await this.ensureCollectionAccess(args.context);
         throwIfAborted(args.abortSignal);
         await this.enqueueManagedBackfill({
@@ -892,6 +905,14 @@ export class WorkspaceCollectionSyncService {
     const chunkingProgress = latestImportProgress
       ? toWorkspaceCollectionSyncChunkingProgress(latestImportProgress)
       : null;
+    if (!this.shouldEnqueueBackfill(args.request)) {
+      this.setIdleStatus({
+        collection: args.context.collection,
+        rootPath: args.context.rootPath,
+        summary: prepared,
+      });
+      return;
+    }
     await this.enqueueManagedBackfill({
       abortSignal: args.abortSignal,
       chunkingProgress,
