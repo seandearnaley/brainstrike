@@ -567,6 +567,110 @@ describe('embedding-backfill', () => {
     );
   });
 
+  it('can leave dimension HNSW rebuild suspended after a background indexing drain', async () => {
+    const queryOrder: string[] = [];
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          expect(params).toEqual([384, 'embedding-backfill:set-123', expect.any(String)]);
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          queryOrder.push('candidate-batch');
+          return {
+            rows: [{ id: '10', fileRecordId: '110', contentHash: 'hash-10' }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          queryOrder.push('final-counts');
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 1 }],
+          };
+        }
+        if (sql.startsWith('VACUUM')) {
+          queryOrder.push(sql.includes('file_chunks') ? 'vacuum-chunks' : 'vacuum-jobs');
+          return { rows: [] };
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('rebuild-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const maintenanceDb = withMaintenanceExec(db);
+
+    await expect(
+      enqueueEmbeddingBackfill(
+        maintenanceDb,
+        withQueueRepair(jobQueue),
+        'set-123',
+        () => undefined,
+        {
+          backlogPollMs: 1,
+          maxQueueDepth: 64,
+          rebuildDimensionIndexOnCompletion: false,
+        }
+      )
+    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 1 });
+
+    expect(queryOrder).toEqual([
+      'metadata',
+      'suspend-index',
+      'drop-index',
+      'pending',
+      'candidate-count',
+      'candidate-batch',
+      'pending',
+      'final-counts',
+      'vacuum-chunks',
+      'vacuum-jobs',
+    ]);
+    expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
+      undefined
+    );
+  });
+
   it('restores dimension HNSW maintenance when a suspended backfill is canceled', async () => {
     const queryOrder: string[] = [];
     const db = {
@@ -730,6 +834,85 @@ describe('embedding-backfill', () => {
     });
     expect(queryOrder).toContain('resume-index');
     expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
+      undefined
+    );
+  });
+
+  it('leaves deferred canceled background indexing HNSW rebuild suspended after scoped jobs drain', async () => {
+    const queryOrder: string[] = [];
+    let pendingJobs = 2;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          return { rows: [{ count: pendingJobs }] };
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('rebuild-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (sql.startsWith('VACUUM')) {
+          queryOrder.push(sql.includes('file_chunks') ? 'vacuum-chunks' : 'vacuum-jobs');
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql) || sql.includes('COUNT(*) FILTER')) {
+          return { rows: [{ queued: 2, running: 0, failed: 0, succeeded: 0 }] };
+        }
+
+        throw new Error('Unexpected query: ');
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(),
+    };
+
+    const maintenanceDb = withMaintenanceExec(db);
+
+    await expect(
+      enqueueEmbeddingBackfill(
+        maintenanceDb,
+        withQueueRepair(jobQueue),
+        'set-123',
+        () => undefined,
+        {
+          assertCanContinue: () => {
+            throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+          },
+          backlogPollMs: 1,
+          drainTimeoutMs: 10,
+          maxQueueDepth: 64,
+          rebuildDimensionIndexOnCompletion: false,
+        }
+      )
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+
+    pendingJobs = 0;
+    await vi.waitFor(() => {
+      expect(queryOrder).toContain('vacuum-jobs');
+    });
+    expect(queryOrder).not.toContain('rebuild-index');
+    expect(queryOrder).not.toContain('resume-index');
+    expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
       undefined
     );

@@ -309,6 +309,80 @@ describe('embedding worker runtime', () => {
     );
   });
 
+  it('notifies active streaming requests before closing on WebGPU device loss', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    const closeMock = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: vi.fn((type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          messageListeners.add(listener);
+        }
+      }),
+      close: closeMock,
+      postMessage,
+      onerror: undefined,
+      onunhandledrejection: undefined,
+    });
+
+    let resolveLost: ((info: { message: string; reason?: string }) => void) | null = null;
+    await setOrtWebGpuDevice({
+      lost: new Promise((resolve) => {
+        resolveLost = resolve;
+      }),
+      queue: {
+        submit: vi.fn(),
+      },
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+    });
+    pipelineMock.mockResolvedValue(async () => Float32Array.from([0.2, 0.8]));
+    await import('../src/embedding.worker');
+
+    const [handleMessage] = [...messageListeners];
+    if (!handleMessage) {
+      throw new Error('Expected worker message handler to be registered');
+    }
+
+    handleMessage({
+      data: {
+        type: 'stream-embed',
+        request: {
+          type: 'embed',
+          id: 'stream-device-loss',
+          model: 'bge-m3',
+          texts: ['hello'],
+          targetDimension: 2,
+          deviceHint: 'webgpu',
+        },
+      },
+    } as MessageEvent<unknown>);
+
+    await waitForAssertion(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'batch',
+          id: 'stream-device-loss',
+        }),
+        expect.any(Array)
+      )
+    );
+
+    resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
+    await flushMicrotasks();
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: 'error',
+        id: 'stream-device-loss',
+        message: 'WebGPU device lost: device was lost',
+        cause: 'reason=destroyed',
+      },
+      []
+    );
+    expect(closeMock).toHaveBeenCalledTimes(1);
+  });
+
   it('fails fast when streaming requests are malformed', async () => {
     const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
     const postMessage = vi.fn();
@@ -534,7 +608,7 @@ describe('embedding worker runtime', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
-  it('activates WebGPU guard, ticks keep-alive, and recovers after device loss', async () => {
+  it('activates WebGPU guard, ticks keep-alive, and recovers quietly after idle device loss', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('navigator', { gpu: {} });
 
@@ -589,11 +663,7 @@ describe('embedding worker runtime', () => {
     const deviceLostCall = workerEmitMock.mock.calls.find(
       ([event]) => event?.type === 'error' && event?.id === 'device-lost'
     );
-    expect(deviceLostCall?.[0]).toMatchObject({
-      type: 'error',
-      id: 'device-lost',
-      message: 'WebGPU device lost: device was lost',
-    });
+    expect(deviceLostCall).toBeUndefined();
 
     await runEmbedding({
       type: 'embed',

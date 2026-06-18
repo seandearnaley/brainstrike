@@ -311,6 +311,7 @@ let keepAliveTickCount = 0;
 /** Handle for the idle-sweep interval. */
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
+const activeStreamRequestIds = new Set<string>();
 
 type PipelineCacheDiagnosticReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
 type PipelineCacheDisposedReason = Extract<PipelineCacheDiagnosticReason, 'manual-dispose'>;
@@ -725,24 +726,34 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
   deviceLossWatcherAttached = true;
 
   void device.lost.then((info: GpuDeviceLostInfo) => {
-    warnLog('WebGPU device lost', { message: info.message, reason: info.reason });
+    const hasActiveRequests = isInferenceActive || activeStreamRequestIds.size > 0;
+    if (hasActiveRequests) {
+      warnLog('WebGPU device lost', { message: info.message, reason: info.reason });
+    } else {
+      debugLog('Idle WebGPU device lost', { message: info.message, reason: info.reason });
+    }
 
     stopKeepAlive();
     invalidateWebGpuPipelines();
     deviceLossWatcherAttached = false;
 
-    workerEmit({
-      type: 'error',
-      id: 'device-lost',
-      message: `WebGPU device lost: ${info.message}`,
-      cause: `reason=${String(info.reason)}`,
-    });
+    if (hasActiveRequests) {
+      workerEmit({
+        type: 'error',
+        id: 'device-lost',
+        message: `WebGPU device lost: ${info.message}`,
+        cause: `reason=${String(info.reason)}`,
+      });
+      notifyActiveStreamsOfDeviceLoss(info);
+    }
 
     // Terminate this worker cleanly. Workerpool will spawn a fresh one
     // (minWorkers: 1) which can acquire a new GPUDevice.
     // Any in-flight request rejects and is expected to be retried by the
     // embedding queue's existing retry path.
-    warnLog('Terminating worker after WebGPU device loss for clean recovery');
+    if (hasActiveRequests) {
+      warnLog('Terminating worker after WebGPU device loss for clean recovery');
+    }
     if (typeof self !== 'undefined' && typeof self.close === 'function') {
       self.close();
     }
@@ -1164,6 +1175,17 @@ function postStreamEvent(
   self.postMessage(event, transferList ?? []);
 }
 
+function notifyActiveStreamsOfDeviceLoss(info: GpuDeviceLostInfo): void {
+  for (const id of activeStreamRequestIds) {
+    postStreamEvent({
+      type: 'error',
+      id,
+      message: `WebGPU device lost: ${info.message}`,
+      cause: `reason=${String(info.reason)}`,
+    });
+  }
+}
+
 async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState): Promise<void> {
   const { texts, truncateDim, id, total } = context;
   const started = typeof performance === 'undefined' ? Date.now() : performance.now();
@@ -1404,6 +1426,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
     const payload = request as EmbedWorkerRequest;
     void (async () => {
       const context = createContext(payload);
+      activeStreamRequestIds.add(context.id);
       const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
       assertValidDimension(payload, requestedDimension);
       const state = createInitialState(context, payload.deviceHint, payload.maxBatchSize);
@@ -1418,6 +1441,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           cause: serializeErrorCause(error),
         });
       } finally {
+        activeStreamRequestIds.delete(context.id);
         isInferenceActive = false;
       }
     })();

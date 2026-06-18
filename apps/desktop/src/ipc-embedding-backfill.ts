@@ -398,6 +398,7 @@ export async function runDesktopEmbeddingBackfill(params: {
           ? {
               drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
               queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+              rebuildDimensionIndexOnCompletion: false,
             }
           : {}),
       }

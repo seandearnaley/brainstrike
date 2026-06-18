@@ -38,6 +38,7 @@ export interface EnqueueEmbeddingBackfillOptions {
   progressIntervalBatches?: number;
   progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
+  rebuildDimensionIndexOnCompletion?: boolean;
 }
 
 interface ResolvedEnqueueEmbeddingBackfillOptions {
@@ -49,6 +50,7 @@ interface ResolvedEnqueueEmbeddingBackfillOptions {
   progressIntervalBatches: number;
   progressIntervalMs: number;
   queueCapacityTimeoutMs: number;
+  rebuildDimensionIndexOnCompletion: boolean;
 }
 
 interface EmbeddingSetJobMetadata {
@@ -218,6 +220,7 @@ function resolveEnqueueEmbeddingBackfillOptions(
       EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
       'queueCapacityTimeoutMs'
     ),
+    rebuildDimensionIndexOnCompletion: options?.rebuildDimensionIndexOnCompletion ?? true,
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
 }
@@ -407,6 +410,25 @@ async function rebuildBackfillDimensionIndex(
   });
 }
 
+async function completeBackfillDimensionIndexMaintenance(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  now: () => number,
+  options: { rebuildDimensionIndexOnCompletion: boolean }
+): Promise<boolean> {
+  if (options.rebuildDimensionIndexOnCompletion) {
+    await rebuildBackfillDimensionIndex(db, embeddingSetId, dimension, now);
+    return false;
+  }
+  logger.info('Dimension HNSW index rebuild left suspended after embedding backfill', {
+    dimension,
+    embeddingSetId,
+    reason: 'nonblocking-background-indexing',
+  });
+  return true;
+}
+
 function getDeferredDimensionIndexRebuildKey(embeddingSetId: string, dimension: number): string {
   return `${embeddingSetId}:${dimension}`;
 }
@@ -418,8 +440,17 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
   drainTimeoutMs: number;
   embeddingSetId: string;
   now: () => number;
+  rebuildDimensionIndexOnCompletion: boolean;
 }): void {
-  const { backlogPollMs, db, dimension, drainTimeoutMs, embeddingSetId, now } = params;
+  const {
+    backlogPollMs,
+    db,
+    dimension,
+    drainTimeoutMs,
+    embeddingSetId,
+    now,
+    rebuildDimensionIndexOnCompletion,
+  } = params;
   const key = getDeferredDimensionIndexRebuildKey(embeddingSetId, dimension);
   if (deferredDimensionIndexRebuilds.has(key)) {
     logger.debug('Deferred dimension HNSW index rebuild already scheduled', {
@@ -439,11 +470,14 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         now
       );
       await vacuumBackfillTables(db, { consecutiveVacuumFailures: 0 }, now);
-      await rebuildBackfillDimensionIndex(db, embeddingSetId, dimension, now);
+      await completeBackfillDimensionIndexMaintenance(db, embeddingSetId, dimension, now, {
+        rebuildDimensionIndexOnCompletion,
+      });
       logger.info('Completed deferred dimension HNSW index rebuild after canceled backfill', {
         counts,
         dimension,
         embeddingSetId,
+        rebuildDimensionIndexOnCompletion,
       });
     } catch (error) {
       logger.error('Deferred dimension HNSW index rebuild after canceled backfill failed', {
@@ -465,6 +499,7 @@ async function restoreCanceledBackfillDimensionIndex(
   options: {
     backlogPollMs: number;
     drainTimeoutMs: number;
+    rebuildDimensionIndexOnCompletion: boolean;
   }
 ): Promise<boolean> {
   const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
@@ -481,15 +516,23 @@ async function restoreCanceledBackfillDimensionIndex(
       drainTimeoutMs: options.drainTimeoutMs,
       embeddingSetId,
       now,
+      rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
     });
     return false;
   }
-  await rebuildBackfillDimensionIndex(db, embeddingSetId, dimension, now);
+  const remainsSuspended = await completeBackfillDimensionIndexMaintenance(
+    db,
+    embeddingSetId,
+    dimension,
+    now,
+    { rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion }
+  );
   logger.info('Restored dimension HNSW index after canceled embedding backfill', {
     dimension,
     embeddingSetId,
+    rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
   });
-  return true;
+  return !remainsSuspended;
 }
 
 async function vacuumBackfillTables(
@@ -961,6 +1004,7 @@ export async function enqueueEmbeddingBackfill(
     progressIntervalBatches,
     progressIntervalMs,
     queueCapacityTimeoutMs,
+    rebuildDimensionIndexOnCompletion,
   } = resolveEnqueueEmbeddingBackfillOptions(options);
   const onDrainTick = options?.onDrainTick;
 
@@ -1011,8 +1055,13 @@ export async function enqueueEmbeddingBackfill(
     });
     if (candidates === 0 && drainedExisting) {
       await vacuumBackfillTables(db, vacuumLogState, now);
-      await rebuildBackfillDimensionIndex(db, embeddingSetId, metadata.expectedDimension, now);
-      dimensionIndexSuspended = false;
+      dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
+        db,
+        embeddingSetId,
+        metadata.expectedDimension,
+        now,
+        { rebuildDimensionIndexOnCompletion }
+      );
       onProgress(done, total);
       return finalizeBackfillCounts(embeddingSetId, total, done, drainedExisting.counts);
     }
@@ -1052,8 +1101,13 @@ export async function enqueueEmbeddingBackfill(
     }
     // Final VACUUM to reclaim all dead tuples from the completed backfill
     await vacuumBackfillTables(db, vacuumLogState, now);
-    await rebuildBackfillDimensionIndex(db, embeddingSetId, metadata.expectedDimension, now);
-    dimensionIndexSuspended = false;
+    dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
+      db,
+      embeddingSetId,
+      metadata.expectedDimension,
+      now,
+      { rebuildDimensionIndexOnCompletion }
+    );
     logger.info('Backfill complete', { embeddingSetId, total, done });
     return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
   } catch (error) {
@@ -1064,7 +1118,7 @@ export async function enqueueEmbeddingBackfill(
           embeddingSetId,
           metadata.expectedDimension,
           now,
-          { backlogPollMs, drainTimeoutMs }
+          { backlogPollMs, drainTimeoutMs, rebuildDimensionIndexOnCompletion }
         ));
         throw error;
       }
