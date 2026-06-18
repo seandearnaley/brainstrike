@@ -12,6 +12,7 @@ import type {
   EmbeddingStreamOptions,
   SimilarityResult,
 } from '../types';
+import type { EmbeddingCacheInterface } from '../worker/embedding-cache-types';
 import type { EmbeddingStatsRefreshController } from '../worker/embedding-worker';
 import { createEmbeddingStatsRefreshController } from '../worker/embedding-worker';
 
@@ -856,6 +857,63 @@ describe('Embedding Worker Batch Optimization', () => {
       `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
     );
     expect(Number(failed.rows[0]?.count)).toBe(0);
+  });
+
+  it('splits streamed completion batches by aggregate byte capacity and caches matching slices', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'byte-split-a' });
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'byte-split-b' });
+
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        return await originalCompleteEmbeddingChunkBatch.apply(this, args);
+      });
+    const setBatchMock = vi.fn(
+      async (entries: Parameters<EmbeddingCacheInterface['setBatch']>[0]) => entries.length
+    );
+    const embeddingCache: EmbeddingCacheInterface = {
+      get: vi.fn(async () => ({ entry: null, hit: false as const })),
+      getBatch: vi.fn(async () => new Map()),
+      set: vi.fn(async () => undefined),
+      setBatch: setBatchMock,
+    };
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 2,
+      concurrency: 1,
+      embeddingCache,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      maxPendingCompletionBytes: 4096,
+      maxPendingCompletionChunks: 32,
+      modelKey,
+      service: new ChunkedStreamingEmbeddingService(2, 0),
+    });
+
+    let completeBatchSizes: number[] = [];
+    try {
+      await waitFor(async () => {
+        const succeeded = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+        );
+        return Number(succeeded.rows[0]?.count) === 2;
+      }, 10_000);
+      await waitFor(async () => setBatchMock.mock.calls.length === 2, 10_000);
+      completeBatchSizes = completeBatchSpy.mock.calls.map(([jobs]) => jobs.length);
+    } finally {
+      await controller.stop();
+      completeBatchSpy.mockRestore();
+    }
+
+    expect(completeBatchSizes).toEqual([1, 1]);
+    expect(
+      setBatchMock.mock.calls.map(([entries]) => entries.map((entry) => entry.contentHash))
+    ).toEqual([['byte-split-a-hash'], ['byte-split-b-hash']]);
   });
 
   it('rejects a streamed completion batch that exceeds the configured byte capacity', async () => {

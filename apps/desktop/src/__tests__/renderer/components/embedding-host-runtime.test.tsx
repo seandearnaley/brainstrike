@@ -384,6 +384,56 @@ describe('EmbeddingHostRuntime', () => {
     );
   });
 
+  it('stops automatic WebGPU device-loss restarts after repeated fatal errors', async () => {
+    storeState.hasHydrated = true;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    const triggerDeviceLoss = async (callIndex: number): Promise<void> => {
+      const workerOptions = startEmbeddingWorkerMock.mock.calls[callIndex]?.[0] as
+        | { onFatalError?: (error: Error) => void }
+        | undefined;
+      if (!workerOptions?.onFatalError) {
+        throw new Error(`Expected start call ${callIndex} to include onFatalError.`);
+      }
+      workerOptions.onFatalError(
+        new Error(
+          "Local embedding execution failed for 'local::Xenova/all-MiniLM-L6-v2': Embedding worker runtime error: WebGPU device lost: device was lost"
+        )
+      );
+      await waitFor(() => {
+        expect(stopMock).toHaveBeenCalledTimes(callIndex + 1);
+      });
+    };
+
+    await triggerDeviceLoss(0);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+    });
+    await triggerDeviceLoss(1);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
+    });
+    await triggerDeviceLoss(2);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          lastError: expect.stringContaining('repeated WebGPU device loss'),
+          state: 'error',
+        })
+      );
+    });
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ device: 'wasm' })
+    );
+  });
+
   it('reports invalid query embedding request envelopes back to main promptly', async () => {
     storeState.hasHydrated = true;
 

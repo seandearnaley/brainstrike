@@ -38,6 +38,7 @@ import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
 const QUERY_DRAIN_TIMEOUT_MS = 5000;
+const MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS = 2;
 const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
   'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
 let embeddingQueueBootstrapPromise: Promise<void> | null = null;
@@ -667,6 +668,7 @@ export function EmbeddingHostRuntime(): null {
 
     let disposed = false;
     let restartAfterFatalErrorPromise: Promise<void> | null = null;
+    let recoverableDeviceLossRestartCount = 0;
     const onWorkerActivityChange = createActivityChangeHandler(
       runtimeIdRef,
       embeddingRuntimeRef,
@@ -737,10 +739,37 @@ export function EmbeddingHostRuntime(): null {
       if (restartAfterFatalErrorPromise || disposed) {
         return;
       }
+      if (recoverableDeviceLossRestartCount >= MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS) {
+        const terminalError = `Embedding host stopped after repeated WebGPU device loss (${recoverableDeviceLossRestartCount} restart(s)): ${message}`;
+        logger.error('Embedding host recoverable fatal restart limit reached', {
+          error: message,
+          restartCount: recoverableDeviceLossRestartCount,
+          runtimeId: runtimeIdRef.current,
+        });
+        fatalErrorRef.current = terminalError;
+        activeRef.current = false;
+        const controller = controllerRef.current;
+        controllerRef.current = null;
+        if (controller) {
+          void Promise.resolve(controller.stop()).catch((error: unknown) => {
+            logger.error('Embedding host worker stop after restart limit failed', {
+              error: error instanceof Error ? error.message : String(error),
+              runtimeId: runtimeIdRef.current,
+            });
+          });
+        }
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+          embeddingRuntime: embeddingRuntimeRef.current,
+          lastError: terminalError,
+        });
+        return;
+      }
 
       restartAfterFatalErrorPromise = (async () => {
+        recoverableDeviceLossRestartCount += 1;
         logger.warn('Restarting embedding host worker after recoverable fatal error', {
           error: message,
+          restartCount: recoverableDeviceLossRestartCount,
           runtimeId: runtimeIdRef.current,
         });
         await stopWorker('fatal-worker-restart');

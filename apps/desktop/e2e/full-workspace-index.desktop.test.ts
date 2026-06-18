@@ -37,6 +37,7 @@ type WorkspaceIndexFullRunEvidence =
   | {
       completedAt: string;
       durationMs: number;
+      droppedSampleCount: number;
       fatalLogMatches: string[];
       requiredDevice: string;
       roots: string[];
@@ -48,6 +49,7 @@ type WorkspaceIndexFullRunEvidence =
   | {
       completedAt: string;
       durationMs: number;
+      droppedSampleCount: number;
       error: { message: string; name: string; stack?: string };
       fatalLogMatches: string[];
       requiredDevice: string;
@@ -66,6 +68,7 @@ const MAX_IDLE_MS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_MAX_IDLE_MS';
 const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
 const POLL_MS = 5000;
 const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 120_000;
+const MAX_EVIDENCE_SAMPLES = 24;
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
 
@@ -201,6 +204,20 @@ function isTerminalSnapshot(snapshot: WorkspaceIndexDebugSnapshot): boolean {
   );
 }
 
+function appendBoundedEvidenceSample(
+  samples: WorkspaceIndexEvidenceSample[],
+  sample: WorkspaceIndexEvidenceSample
+): number {
+  samples.push(sample);
+  if (samples.length <= MAX_EVIDENCE_SAMPLES) {
+    return 0;
+  }
+
+  // Keep startup context plus the recent window that explains terminal success or failure.
+  samples.splice(1, samples.length - MAX_EVIDENCE_SAMPLES);
+  return 1;
+}
+
 async function readWorkspaceIndexSnapshot(page: {
   evaluate: <T>(pageFunction: () => Promise<T>) => Promise<T>;
 }): Promise<WorkspaceIndexDebugSnapshot> {
@@ -327,6 +344,7 @@ test.describe('Full Workspace Index run', () => {
     });
 
     const samples: WorkspaceIndexEvidenceSample[] = [];
+    let droppedSampleCount = 0;
     const fatalLogMatches: string[] = [];
     let lastProgressAt = Date.now();
     let lastProgressValue = -1;
@@ -354,7 +372,7 @@ test.describe('Full Workspace Index run', () => {
     try {
       while (Date.now() - startedAt < testInfo.timeout - POLL_MS) {
         const snapshot = await readWorkspaceIndexSnapshot(page);
-        samples.push({
+        droppedSampleCount += appendBoundedEvidenceSample(samples, {
           capturedAt: new Date().toISOString(),
           elapsedMs: Date.now() - startedAt,
           snapshot,
@@ -404,6 +422,7 @@ test.describe('Full Workspace Index run', () => {
       await writeEvidence({
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - startedAt,
+        droppedSampleCount,
         fatalLogMatches,
         requiredDevice,
         roots,
@@ -422,6 +441,7 @@ test.describe('Full Workspace Index run', () => {
       await writeEvidence({
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - startedAt,
+        droppedSampleCount,
         error: {
           message: error instanceof Error ? error.message : String(error),
           name: error instanceof Error ? error.name : 'Error',
