@@ -3126,6 +3126,65 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('does not overwrite a terminal backfill progress event with stale pending status', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
+    let subscribed = false;
+    const unsubscribe = vi.fn(() => {
+      subscribed = false;
+    });
+    const requestId = 'background-indexing-backfill:complete-before-return';
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      enqueueBackfill: vi.fn(async () => {
+        if (!(subscribed && progressListener)) {
+          throw new Error('Expected backfill progress listener to be registered before enqueue.');
+        }
+        progressListener({
+          embeddingSetId: 'set-1',
+          requestId,
+          source: 'background-indexing',
+          stage: 'complete',
+          current: 7,
+          total: 7,
+          message: 'queued all embedding jobs',
+        });
+        return { requestId };
+      }),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        subscribed = true;
+        return unsubscribe;
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'embedding',
+        backfillRequestId: requestId,
+        embeddingProgress: expect.objectContaining({
+          chunksProcessed: 7,
+          totalChunks: 7,
+        }),
+      })
+    );
+  });
+
   it('ignores unrelated backfill progress events while tracking the managed collection request', async () => {
     const deps = createDeps({
       fileContentProcessor: {

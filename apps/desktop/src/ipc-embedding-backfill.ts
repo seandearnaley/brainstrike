@@ -514,7 +514,9 @@ export function cancelAllDesktopEmbeddingBackfills(): void {
 
 export function cancelDesktopEmbeddingBackfill(embeddingSetId: string): void {
   logCancellationRequested(embeddingSetId);
-  embeddingBackfillsCanceled.add(embeddingSetId);
+  if (embeddingBackfillsInFlight.has(embeddingSetId)) {
+    embeddingBackfillsCanceled.add(embeddingSetId);
+  }
 }
 
 function logCancellationRequested(embeddingSetId: string): void {

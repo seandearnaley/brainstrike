@@ -56,6 +56,7 @@ function fromRow(row: JobRow): Job {
     leasedUntil: row.leased_until ?? null,
     worker_id: row.worker_id ?? null,
     dedupe_key: row.dedupe_key ?? null,
+    chunk_id: row.chunk_id ?? null,
     embedding_set_id: row.embedding_set_id ?? null,
     error: row.error ?? null,
     created_at: row.created_at,

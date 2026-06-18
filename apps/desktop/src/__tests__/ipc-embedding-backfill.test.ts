@@ -166,6 +166,33 @@ describe('desktop embedding backfill termination logging', () => {
     );
   });
 
+  it('does not let a stale cancellation request poison the next backfill for that set', async () => {
+    cancelDesktopEmbeddingBackfill('set-stale-cancel');
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: unknown,
+        options: EnqueueOptions
+      ) => {
+        options.assertCanContinue();
+      }
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill(createRunParams('set-stale-cancel'))
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    const canceled = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill canceled'
+    );
+    expect(canceled).toHaveLength(0);
+  });
+
   it('classifies a WRAPPED cancellation as canceled, not failed', async () => {
     // Cancellation is tracked authoritatively in the canceled set; the log
     // classification must not depend on the error message text surviving

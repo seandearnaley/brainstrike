@@ -585,6 +585,7 @@ export class WorkspaceCollectionSyncService {
     }
     const pendingRequestId = `pending:${args.collection.id}:${Date.now()}`;
     let unsubscribeBackfillProgress: (() => void) | null = null;
+    let terminalBackfillRequestId: string | null = null;
 
     unsubscribeBackfillProgress = this.deps.subscribeToBackfillProgress((progress) => {
       if (progress.embeddingSetId !== args.collection.id) {
@@ -597,6 +598,7 @@ export class WorkspaceCollectionSyncService {
         unsubscribe: unsubscribeBackfillProgress,
       };
       if (progress.stage === 'error') {
+        terminalBackfillRequestId = progress.requestId;
         this.activeBackfill?.unsubscribe?.();
         this.activeBackfill = null;
         this.setErrorStatus({
@@ -622,6 +624,7 @@ export class WorkspaceCollectionSyncService {
         })
       );
       if (progress.stage === 'complete') {
+        terminalBackfillRequestId = progress.requestId;
         this.activeBackfill?.unsubscribe?.();
         this.activeBackfill = null;
         dispatchQueueDrainedEvent(args.collection.id);
@@ -650,6 +653,10 @@ export class WorkspaceCollectionSyncService {
       throw createAbortError('Embedding backfill was canceled before it started.');
     }
     const { requestId } = enqueueResult;
+    if (terminalBackfillRequestId === requestId) {
+      throwIfAborted(args.abortSignal);
+      return;
+    }
     this.activeBackfill = {
       embeddingSetId: args.collection.id,
       requestId,
