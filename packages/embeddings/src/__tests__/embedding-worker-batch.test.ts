@@ -113,6 +113,23 @@ class WrongDimensionStreamingEmbeddingService extends FakeEmbeddingService {
   }
 }
 
+class RuntimeMetadataStreamingEmbeddingService extends ChunkedStreamingEmbeddingService {
+  constructor(
+    streamBatchSize: number,
+    delayAfterBatchMs: number,
+    private readonly runtime: NonNullable<EmbeddingResult['runtime']>
+  ) {
+    super(streamBatchSize, delayAfterBatchMs);
+  }
+
+  override async generateEmbedding(text: string): Promise<EmbeddingResult> {
+    return {
+      ...(await super.generateEmbedding(text)),
+      runtime: this.runtime,
+    };
+  }
+}
+
 const PGLITE_SETUP_TIMEOUT_MS = 90_000;
 const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;
 
@@ -795,16 +812,18 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(blockedBatchStarts).toEqual([0, 1]);
   });
 
-  it('rejects a streamed completion batch that exceeds the configured chunk capacity', async () => {
+  it('splits a streamed completion batch that exceeds the configured chunk capacity', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';
     await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'chunk-capacity-a' });
     await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'chunk-capacity-b' });
-    await db.query(
-      `UPDATE job_queue
-       SET max_attempts = 1
-       WHERE id IN ('job-chunk-capacity-a', 'job-chunk-capacity-b')`
-    );
+
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, ...args) {
+        return await originalCompleteEmbeddingChunkBatch.apply(this, args);
+      });
 
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
@@ -818,16 +837,25 @@ describe('Embedding Worker Batch Optimization', () => {
       service: new ChunkedStreamingEmbeddingService(2, 0),
     });
 
+    let completeBatchSizes: number[] = [];
     try {
       await waitFor(async () => {
-        const failed = await db.query<{ count: number }>(
-          `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
+        const succeeded = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
         );
-        return Number(failed.rows[0]?.count) === 2;
+        return Number(succeeded.rows[0]?.count) === 2;
       }, 10_000);
+      completeBatchSizes = completeBatchSpy.mock.calls.map(([jobs]) => jobs.length);
     } finally {
       await controller.stop();
+      completeBatchSpy.mockRestore();
     }
+
+    expect(completeBatchSizes).toEqual([1, 1]);
+    const failed = await db.query<{ count: number }>(
+      `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
+    );
+    expect(Number(failed.rows[0]?.count)).toBe(0);
   });
 
   it('rejects a streamed completion batch that exceeds the configured byte capacity', async () => {
@@ -1364,6 +1392,44 @@ describe('Embedding Worker Batch Optimization', () => {
     });
 
     await controller.stop();
+  });
+
+  it('does not run scheduled WASM heap reinitialization for WebGPU batches', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'webgpu-no-scheduled-reinit' });
+    const service = new RuntimeMetadataStreamingEmbeddingService(1, 0, {
+      device: 'webgpu',
+      dtype: 'fp16',
+      fallbackApplied: false,
+    });
+    const disposeSpy = vi.spyOn(service, 'dispose');
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 1,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      reinitEveryN: 1,
+      service,
+    });
+
+    try {
+      await waitFor(async () => {
+        const succeeded = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+        );
+        return Number(succeeded.rows[0]?.count) === 1;
+      }, 10_000);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(disposeSpy).not.toHaveBeenCalled();
+    } finally {
+      await controller.stop();
+      disposeSpy.mockRestore();
+    }
   });
 
   it('validates metrics interval config before initializing the embedding service', async () => {

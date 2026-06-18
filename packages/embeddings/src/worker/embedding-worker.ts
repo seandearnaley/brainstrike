@@ -1139,7 +1139,10 @@ export async function startEmbeddingWorker(
       toProcess: LoadedChunkItem[],
       embeddings: number[][],
       options?: {
-        afterComplete?: () => void;
+        afterComplete?: (
+          completedItems: LoadedChunkItem[],
+          completedEmbeddings: number[][]
+        ) => void;
         inferenceMs?: number;
       }
     ) => Promise<void>;
@@ -1163,6 +1166,53 @@ export async function startEmbeddingWorker(
       if (firstFailure) {
         throw firstFailure;
       }
+    };
+
+    const splitCompletionBatch = (
+      toProcess: LoadedChunkItem[],
+      embeddings: number[][]
+    ): Array<{ embeddings: number[][]; toProcess: LoadedChunkItem[] }> => {
+      const slices: Array<{ embeddings: number[][]; toProcess: LoadedChunkItem[] }> = [];
+      let sliceStart = 0;
+      let sliceBytes = 0;
+      let sliceChunks = 0;
+
+      for (let index = 0; index < embeddings.length; index += 1) {
+        const embedding = embeddings[index];
+        if (!embedding) {
+          throw new Error(`Invalid input: streamed completion batch missing embedding ${index}.`);
+        }
+        const embeddingBytes = embedding.length * 4;
+        if (embeddingBytes > capacity.maxPendingCompletionBytes) {
+          throw new Error(
+            `Invalid input: streamed completion item has ${embeddingBytes} byte(s), exceeding maxPendingCompletionBytes=${capacity.maxPendingCompletionBytes}.`
+          );
+        }
+        if (
+          sliceChunks > 0 &&
+          (sliceChunks + 1 > capacity.maxPendingCompletionChunks ||
+            sliceBytes + embeddingBytes > capacity.maxPendingCompletionBytes)
+        ) {
+          slices.push({
+            embeddings: embeddings.slice(sliceStart, index),
+            toProcess: toProcess.slice(sliceStart, index),
+          });
+          sliceStart = index;
+          sliceBytes = 0;
+          sliceChunks = 0;
+        }
+        sliceBytes += embeddingBytes;
+        sliceChunks += 1;
+      }
+
+      if (sliceChunks > 0) {
+        slices.push({
+          embeddings: embeddings.slice(sliceStart),
+          toProcess: toProcess.slice(sliceStart),
+        });
+      }
+
+      return slices;
     };
 
     const waitForCapacity = async (chunkCount: number, byteCount: number): Promise<void> => {
@@ -1192,51 +1242,70 @@ export async function startEmbeddingWorker(
 
     return {
       async enqueue(toProcess, embeddings, enqueueOptions): Promise<void> {
-        const chunkCount = toProcess.length;
-        const byteCount = estimateEmbeddingBytes(embeddings);
-        await waitForCapacity(chunkCount, byteCount);
-
-        const acceptedAt = performance.now();
-        pendingBatches += 1;
-        pendingChunks += chunkCount;
-        pendingBytes += byteCount;
-
-        const run = completionChain.then(async () => {
-          const completionStartedAt = performance.now();
-          try {
-            await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsCompleted);
-            enqueueOptions?.afterComplete?.();
-          } catch (error) {
-            firstFailure ??= error;
-            throw error;
-          } finally {
-            const completionFinishedAt = performance.now();
-            pendingBatches = Math.max(0, pendingBatches - 1);
-            pendingChunks = Math.max(0, pendingChunks - chunkCount);
-            pendingBytes = Math.max(0, pendingBytes - byteCount);
-            log('embedding_pipeline_timing', {
-              completeJobsMs: Math.round(completionFinishedAt - completionStartedAt),
-              completionWaitMs: Math.round(completionStartedAt - acceptedAt),
-              device: latestRuntimeMetadata?.device ?? null,
-              dbWriteMs: Math.round(completionFinishedAt - completionStartedAt),
-              dtype: latestRuntimeMetadata?.dtype ?? null,
-              inferenceMs: Math.round(enqueueOptions?.inferenceMs ?? 0),
-              pendingCompletionBatches: pendingBatches,
-              pendingCompletionChunks: pendingChunks,
-              schedulerWaitMs: 0,
-              streamBatchSize: chunkCount,
-            });
-            notifyCapacity();
-          }
-        });
-        completionChain = run.catch(() => undefined);
-        run.catch(() => undefined);
+        const completionSlices = splitCompletionBatch(toProcess, embeddings);
+        for (const slice of completionSlices) {
+          await enqueueSlice(slice.toProcess, slice.embeddings, enqueueOptions);
+        }
       },
       async flush(): Promise<void> {
         await completionChain;
         throwIfFailed();
       },
     };
+
+    async function enqueueSlice(
+      toProcess: LoadedChunkItem[],
+      embeddings: number[][],
+      enqueueOptions:
+        | {
+            afterComplete?: (
+              completedItems: LoadedChunkItem[],
+              completedEmbeddings: number[][]
+            ) => void;
+            inferenceMs?: number;
+          }
+        | undefined
+    ): Promise<void> {
+      const chunkCount = toProcess.length;
+      const byteCount = estimateEmbeddingBytes(embeddings);
+      await waitForCapacity(chunkCount, byteCount);
+
+      const acceptedAt = performance.now();
+      pendingBatches += 1;
+      pendingChunks += chunkCount;
+      pendingBytes += byteCount;
+
+      const run = completionChain.then(async () => {
+        const completionStartedAt = performance.now();
+        try {
+          await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsCompleted);
+          enqueueOptions?.afterComplete?.(toProcess, embeddings);
+        } catch (error) {
+          firstFailure ??= error;
+          throw error;
+        } finally {
+          const completionFinishedAt = performance.now();
+          pendingBatches = Math.max(0, pendingBatches - 1);
+          pendingChunks = Math.max(0, pendingChunks - chunkCount);
+          pendingBytes = Math.max(0, pendingBytes - byteCount);
+          log('embedding_pipeline_timing', {
+            completeJobsMs: Math.round(completionFinishedAt - completionStartedAt),
+            completionWaitMs: Math.round(completionStartedAt - acceptedAt),
+            device: latestRuntimeMetadata?.device ?? null,
+            dbWriteMs: Math.round(completionFinishedAt - completionStartedAt),
+            dtype: latestRuntimeMetadata?.dtype ?? null,
+            inferenceMs: Math.round(enqueueOptions?.inferenceMs ?? 0),
+            pendingCompletionBatches: pendingBatches,
+            pendingCompletionChunks: pendingChunks,
+            schedulerWaitMs: 0,
+            streamBatchSize: chunkCount,
+          });
+          notifyCapacity();
+        }
+      });
+      completionChain = run.catch(() => undefined);
+      run.catch(() => undefined);
+    }
   }
 
   async function processLocalGroupIncrementally(
@@ -1306,6 +1375,7 @@ export async function startEmbeddingWorker(
                 `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
               );
             }
+            reportRuntimeMetadata(batch.results.find((result) => result.runtime)?.runtime);
 
             const embeddings = batch.results.map((result, index) => {
               if (
@@ -1321,11 +1391,11 @@ export async function startEmbeddingWorker(
 
             try {
               await completionWriter.enqueue(batchItems, embeddings, {
-                afterComplete: () => {
+                afterComplete: (completedItems, completedEmbeddings) => {
                   storeToCacheAsync(
                     options.embeddingCache,
-                    batchItems,
-                    embeddings,
+                    completedItems,
+                    completedEmbeddings,
                     modelKey,
                     expectedDimension,
                     trackCacheWrite
@@ -1508,6 +1578,10 @@ export async function startEmbeddingWorker(
 
   async function maybeReinitialize() {
     if (reinitEveryN <= 0 || processedSinceInit < reinitEveryN || scheduledReinitPending) {
+      return;
+    }
+    if (latestRuntimeMetadata?.device === 'webgpu') {
+      processedSinceInit = 0;
       return;
     }
     // Reinitialize inline instead of deferring to idle. During large backfills
