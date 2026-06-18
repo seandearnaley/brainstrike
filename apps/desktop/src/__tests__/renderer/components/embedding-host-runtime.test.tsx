@@ -13,6 +13,8 @@ const {
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
+  generateQueryEmbeddingMock,
+  initializeWithModelMock,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
@@ -39,6 +41,15 @@ const {
   createEmbeddingCacheRepositoryMock: vi.fn(),
   detectDeviceCapabilitiesMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
+  generateQueryEmbeddingMock: vi.fn(async () => ({
+    embedding: [0.1, 0.2],
+    runtime: {
+      device: 'webgpu',
+      dtype: 'fp32',
+      fallbackApplied: false,
+    },
+  })),
+  initializeWithModelMock: vi.fn(async () => {}),
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
   },
@@ -92,8 +103,8 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
 
 vi.mock('@brainstrike/embeddings/service', () => ({
   SimpleEmbeddingService: class {
-    initializeWithModel = vi.fn(async () => {});
-    generateQueryEmbedding = vi.fn(async () => ({ embedding: [0.1, 0.2] }));
+    initializeWithModel = initializeWithModelMock;
+    generateQueryEmbedding = generateQueryEmbeddingMock;
     dispose = vi.fn(async () => {});
   },
 }));
@@ -506,5 +517,30 @@ describe('EmbeddingHostRuntime', () => {
       type?: string;
     };
     expect(lastCall?.type).not.toBe('error');
+    expect(initializeWithModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: 2,
+        id: 'Xenova/all-MiniLM-L6-v2',
+        name: 'MiniLM',
+        origin: 'local',
+        tags: ['local', 'embedding'],
+      }),
+      undefined,
+      'webgpu'
+    );
+    expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledWith({ forceReload: true });
+    expect(reportStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingRuntime: expect.objectContaining({
+          actualWorkerMetadata: {
+            device: 'webgpu',
+            dtype: 'fp32',
+            fallbackApplied: false,
+          },
+          backendMismatch: false,
+          selectedDevicePreference: 'webgpu',
+        }),
+      })
+    );
   });
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 
-type StageBenchmarkMode = 'chunking-ceiling' | 'db-completion-ceiling';
+type StageBenchmarkMode = 'chunking-ceiling' | 'db-completion-ceiling' | 'embedding-ceiling';
 
 interface StageBenchmarkResult {
   chunkCount: number;
@@ -13,6 +13,13 @@ interface StageBenchmarkResult {
   dimensions: number;
   elapsedMs: number;
   mode: string;
+  runtime?: {
+    actualDevice: string;
+    backendMismatch: boolean;
+    dtype: string;
+    fallbackApplied: boolean;
+    selectedDevicePreference: string;
+  };
   startedAt: string;
 }
 
@@ -43,7 +50,11 @@ function parsePositiveIntegerEnv(name: string, defaultValue: number): number {
 
 function parseMode(): StageBenchmarkMode {
   const mode = process.env[MODE_ENV]?.trim() || 'db-completion-ceiling';
-  if (mode !== 'chunking-ceiling' && mode !== 'db-completion-ceiling') {
+  if (
+    mode !== 'chunking-ceiling' &&
+    mode !== 'db-completion-ceiling' &&
+    mode !== 'embedding-ceiling'
+  ) {
     throw new Error(`Unsupported Workspace Index stage benchmark mode: ${mode}`);
   }
   return mode;
@@ -123,13 +134,22 @@ test.describe('Workspace Index stage benchmark', () => {
 
     expect(result.mode).toBe(mode);
     expect(result.chunkCount).toBe(request.chunkCount);
-    expect(result.dimensions).toBe(mode === 'db-completion-ceiling' ? request.dimensions : 0);
+    expect(result.dimensions).toBe(mode === 'chunking-ceiling' ? 0 : request.dimensions);
     if (mode === 'chunking-ceiling') {
       expect(result.completedChunkCount).toBeGreaterThanOrEqual(request.chunkCount);
     } else {
       expect(result.completedChunkCount).toBe(request.chunkCount);
     }
     expect(result.chunksPerSecond).toBeGreaterThan(0);
+    if (mode === 'embedding-ceiling') {
+      expect(result.runtime).toMatchObject({
+        actualDevice: 'webgpu',
+        backendMismatch: false,
+        fallbackApplied: false,
+        selectedDevicePreference: 'webgpu',
+      });
+      expect(result.runtime?.dtype).toEqual(expect.any(String));
+    }
 
     const evidencePath =
       process.env[EVIDENCE_PATH_ENV]?.trim() ||

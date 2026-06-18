@@ -39,13 +39,20 @@ describe('workspace index benchmark script', () => {
   });
 
   it('allows stage benchmark modes implemented by the Electron harness', () => {
-    const options = parseArgs(['--mode', 'db-completion-ceiling', '--mode', 'chunking-ceiling']);
+    const options = parseArgs([
+      '--mode',
+      'db-completion-ceiling',
+      '--mode',
+      'chunking-ceiling',
+      '--mode',
+      'embedding-ceiling',
+    ]);
 
     expect(() => assertRunnableBenchmarkModes(options)).not.toThrow();
   });
 
   it('fails loudly instead of silently ignoring unimplemented stage benchmark modes', () => {
-    const options = parseArgs(['--mode', 'embedding-ceiling']);
+    const options = parseArgs(['--mode', 'import-ceiling']);
 
     expect(() => assertRunnableBenchmarkModes(options)).toThrow(
       'requires the Electron stage benchmark harness'

@@ -21,6 +21,7 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   command: 'command',
   enqueueBackfill: 'enqueue-backfill',
   getBackfillsInFlight: 'get-backfills-in-flight',
+  queryEmbedding: 'query-embedding',
   queryEmbeddingRequest: 'query-embedding-request',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
 });
@@ -43,6 +44,7 @@ export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
 export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
   EMBEDDING_HOST_CHANNELS.cancelAllBackfills;
 export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
+export const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = EMBEDDING_HOST_CHANNELS.queryEmbedding;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
 export type EmbeddingBackfillSource = 'background-indexing' | 'manual';
@@ -302,6 +304,33 @@ export function createEmbeddingHostQueryEmbeddingRequest(
   };
 }
 
+export function assertEmbeddingHostQueryEmbeddingPayload(
+  value: unknown
+): EmbeddingHostQueryEmbeddingPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host query embedding payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    modelKey: assertNonEmptyString(
+      payload['modelKey'],
+      'Embedding host query embedding payload.modelKey must be a non-empty string.'
+    ),
+    modelId: assertNonEmptyString(
+      payload['modelId'],
+      'Embedding host query embedding payload.modelId must be a non-empty string.'
+    ),
+    dimensions: assertPositiveInteger(
+      payload['dimensions'],
+      'Embedding host query embedding payload.dimensions must be a positive integer.'
+    ),
+    query: assertNonEmptyString(
+      payload['query'],
+      'Embedding host query embedding payload.query must be a non-empty string.'
+    ),
+  };
+}
+
 export function assertEmbeddingHostQueryEmbeddingRequest(
   value: unknown
 ): EmbeddingHostQueryEmbeddingRequest {
@@ -320,24 +349,7 @@ export function assertEmbeddingHostQueryEmbeddingRequest(
     channel: 'query-embedding',
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
-    payload: {
-      modelKey: assertNonEmptyString(
-        payload['modelKey'],
-        'Embedding host query embedding payload.modelKey must be a non-empty string.'
-      ),
-      modelId: assertNonEmptyString(
-        payload['modelId'],
-        'Embedding host query embedding payload.modelId must be a non-empty string.'
-      ),
-      dimensions: assertPositiveInteger(
-        payload['dimensions'],
-        'Embedding host query embedding payload.dimensions must be a positive integer.'
-      ),
-      query: assertNonEmptyString(
-        payload['query'],
-        'Embedding host query embedding payload.query must be a non-empty string.'
-      ),
-    },
+    payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
   };
 }
 

@@ -14,6 +14,11 @@ vi.mock('@brainstrike/db', () => ({
       completeEmbeddingChunkBatch: completeEmbeddingChunkBatchMock,
     };
   }),
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
+    dimensions: 384,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  },
 }));
 
 describe('runWorkspaceIndexStageBenchmark', () => {
@@ -228,5 +233,129 @@ describe('runWorkspaceIndexStageBenchmark', () => {
     ).rejects.toThrow(
       "Workspace Index benchmark mode 'chunking-ceiling' requires the hidden chunking host bridge."
     );
+  });
+
+  it('measures embedding through the hidden embedding host bridge and validates WebGPU metadata', async () => {
+    const queryEmbeddingMock = vi.fn(async () => [0.1, 0.2, 0.3, 0.4]);
+    const getStatusMock = vi.fn(async () => ({
+      embeddingRuntime: {
+        actualWorkerMetadata: {
+          device: 'webgpu',
+          dtype: 'fp32',
+          fallbackApplied: false,
+        },
+        backendMismatch: false,
+        selectedDevicePreference: 'webgpu',
+      },
+    }));
+
+    const result = await runWorkspaceIndexStageBenchmark({
+      embeddingHost: {
+        getStatus: getStatusMock,
+        queryEmbedding: queryEmbeddingMock,
+      },
+      request: {
+        chunkCount: 2,
+        dimensions: 4,
+        mode: 'embedding-ceiling',
+      },
+      timing: {
+        nowIso: () => '2026-06-17T04:00:00.000Z',
+        nowMs: vi.fn().mockReturnValueOnce(300).mockReturnValueOnce(340),
+      },
+    });
+
+    expect(queryEmbeddingMock).toHaveBeenCalledTimes(2);
+    expect(queryEmbeddingMock).toHaveBeenCalledWith({
+      dimensions: 4,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: expect.stringContaining('Workspace Index embedding ceiling synthetic query 0'),
+    });
+    expect(getStatusMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      chunkCount: 2,
+      chunksPerSecond: 50,
+      completedChunkCount: 2,
+      dimensions: 4,
+      elapsedMs: 40,
+      mode: 'embedding-ceiling',
+      runtime: {
+        actualDevice: 'webgpu',
+        backendMismatch: false,
+        dtype: 'fp32',
+        fallbackApplied: false,
+        selectedDevicePreference: 'webgpu',
+      },
+    });
+  });
+
+  it('throws instead of silently degrading when the embedding benchmark lacks the host bridge', async () => {
+    await expect(
+      runWorkspaceIndexStageBenchmark({
+        request: {
+          mode: 'embedding-ceiling',
+        },
+      })
+    ).rejects.toThrow(
+      "Workspace Index benchmark mode 'embedding-ceiling' requires the hidden embedding host bridge."
+    );
+  });
+
+  it('throws when the embedding host reports a fallback runtime', async () => {
+    const queryEmbeddingMock = vi.fn(async () => [0.1, 0.2, 0.3, 0.4]);
+
+    await expect(
+      runWorkspaceIndexStageBenchmark({
+        embeddingHost: {
+          getStatus: vi.fn(async () => ({
+            embeddingRuntime: {
+              actualWorkerMetadata: {
+                device: 'wasm',
+                dtype: 'fp32',
+                fallbackApplied: true,
+              },
+              backendMismatch: true,
+              selectedDevicePreference: 'webgpu',
+            },
+          })),
+          queryEmbedding: queryEmbeddingMock,
+        },
+        request: {
+          chunkCount: 1,
+          dimensions: 4,
+          mode: 'embedding-ceiling',
+        },
+      })
+    ).rejects.toThrow('Workspace Index embedding benchmark requires WebGPU without fallback.');
+    expect(queryEmbeddingMock).not.toHaveBeenCalled();
+  });
+
+  it('throws when embedding runtime evidence is incomplete', async () => {
+    const queryEmbeddingMock = vi.fn(async () => [0.1, 0.2, 0.3, 0.4]);
+
+    await expect(
+      runWorkspaceIndexStageBenchmark({
+        embeddingHost: {
+          getStatus: vi.fn(async () => ({
+            embeddingRuntime: {
+              actualWorkerMetadata: {
+                device: 'webgpu',
+                fallbackApplied: false,
+              },
+              backendMismatch: false,
+              selectedDevicePreference: 'webgpu',
+            },
+          })),
+          queryEmbedding: queryEmbeddingMock,
+        },
+        request: {
+          chunkCount: 1,
+          dimensions: 4,
+          mode: 'embedding-ceiling',
+        },
+      })
+    ).rejects.toThrow('Workspace Index embedding benchmark requires complete WebGPU metadata.');
+    expect(queryEmbeddingMock).not.toHaveBeenCalled();
   });
 });

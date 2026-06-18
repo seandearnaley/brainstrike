@@ -20,7 +20,11 @@ const BENCHMARK_MODES = new Set([
   'import-ceiling',
   'integrated',
 ]);
-const RUNNABLE_STAGE_BENCHMARK_MODES = new Set(['chunking-ceiling', 'db-completion-ceiling']);
+const RUNNABLE_STAGE_BENCHMARK_MODES = new Set([
+  'chunking-ceiling',
+  'db-completion-ceiling',
+  'embedding-ceiling',
+]);
 
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;

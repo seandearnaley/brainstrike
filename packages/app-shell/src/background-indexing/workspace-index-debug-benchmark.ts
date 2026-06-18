@@ -1,4 +1,4 @@
-import { type IDatabase, JobQueue } from '@brainstrike/db';
+import { type IDatabase, JobQueue, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS } from '@brainstrike/db';
 
 export type WorkspaceIndexStageBenchmarkMode =
   | 'chunking-ceiling'
@@ -21,7 +21,16 @@ export interface WorkspaceIndexStageBenchmarkResult {
   dimensions: number;
   elapsedMs: number;
   mode: WorkspaceIndexStageBenchmarkMode;
+  runtime?: WorkspaceIndexStageBenchmarkRuntimeEvidence;
   startedAt: string;
+}
+
+export interface WorkspaceIndexStageBenchmarkRuntimeEvidence {
+  actualDevice: string;
+  backendMismatch: boolean;
+  dtype: string | null;
+  fallbackApplied: boolean;
+  selectedDevicePreference: string;
 }
 
 interface WorkspaceIndexStageBenchmarkArgs {
@@ -29,6 +38,7 @@ interface WorkspaceIndexStageBenchmarkArgs {
   db?: IDatabase | null;
   electronRunTransaction?: WorkspaceIndexElectronRunTransaction | undefined;
   electronTransactionOptions?: unknown;
+  embeddingHost?: WorkspaceIndexEmbeddingHostBridge | null | undefined;
   request: WorkspaceIndexStageBenchmarkRequest;
   timing?: {
     nowIso?: () => string;
@@ -62,6 +72,18 @@ interface WorkspaceIndexChunkingHostBridge {
     request: WorkspaceIndexChunkingHostBatchRequest
   ) => Promise<readonly unknown[]>;
 }
+interface WorkspaceIndexEmbeddingHostPayload {
+  readonly dimensions: number;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly query: string;
+}
+interface WorkspaceIndexEmbeddingHostBridge {
+  readonly getStatus?: () => Promise<unknown>;
+  readonly queryEmbedding?: (
+    payload: WorkspaceIndexEmbeddingHostPayload
+  ) => Promise<readonly number[]>;
+}
 interface WorkspaceIndexElectronTransactionStatement {
   params?: unknown[];
   sql: string;
@@ -83,9 +105,12 @@ interface DbCompletionBenchmarkIds {
 const DEFAULT_DB_COMPLETION_CHUNK_COUNT = 512;
 const DEFAULT_DB_COMPLETION_DIMENSIONS = 384;
 const DEFAULT_CHUNKING_FILE_COUNT = 128;
+const DEFAULT_EMBEDDING_QUERY_COUNT = 32;
 const MAX_CHUNKING_FILE_COUNT = 5000;
 const MAX_DB_COMPLETION_CHUNK_COUNT = 10_000;
 const MAX_DB_COMPLETION_DIMENSIONS = 4096;
+const MAX_EMBEDDING_QUERY_COUNT = 512;
+const EMBEDDING_BENCHMARK_CONCURRENCY = 4;
 const CHUNKING_SYNTHETIC_ID_PREFIX = 'workspace-index-stage-chunking-ceiling';
 const SYNTHETIC_ID_PREFIX = 'workspace-index-stage-db-completion-ceiling';
 
@@ -171,6 +196,124 @@ function countChunkingBenchmarkChunks(results: readonly unknown[]): number {
     total += chunks.length;
   }
   return total;
+}
+
+function createEmbeddingBenchmarkPayload(
+  index: number,
+  dimensions: number
+): WorkspaceIndexEmbeddingHostPayload {
+  return {
+    dimensions,
+    modelId: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelId,
+    modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
+    query: [
+      `Workspace Index embedding ceiling synthetic query ${index}.`,
+      'This text exercises the hidden embedding host path used for local workspace retrieval.',
+      'The benchmark requires the actual configured renderer worker backend and rejects fallback.',
+    ].join(' '),
+  };
+}
+
+async function runEmbeddingBenchmarkQueries(
+  embeddingHost: Required<Pick<WorkspaceIndexEmbeddingHostBridge, 'queryEmbedding'>>,
+  queryCount: number,
+  dimensions: number
+): Promise<number> {
+  let completed = 0;
+  for (let offset = 0; offset < queryCount; offset += EMBEDDING_BENCHMARK_CONCURRENCY) {
+    const batchSize = Math.min(EMBEDDING_BENCHMARK_CONCURRENCY, queryCount - offset);
+    const embeddings = await Promise.all(
+      Array.from({ length: batchSize }, (_value, batchIndex) =>
+        embeddingHost.queryEmbedding(
+          createEmbeddingBenchmarkPayload(offset + batchIndex, dimensions)
+        )
+      )
+    );
+    for (const [index, embedding] of embeddings.entries()) {
+      if (!Array.isArray(embedding)) {
+        throw new Error('Workspace Index embedding benchmark result must be an embedding array.');
+      }
+      if (embedding.length !== dimensions) {
+        throw new Error(
+          `Workspace Index embedding benchmark dimension mismatch at result ${
+            offset + index
+          }: expected ${dimensions}, got ${embedding.length}.`
+        );
+      }
+      completed += 1;
+    }
+  }
+  return completed;
+}
+
+function readEmbeddingBenchmarkWebGpuStatus(
+  status: unknown
+): WorkspaceIndexStageBenchmarkRuntimeEvidence | null {
+  if (!(status && typeof status === 'object' && !Array.isArray(status))) {
+    return null;
+  }
+  const embeddingRuntime = (status as Record<string, unknown>)['embeddingRuntime'];
+  if (
+    !(embeddingRuntime && typeof embeddingRuntime === 'object' && !Array.isArray(embeddingRuntime))
+  ) {
+    return null;
+  }
+  const runtime = embeddingRuntime as Record<string, unknown>;
+  if (runtime['selectedDevicePreference'] !== 'webgpu' || runtime['backendMismatch'] === true) {
+    throw new Error('Workspace Index embedding benchmark requires WebGPU without fallback.');
+  }
+  const actualWorkerMetadata = runtime['actualWorkerMetadata'];
+  if (
+    !(
+      actualWorkerMetadata &&
+      typeof actualWorkerMetadata === 'object' &&
+      !Array.isArray(actualWorkerMetadata)
+    )
+  ) {
+    return null;
+  }
+  return assertEmbeddingBenchmarkWebGpuStatus(status);
+}
+
+function assertEmbeddingBenchmarkWebGpuStatus(
+  status: unknown
+): WorkspaceIndexStageBenchmarkRuntimeEvidence {
+  if (!(status && typeof status === 'object' && !Array.isArray(status))) {
+    throw new Error('Workspace Index embedding benchmark requires embedding host status.');
+  }
+  const embeddingRuntime = (status as Record<string, unknown>)['embeddingRuntime'];
+  if (
+    !(embeddingRuntime && typeof embeddingRuntime === 'object' && !Array.isArray(embeddingRuntime))
+  ) {
+    throw new Error('Workspace Index embedding benchmark requires embedding runtime metadata.');
+  }
+  const runtime = embeddingRuntime as Record<string, unknown>;
+  if (runtime['selectedDevicePreference'] !== 'webgpu' || runtime['backendMismatch'] === true) {
+    throw new Error('Workspace Index embedding benchmark requires WebGPU without fallback.');
+  }
+  const actualWorkerMetadata = runtime['actualWorkerMetadata'];
+  const worker =
+    actualWorkerMetadata &&
+    typeof actualWorkerMetadata === 'object' &&
+    !Array.isArray(actualWorkerMetadata)
+      ? (actualWorkerMetadata as Record<string, unknown>)
+      : null;
+  if (!worker) {
+    throw new Error('Workspace Index embedding benchmark requires embedding runtime metadata.');
+  }
+  if (worker['device'] !== 'webgpu' || worker['fallbackApplied'] !== false) {
+    throw new Error('Workspace Index embedding benchmark requires WebGPU without fallback.');
+  }
+  if (typeof worker['dtype'] !== 'string' || worker['dtype'].trim().length === 0) {
+    throw new Error('Workspace Index embedding benchmark requires complete WebGPU metadata.');
+  }
+  return {
+    actualDevice: String(worker['device']),
+    backendMismatch: false,
+    dtype: worker['dtype'] as string,
+    fallbackApplied: false,
+    selectedDevicePreference: String(runtime['selectedDevicePreference']),
+  };
 }
 
 function createDbCompletionBenchmarkIds(
@@ -689,11 +832,62 @@ async function runChunkingCeilingBenchmark({
   };
 }
 
+async function runEmbeddingCeilingBenchmark({
+  embeddingHost,
+  request,
+  timing,
+}: WorkspaceIndexStageBenchmarkArgs): Promise<WorkspaceIndexStageBenchmarkResult> {
+  if (
+    typeof embeddingHost?.queryEmbedding !== 'function' ||
+    typeof embeddingHost.getStatus !== 'function'
+  ) {
+    throw new Error(
+      "Workspace Index benchmark mode 'embedding-ceiling' requires the hidden embedding host bridge."
+    );
+  }
+
+  const queryCount = request.chunkCount ?? DEFAULT_EMBEDDING_QUERY_COUNT;
+  const dimensions = request.dimensions ?? WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions;
+  assertPositiveInteger(queryCount, 'chunkCount', MAX_EMBEDDING_QUERY_COUNT);
+  assertPositiveInteger(dimensions, 'dimensions', MAX_DB_COMPLETION_DIMENSIONS);
+  const nowIso = timing?.nowIso ?? (() => new Date().toISOString());
+  const nowMs =
+    timing?.nowMs ?? (() => (typeof performance === 'undefined' ? Date.now() : performance.now()));
+  let runtime = readEmbeddingBenchmarkWebGpuStatus(await embeddingHost.getStatus());
+  if (!runtime) {
+    await embeddingHost.queryEmbedding(createEmbeddingBenchmarkPayload(-1, dimensions));
+    runtime = assertEmbeddingBenchmarkWebGpuStatus(await embeddingHost.getStatus());
+  }
+  const startedAt = nowIso();
+  const startedMs = nowMs();
+  const completedChunkCount = await runEmbeddingBenchmarkQueries(
+    { queryEmbedding: embeddingHost.queryEmbedding },
+    queryCount,
+    dimensions
+  );
+  const elapsedMs = Math.max(0, nowMs() - startedMs);
+
+  return {
+    chunkCount: queryCount,
+    chunksPerSecond: elapsedMs > 0 ? (completedChunkCount / elapsedMs) * 1000 : completedChunkCount,
+    completedAt: nowIso(),
+    completedChunkCount,
+    dimensions,
+    elapsedMs,
+    mode: 'embedding-ceiling',
+    runtime,
+    startedAt,
+  };
+}
+
 export async function runWorkspaceIndexStageBenchmark(
   args: WorkspaceIndexStageBenchmarkArgs
 ): Promise<WorkspaceIndexStageBenchmarkResult> {
   if (args.request.mode === 'chunking-ceiling') {
     return await runChunkingCeilingBenchmark(args);
+  }
+  if (args.request.mode === 'embedding-ceiling') {
+    return await runEmbeddingCeilingBenchmark(args);
   }
   if (args.request.mode === 'db-completion-ceiling') {
     if (typeof args.db?.transaction === 'function') {

@@ -94,6 +94,7 @@ import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences'
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillRequest,
+  EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
 } from './embedding-host-shared';
@@ -110,6 +111,7 @@ const EMBEDDING_HOST_STOP_CHANNEL = 'embedding-host:stop' as const;
 const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
 const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
+const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = 'embedding-host:query-embedding' as const;
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
 const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
   'embedding-host:query-embedding-request' as const;
@@ -234,6 +236,47 @@ const disabledBridgeNames = disabledPreloadBridges();
 
 function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
+}
+
+function assertPreloadNonEmptyString(value: unknown, message: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function assertPreloadPositiveInteger(value: unknown, message: string): number {
+  if (!Number.isInteger(value) || (value as number) <= 0) {
+    throw new Error(message);
+  }
+  return value as number;
+}
+
+function assertEmbeddingHostQueryEmbeddingPayload(
+  value: unknown
+): EmbeddingHostQueryEmbeddingPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host query embedding payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    dimensions: assertPreloadPositiveInteger(
+      payload['dimensions'],
+      'Embedding host query embedding payload.dimensions must be a positive integer.'
+    ),
+    modelId: assertPreloadNonEmptyString(
+      payload['modelId'],
+      'Embedding host query embedding payload.modelId must be a non-empty string.'
+    ),
+    modelKey: assertPreloadNonEmptyString(
+      payload['modelKey'],
+      'Embedding host query embedding payload.modelKey must be a non-empty string.'
+    ),
+    query: assertPreloadNonEmptyString(
+      payload['query'],
+      'Embedding host query embedding payload.query must be a non-empty string.'
+    ),
+  };
 }
 
 function createDisabledLocalRuntimeAvailability() {
@@ -799,6 +842,11 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
   getBackfillsInFlight: (): Promise<EmbeddingHostBackfillInfo[]> =>
     ipcRenderer.invoke(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL),
+  queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> =>
+    ipcRenderer.invoke(
+      EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
+      assertEmbeddingHostQueryEmbeddingPayload(payload)
+    ),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
   reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),
   getStatus: (): Promise<EmbeddingHostStatus> =>

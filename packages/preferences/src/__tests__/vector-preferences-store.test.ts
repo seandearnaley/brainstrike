@@ -245,4 +245,32 @@ describe('vector-preferences-store', () => {
     expect(state.devicePref).toBe('wasm');
     expect(state.devicePrefConfigured).toBe(true);
   });
+
+  it('accepts the explicit store hydration marker after rehydrate completes', async () => {
+    const persistApi = storeWithPersist.persist;
+
+    useVectorPreferencesStore.setState({
+      hasHydrated: false,
+      devicePrefConfigured: false,
+      devicePref: 'webgpu',
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+    });
+
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(false);
+    vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
+      useVectorPreferencesStore.setState({
+        hasHydrated: true,
+        devicePrefConfigured: false,
+        devicePref: 'webgpu',
+        reinitEveryN: 200,
+        verboseOrtLogs: false,
+      });
+    });
+
+    await expect(ensureVectorPreferencesHydrated({ forceReload: true })).resolves.toMatchObject({
+      devicePref: 'webgpu',
+      hasHydrated: true,
+    });
+  });
 });

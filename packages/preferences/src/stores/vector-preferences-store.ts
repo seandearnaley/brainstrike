@@ -169,7 +169,7 @@ export async function ensureVectorPreferencesHydrated(options?: {
     await rehydrate();
   }
 
-  if (!hasHydrated()) {
+  if (!(hasHydrated() || useVectorPreferencesStore.getState().hasHydrated)) {
     throw new Error('Vector preferences store failed to hydrate.');
   }
 

@@ -1376,12 +1376,29 @@ export function WorkspaceCollectionSyncProvider({
                 };
               }
             ).chunkingHost;
+      const embeddingHost =
+        typeof window === 'undefined'
+          ? undefined
+          : (
+              window as Window & {
+                embeddingHost?: {
+                  getStatus?: () => Promise<unknown>;
+                  queryEmbedding?: (payload: {
+                    dimensions: number;
+                    modelId: string;
+                    modelKey: string;
+                    query: string;
+                  }) => Promise<readonly number[]>;
+                };
+              }
+            ).embeddingHost;
       if (request.mode === 'db-completion-ceiling' && !(backgroundDb || electronRunTransaction)) {
         throw new Error('Workspace Index stage benchmark requires transactional database support.');
       }
       return await runWorkspaceIndexStageBenchmark({
         chunkingHost,
         db: backgroundDb,
+        embeddingHost,
         electronRunTransaction,
         electronTransactionOptions: BACKGROUND_DATABASE_WORK_OPTIONS,
         request,

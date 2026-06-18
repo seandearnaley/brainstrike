@@ -301,6 +301,11 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
 });
 
 vi.mock('@brainstrike/db', () => ({
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
+    dimensions: 384,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  },
   WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
   JobQueue: vi.fn(function MockJobQueue() {
     return {
@@ -2434,6 +2439,65 @@ describe('WorkspaceCollectionSyncProvider', () => {
       chunkCount: 1,
       completedChunkCount: 1,
       mode: 'chunking-ceiling',
+    });
+  });
+
+  it('exposes a stage benchmark hook that uses the hidden embedding host bridge', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    const queryEmbeddingMock = vi.fn(async () => [0.1, 0.2, 0.3, 0.4]);
+    const getStatusMock = vi.fn(async () => ({
+      embeddingRuntime: {
+        actualWorkerMetadata: {
+          device: 'webgpu',
+          dtype: 'fp32',
+          fallbackApplied: false,
+        },
+        backendMismatch: false,
+        selectedDevicePreference: 'webgpu',
+      },
+    }));
+    Object.defineProperty(window, 'embeddingHost', {
+      configurable: true,
+      value: {
+        getStatus: getStatusMock,
+        queryEmbedding: queryEmbeddingMock,
+      },
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    const debugApi = (
+      window as unknown as {
+        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+          benchmarkStage: (request: {
+            chunkCount: number;
+            dimensions: number;
+            mode: 'embedding-ceiling';
+          }) => Promise<{
+            chunkCount: number;
+            completedChunkCount: number;
+            mode: string;
+          }>;
+        };
+      }
+    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+    const result = await debugApi?.benchmarkStage({
+      chunkCount: 1,
+      dimensions: 4,
+      mode: 'embedding-ceiling',
+    });
+
+    expect(queryEmbeddingMock).toHaveBeenCalledTimes(1);
+    expect(getStatusMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      chunkCount: 1,
+      completedChunkCount: 1,
+      mode: 'embedding-ceiling',
     });
   });
 

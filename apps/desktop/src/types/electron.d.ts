@@ -35,6 +35,7 @@ import type {
   EmbeddingHostBackfillInfo,
   EmbeddingHostBackfillProgress,
   EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
@@ -154,6 +155,7 @@ declare global {
       cancelBackfill: (embeddingSetId: string) => Promise<void>;
       cancelAllBackfills: () => Promise<void>;
       getBackfillsInFlight: () => Promise<EmbeddingHostBackfillInfo[]>;
+      queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload) => Promise<number[]>;
       stop: () => Promise<EmbeddingHostStatus>;
       reset: () => Promise<EmbeddingHostStatus>;
       getStatus: () => Promise<EmbeddingHostStatus>;

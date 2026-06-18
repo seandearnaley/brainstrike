@@ -465,6 +465,18 @@ async function handleQueryEmbeddingRequest(options: {
         const service = await getQueryEmbeddingService(db, request, runtimeIdRef, serviceStateRef);
         const generated = await service.generateQueryEmbedding(request.payload.query);
         assertEmbeddingResultDimensions(request, generated);
+        if (generated.runtime) {
+          const selectedDevicePreference =
+            embeddingRuntimeRef.current?.selectedDevicePreference ?? generated.runtime.device;
+          embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
+            selectedDevicePreference,
+            generated.runtime
+          );
+          reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+            active: true,
+            embeddingRuntime: embeddingRuntimeRef.current,
+          });
+        }
         return generated;
       },
     });
