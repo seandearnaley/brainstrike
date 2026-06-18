@@ -1,9 +1,12 @@
 import {
   createDimensionIndex,
+  type DimensionIndexMaintenanceStrategy,
   dropDimensionIndex,
   hnswParams,
   type IDatabase,
   type JobQueue,
+  type RequestDimensionIndexMaintenanceInput,
+  requestDimensionIndexMaintenance,
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
 } from '@brainstrike/db';
@@ -26,6 +29,7 @@ export interface EnqueueEmbeddingBackfillOptions {
    */
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs?: number;
+  dimensionIndexMaintenanceStrategy?: DimensionIndexMaintenanceStrategy;
   drainTimeoutMs?: number;
   maxQueueDepth?: number;
   now?: () => number;
@@ -39,11 +43,16 @@ export interface EnqueueEmbeddingBackfillOptions {
   progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
   rebuildDimensionIndexOnCompletion?: boolean;
+  requestDimensionIndexMaintenance?: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
 }
 
 interface ResolvedEnqueueEmbeddingBackfillOptions {
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs: number;
+  dimensionIndexMaintenanceStrategy?: DimensionIndexMaintenanceStrategy;
   drainTimeoutMs: number;
   maxQueueDepth: number;
   now: () => number;
@@ -51,6 +60,10 @@ interface ResolvedEnqueueEmbeddingBackfillOptions {
   progressIntervalMs: number;
   queueCapacityTimeoutMs: number;
   rebuildDimensionIndexOnCompletion: boolean;
+  requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
 }
 
 interface EmbeddingSetJobMetadata {
@@ -220,7 +233,12 @@ function resolveEnqueueEmbeddingBackfillOptions(
       EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
       'queueCapacityTimeoutMs'
     ),
+    ...(options?.dimensionIndexMaintenanceStrategy
+      ? { dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy }
+      : {}),
     rebuildDimensionIndexOnCompletion: options?.rebuildDimensionIndexOnCompletion ?? true,
+    requestDimensionIndexMaintenance:
+      options?.requestDimensionIndexMaintenance ?? requestDimensionIndexMaintenance,
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
 }
@@ -340,11 +358,12 @@ interface DrainExistingScopedBackfillJobsOptions {
   runStartedAt: string;
 }
 
-type EmbeddingBackfillDatabase = Pick<IDatabase, 'query'> & {
+interface EmbeddingBackfillDatabase {
   readonly maintenance?: {
     readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
   };
-};
+  readonly query: <T = unknown>(sql: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+}
 
 function normalizeSqlParams(params: unknown): unknown[] | undefined {
   return Array.isArray(params) ? [...params] : params === undefined ? undefined : [params];
@@ -410,20 +429,58 @@ async function rebuildBackfillDimensionIndex(
   });
 }
 
+interface CompleteBackfillDimensionIndexMaintenanceOptions {
+  readonly dimensionIndexMaintenanceStrategy?: DimensionIndexMaintenanceStrategy;
+  readonly rebuildDimensionIndexOnCompletion: boolean;
+  readonly requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
+}
+
+function createCompleteBackfillDimensionIndexMaintenanceOptions(input: {
+  readonly dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
+  readonly rebuildDimensionIndexOnCompletion: boolean;
+  readonly requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
+}): CompleteBackfillDimensionIndexMaintenanceOptions {
+  const base = {
+    rebuildDimensionIndexOnCompletion: input.rebuildDimensionIndexOnCompletion,
+    requestDimensionIndexMaintenance: input.requestDimensionIndexMaintenance,
+  };
+  return input.dimensionIndexMaintenanceStrategy
+    ? { ...base, dimensionIndexMaintenanceStrategy: input.dimensionIndexMaintenanceStrategy }
+    : base;
+}
+
 async function completeBackfillDimensionIndexMaintenance(
   db: EmbeddingBackfillDatabase,
   embeddingSetId: string,
   dimension: number,
   now: () => number,
-  options: { rebuildDimensionIndexOnCompletion: boolean }
+  options: CompleteBackfillDimensionIndexMaintenanceOptions
 ): Promise<boolean> {
   if (options.rebuildDimensionIndexOnCompletion) {
     await rebuildBackfillDimensionIndex(db, embeddingSetId, dimension, now);
     return false;
   }
-  logger.info('Dimension HNSW index rebuild left suspended after embedding backfill', {
+  if (!options.dimensionIndexMaintenanceStrategy) {
+    throw new Error(
+      'Deferred dimension HNSW index maintenance requires an explicit maintenance strategy.'
+    );
+  }
+  await options.requestDimensionIndexMaintenance(db, {
+    dimension,
+    now: () => new Date(now()),
+    reason: `embedding-backfill:${embeddingSetId}`,
+    strategy: options.dimensionIndexMaintenanceStrategy,
+  });
+  logger.info('Dimension HNSW index rebuild requested as durable idle maintenance', {
     dimension,
     embeddingSetId,
+    maintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
     reason: 'nonblocking-background-indexing',
   });
   return true;
@@ -440,7 +497,12 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
   drainTimeoutMs: number;
   embeddingSetId: string;
   now: () => number;
+  dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
   rebuildDimensionIndexOnCompletion: boolean;
+  requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
 }): void {
   const {
     backlogPollMs,
@@ -449,7 +511,9 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
     drainTimeoutMs,
     embeddingSetId,
     now,
+    dimensionIndexMaintenanceStrategy,
     rebuildDimensionIndexOnCompletion,
+    requestDimensionIndexMaintenance,
   } = params;
   const key = getDeferredDimensionIndexRebuildKey(embeddingSetId, dimension);
   if (deferredDimensionIndexRebuilds.has(key)) {
@@ -470,13 +534,22 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         now
       );
       await vacuumBackfillTables(db, { consecutiveVacuumFailures: 0 }, now);
-      await completeBackfillDimensionIndexMaintenance(db, embeddingSetId, dimension, now, {
-        rebuildDimensionIndexOnCompletion,
-      });
+      await completeBackfillDimensionIndexMaintenance(
+        db,
+        embeddingSetId,
+        dimension,
+        now,
+        createCompleteBackfillDimensionIndexMaintenanceOptions({
+          dimensionIndexMaintenanceStrategy,
+          rebuildDimensionIndexOnCompletion,
+          requestDimensionIndexMaintenance,
+        })
+      );
       logger.info('Completed deferred dimension HNSW index rebuild after canceled backfill', {
         counts,
         dimension,
         embeddingSetId,
+        dimensionIndexMaintenanceStrategy,
         rebuildDimensionIndexOnCompletion,
       });
     } catch (error) {
@@ -498,8 +571,13 @@ async function restoreCanceledBackfillDimensionIndex(
   now: () => number,
   options: {
     backlogPollMs: number;
+    dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
     drainTimeoutMs: number;
     rebuildDimensionIndexOnCompletion: boolean;
+    requestDimensionIndexMaintenance: (
+      db: EmbeddingBackfillDatabase,
+      request: RequestDimensionIndexMaintenanceInput
+    ) => Promise<void>;
   }
 ): Promise<boolean> {
   const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
@@ -516,7 +594,9 @@ async function restoreCanceledBackfillDimensionIndex(
       drainTimeoutMs: options.drainTimeoutMs,
       embeddingSetId,
       now,
+      dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
       rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
+      requestDimensionIndexMaintenance: options.requestDimensionIndexMaintenance,
     });
     return false;
   }
@@ -525,7 +605,11 @@ async function restoreCanceledBackfillDimensionIndex(
     embeddingSetId,
     dimension,
     now,
-    { rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion }
+    createCompleteBackfillDimensionIndexMaintenanceOptions({
+      dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
+      rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
+      requestDimensionIndexMaintenance: options.requestDimensionIndexMaintenance,
+    })
   );
   logger.info('Restored dimension HNSW index after canceled embedding backfill', {
     dimension,
@@ -1004,7 +1088,9 @@ export async function enqueueEmbeddingBackfill(
     progressIntervalBatches,
     progressIntervalMs,
     queueCapacityTimeoutMs,
+    dimensionIndexMaintenanceStrategy,
     rebuildDimensionIndexOnCompletion,
+    requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
   } = resolveEnqueueEmbeddingBackfillOptions(options);
   const onDrainTick = options?.onDrainTick;
 
@@ -1060,7 +1146,11 @@ export async function enqueueEmbeddingBackfill(
         embeddingSetId,
         metadata.expectedDimension,
         now,
-        { rebuildDimensionIndexOnCompletion }
+        createCompleteBackfillDimensionIndexMaintenanceOptions({
+          dimensionIndexMaintenanceStrategy,
+          rebuildDimensionIndexOnCompletion,
+          requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+        })
       );
       onProgress(done, total);
       return finalizeBackfillCounts(embeddingSetId, total, done, drainedExisting.counts);
@@ -1106,7 +1196,11 @@ export async function enqueueEmbeddingBackfill(
       embeddingSetId,
       metadata.expectedDimension,
       now,
-      { rebuildDimensionIndexOnCompletion }
+      createCompleteBackfillDimensionIndexMaintenanceOptions({
+        dimensionIndexMaintenanceStrategy,
+        rebuildDimensionIndexOnCompletion,
+        requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+      })
     );
     logger.info('Backfill complete', { embeddingSetId, total, done });
     return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
@@ -1118,7 +1212,13 @@ export async function enqueueEmbeddingBackfill(
           embeddingSetId,
           metadata.expectedDimension,
           now,
-          { backlogPollMs, drainTimeoutMs, rebuildDimensionIndexOnCompletion }
+          {
+            backlogPollMs,
+            dimensionIndexMaintenanceStrategy,
+            drainTimeoutMs,
+            rebuildDimensionIndexOnCompletion,
+            requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+          }
         ));
         throw error;
       }

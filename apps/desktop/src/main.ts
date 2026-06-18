@@ -879,6 +879,8 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   chunkingHostManager,
   embeddingHostManager,
+  getDimensionIndexMaintenanceStrategy: () =>
+    desktopDimensionIndexStrategySelection?.strategy ?? null,
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);

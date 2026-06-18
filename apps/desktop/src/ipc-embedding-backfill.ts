@@ -2,6 +2,7 @@ import {
   createScheduledDbHandle,
   type DatabaseWorkPriority,
   type DatabaseWorkScheduler,
+  type DimensionIndexMaintenanceStrategy,
   JobQueue,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -13,7 +14,10 @@ import {
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
 import { getDatabase } from './db-main';
-import { enqueueEmbeddingBackfill } from './embedding-backfill';
+import {
+  type EnqueueEmbeddingBackfillOptions,
+  enqueueEmbeddingBackfill,
+} from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
   EMBEDDING_BACKFILL_CANCELED_MESSAGE,
@@ -68,6 +72,18 @@ const embeddingBackfillsCanceled = new Set<string>();
 export function resetEmbeddingBackfillStateForTests(): void {
   embeddingBackfillsInFlight.clear();
   embeddingBackfillsCanceled.clear();
+}
+
+function resolveBackgroundDimensionIndexMaintenanceStrategy(
+  getDimensionIndexMaintenanceStrategy: (() => DimensionIndexMaintenanceStrategy | null) | undefined
+): DimensionIndexMaintenanceStrategy {
+  const strategy = getDimensionIndexMaintenanceStrategy?.() ?? null;
+  if (!strategy) {
+    throw new Error(
+      'Background indexing backfill requires dimension index maintenance strategy from startup capability probe.'
+    );
+  }
+  return strategy;
 }
 
 function parseStrictBooleanEnv(name: string): boolean | undefined {
@@ -292,6 +308,7 @@ export async function runDesktopEmbeddingBackfill(params: {
   flushPendingLiveUpdates: () => void;
   gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
   hostManager: EmbeddingHostManager;
+  getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   isBackgrounded: () => boolean;
   normalizedEmbeddingSetId: string;
   source: EmbeddingBackfillSource;
@@ -300,6 +317,7 @@ export async function runDesktopEmbeddingBackfill(params: {
     databaseWorkScheduler,
     event,
     flushPendingLiveUpdates,
+    getDimensionIndexMaintenanceStrategy,
     gpuMemoryReclaimConfig,
     hostManager,
     isBackgrounded,
@@ -371,6 +389,17 @@ export async function runDesktopEmbeddingBackfill(params: {
       EMBEDDING_BACKFILL_DATABASE_PRIORITY
     );
     const jobQueue = new JobQueue(scheduledDb);
+    const backgroundIndexingOptions: Partial<EnqueueEmbeddingBackfillOptions> =
+      source === 'background-indexing'
+        ? {
+            dimensionIndexMaintenanceStrategy: resolveBackgroundDimensionIndexMaintenanceStrategy(
+              getDimensionIndexMaintenanceStrategy
+            ),
+            drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
+            queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+            rebuildDimensionIndexOnCompletion: false,
+          }
+        : {};
 
     await enqueueEmbeddingBackfill(
       scheduledDb,
@@ -394,13 +423,7 @@ export async function runDesktopEmbeddingBackfill(params: {
         },
         progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
         progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
-        ...(source === 'background-indexing'
-          ? {
-              drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
-              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
-              rebuildDimensionIndexOnCompletion: false,
-            }
-          : {}),
+        ...backgroundIndexingOptions,
       }
     );
     logger.info('Desktop embedding backfill completed', {

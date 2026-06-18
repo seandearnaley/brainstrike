@@ -610,6 +610,16 @@ describe('embedding-backfill', () => {
           queryOrder.push(sql.includes('file_chunks') ? 'vacuum-chunks' : 'vacuum-jobs');
           return { rows: [] };
         }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
+          expect(params).toEqual([
+            384,
+            'embedding-backfill:set-123',
+            'regular',
+            expect.any(String),
+          ]);
+          return { rows: [] };
+        }
         if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
           queryOrder.push('rebuild-index');
           return { rows: [] };
@@ -648,6 +658,7 @@ describe('embedding-backfill', () => {
         {
           backlogPollMs: 1,
           maxQueueDepth: 64,
+          dimensionIndexMaintenanceStrategy: 'regular',
           rebuildDimensionIndexOnCompletion: false,
         }
       )
@@ -664,6 +675,7 @@ describe('embedding-backfill', () => {
       'final-counts',
       'vacuum-chunks',
       'vacuum-jobs',
+      'request-maintenance',
     ]);
     expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),

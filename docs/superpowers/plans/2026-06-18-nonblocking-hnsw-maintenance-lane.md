@@ -136,6 +136,91 @@ Proposed release thresholds for the first implementation:
 
 The release bar is intentionally stricter than "the job eventually finished." Any timeout, hidden backend fallback, incomplete durable obligation, unbounded memory growth, full-run throughput regression, or unclassified warning/error prevents `release-sufficient`.
 
+## Non-Negotiable End-To-End Proof Gate
+
+Unit tests and static checks are necessary but not sufficient for this work. The branch is not ready for PR, and must not be described as fixed, until a real Electron renderer run proves the complete workspace indexing loop on the full three-root data set.
+
+The proof gate is:
+
+1. Start the real desktop app through the agent-debug entrypoint:
+
+```bash
+pnpm --filter @brainstrike/desktop dev:agent-debug
+```
+
+2. Attach Chrome DevTools to the running Electron renderer. Use DevTools to inspect runtime state, not just logs:
+   - Console must have no new indexing, embedding, WebGPU, worker lifecycle, IPC, or DB-host warnings/errors.
+   - Network/IPC-visible failures must be absent for `db:query`, `maintenance:exec`, embedding-host progress, and background-indexing backfill.
+   - Renderer runtime must report WebGPU execution for local embeddings. WASM execution or backend mismatch is a hard failure.
+
+3. Use the full real three-root workspace, not a toy fixture:
+   - Count candidate text files per root before trusting UI totals.
+   - Confirm each root contributes indexed files.
+   - Confirm custom filters are not accidentally excluding text files.
+   - Confirm `file_count`, `chunk_count`, `embedded_chunk_count`, and root-scoped counts agree with DB queries.
+
+4. Let the run finish:
+   - `embedded_chunk_count === chunk_count`.
+   - `job_queue` has `queued = 0`, `running = 0`, `failed = 0` for `queue = 'embeddings'`.
+   - No stuck two-running-job state remains.
+   - No `DB host request timed out: query`.
+   - No `Local embedding execution failed`.
+   - No renderer crash, GPU process crash, host restart loop, or hidden-host silent restart.
+
+5. Confirm nonblocking HNSW maintenance after embeddings complete:
+   - Background backfill must request durable dimension maintenance.
+   - The durable maintenance row must exist while `embedding_dimension_index_suspensions` exists.
+   - HNSW `CREATE INDEX` must not run inline during embedding drain.
+   - Idle maintenance must run through `maintenance:exec`, not `db:query`.
+   - After successful maintenance, the matching suspension must be removed.
+
+6. Capture performance and memory evidence:
+   - Record start/end timestamps, model key, backend, precision, files, chunks, embedded chunks, and total duration.
+   - Record steady-state integrated chunks/sec after model warmup.
+   - Record DB-host process memory and embedding-host renderer memory at start, mid-run, completion, and 10 minutes after completion.
+   - Memory growth after completion must plateau. Monotonic growth after completion is release-blocking.
+
+7. Run a separate warning pass:
+   - Export logs after the full run.
+   - Classify every warning/error as existing, introduced, or external.
+   - Any introduced indexing, embedding, WebGPU, PGlite, worker lifecycle, or DB-host warning/error blocks release.
+
+8. Save the verification record in the PR body, not as a generated artifact committed to the repo:
+
+```text
+Electron full-root proof:
+- Date:
+- Branch:
+- Commit:
+- Roots:
+- Candidate text-file counts by root:
+- UI file count:
+- DB file count:
+- DB chunk count:
+- DB embedded chunk count:
+- Queue terminal counts:
+- Model key:
+- Runtime backend:
+- Precision:
+- Fallback applied:
+- Start:
+- Finish:
+- Duration:
+- Steady-state chunks/sec:
+- DB-host memory start/mid/end/post-10m:
+- Embedding-host memory start/mid/end/post-10m:
+- DevTools console warnings/errors:
+- Log warning/error classification:
+- HNSW maintenance rows:
+- HNSW suspension rows:
+- HNSW index exists:
+- maintenance:exec observed:
+- db:query timeout observed:
+- Release result: release-sufficient | implementation-correct-but-release-blocked | implementation-failed
+```
+
+If this proof gate fails, stop implementation claims immediately and classify the failure. Do not compensate by weakening tests, lowering throughput expectations, switching to WASM, hiding warnings, or calling the issue a retry problem.
+
 ## Architecture Decision
 
 Use a new persistent table instead of overloading `job_queue`.

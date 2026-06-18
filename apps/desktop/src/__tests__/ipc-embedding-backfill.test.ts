@@ -64,12 +64,20 @@ function createLiveSenderEvent(): IpcMainInvokeEvent {
 
 function createRunParams(
   embeddingSetId: string,
-  source: 'background-indexing' | 'manual' = 'manual'
+  source: 'background-indexing' | 'manual' = 'manual',
+  options: { dimensionIndexMaintenanceStrategy?: 'regular' | 'concurrent' | null } = {}
 ) {
+  const strategy =
+    'dimensionIndexMaintenanceStrategy' in options
+      ? options.dimensionIndexMaintenanceStrategy
+      : source === 'background-indexing'
+        ? 'regular'
+        : null;
   return {
     databaseWorkScheduler: createDatabaseWorkScheduler({ foregroundQuietMs: 0 }),
     event: createDeadSenderEvent(),
     flushPendingLiveUpdates: vi.fn(),
+    getDimensionIndexMaintenanceStrategy: () => strategy,
     gpuMemoryReclaimConfig: {
       enabled: false,
       itemThreshold: 500,
@@ -273,8 +281,45 @@ describe('desktop embedding backfill termination logging', () => {
       requestId: expect.stringMatching(/^background-indexing-backfill:/),
     });
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      'set-background-immediate',
+      expect.any(Function),
+      expect.objectContaining({
+        dimensionIndexMaintenanceStrategy: 'regular',
+        rebuildDimensionIndexOnCompletion: false,
+      })
+    );
 
     resolveBackfill?.();
+  });
+
+  it('rejects background-indexing backfill when the dimension index strategy is unavailable', async () => {
+    await expect(
+      runDesktopEmbeddingBackfill(
+        createRunParams('set-background-no-strategy', 'background-indexing', {
+          dimensionIndexMaintenanceStrategy: null,
+        })
+      )
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+
+    await vi.waitFor(() => {
+      expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+      const failed = captured.filter(
+        (record) => record.message === 'Desktop embedding backfill failed'
+      );
+      expect(failed).toHaveLength(1);
+      expect(failed[0]?.args).toContainEqual(
+        expect.objectContaining({
+          embeddingSetId: 'set-background-no-strategy',
+          error:
+            'Background indexing backfill requires dimension index maintenance strategy from startup capability probe.',
+        })
+      );
+    });
   });
 
   it('emits a terminal error progress event for detached background-indexing failures', async () => {
