@@ -286,10 +286,6 @@ const MAX_MANAGED_CACHE_IMPORTS_PER_BATCH = Math.floor(
 const MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH = Math.floor(
   POSTGRES_PARAMETER_LIMIT / REPLACE_VALUE_COLUMNS.length
 );
-const INVALIDATION_TARGET_PARAMETER_COUNT = 4;
-const MAX_MANAGED_CACHE_INVALIDATION_TARGETS = Math.floor(
-  (POSTGRES_PARAMETER_LIMIT - 1) / INVALIDATION_TARGET_PARAMETER_COUNT
-);
 const MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH =
   MAX_MANAGED_CACHE_IMPORTS_PER_BATCH + MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH;
 
@@ -301,17 +297,6 @@ function assertTotalBatchWithinLimit(count: number): void {
     'Managed cache batch exceeds the maximum supported total size. ' +
       `Received ${count} changes; maximum supported batch size is ` +
       `${MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH}.`
-  );
-}
-
-function assertInvalidationTargetsWithinParameterLimit(count: number): void {
-  if (count <= MAX_MANAGED_CACHE_INVALIDATION_TARGETS) {
-    return;
-  }
-  throw new Error(
-    'Managed cache invalidation exceeds the PostgreSQL parameter limit. ' +
-      `Received ${count} targets; maximum supported invalidation target count is ` +
-      `${MAX_MANAGED_CACHE_INVALIDATION_TARGETS}.`
   );
 }
 
@@ -686,7 +671,6 @@ export async function invalidateManagedCacheEntriesByIdentity(
   }
 
   const targets = normalizeInvalidationTargets(args.targets);
-  assertInvalidationTargetsWithinParameterLimit(targets.length);
   if (targets.length === 0) {
     return {
       canceledEmbeddingJobCount: 0,

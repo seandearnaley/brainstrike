@@ -682,7 +682,7 @@ describe('applyManagedCacheBatch', () => {
       transaction: async (callback: (tx: { query: typeof queryMock }) => Promise<unknown>) =>
         await callback({ query: queryMock }),
     };
-    const targets = Array.from({ length: 501 }, (_, index) => ({
+    const targets = Array.from({ length: 20_000 }, (_, index) => ({
       rootId: 'root-fixture',
       relativePath: `src/${index}.ts`,
     }));
