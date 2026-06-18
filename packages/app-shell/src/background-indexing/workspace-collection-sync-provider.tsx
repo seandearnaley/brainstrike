@@ -1656,6 +1656,7 @@ export function WorkspaceCollectionSyncProvider({
     }
     return registerBackgroundWorkPauseHandler('background-indexing', {
       pause: async () => {
+        syncLoopGenerationRef.current += 1;
         await service.cancel();
       },
     });
@@ -1664,6 +1665,7 @@ export function WorkspaceCollectionSyncProvider({
   useEffect(() => {
     triggerSync();
     return () => {
+      syncLoopGenerationRef.current += 1;
       void service?.cancel().catch((error) => {
         reportAsyncError('cancel', error);
       });

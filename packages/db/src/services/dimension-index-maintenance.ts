@@ -280,6 +280,7 @@ export async function requestDimensionIndexMaintenance(
            strategy = EXCLUDED.strategy,
            requested_at = EXCLUDED.requested_at,
            next_run_at = EXCLUDED.next_run_at,
+           attempts = 0,
            started_at = NULL,
            completed_at = NULL
      WHERE embedding_dimension_index_maintenance.state <> 'running'`,
@@ -377,10 +378,12 @@ async function hasMaxAttemptBlockedPending(
 }
 
 async function readLastInvalidIndexName(
-  options: RunDimensionIndexMaintenanceOptions
+  options: RunDimensionIndexMaintenanceOptions,
+  dimension: number
 ): Promise<string | null> {
   const invalidIndexes = (await options.listInvalidIndexes?.()) ?? [];
-  return invalidIndexes[0]?.indexName ?? null;
+  const expectedIndexName = `idx_file_chunks_emb_hnsw_${dimension}`;
+  return invalidIndexes.find((index) => index.indexName === expectedIndexName)?.indexName ?? null;
 }
 
 export async function runNextDimensionIndexMaintenance(
@@ -455,7 +458,9 @@ export async function runNextDimensionIndexMaintenance(
   } catch (error) {
     const message = errorMessage(error);
     const invalidIndexName =
-      claimed.strategy === 'concurrent' ? await readLastInvalidIndexName(options) : null;
+      claimed.strategy === 'concurrent'
+        ? await readLastInvalidIndexName(options, claimed.dimension)
+        : null;
     const nextState: DimensionIndexMaintenanceState =
       claimed.attempts >= maxAttempts ? 'failed' : 'pending';
     const nextRunAt = new Date(startedAtMs + retryBackoffMs).toISOString();

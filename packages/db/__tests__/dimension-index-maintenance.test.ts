@@ -184,13 +184,52 @@ describe('dimension index maintenance service', () => {
     const rows = await listDimensionIndexMaintenance(db);
     expect(rows).toMatchObject([
       {
-        attempts: 1,
+        attempts: 0,
         dimension: 384,
         lastError: 'previous failure',
         state: 'pending',
         strategy: 'regular',
       },
     ]);
+  });
+
+  it('resets max-attempt failures so a fresh maintenance request is claimable', async () => {
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+    await db.query(
+      `UPDATE embedding_dimension_index_maintenance
+          SET state = 'failed',
+              attempts = 3,
+              last_error = 'previous max-attempt failure'
+        WHERE dimension = 384`
+    );
+
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(RECENT_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+    const createIndex = vi.fn(async () => undefined);
+
+    const result = await runNextDimensionIndexMaintenance(db, {
+      createIndex,
+      maxAttempts: 3,
+      now: () => new Date(RECENT_ISO),
+      strategy: 'regular',
+    });
+
+    expect(result).toMatchObject({ dimension: 384, status: 'completed' });
+    expect(createIndex).toHaveBeenCalledTimes(1);
+    await expectMaintenanceRow(db, 384, 'succeeded', {
+      attempts: 1,
+      lastError: null,
+      strategy: 'regular',
+    });
   });
 
   it('reconciles orphaned suspensions into pending maintenance rows', async () => {
@@ -297,5 +336,51 @@ describe('dimension index maintenance service', () => {
       lastError: 'hnsw build failed',
       strategy: 'regular',
     });
+  });
+
+  it('records the invalid index for the claimed dimension only', async () => {
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 768,
+      now: () => new Date(NOW_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'concurrent',
+    });
+
+    const result = await runNextDimensionIndexMaintenance(db, {
+      createIndex: vi.fn(async () => {
+        throw new Error('concurrent index failed');
+      }),
+      listInvalidIndexes: vi.fn(async () => [
+        {
+          indexName: 'idx_file_chunks_emb_hnsw_384',
+          isReady: false,
+          isValid: false,
+        },
+        {
+          indexName: 'idx_file_chunks_emb_hnsw_768',
+          isReady: false,
+          isValid: false,
+        },
+      ]),
+      now: () => new Date(RECENT_ISO),
+      retryBackoffMs: 60_000,
+      strategy: 'concurrent',
+    });
+
+    expect(result).toMatchObject({
+      dimension: 768,
+      error: 'concurrent index failed',
+      status: 'failed',
+    });
+
+    const rows = await listDimensionIndexMaintenance(db);
+    expect(rows).toMatchObject([
+      {
+        dimension: 768,
+        lastInvalidIndexName: 'idx_file_chunks_emb_hnsw_768',
+        state: 'pending',
+        strategy: 'concurrent',
+      },
+    ]);
   });
 });

@@ -1052,11 +1052,11 @@ async function enqueueBackfillCandidateBatches(
     availableCapacity = Math.max(0, availableCapacity - inserted);
     batchesSinceProgress += 1;
     if (
-      done >= total ||
-      batchesSinceProgress >= progressIntervalBatches ||
-      now() - lastReportedAt >= progressIntervalMs
+      done < total &&
+      (batchesSinceProgress >= progressIntervalBatches ||
+        now() - lastReportedAt >= progressIntervalMs)
     ) {
-      reportProgress(done, total, { force: done >= total });
+      reportProgress(done, total);
       batchesSinceProgress = 0;
     }
     if (selected === batchLimit && done < total) {
@@ -1064,7 +1064,6 @@ async function enqueueBackfillCandidateBatches(
     }
   }
 
-  reportProgress(total, total, { force: true });
   return done;
 }
 
@@ -1189,6 +1188,7 @@ export async function enqueueEmbeddingBackfill(
         `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
       );
     }
+    onProgress(total, total);
     // Final VACUUM to reclaim all dead tuples from the completed backfill
     await vacuumBackfillTables(db, vacuumLogState, now);
     dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(

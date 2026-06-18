@@ -1159,6 +1159,7 @@ describe('embedding-backfill', () => {
 
   it('does not report 100% progress before deduplicated work has drained', async () => {
     let pendingCountCalls = 0;
+    const progressUpdates: Array<{ done: number; total: number }> = [];
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
@@ -1177,10 +1178,13 @@ describe('embedding-backfill', () => {
           sql.includes('embedding_set_id')
         ) {
           pendingCountCalls += 1;
-          return { rows: [{ count: pendingCountCalls === 1 ? 4 : 0 }] };
+          if (pendingCountCalls === 2) {
+            expect(progressUpdates).not.toContainEqual({ done: 4, total: 4 });
+          }
+          return { rows: [{ count: pendingCountCalls === 2 ? 4 : 0 }] };
         }
         if (sql.includes('COUNT(*)::int AS count')) {
-          return { rows: [{ count: 0 }] };
+          return { rows: [{ count: sql.includes('FROM file_chunks') ? 4 : 0 }] };
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
@@ -1207,13 +1211,12 @@ describe('embedding-backfill', () => {
     };
 
     const jobQueue = {
-      enqueueBatch: vi.fn(async () => []),
+      enqueueBatch: vi.fn(async (jobs: unknown[]) => jobs),
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
       ]),
     };
 
-    const progressUpdates: Array<{ done: number; total: number }> = [];
     await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
@@ -1233,6 +1236,7 @@ describe('embedding-backfill', () => {
       { done: 0, total: 4 },
       { done: 4, total: 4 },
     ]);
+    expect(pendingCountCalls).toBeGreaterThanOrEqual(2);
   });
 
   it('throttles intermediate progress updates while still flushing completion', async () => {

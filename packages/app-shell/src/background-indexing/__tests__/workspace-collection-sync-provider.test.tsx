@@ -2205,6 +2205,124 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('stops the active root loop when background work is paused mid-loop', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    let firstSyncStarted!: () => void;
+    const firstSyncStartedPromise = new Promise<void>((resolve) => {
+      firstSyncStarted = resolve;
+    });
+    let releaseFirstSync!: () => void;
+    const firstSyncReleasePromise = new Promise<void>((resolve) => {
+      releaseFirstSync = resolve;
+    });
+
+    const syncCallHandles: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        syncCallHandles.push(path);
+        if (path === root1.path) {
+          firstSyncStarted();
+          await firstSyncReleasePromise;
+        }
+      });
+
+    try {
+      const { unmount } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await firstSyncStartedPromise;
+      const releasePause = await acquireBackgroundWorkPauseReason('local-llm');
+      releaseFirstSync();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+
+      expect(syncCallHandles).toEqual([root1.path]);
+      releasePause();
+      unmount();
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('stops the active root loop when the provider unmounts mid-loop', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    let firstSyncStarted!: () => void;
+    const firstSyncStartedPromise = new Promise<void>((resolve) => {
+      firstSyncStarted = resolve;
+    });
+    let releaseFirstSync!: () => void;
+    const firstSyncReleasePromise = new Promise<void>((resolve) => {
+      releaseFirstSync = resolve;
+    });
+
+    const syncCallHandles: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        syncCallHandles.push(path);
+        if (path === root1.path) {
+          firstSyncStarted();
+          await firstSyncReleasePromise;
+        }
+      });
+
+    try {
+      const { unmount } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await firstSyncStartedPromise;
+      unmount();
+      releaseFirstSync();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+
+      expect(syncCallHandles).toEqual([root1.path]);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('calls service.sync exactly once with the legacy single-handle request shape when only one handle is active', async () => {
     // fileSystemState already has one handle from beforeEach — confirm no change needed.
     const syncSpy = vi
