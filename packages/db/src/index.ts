@@ -46,6 +46,13 @@ export {
 } from './managed-cache/index.js';
 // Legacy migration export
 export * from './migrations/bootstrap.js';
+export {
+  createDimensionIndex,
+  dropDimensionIndex,
+  hnswParams,
+  resumeDimensionIndexBuilds,
+  suspendDimensionIndexBuilds,
+} from './migrations/dimension-index-helpers.js';
 export type { Migration } from './migrations/index.js';
 // New migration system
 export { MigrationRunner, migrations } from './migrations/index.js';

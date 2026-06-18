@@ -3,6 +3,7 @@ import {
   type EnqueueEmbeddingBackfillOptions,
   enqueueEmbeddingBackfill,
 } from '../../embedding-backfill';
+import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from '../../embedding-host-shared';
 
 interface MockQueueStatsRow {
   failed: number;
@@ -46,6 +47,41 @@ function isDirectEmbeddingSetPendingCountQuery(sql: string): boolean {
   );
 }
 
+function isDimensionIndexMaintenanceQuery(sql: string): boolean {
+  return (
+    sql.includes('embedding_dimension_index_suspensions') ||
+    sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_') ||
+    sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_')
+  );
+}
+
+function withMaintenanceExec<
+  T extends { query: (sql: string, params?: readonly unknown[]) => unknown },
+>(db: T): T & { maintenance: { exec: (sql: string, params?: readonly unknown[]) => unknown } } {
+  return {
+    ...db,
+    maintenance: {
+      exec: vi.fn((sql: string, params?: readonly unknown[]) => db.query(sql, params)),
+    },
+  };
+}
+
+function enqueueTestEmbeddingBackfill(
+  db: Parameters<typeof enqueueEmbeddingBackfill>[0],
+  jobQueue: Parameters<typeof enqueueEmbeddingBackfill>[1],
+  embeddingSetId: string,
+  onProgress: (done: number, total: number) => void,
+  options?: EnqueueEmbeddingBackfillOptions
+) {
+  return enqueueEmbeddingBackfill(
+    withMaintenanceExec(db),
+    jobQueue,
+    embeddingSetId,
+    onProgress,
+    options
+  );
+}
+
 describe('embedding-backfill', () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -71,7 +107,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
     const jobQueue = {
@@ -86,7 +126,7 @@ describe('embedding-backfill', () => {
     };
 
     const backfill = expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 1,
         now: () => currentTime,
@@ -127,7 +167,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
     const jobQueue = {
@@ -138,7 +182,7 @@ describe('embedding-backfill', () => {
     };
 
     const backfill = expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         drainTimeoutMs: 10,
         now: () => currentTime,
@@ -190,7 +234,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -219,7 +267,7 @@ describe('embedding-backfill', () => {
     };
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
-    const counts = await enqueueEmbeddingBackfill(
+    const counts = await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -276,7 +324,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
     const jobQueue = {
@@ -287,7 +339,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
       })
     ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 64 });
@@ -344,7 +396,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
     const jobQueue = {
@@ -360,7 +416,7 @@ describe('embedding-backfill', () => {
     };
     const progressUpdates: Array<{ done: number; total: number }> = [];
 
-    const counts = await enqueueEmbeddingBackfill(
+    const counts = await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -403,6 +459,282 @@ describe('embedding-backfill', () => {
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 4 });
   });
 
+  it('suspends dimension HNSW maintenance during scoped backfill and rebuilds after drain', async () => {
+    const queryOrder: string[] = [];
+    let pendingCountCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          expect(params).toEqual([384, 'embedding-backfill:set-123', expect.any(String)]);
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          pendingCountCalls += 1;
+          return { rows: [{ count: pendingCountCalls === 1 ? 0 : 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          queryOrder.push('candidate-batch');
+          return {
+            rows: [{ id: '10', fileRecordId: '110', contentHash: 'hash-10' }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          queryOrder.push('final-counts');
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 1 }],
+          };
+        }
+        if (sql.startsWith('VACUUM')) {
+          queryOrder.push(sql.includes('file_chunks') ? 'vacuum-chunks' : 'vacuum-jobs');
+          return { rows: [] };
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('rebuild-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          queryOrder.push('resume-index');
+          expect(params).toEqual([384]);
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const maintenanceDb = withMaintenanceExec(db);
+
+    await expect(
+      enqueueEmbeddingBackfill(
+        maintenanceDb,
+        withQueueRepair(jobQueue),
+        'set-123',
+        () => undefined,
+        {
+          backlogPollMs: 1,
+          maxQueueDepth: 64,
+        }
+      )
+    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 1 });
+
+    expect(queryOrder).toEqual([
+      'metadata',
+      'suspend-index',
+      'drop-index',
+      'pending',
+      'candidate-count',
+      'candidate-batch',
+      'pending',
+      'final-counts',
+      'vacuum-chunks',
+      'vacuum-jobs',
+      'rebuild-index',
+      'resume-index',
+    ]);
+    expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
+      undefined
+    );
+  });
+
+  it('restores dimension HNSW maintenance when a suspended backfill is canceled', async () => {
+    const queryOrder: string[] = [];
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          queryOrder.push('candidate-count');
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('rebuild-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(),
+    };
+
+    const maintenanceDb = withMaintenanceExec(db);
+
+    await expect(
+      enqueueEmbeddingBackfill(
+        maintenanceDb,
+        withQueueRepair(jobQueue),
+        'set-123',
+        () => undefined,
+        {
+          assertCanContinue: () => {
+            throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+          },
+          backlogPollMs: 1,
+          maxQueueDepth: 64,
+        }
+      )
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+
+    expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
+    expect(queryOrder).toEqual([
+      'metadata',
+      'suspend-index',
+      'drop-index',
+      'pending',
+      'candidate-count',
+      'pending',
+      'rebuild-index',
+      'resume-index',
+    ]);
+    expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
+      undefined
+    );
+  });
+
+  it('defers the dimension HNSW rebuild until canceled backfill scoped jobs drain', async () => {
+    const queryOrder: string[] = [];
+    let pendingJobs = 2;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          queryOrder.push('metadata');
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
+          queryOrder.push('suspend-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          queryOrder.push('pending');
+          return { rows: [{ count: pendingJobs }] };
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+          queryOrder.push('rebuild-index');
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
+          queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (sql.startsWith('VACUUM')) {
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql) || sql.includes('COUNT(*) FILTER')) {
+          return { rows: [{ queued: 2, running: 0, failed: 0, succeeded: 0 }] };
+        }
+
+        throw new Error('Unexpected query: ');
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(),
+    };
+
+    const maintenanceDb = withMaintenanceExec(db);
+
+    await expect(
+      enqueueEmbeddingBackfill(
+        maintenanceDb,
+        withQueueRepair(jobQueue),
+        'set-123',
+        () => undefined,
+        {
+          assertCanContinue: () => {
+            throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+          },
+          backlogPollMs: 1,
+          drainTimeoutMs: 10,
+          maxQueueDepth: 64,
+        }
+      )
+    ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+
+    expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
+    expect(queryOrder).toEqual([
+      'metadata',
+      'suspend-index',
+      'drop-index',
+      'pending',
+      'pending',
+      'pending',
+      'pending',
+    ]);
+
+    pendingJobs = 0;
+    await vi.waitFor(() => {
+      expect(queryOrder).toContain('rebuild-index');
+    });
+    expect(queryOrder).toContain('resume-index');
+    expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
+      undefined
+    );
+  });
+
   it('runs drain maintenance while draining existing scoped jobs before candidate scans', async () => {
     const pendingCounts = [2, 1, 0];
     const succeededCounts = [1, 3];
@@ -434,7 +766,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
     const jobQueue = {
@@ -445,7 +781,7 @@ describe('embedding-backfill', () => {
     };
     const drainTicks: number[] = [];
 
-    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+    await enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       onDrainTick: async (completedSinceLastTick) => {
         drainTicks.push(completedSinceLastTick);
@@ -485,7 +821,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -501,7 +841,7 @@ describe('embedding-backfill', () => {
       requeueFailed: vi.fn(async () => 2),
     };
 
-    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+    await enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
     });
@@ -548,7 +888,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -564,7 +908,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+    await enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
     });
@@ -588,31 +932,31 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         maxQueueDepth: 0,
       })
     ).rejects.toThrow('maxQueueDepth must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 0,
       })
     ).rejects.toThrow('backlogPollMs must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         queueCapacityTimeoutMs: 0,
       })
     ).rejects.toThrow('queueCapacityTimeoutMs must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         drainTimeoutMs: 0,
       })
     ).rejects.toThrow('drainTimeoutMs must be a positive integer when configured.');
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         progressIntervalMs: 0,
       })
     ).rejects.toThrow('progressIntervalMs must be a positive integer when configured.');
@@ -659,7 +1003,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -671,7 +1019,7 @@ describe('embedding-backfill', () => {
     };
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
-    await enqueueEmbeddingBackfill(
+    await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -735,7 +1083,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -752,7 +1104,7 @@ describe('embedding-backfill', () => {
     };
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
-    const backfillPromise = enqueueEmbeddingBackfill(
+    const backfillPromise = enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -817,7 +1169,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -828,7 +1184,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+    await enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
       progressIntervalBatches: 1,
@@ -876,7 +1232,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -898,7 +1258,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         assertCanContinue: () => {
@@ -952,7 +1312,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -968,7 +1332,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+    await enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
       progressIntervalBatches: 1,
@@ -1026,7 +1390,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1043,7 +1411,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         assertCanContinue: () => {
           if (vi.mocked(jobQueue.enqueueBatch).mock.calls.length >= 1) {
             throw new Error('Embedding host stopped while backfill was in progress.');
@@ -1104,7 +1472,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1121,7 +1493,7 @@ describe('embedding-backfill', () => {
     };
 
     const drainTicks: number[] = [];
-    await enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+    await enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
       backlogPollMs: 1,
       maxQueueDepth: 64,
       onDrainTick: async (completedSinceLastTick) => {
@@ -1172,7 +1544,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1189,7 +1565,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         onDrainTick: async () => {
@@ -1238,7 +1614,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1255,7 +1635,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         progressIntervalBatches: 1,
@@ -1304,7 +1684,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1321,7 +1705,7 @@ describe('embedding-backfill', () => {
     };
 
     await expect(
-      enqueueEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
+      enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
         maxQueueDepth: 64,
         progressIntervalBatches: 1,
@@ -1360,7 +1744,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    const backfillPromise = enqueueEmbeddingBackfill(
+    const backfillPromise = enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -1415,7 +1799,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1431,7 +1819,7 @@ describe('embedding-backfill', () => {
       ]),
     };
 
-    const backfillPromise = enqueueEmbeddingBackfill(
+    const backfillPromise = enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -1504,7 +1892,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1521,7 +1913,7 @@ describe('embedding-backfill', () => {
     };
 
     const drainDeltas: number[] = [];
-    const result = await enqueueEmbeddingBackfill(
+    const result = await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -1591,7 +1983,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1611,7 +2007,7 @@ describe('embedding-backfill', () => {
     };
 
     const drainDeltas: number[] = [];
-    const result = await enqueueEmbeddingBackfill(
+    const result = await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -1694,7 +2090,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1724,7 +2124,7 @@ describe('embedding-backfill', () => {
       progressIntervalMs: 1,
     } satisfies EnqueueEmbeddingBackfillOptions;
 
-    await enqueueEmbeddingBackfill(
+    await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-123',
@@ -1800,7 +2200,11 @@ describe('embedding-backfill', () => {
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
-        throw new Error(`Unexpected query: ${sql}`);
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error('Unexpected query: ');
       }),
     };
 
@@ -1829,7 +2233,7 @@ describe('embedding-backfill', () => {
       progressIntervalMs: 1,
     } satisfies EnqueueEmbeddingBackfillOptions;
 
-    await enqueueEmbeddingBackfill(
+    await enqueueTestEmbeddingBackfill(
       db,
       withQueueRepair(jobQueue),
       'set-20k',

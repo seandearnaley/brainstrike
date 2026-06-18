@@ -87,6 +87,9 @@ export interface RemoteDbClient extends RemoteDbTransaction {
       params?: readonly unknown[] | null
     ) => Promise<RemoteDbLiveQuery<TRecord>>;
   };
+  readonly maintenance: {
+    readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  };
   readonly transaction: <TResult>(
     fn: (tx: RemoteDbTransaction) => Promise<TResult>
   ) => Promise<TResult>;
@@ -106,6 +109,7 @@ export interface DbHostManagerOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly initializationTimeoutMs?: number;
+  readonly maintenanceRequestTimeoutMs?: number;
   readonly requestTimeoutMs?: number;
 }
 
@@ -176,6 +180,7 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
   switch (request.kind) {
     case 'query':
     case 'exec':
+    case 'maintenance:exec':
       return {
         requestKind: request.kind,
         sqlPreview: createQueryPreview(request.sql),
@@ -352,6 +357,7 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #pending = new Map<string, PendingRequest>();
   readonly #closeTimeoutMs: number;
   readonly #initializationTimeoutMs: number;
+  readonly #maintenanceRequestTimeoutMs: number;
   readonly #requestTimeoutMs: number;
   #client: RemoteDbClient | null = null;
   #host: UtilityProcess | null = null;
@@ -361,6 +367,8 @@ class DefaultDbHostManager implements DbHostManager {
     this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
     this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#maintenanceRequestTimeoutMs =
+      options.maintenanceRequestTimeoutMs ?? Math.max(10 * 60_000, this.#requestTimeoutMs);
     this.#initializationTimeoutMs =
       options.initializationTimeoutMs ??
       Math.max(DEFAULT_INITIALIZATION_TIMEOUT_MS, this.#requestTimeoutMs);
@@ -490,7 +498,13 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   #getRequestTimeoutMs(request: DbHostRequest): number {
-    return request.kind === 'init' ? this.#initializationTimeoutMs : this.#requestTimeoutMs;
+    if (request.kind === 'init') {
+      return this.#initializationTimeoutMs;
+    }
+    if (request.kind === 'maintenance:exec') {
+      return this.#maintenanceRequestTimeoutMs;
+    }
+    return this.#requestTimeoutMs;
   }
 
   registerLiveQuery(liveId: string, query: RemoteLiveQuery<unknown>): void {
@@ -585,6 +599,10 @@ class DefaultDbHostManager implements DbHostManager {
                 }
               : { ...payload, mode: 'query' }
           ),
+      },
+      maintenance: {
+        exec: async (sql, params) =>
+          await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
       },
       query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
         await this.send<DbHostQueryResult<TRecord>>({

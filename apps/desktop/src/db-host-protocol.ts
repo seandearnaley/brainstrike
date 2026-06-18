@@ -8,6 +8,11 @@ export type DbHostRequest =
   | { readonly kind: 'init' }
   | { readonly kind: 'query'; readonly sql: string; readonly params?: readonly unknown[] }
   | { readonly kind: 'exec'; readonly sql: string; readonly params?: readonly unknown[] }
+  | {
+      readonly kind: 'maintenance:exec';
+      readonly sql: string;
+      readonly params?: readonly unknown[];
+    }
   | { readonly kind: 'transaction:start'; readonly transactionId: string }
   | {
       readonly kind: 'transaction:query';

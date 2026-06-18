@@ -1077,7 +1077,6 @@ export async function startEmbeddingWorker(
 
     let completedJobs: Job[] = [];
     if (jobCompletions.length > 0) {
-      await waitForBackgroundPermit('embedding completion');
       completedJobs = await jq.completeEmbeddingChunkBatch(jobCompletions);
     }
 

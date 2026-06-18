@@ -33,6 +33,7 @@ import { migration040RetireSourceRootPath } from '../migrations/040-retire-sourc
 import { migration041RootsPathIdentity } from '../migrations/041-roots-path-identity.js';
 import { migration042JobQueueChunkId } from '../migrations/042-job-queue-chunk-id.js';
 import { migration043JobQueueEmbeddingSetId } from '../migrations/043-job-queue-embedding-set-id.js';
+import { migration044DimensionIndexSuspensions } from '../migrations/044-dimension-index-suspensions.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -168,6 +169,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-041-roots-path-identity', migration041RootsPathIdentity),
   customMigration('custom-042-job-queue-chunk-id', migration042JobQueueChunkId),
   customMigration('custom-043-job-queue-embedding-set-id', migration043JobQueueEmbeddingSetId),
+  customMigration('custom-044-dimension-index-suspensions', migration044DimensionIndexSuspensions),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

@@ -389,7 +389,7 @@ describe('Embedding Worker Batch Optimization', () => {
     }
   });
 
-  it('waits for background database permits before claiming and completing jobs', async () => {
+  it('waits for background database permits before claims but never before completions', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-pressure';
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';
@@ -451,8 +451,9 @@ describe('Embedding Worker Batch Optimization', () => {
 
     await controller.stop();
 
+    expect(waitForBackgroundPermit).toHaveBeenCalledTimes(1);
     expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding claim' });
-    expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding completion' });
+    expect(waitForBackgroundPermit).not.toHaveBeenCalledWith({ label: 'embedding completion' });
   });
 
   it('retries transient database completion failures without stopping the local worker as fatal', async () => {

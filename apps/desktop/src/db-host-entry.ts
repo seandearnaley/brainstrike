@@ -156,6 +156,7 @@ function summarizeRequestForDiagnostics(envelope: DbHostRequestEnvelope): Record
   switch (request.kind) {
     case 'query':
     case 'exec':
+    case 'maintenance:exec':
       return {
         ...base,
         sqlPreview: createQueryPreview(request.sql),
@@ -409,6 +410,10 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
     case 'exec': {
       const db = await getQueryableDatabase();
       return await execSql(db, request.sql, requireParamsArray(request.params, 'exec'));
+    }
+    case 'maintenance:exec': {
+      const db = await getQueryableDatabase();
+      return await execSql(db, request.sql, requireParamsArray(request.params, 'maintenance exec'));
     }
     case 'transaction:start': {
       if (activeTransactionId !== null) {

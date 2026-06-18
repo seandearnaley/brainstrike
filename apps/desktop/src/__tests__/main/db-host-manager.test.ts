@@ -492,6 +492,54 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('uses the maintenance timeout for explicit maintenance exec requests', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        maintenanceRequestTimeoutMs: 50,
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const execPromise = database.maintenance.exec(
+        'CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384 ON file_chunks USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops)'
+      );
+      const execAssertion = expect(execPromise).rejects.toThrow(
+        'DB host request timed out: maintenance:exec'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await flushMicrotasks();
+      expect(loggerWarnMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ requestKind: 'maintenance:exec' }),
+        'DB host request timed out'
+      );
+
+      await vi.advanceTimersByTimeAsync(45);
+      await execAssertion;
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 50,
+          pendingCount: 1,
+          requestKind: 'maintenance:exec',
+          sqlPreview:
+            'CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384 ON file_chunks USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops)',
+          timeoutMs: 50,
+        }),
+        'DB host request timed out'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the initialization timeout for the first DB host startup request', async () => {
     vi.useFakeTimers();
     try {

@@ -12,6 +12,7 @@ import type {
 } from '../../chunking-host-shared';
 
 const logger = createLogger('ChunkingHostRuntime');
+const CHUNKING_HOST_REQUEST_HEARTBEAT_MS = 10_000;
 
 function getChunkingHostBridge(): {
   onRequest?: (callback: (request: ChunkingHostRequest) => void) => () => void;
@@ -34,6 +35,33 @@ function reportStatus(status: ChunkingHostStatus): void {
 
 function reportResponse(response: ChunkingHostResponseReport): void {
   getChunkingHostBridge()?.reportResponse?.(response);
+}
+
+function getHeartbeatFileRecordId(request: ChunkingHostRequest): string {
+  const payload = request.payload;
+  if (payload.kind === 'chunk-batch') {
+    return payload.files[0]?.fileRecordId ?? request.requestId;
+  }
+  return payload.fileRecordId;
+}
+
+function getHeartbeatTotalFiles(request: ChunkingHostRequest): number {
+  return request.payload.kind === 'chunk-batch' ? request.payload.files.length : 1;
+}
+
+function reportRequestHeartbeat(request: ChunkingHostRequest, runtimeId: string): void {
+  reportResponse({
+    type: 'progress',
+    channel: 'chunk',
+    requestId: request.requestId,
+    runtimeId,
+    payload: {
+      chunksCreated: 0,
+      currentIndex: 0,
+      fileRecordId: getHeartbeatFileRecordId(request),
+      totalFiles: getHeartbeatTotalFiles(request),
+    },
+  });
 }
 
 function resolveChunkingHostRuntimeId(): string {
@@ -347,6 +375,7 @@ export function ChunkingHostRuntime(): null {
     };
 
     const onRequest = async (request: ChunkingHostRequest): Promise<void> => {
+      let heartbeatId: number | null = null;
       try {
         const port = await ensureStarted();
         if (disposed) {
@@ -356,6 +385,9 @@ export function ChunkingHostRuntime(): null {
         activeRequestCountRef.current += 1;
         syncActiveStatus();
 
+        heartbeatId = window.setInterval(() => {
+          reportRequestHeartbeat(request, runtimeIdRef.current);
+        }, CHUNKING_HOST_REQUEST_HEARTBEAT_MS);
         const result = await executeChunkRequest(request, port.chunkFile);
         reportChunkRequestSuccess(request, result, runtimeIdRef.current);
       } catch (requestError) {
@@ -374,6 +406,9 @@ export function ChunkingHostRuntime(): null {
           payload: getRequestErrorPayload(request, message),
         });
       } finally {
+        if (heartbeatId !== null) {
+          window.clearInterval(heartbeatId);
+        }
         if (activeRequestCountRef.current > 0) {
           activeRequestCountRef.current -= 1;
         } else {
