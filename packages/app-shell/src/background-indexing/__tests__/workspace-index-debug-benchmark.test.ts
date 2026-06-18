@@ -157,4 +157,76 @@ describe('runWorkspaceIndexStageBenchmark', () => {
       mode: 'db-completion-ceiling',
     });
   });
+
+  it('measures chunking through the chunking host batch bridge', async () => {
+    const chunkBatchMock = vi.fn(async (_request: unknown) => [
+      {
+        chunks: [{ content: 'first chunk' }, { content: 'second chunk' }],
+        skipped: false,
+      },
+      {
+        chunks: [{ content: 'third chunk' }],
+        skipped: false,
+      },
+    ]);
+
+    const result = await runWorkspaceIndexStageBenchmark({
+      chunkingHost: {
+        chunkBatch: chunkBatchMock,
+      },
+      request: {
+        chunkCount: 2,
+        mode: 'chunking-ceiling',
+      },
+      timing: {
+        nowIso: () => '2026-06-17T04:00:00.000Z',
+        nowMs: vi.fn().mockReturnValueOnce(200).mockReturnValueOnce(230),
+      },
+    });
+
+    expect(chunkBatchMock).toHaveBeenCalledTimes(1);
+    const request = chunkBatchMock.mock.calls[0]?.[0] as
+      | {
+          files: readonly unknown[];
+        }
+      | undefined;
+    expect(request).toMatchObject({
+      kind: 'chunk-batch',
+      options: {
+        allowLargeFiles: true,
+        forceStrategy: true,
+        ignoreFileTypeRecommendations: true,
+        requestedStrategy: 'recursive',
+        tokenTrueSizing: true,
+      },
+      requestId: expect.stringContaining('workspace-index-stage-chunking-ceiling'),
+    });
+    expect(request?.files).toHaveLength(2);
+    expect(request?.files[0]).toMatchObject({
+      content: expect.stringContaining('Workspace Index chunking ceiling synthetic file 0'),
+      fileName: 'chunking-ceiling-0.md',
+      filePath: '/__brainstrike_debug__/chunking-ceiling-0.md',
+      fileRecordId: expect.stringContaining('file-0'),
+    });
+    expect(result).toMatchObject({
+      chunkCount: 2,
+      chunksPerSecond: 100,
+      completedChunkCount: 3,
+      dimensions: 0,
+      elapsedMs: 30,
+      mode: 'chunking-ceiling',
+    });
+  });
+
+  it('throws instead of silently degrading when the chunking benchmark lacks the host bridge', async () => {
+    await expect(
+      runWorkspaceIndexStageBenchmark({
+        request: {
+          mode: 'chunking-ceiling',
+        },
+      })
+    ).rejects.toThrow(
+      "Workspace Index benchmark mode 'chunking-ceiling' requires the hidden chunking host bridge."
+    );
+  });
 });

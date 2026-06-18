@@ -2391,6 +2391,52 @@ describe('WorkspaceCollectionSyncProvider', () => {
     });
   });
 
+  it('exposes a stage benchmark hook that uses the hidden chunking host bridge', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    const chunkBatchMock = vi.fn(async () => [
+      {
+        chunks: [{ content: 'chunk' }],
+        skipped: false,
+      },
+    ]);
+    Object.defineProperty(window, 'chunkingHost', {
+      configurable: true,
+      value: {
+        chunkBatch: chunkBatchMock,
+      },
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    const debugApi = (
+      window as unknown as {
+        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+          benchmarkStage: (request: { chunkCount: number; mode: 'chunking-ceiling' }) => Promise<{
+            chunkCount: number;
+            completedChunkCount: number;
+            mode: string;
+          }>;
+        };
+      }
+    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+    const result = await debugApi?.benchmarkStage({
+      chunkCount: 1,
+      mode: 'chunking-ceiling',
+    });
+
+    expect(chunkBatchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      chunkCount: 1,
+      completedChunkCount: 1,
+      mode: 'chunking-ceiling',
+    });
+  });
+
   it('includes chunked records and chunk stats grouped by root and embedding set in debug snapshots', async () => {
     readFullTreeWithOptionsMock.mockResolvedValue([]);
     const queryMock = vi.fn(async (sql: string) => {

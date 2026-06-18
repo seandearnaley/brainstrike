@@ -1348,10 +1348,39 @@ export function WorkspaceCollectionSyncProvider({
                   }
                 | undefined
             )?.runTransaction;
-      if (!(backgroundDb || electronRunTransaction)) {
+      const chunkingHost =
+        typeof window === 'undefined'
+          ? undefined
+          : (
+              window as Window & {
+                chunkingHost?: {
+                  chunkBatch?: (request: {
+                    files: readonly {
+                      content: string;
+                      fileName: string;
+                      filePath: string;
+                      fileRecordId: string;
+                    }[];
+                    kind: 'chunk-batch';
+                    options: {
+                      allowLargeFiles: boolean;
+                      forceStrategy: boolean;
+                      ignoreFileTypeRecommendations: boolean;
+                      maxTokens: number;
+                      overlap: number;
+                      requestedStrategy: 'recursive';
+                      tokenTrueSizing: boolean;
+                    };
+                    requestId: string;
+                  }) => Promise<readonly unknown[]>;
+                };
+              }
+            ).chunkingHost;
+      if (request.mode === 'db-completion-ceiling' && !(backgroundDb || electronRunTransaction)) {
         throw new Error('Workspace Index stage benchmark requires transactional database support.');
       }
       return await runWorkspaceIndexStageBenchmark({
+        chunkingHost,
         db: backgroundDb,
         electronRunTransaction,
         electronTransactionOptions: BACKGROUND_DATABASE_WORK_OPTIONS,

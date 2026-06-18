@@ -38,8 +38,8 @@ describe('workspace index benchmark script', () => {
     expect(options.requireDevice).toBe('webgpu');
   });
 
-  it('allows the DB completion stage benchmark mode implemented by the Electron harness', () => {
-    const options = parseArgs(['--mode', 'db-completion-ceiling']);
+  it('allows stage benchmark modes implemented by the Electron harness', () => {
+    const options = parseArgs(['--mode', 'db-completion-ceiling', '--mode', 'chunking-ceiling']);
 
     expect(() => assertRunnableBenchmarkModes(options)).not.toThrow();
   });

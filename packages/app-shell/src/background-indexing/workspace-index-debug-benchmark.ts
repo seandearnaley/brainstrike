@@ -25,6 +25,7 @@ export interface WorkspaceIndexStageBenchmarkResult {
 }
 
 interface WorkspaceIndexStageBenchmarkArgs {
+  chunkingHost?: WorkspaceIndexChunkingHostBridge | null | undefined;
   db?: IDatabase | null;
   electronRunTransaction?: WorkspaceIndexElectronRunTransaction | undefined;
   electronTransactionOptions?: unknown;
@@ -36,6 +37,31 @@ interface WorkspaceIndexStageBenchmarkArgs {
 }
 
 type CompleteEmbeddingChunkInput = Parameters<JobQueue['completeEmbeddingChunkBatch']>[0][number];
+interface WorkspaceIndexChunkingHostFilePayload {
+  readonly content: string;
+  readonly fileName: string;
+  readonly filePath: string;
+  readonly fileRecordId: string;
+}
+interface WorkspaceIndexChunkingHostBatchRequest {
+  readonly files: readonly WorkspaceIndexChunkingHostFilePayload[];
+  readonly kind: 'chunk-batch';
+  readonly options: {
+    readonly allowLargeFiles: boolean;
+    readonly forceStrategy: boolean;
+    readonly ignoreFileTypeRecommendations: boolean;
+    readonly maxTokens: number;
+    readonly overlap: number;
+    readonly requestedStrategy: 'recursive';
+    readonly tokenTrueSizing: boolean;
+  };
+  readonly requestId: string;
+}
+interface WorkspaceIndexChunkingHostBridge {
+  readonly chunkBatch?: (
+    request: WorkspaceIndexChunkingHostBatchRequest
+  ) => Promise<readonly unknown[]>;
+}
 interface WorkspaceIndexElectronTransactionStatement {
   params?: unknown[];
   sql: string;
@@ -56,8 +82,11 @@ interface DbCompletionBenchmarkIds {
 
 const DEFAULT_DB_COMPLETION_CHUNK_COUNT = 512;
 const DEFAULT_DB_COMPLETION_DIMENSIONS = 384;
+const DEFAULT_CHUNKING_FILE_COUNT = 128;
+const MAX_CHUNKING_FILE_COUNT = 5000;
 const MAX_DB_COMPLETION_CHUNK_COUNT = 10_000;
 const MAX_DB_COMPLETION_DIMENSIONS = 4096;
+const CHUNKING_SYNTHETIC_ID_PREFIX = 'workspace-index-stage-chunking-ceiling';
 const SYNTHETIC_ID_PREFIX = 'workspace-index-stage-db-completion-ceiling';
 
 function assertPositiveInteger(value: number, label: string, max: number): void {
@@ -68,6 +97,80 @@ function assertPositiveInteger(value: number, label: string, max: number): void 
 
 function createEmbedding(dimensions: number): number[] {
   return Array.from({ length: dimensions }, (_value, index) => (index + 1) / 1000);
+}
+
+function createChunkingBenchmarkContent(index: number): string {
+  return [
+    `# Workspace Index chunking ceiling synthetic file ${index}`,
+    '',
+    'This document exists only to exercise the production hidden chunking host benchmark path.',
+    'It contains repeated paragraphs with headings, lists, and plain prose so recursive chunking',
+    'does real boundary work instead of processing a tiny one-line fixture.',
+    '',
+    '## Section A',
+    '',
+    Array.from(
+      { length: 24 },
+      (_value, lineIndex) =>
+        `- Synthetic line ${lineIndex} for file ${index}: workspace indexing benchmark content.`
+    ).join('\n'),
+    '',
+    '## Section B',
+    '',
+    Array.from(
+      { length: 16 },
+      (_value, lineIndex) =>
+        `Paragraph ${lineIndex} for file ${index} keeps the worker path realistic and deterministic.`
+    ).join('\n\n'),
+  ].join('\n');
+}
+
+function createChunkingBenchmarkRequest(
+  fileCount: number,
+  startedAt: string
+): WorkspaceIndexChunkingHostBatchRequest {
+  const normalizedStartedAt = startedAt.replace(/[^0-9A-Za-z]/g, '');
+  return {
+    kind: 'chunk-batch',
+    requestId: `${CHUNKING_SYNTHETIC_ID_PREFIX}-${normalizedStartedAt}`,
+    options: {
+      allowLargeFiles: true,
+      forceStrategy: true,
+      ignoreFileTypeRecommendations: true,
+      maxTokens: 256,
+      overlap: 32,
+      requestedStrategy: 'recursive',
+      tokenTrueSizing: true,
+    },
+    files: Array.from({ length: fileCount }, (_value, index) => ({
+      content: createChunkingBenchmarkContent(index),
+      fileName: `chunking-ceiling-${index}.md`,
+      filePath: `/__brainstrike_debug__/chunking-ceiling-${index}.md`,
+      fileRecordId: `${CHUNKING_SYNTHETIC_ID_PREFIX}-${normalizedStartedAt}-file-${index}`,
+    })),
+  };
+}
+
+function countChunkingBenchmarkChunks(results: readonly unknown[]): number {
+  let total = 0;
+  for (const [index, result] of results.entries()) {
+    if (!(result && typeof result === 'object' && !Array.isArray(result))) {
+      throw new Error(`Workspace Index chunking benchmark result ${index} must be an object.`);
+    }
+    const candidate = result as Record<string, unknown>;
+    if (candidate['skipped'] === true) {
+      throw new Error(`Workspace Index chunking benchmark result ${index} was skipped.`);
+    }
+    const chunks = candidate['chunks'];
+    if (!Array.isArray(chunks)) {
+      throw new Error(`Workspace Index chunking benchmark result ${index} must include chunks.`);
+    }
+    if (chunks.length === 0) {
+      throw new Error(`Workspace Index chunking benchmark result ${index} produced no chunks.`);
+    }
+    total += chunks.length;
+  }
+  return total;
 }
 
 function createDbCompletionBenchmarkIds(
@@ -551,9 +654,47 @@ async function runDbCompletionCeilingBenchmark({
   };
 }
 
+async function runChunkingCeilingBenchmark({
+  chunkingHost,
+  request,
+  timing,
+}: WorkspaceIndexStageBenchmarkArgs): Promise<WorkspaceIndexStageBenchmarkResult> {
+  if (typeof chunkingHost?.chunkBatch !== 'function') {
+    throw new Error(
+      "Workspace Index benchmark mode 'chunking-ceiling' requires the hidden chunking host bridge."
+    );
+  }
+
+  const fileCount = request.chunkCount ?? DEFAULT_CHUNKING_FILE_COUNT;
+  assertPositiveInteger(fileCount, 'chunkCount', MAX_CHUNKING_FILE_COUNT);
+  const nowIso = timing?.nowIso ?? (() => new Date().toISOString());
+  const nowMs =
+    timing?.nowMs ?? (() => (typeof performance === 'undefined' ? Date.now() : performance.now()));
+  const startedAt = nowIso();
+  const chunkingRequest = createChunkingBenchmarkRequest(fileCount, startedAt);
+  const startedMs = nowMs();
+  const results = await chunkingHost.chunkBatch(chunkingRequest);
+  const elapsedMs = Math.max(0, nowMs() - startedMs);
+  const completedChunkCount = countChunkingBenchmarkChunks(results);
+
+  return {
+    chunkCount: fileCount,
+    chunksPerSecond: elapsedMs > 0 ? (completedChunkCount / elapsedMs) * 1000 : completedChunkCount,
+    completedAt: nowIso(),
+    completedChunkCount,
+    dimensions: 0,
+    elapsedMs,
+    mode: 'chunking-ceiling',
+    startedAt,
+  };
+}
+
 export async function runWorkspaceIndexStageBenchmark(
   args: WorkspaceIndexStageBenchmarkArgs
 ): Promise<WorkspaceIndexStageBenchmarkResult> {
+  if (args.request.mode === 'chunking-ceiling') {
+    return await runChunkingCeilingBenchmark(args);
+  }
   if (args.request.mode === 'db-completion-ceiling') {
     if (typeof args.db?.transaction === 'function') {
       return await runDbCompletionCeilingBenchmark(args);
