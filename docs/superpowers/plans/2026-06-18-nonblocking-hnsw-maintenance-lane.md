@@ -32,7 +32,27 @@ Primary-source constraints:
 - PostgreSQL exposes `pg_stat_progress_create_index`, but whether the PGlite/pgvector combination exposes useful progress rows must be probed in our runtime before the UI promises phase-level progress.
 - PostgreSQL `VACUUM` can still block on indexes even with skip-lock options, and pgvector documents that vacuuming HNSW indexes can take a while; HNSW vacuum/reindex work must be treated as maintenance too, not hidden in the normal cleanup pass.
 
-Direct consequence: an idle lane can decide when not to start a long HNSW build, can persist/retry/report the work, and can keep it out of the embedding drain. It cannot assume a started `CREATE INDEX USING hnsw` is preemptible on PGlite's single connection. The implementation must first probe whether `CREATE INDEX CONCURRENTLY` works in this runtime and whether it materially improves foreground responsiveness; if it does not, regular `CREATE INDEX` is acceptable only behind strict idle gates and release-blocking health checks. If measured full-root maintenance still stalls foreground DB work for an unacceptable duration, this lane is necessary but not sufficient for release; the escalation is to move ANN build/search out of PGlite into a separate persisted vector-index runtime that can build off the DB connection and atomically swap search indexes.
+Direct consequence: an idle lane can decide when not to start a long HNSW build, can persist/retry/report the work, and can keep it out of the embedding drain. It cannot assume a started `CREATE INDEX USING hnsw` is preemptible on PGlite's single connection. The implementation must probe whether `CREATE INDEX CONCURRENTLY` syntax works in this runtime, must select `regular` until full-size responsiveness is measured, and may select `concurrent` only after the full verification proves foreground DB health remains within the release threshold. If measured full-root maintenance still stalls foreground DB work for an unacceptable duration, this lane is necessary but not sufficient for release; the escalation is to move ANN build/search out of PGlite into a separate persisted vector-index runtime that can build off the DB connection and atomically swap search indexes.
+
+## Confidence Position
+
+This plan is intentionally conservative. It does not assume that PGlite behaves like server Postgres, and it does not treat `CREATE INDEX CONCURRENTLY` as available until the app proves it in the exact Electron/PGlite runtime.
+
+Confidence comes from five independent proofs:
+
+1. **Durability proof:** after embedding completes, a durable maintenance row exists for every suspended dimension.
+2. **Nonblocking proof:** embedding completion never runs HNSW DDL inline and never reports an optimized index while a suspension remains.
+3. **Capability proof:** HNSW, concurrent-index syntax, progress reporting, runtime memory settings, and invalid-index detection are measured and recorded.
+4. **Responsiveness proof:** foreground DB health is sampled during full-size maintenance, not inferred from unit tests.
+5. **Throughput proof:** the full three-root run must complete with comparable integrated throughput to the parent implementation; a slow all-night pipeline is not acceptable even if it eventually finishes.
+
+The plan has three possible outcomes:
+
+- `release-sufficient`: the current PGlite/HNSW architecture meets durability, responsiveness, throughput, and memory gates on the full data set.
+- `implementation-correct-but-release-blocked`: the maintenance lane is durable and observable, but full-size HNSW maintenance still blocks foreground DB work or grows memory unacceptably.
+- `implementation-failed`: embedding, maintenance, suspension drain, invalid-index cleanup, or diagnostics do not complete correctly.
+
+Only `release-sufficient` is an acceptable product release result. The second outcome is useful engineering evidence, but it immediately triggers the external ANN architecture escalation in this plan.
 
 ## Official Documentation Pass
 
@@ -108,9 +128,13 @@ Proposed release thresholds for the first implementation:
 
 - Full-root embedding must still complete the same verified data set: `17,477 files`, `124,574 chunks`.
 - Full-root HNSW maintenance may not produce `DB host request timed out`.
-- Foreground DB health checks during maintenance should not exceed `5s` p95 and must never hit the configured DB host timeout. If PGlite cannot satisfy this because the single connection is occupied by index DDL, mark the lane complete as a reliability fix but not release-sufficient.
+- Foreground DB health checks during maintenance should not exceed `5s` p95 and must never hit the configured DB host timeout. If PGlite cannot satisfy this because the single connection is occupied by index DDL, classify the result as `implementation-correct-but-release-blocked`.
 - HNSW maintenance memory growth must plateau. If Electron renderer/DB-host RSS grows monotonically after maintenance completes or exceeds machine-safe limits in repeated runs, treat it as release-blocking.
 - The implementation must document current `maintenance_work_mem`, `max_parallel_maintenance_workers`, PGlite `initialMemory`, and whether `pg_stat_progress_create_index` produces rows during our build. Unknown values are not acceptable in the verification record.
+- Integrated full-root throughput must not materially regress from the parent indexing pipeline. Use the existing measured-bottleneck framing: after excluding model warmup and logged QoS pauses, `steady_state_integrated_chunks_per_sec >= 0.70 * measured_bottleneck_chunks_per_sec`. If the parent branch lacks a comparable measurement artifact, capture one before implementing this plan.
+- The warning pass is separate from success checks. Every warning/error in the full run must be classified as existing, introduced, or externally caused. Any introduced warning/error from indexing, embedding, PGlite, WebGPU, worker lifecycle, or DB host code is release-blocking.
+
+The release bar is intentionally stricter than "the job eventually finished." Any timeout, hidden backend fallback, incomplete durable obligation, unbounded memory growth, full-run throughput regression, or unclassified warning/error prevents `release-sufficient`.
 
 ## Architecture Decision
 
@@ -245,6 +269,22 @@ it('marks concurrent strategy unusable when foreground health is worse than the 
     strategy: 'regular',
   });
 });
+
+it('does not choose concurrent when support exists but responsiveness has not been measured', async () => {
+  const result = selectDimensionIndexStrategy({
+    concurrentIndexBuild: {
+      error: null,
+      foregroundProbeP95Ms: null,
+      supported: true,
+    },
+    foregroundHealthThresholdMs: 5_000,
+  });
+
+  expect(result).toEqual({
+    reason: 'concurrent-index-build-unmeasured',
+    strategy: 'regular',
+  });
+});
 ```
 
 - [ ] **Step 2: Run tests and confirm red**
@@ -290,6 +330,7 @@ export interface DimensionIndexStrategySelection {
   readonly reason:
     | 'concurrent-index-build-blocks-foreground-db'
     | 'concurrent-index-build-supported-and-responsive'
+    | 'concurrent-index-build-unmeasured'
     | 'concurrent-index-build-unsupported';
   readonly strategy: DimensionIndexBuildStrategy;
 }
@@ -309,9 +350,10 @@ export function selectDimensionIndexStrategy(input: {
 Rules:
 
 - If concurrent is unsupported, select `regular` with `concurrent-index-build-unsupported`.
-- If concurrent is supported but `foregroundProbeP95Ms` is `null`, throw. Missing measurement is not acceptable.
+- If concurrent is supported but `foregroundProbeP95Ms` is `null`, select `regular` with `concurrent-index-build-unmeasured`.
 - If concurrent p95 exceeds threshold, select `regular` with `concurrent-index-build-blocks-foreground-db`.
 - Only select `concurrent` when supported and p95 is within threshold.
+- This is not a silent fallback: the selected strategy and reason are logged, exposed in diagnostics, persisted in maintenance rows, and verified in the full-run evidence.
 
 - [ ] **Step 5: Implement non-production table probes**
 
@@ -342,14 +384,44 @@ Probe sequence:
 5. Run a regular HNSW halfvec index build against the scratch table.
 6. Drop that index.
 7. Try `CREATE INDEX CONCURRENTLY` against the scratch table outside any transaction.
-8. If concurrent succeeds, run `foregroundHealthProbe()` while a larger probe index build is active in a debug-only path. If a larger active probe is too invasive for startup, defer this to Task 6 full verification and mark `foregroundProbeP95Ms:null`; production must then select `regular`.
+8. If concurrent syntax succeeds, record `supported:true` and `foregroundProbeP95Ms:null`. Startup probes must not run a large active index build. Production must select `regular` with `concurrent-index-build-unmeasured` until Task 6 proves concurrent responsiveness on the full-size run.
 9. Query `SHOW maintenance_work_mem`, `SHOW max_parallel_maintenance_workers`, `SHOW max_parallel_workers`.
 10. Query `SELECT COUNT(*)::int FROM pg_stat_progress_create_index` and record whether the view is readable.
 11. Drop the scratch table with `DROP TABLE IF EXISTS`.
 
 Never run this probe on `file_chunks`.
 
-- [ ] **Step 6: Add invalid-index inspection helper**
+- [ ] **Step 6: Implement explicit concurrent health measurement for verification**
+
+Add a verification-only helper, exported from the same module but not called during normal startup:
+
+```ts
+export async function measureConcurrentIndexForegroundHealth(params: {
+  readonly createConcurrentIndex: () => Promise<void>;
+  readonly foregroundHealthProbe: () => Promise<{
+    readonly maxMs: number;
+    readonly p50Ms: number;
+    readonly p95Ms: number;
+    readonly samples: number;
+  }>;
+}): Promise<{
+  readonly createIndexCompleted: boolean;
+  readonly foregroundProbeMaxMs: number;
+  readonly foregroundProbeP50Ms: number;
+  readonly foregroundProbeP95Ms: number;
+  readonly foregroundProbeSamples: number;
+}>
+```
+
+Rules:
+
+- The helper starts the supplied concurrent index build and samples foreground DB health while the build is active.
+- It returns measured values only after the index build completes successfully.
+- If the build fails, propagate the failure and do not return partial success.
+- Normal app startup must not call this helper.
+- The full verification task uses this helper or an equivalent DevTools-driven measurement against the real full-size maintenance build.
+
+- [ ] **Step 7: Add invalid-index inspection helper**
 
 Because PostgreSQL documents that failed concurrent builds can leave invalid indexes, add:
 
@@ -364,7 +436,7 @@ export async function listInvalidDimensionIndexes(db: {
 
 Use `pg_index` and `pg_class` to find indexes named `idx_file_chunks_emb_hnsw_%` where `indisvalid = false OR indisready = false`.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 8: Run focused tests**
 
 Run:
 
@@ -375,7 +447,7 @@ pnpm --filter @brainstrike/desktop run type-check
 
 Expected: all pass.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add apps/desktop/src/dimension-index-maintenance-capabilities.ts \
@@ -1436,6 +1508,8 @@ Also capture:
 - buffered log scan for `Local embedding execution failed`
 - buffered log scan for `WebGPU device lost`
 - buffered log scan for warning/error levels
+- integrated chunks/sec after excluding warmup and logged QoS pauses
+- measured bottleneck chunks/sec used for the `0.70 * bottleneck` acceptance threshold
 
 - [ ] **Step 6: Verify maintenance request after completion**
 
@@ -1585,10 +1659,56 @@ SELECT 1;
 Record p50/p95/max latency. Decision:
 
 - If p95 <= `5s` and no timeout occurs, the PGlite idle lane is release-viable for this data size.
-- If p95 > `5s` but no timeout occurs, the reliability fix is valid but release needs product decision on user-visible stall.
-- If any health query times out, the PGlite HNSW lane is not release-sufficient.
+- If p95 > `5s` but no timeout occurs, classify the result as `implementation-correct-but-release-blocked`.
+- If any health query times out, classify the result as `implementation-failed`.
 
-- [ ] **Step 12: Measure memory**
+- [ ] **Step 12: Verify integrated throughput**
+
+Compute the full-run throughput summary from logs or a verification script:
+
+```json
+{
+  "warmupExcludedMs": 12345,
+  "qosPauseExcludedMs": 6789,
+  "measuredBottleneckChunksPerSec": 42.5,
+  "steadyStateIntegratedChunksPerSec": 35.1,
+  "thresholdChunksPerSec": 29.75,
+  "passes": true
+}
+```
+
+Rules:
+
+- `thresholdChunksPerSec = measuredBottleneckChunksPerSec * 0.70`.
+- `steadyStateIntegratedChunksPerSec` must be greater than or equal to `thresholdChunksPerSec`.
+- If the measurement script cannot identify warmup or QoS pause intervals, do not guess. Record the missing interval source and classify the result as `implementation-failed`.
+- If throughput fails, do not treat a completed embedding run as release-sufficient.
+
+- [ ] **Step 13: Run the separate warning/error pass**
+
+Export the app logs after full embedding and HNSW maintenance finish. Classify every warning/error row:
+
+```json
+{
+  "introducedByThisWork": [],
+  "existingKnown": [
+    {
+      "message": "exact warning text",
+      "owner": "existing-third-party-bundle",
+      "evidence": "seen on parent branch before this implementation"
+    }
+  ],
+  "external": []
+}
+```
+
+Rules:
+
+- `introducedByThisWork` must be empty for `release-sufficient`.
+- Any `DB host request timed out`, `Local embedding execution failed`, `WebGPU device lost`, `fallbackApplied:true`, `backendMismatch:true`, invalid HNSW index, stuck running maintenance row, or stuck running embedding job is release-blocking.
+- Do not suppress warnings to pass this step. Fix the cause or classify the release as blocked.
+
+- [ ] **Step 14: Measure memory**
 
 Capture `ps` RSS snapshots before maintenance, during maintenance, after maintenance, and 2 minutes after maintenance.
 
@@ -1598,19 +1718,19 @@ Decision:
 - RSS must stabilize or fall after completion.
 - Monotonic post-completion growth is release-blocking.
 
-- [ ] **Step 13: Record release decision**
+- [ ] **Step 15: Record release decision**
 
 Write the PR summary using one of these exact classifications:
 
 ```text
-release-sufficient: embedding and HNSW maintenance completed, foreground DB p95 <= 5s, no timeouts, memory plateaued
-reliability-only: embedding completed and HNSW maintenance is durable, but foreground DB p95 > 5s during HNSW maintenance
-release-blocked: embedding or HNSW maintenance produced a timeout, invalid index leak, unbounded memory growth, or incomplete queue/suspension drain
+release-sufficient: embedding and HNSW maintenance completed, foreground DB p95 <= 5s, no timeouts, memory plateaued, throughput passed, warning pass clean
+implementation-correct-but-release-blocked: embedding completed and HNSW maintenance is durable, but foreground DB p95 > 5s, throughput failed, memory did not plateau, or introduced warnings/errors remain
+implementation-failed: embedding or HNSW maintenance produced a timeout, invalid index leak, unbounded memory growth, incomplete queue/suspension drain, hidden backend fallback, or incomplete proof artifact
 ```
 
-Do not merge or recommend release if the result is `reliability-only` or `release-blocked`.
+Do not merge or recommend release if the result is `implementation-correct-but-release-blocked` or `implementation-failed`.
 
-- [ ] **Step 14: Commit verification-only docs if created**
+- [ ] **Step 16: Commit verification-only docs if created**
 
 If a verification note or script was added:
 
@@ -1642,7 +1762,7 @@ This is larger than the HNSW lane, but it is the correct architecture if PGlite 
 
 ## Self-Review
 
-- Spec coverage: The plan covers the official-docs constraints, PGlite/pgvector capability probing, durable maintenance state, idle scheduling, nonblocking background backfill completion, diagnostics, full live verification, and an explicit release-risk escalation.
+- Spec coverage: The plan covers the official-docs constraints, PGlite/pgvector capability probing, durable maintenance state, idle scheduling, nonblocking background backfill completion, diagnostics, throughput proof, warning/error classification, full live verification, and an explicit release-risk escalation.
 - Placeholder scan: No task uses placeholder language. Every implementation task has concrete file paths, commands, and expected outcomes.
 - Type consistency: The plan consistently uses `selectDimensionIndexStrategy`, `probeDimensionIndexRuntimeCapabilities`, `requestDimensionIndexMaintenance`, `reconcileSuspendedDimensionIndexMaintenance`, `runNextDimensionIndexMaintenance`, `createDesktopDimensionIndexMaintenanceScheduler`, and the `embedding_dimension_index_maintenance` table.
 - No code implementation has been performed in this branch; this file is the only intended change.
