@@ -1392,10 +1392,24 @@ export function WorkspaceCollectionSyncProvider({
                 };
               }
             ).embeddingHost;
+      const applyManagedCacheBatch = async (
+        args: Parameters<typeof applyManagedCacheBatchLocally>[1]
+      ) => {
+        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        if (electronApplyManagedCacheBatch) {
+          await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
+          return;
+        }
+        if (!backgroundDb) {
+          throw new Error('Workspace Index stage benchmark requires managed-cache apply support.');
+        }
+        await applyManagedCacheBatchLocally(backgroundDb, args);
+      };
       if (request.mode === 'db-completion-ceiling' && !(backgroundDb || electronRunTransaction)) {
         throw new Error('Workspace Index stage benchmark requires transactional database support.');
       }
       return await runWorkspaceIndexStageBenchmark({
+        applyManagedCacheBatch,
         chunkingHost,
         db: backgroundDb,
         embeddingHost,

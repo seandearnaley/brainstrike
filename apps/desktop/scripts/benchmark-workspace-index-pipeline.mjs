@@ -24,6 +24,7 @@ const RUNNABLE_STAGE_BENCHMARK_MODES = new Set([
   'chunking-ceiling',
   'db-completion-ceiling',
   'embedding-ceiling',
+  'import-ceiling',
 ]);
 
 const FATAL_LOG_PATTERN =

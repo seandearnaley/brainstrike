@@ -1,4 +1,9 @@
-import { type IDatabase, JobQueue, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS } from '@brainstrike/db';
+import {
+  type ApplyManagedCacheBatchArgs,
+  type IDatabase,
+  JobQueue,
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
+} from '@brainstrike/db';
 
 export type WorkspaceIndexStageBenchmarkMode =
   | 'chunking-ceiling'
@@ -34,6 +39,7 @@ export interface WorkspaceIndexStageBenchmarkRuntimeEvidence {
 }
 
 interface WorkspaceIndexStageBenchmarkArgs {
+  applyManagedCacheBatch?: ((args: ApplyManagedCacheBatchArgs) => Promise<void>) | undefined;
   chunkingHost?: WorkspaceIndexChunkingHostBridge | null | undefined;
   db?: IDatabase | null;
   electronRunTransaction?: WorkspaceIndexElectronRunTransaction | undefined;
@@ -101,17 +107,25 @@ interface DbCompletionBenchmarkIds {
   leaseTokens: string[];
   rootId: string;
 }
+interface ImportBenchmarkIds {
+  embeddingSetId: string;
+  recordIds: string[];
+  rootId: string;
+}
 
 const DEFAULT_DB_COMPLETION_CHUNK_COUNT = 512;
 const DEFAULT_DB_COMPLETION_DIMENSIONS = 384;
 const DEFAULT_CHUNKING_FILE_COUNT = 128;
 const DEFAULT_EMBEDDING_QUERY_COUNT = 32;
+const DEFAULT_IMPORT_FILE_COUNT = 512;
 const MAX_CHUNKING_FILE_COUNT = 5000;
 const MAX_DB_COMPLETION_CHUNK_COUNT = 10_000;
 const MAX_DB_COMPLETION_DIMENSIONS = 4096;
 const MAX_EMBEDDING_QUERY_COUNT = 512;
+const MAX_IMPORT_FILE_COUNT = 5000;
 const EMBEDDING_BENCHMARK_CONCURRENCY = 4;
 const CHUNKING_SYNTHETIC_ID_PREFIX = 'workspace-index-stage-chunking-ceiling';
+const IMPORT_SYNTHETIC_ID_PREFIX = 'workspace-index-stage-import-ceiling';
 const SYNTHETIC_ID_PREFIX = 'workspace-index-stage-db-completion-ceiling';
 
 function assertPositiveInteger(value: number, label: string, max: number): void {
@@ -337,6 +351,18 @@ function createDbCompletionBenchmarkIds(
   };
 }
 
+function createImportBenchmarkIds(fileCount: number, startedAt: string): ImportBenchmarkIds {
+  const syntheticRunId = `${IMPORT_SYNTHETIC_ID_PREFIX}-${startedAt.replace(/[^0-9A-Za-z]/g, '')}`;
+  return {
+    embeddingSetId: `${syntheticRunId}-embedding-set`,
+    recordIds: Array.from(
+      { length: fileCount },
+      (_value, index) => `${syntheticRunId}-file-${index}`
+    ),
+    rootId: `${syntheticRunId}-root`,
+  };
+}
+
 function buildPlaceholders(rowCount: number, columnCount: number): string {
   return Array.from({ length: rowCount }, (_row, rowIndex) => {
     const offset = rowIndex * columnCount;
@@ -346,6 +372,126 @@ function buildPlaceholders(rowCount: number, columnCount: number): string {
     ).join(', ');
     return `(${rowPlaceholders})`;
   }).join(', ');
+}
+
+async function seedImportBenchmarkRows(
+  tx: IDatabase,
+  ids: Pick<ImportBenchmarkIds, 'embeddingSetId' | 'rootId'>,
+  now: string
+): Promise<void> {
+  await tx.query(
+    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, category, allow_duplicates)
+     VALUES ($1, $2, $3, 0, 'cosine', $4, $5, $6, $7, false)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      ids.embeddingSetId,
+      'debug:import-ceiling',
+      'debug-import-ceiling',
+      now,
+      'Workspace Index import benchmark',
+      'Synthetic rows for measuring managed-cache import apply.',
+      'debug',
+    ]
+  );
+
+  await tx.query(
+    `INSERT INTO roots (id, kind, display_name, path, status, created_at, last_verified_at)
+     VALUES ($1, 'path', $2, $3, 'live', $4, $4)
+     ON CONFLICT (id) DO NOTHING`,
+    [ids.rootId, 'Workspace Index import benchmark', `/__brainstrike_debug__/${ids.rootId}`, now]
+  );
+}
+
+async function cleanupImportBenchmarkRows(
+  tx: IDatabase,
+  ids: Pick<ImportBenchmarkIds, 'embeddingSetId' | 'rootId'>
+): Promise<void> {
+  await tx.query('DELETE FROM roots WHERE id = $1', [ids.rootId]);
+  await tx.query('DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1', [
+    ids.embeddingSetId,
+  ]);
+  await tx.query('DELETE FROM embedding_sets WHERE id = $1', [ids.embeddingSetId]);
+}
+
+function createImportBenchmarkChanges(
+  ids: ImportBenchmarkIds,
+  now: string
+): ApplyManagedCacheBatchArgs['changes'] {
+  return ids.recordIds.map((recordId, index) => {
+    const content = [
+      `Workspace Index import ceiling synthetic file ${index}.`,
+      'This record measures managed-cache import apply without chunking or embedding enqueue.',
+      'The benchmark uses a synthetic root and embedding set that are cleaned after the run.',
+    ].join(' ');
+    return {
+      mode: 'import' as const,
+      record: {
+        id: recordId,
+        name: `import-ceiling-${index}.md`,
+        path: `import-ceiling-${index}.md`,
+        size: content.length,
+        mtimeMs: Date.parse(now) + index,
+        createdAt: now,
+        updatedAt: now,
+        processedAt: now,
+        content,
+        contentHash: `${recordId}:content`,
+        tokenCount: 32,
+      },
+    };
+  });
+}
+
+function createImportBenchmarkSetupStatements(
+  ids: Pick<ImportBenchmarkIds, 'embeddingSetId' | 'rootId'>,
+  now: string
+): WorkspaceIndexElectronTransactionStatement[] {
+  return [
+    {
+      sql: `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, category, allow_duplicates)
+            VALUES ($1, $2, $3, 0, 'cosine', $4, $5, $6, $7, false)
+            ON CONFLICT (id) DO NOTHING`,
+      params: [
+        ids.embeddingSetId,
+        'debug:import-ceiling',
+        'debug-import-ceiling',
+        now,
+        'Workspace Index import benchmark',
+        'Synthetic rows for measuring managed-cache import apply.',
+        'debug',
+      ],
+    },
+    {
+      sql: `INSERT INTO roots (id, kind, display_name, path, status, created_at, last_verified_at)
+            VALUES ($1, 'path', $2, $3, 'live', $4, $4)
+            ON CONFLICT (id) DO NOTHING`,
+      params: [
+        ids.rootId,
+        'Workspace Index import benchmark',
+        `/__brainstrike_debug__/${ids.rootId}`,
+        now,
+      ],
+    },
+  ];
+}
+
+function createImportBenchmarkCleanupStatements(
+  ids: Pick<ImportBenchmarkIds, 'embeddingSetId' | 'rootId'>
+): WorkspaceIndexElectronTransactionStatement[] {
+  return [
+    {
+      sql: 'DELETE FROM roots WHERE id = $1',
+      params: [ids.rootId],
+    },
+    {
+      sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1',
+      params: [ids.embeddingSetId],
+    },
+    {
+      sql: 'DELETE FROM embedding_sets WHERE id = $1',
+      params: [ids.embeddingSetId],
+    },
+  ];
 }
 
 async function seedDbCompletionBenchmarkRows(
@@ -832,6 +978,86 @@ async function runChunkingCeilingBenchmark({
   };
 }
 
+async function runImportCeilingBenchmark({
+  applyManagedCacheBatch,
+  db,
+  electronRunTransaction,
+  electronTransactionOptions,
+  request,
+  timing,
+}: WorkspaceIndexStageBenchmarkArgs): Promise<WorkspaceIndexStageBenchmarkResult> {
+  if (typeof applyManagedCacheBatch !== 'function') {
+    throw new Error(
+      "Workspace Index benchmark mode 'import-ceiling' requires managed-cache apply support."
+    );
+  }
+  if (typeof db?.transaction !== 'function' && typeof electronRunTransaction !== 'function') {
+    throw new Error(
+      "Workspace Index benchmark mode 'import-ceiling' requires transactional database support."
+    );
+  }
+
+  const fileCount = request.chunkCount ?? DEFAULT_IMPORT_FILE_COUNT;
+  assertPositiveInteger(fileCount, 'chunkCount', MAX_IMPORT_FILE_COUNT);
+  const nowIso = timing?.nowIso ?? (() => new Date().toISOString());
+  const nowMs =
+    timing?.nowMs ?? (() => (typeof performance === 'undefined' ? Date.now() : performance.now()));
+  const startedAt = nowIso();
+  const ids = createImportBenchmarkIds(fileCount, startedAt);
+
+  if (typeof db?.transaction === 'function') {
+    await db.transaction(async (tx) => {
+      await seedImportBenchmarkRows(tx, ids, startedAt);
+    });
+  } else {
+    await electronRunTransaction?.(
+      createImportBenchmarkSetupStatements(ids, startedAt),
+      0,
+      electronTransactionOptions
+    );
+  }
+
+  const changes = createImportBenchmarkChanges(ids, startedAt);
+  const startedMs = nowMs();
+  let completedFileCount = 0;
+  let elapsedMs = 0;
+  try {
+    await applyManagedCacheBatch({
+      embeddingSetId: ids.embeddingSetId,
+      rootId: ids.rootId,
+      changes,
+    });
+    completedFileCount = fileCount;
+    elapsedMs = Math.max(0, nowMs() - startedMs);
+  } finally {
+    if (elapsedMs === 0) {
+      elapsedMs = Math.max(0, nowMs() - startedMs);
+    }
+    if (typeof db?.transaction === 'function') {
+      await db.transaction(async (tx) => {
+        await cleanupImportBenchmarkRows(tx, ids);
+      });
+    } else {
+      await electronRunTransaction?.(
+        createImportBenchmarkCleanupStatements(ids),
+        0,
+        electronTransactionOptions
+      );
+    }
+  }
+
+  return {
+    chunkCount: fileCount,
+    chunksPerSecond: elapsedMs > 0 ? (completedFileCount / elapsedMs) * 1000 : completedFileCount,
+    completedAt: nowIso(),
+    completedChunkCount: completedFileCount,
+    dimensions: 0,
+    elapsedMs,
+    mode: 'import-ceiling',
+    startedAt,
+  };
+}
+
 async function runEmbeddingCeilingBenchmark({
   embeddingHost,
   request,
@@ -888,6 +1114,9 @@ export async function runWorkspaceIndexStageBenchmark(
   }
   if (args.request.mode === 'embedding-ceiling') {
     return await runEmbeddingCeilingBenchmark(args);
+  }
+  if (args.request.mode === 'import-ceiling') {
+    return await runImportCeilingBenchmark(args);
   }
   if (args.request.mode === 'db-completion-ceiling') {
     if (typeof args.db?.transaction === 'function') {

@@ -235,6 +235,150 @@ describe('runWorkspaceIndexStageBenchmark', () => {
     );
   });
 
+  it('measures managed-cache import without chunking or embedding work', async () => {
+    const txQueryMock = vi.fn(async () => ({ rows: [] }));
+    const transactionSpy = vi.fn();
+    const transaction = async <T>(fn: (tx: IDatabase) => Promise<T>): Promise<T> => {
+      transactionSpy(fn);
+      return await fn({ query: txQueryMock } as unknown as IDatabase);
+    };
+    const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+
+    const result = await runWorkspaceIndexStageBenchmark({
+      applyManagedCacheBatch: applyManagedCacheBatchMock,
+      db: {
+        query: vi.fn(async () => ({ rows: [] })),
+        transaction,
+      },
+      request: {
+        chunkCount: 2,
+        mode: 'import-ceiling',
+      },
+      timing: {
+        nowIso: () => '2026-06-17T04:00:00.000Z',
+        nowMs: vi.fn().mockReturnValueOnce(400).mockReturnValueOnce(425),
+      },
+    });
+
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
+    expect(txQueryMock).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO embedding_sets'),
+      expect.any(Array)
+    );
+    expect(txQueryMock).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO roots'),
+      expect.any(Array)
+    );
+    expect(txQueryMock).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM roots'),
+      expect.any(Array)
+    );
+    expect(txQueryMock).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM collection_indexing_stats'),
+      expect.any(Array)
+    );
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledTimes(1);
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith({
+      embeddingSetId: expect.stringContaining('workspace-index-stage-import-ceiling'),
+      rootId: expect.stringContaining('workspace-index-stage-import-ceiling'),
+      changes: [
+        expect.objectContaining({
+          mode: 'import',
+          record: expect.objectContaining({
+            content: expect.stringContaining('Workspace Index import ceiling synthetic file 0'),
+            path: 'import-ceiling-0.md',
+          }),
+        }),
+        expect.objectContaining({
+          mode: 'import',
+          record: expect.objectContaining({
+            content: expect.stringContaining('Workspace Index import ceiling synthetic file 1'),
+            path: 'import-ceiling-1.md',
+          }),
+        }),
+      ],
+    });
+    expect(result).toMatchObject({
+      chunkCount: 2,
+      chunksPerSecond: 80,
+      completedChunkCount: 2,
+      dimensions: 0,
+      elapsedMs: 25,
+      mode: 'import-ceiling',
+    });
+  });
+
+  it('sets up and cleans import benchmark rows through the Electron transaction bridge', async () => {
+    const runTransactionMock = vi.fn<
+      (
+        statements: Array<{ params?: unknown[]; sql: string }>,
+        resultIndex: number,
+        options?: unknown
+      ) => Promise<{ rows?: unknown[] }>
+    >(async () => ({ rows: [] }));
+    const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+
+    const result = await runWorkspaceIndexStageBenchmark({
+      applyManagedCacheBatch: applyManagedCacheBatchMock,
+      db: null,
+      electronRunTransaction: runTransactionMock,
+      electronTransactionOptions: { priority: 'background' },
+      request: {
+        chunkCount: 2,
+        mode: 'import-ceiling',
+      },
+      timing: {
+        nowIso: () => '2026-06-17T04:00:00.000Z',
+        nowMs: vi.fn().mockReturnValueOnce(500).mockReturnValueOnce(550),
+      },
+    });
+
+    expect(runTransactionMock).toHaveBeenCalledTimes(2);
+    expect(runTransactionMock.mock.calls[0]?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sql: expect.stringContaining('INSERT INTO embedding_sets') }),
+        expect.objectContaining({ sql: expect.stringContaining('INSERT INTO roots') }),
+      ])
+    );
+    expect(runTransactionMock.mock.calls[1]?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sql: expect.stringContaining('DELETE FROM roots') }),
+        expect.objectContaining({
+          sql: expect.stringContaining('DELETE FROM collection_indexing_stats'),
+        }),
+        expect.objectContaining({ sql: expect.stringContaining('DELETE FROM embedding_sets') }),
+      ])
+    );
+    expect(runTransactionMock.mock.calls[0]?.[2]).toEqual({ priority: 'background' });
+    expect(runTransactionMock.mock.calls[1]?.[2]).toEqual({ priority: 'background' });
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      chunkCount: 2,
+      chunksPerSecond: 40,
+      completedChunkCount: 2,
+      dimensions: 0,
+      elapsedMs: 50,
+      mode: 'import-ceiling',
+    });
+  });
+
+  it('throws instead of silently degrading when import benchmark lacks managed-cache apply', async () => {
+    await expect(
+      runWorkspaceIndexStageBenchmark({
+        db: {
+          query: vi.fn(async () => ({ rows: [] })),
+          transaction: async <T>(fn: (tx: IDatabase) => Promise<T>): Promise<T> =>
+            await fn({ query: vi.fn(async () => ({ rows: [] })) } as unknown as IDatabase),
+        },
+        request: {
+          mode: 'import-ceiling',
+        },
+      })
+    ).rejects.toThrow(
+      "Workspace Index benchmark mode 'import-ceiling' requires managed-cache apply support."
+    );
+  });
+
   it('measures embedding through the hidden embedding host bridge and validates WebGPU metadata', async () => {
     const queryEmbeddingMock = vi.fn(async () => [0.1, 0.2, 0.3, 0.4]);
     const getStatusMock = vi.fn(async () => ({

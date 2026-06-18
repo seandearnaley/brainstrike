@@ -46,17 +46,11 @@ describe('workspace index benchmark script', () => {
       'chunking-ceiling',
       '--mode',
       'embedding-ceiling',
+      '--mode',
+      'import-ceiling',
     ]);
 
     expect(() => assertRunnableBenchmarkModes(options)).not.toThrow();
-  });
-
-  it('fails loudly instead of silently ignoring unimplemented stage benchmark modes', () => {
-    const options = parseArgs(['--mode', 'import-ceiling']);
-
-    expect(() => assertRunnableBenchmarkModes(options)).toThrow(
-      'requires the Electron stage benchmark harness'
-    );
   });
 
   it('finds the newest full-run evidence in Playwright blob-report output', async () => {

@@ -3,7 +3,11 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 
-type StageBenchmarkMode = 'chunking-ceiling' | 'db-completion-ceiling' | 'embedding-ceiling';
+type StageBenchmarkMode =
+  | 'chunking-ceiling'
+  | 'db-completion-ceiling'
+  | 'embedding-ceiling'
+  | 'import-ceiling';
 
 interface StageBenchmarkResult {
   chunkCount: number;
@@ -53,7 +57,8 @@ function parseMode(): StageBenchmarkMode {
   if (
     mode !== 'chunking-ceiling' &&
     mode !== 'db-completion-ceiling' &&
-    mode !== 'embedding-ceiling'
+    mode !== 'embedding-ceiling' &&
+    mode !== 'import-ceiling'
   ) {
     throw new Error(`Unsupported Workspace Index stage benchmark mode: ${mode}`);
   }
@@ -134,7 +139,9 @@ test.describe('Workspace Index stage benchmark', () => {
 
     expect(result.mode).toBe(mode);
     expect(result.chunkCount).toBe(request.chunkCount);
-    expect(result.dimensions).toBe(mode === 'chunking-ceiling' ? 0 : request.dimensions);
+    expect(result.dimensions).toBe(
+      mode === 'db-completion-ceiling' || mode === 'embedding-ceiling' ? request.dimensions : 0
+    );
     if (mode === 'chunking-ceiling') {
       expect(result.completedChunkCount).toBeGreaterThanOrEqual(request.chunkCount);
     } else {
