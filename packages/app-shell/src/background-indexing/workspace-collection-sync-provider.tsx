@@ -169,11 +169,19 @@ interface SyncLoopTarget {
   };
 }
 
+type ResolvedSyncLoopTarget = SyncLoopTarget & { dbRootId: string };
+
 function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarget[] {
   return handles.map((handle) => ({
     handle,
     scope: { mode: 'full' },
   }));
+}
+
+function hasResolvedDbRootId(
+  target: SyncLoopTarget & { dbRootId: string | null }
+): target is ResolvedSyncLoopTarget {
+  return target.dbRootId !== null;
 }
 
 export interface WorkspaceCollectionSyncProviderProps {
@@ -1081,15 +1089,9 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
 
-        const finalResolvedTargetIndex = resolvedTargets.findLastIndex(
-          (target) => target.dbRootId !== null
-        );
+        const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
 
-        for (let targetIndex = 0; targetIndex < resolvedTargets.length; targetIndex += 1) {
-          const target = resolvedTargets[targetIndex];
-          if (!target) {
-            continue;
-          }
+        for (const [targetIndex, target] of syncableTargets.entries()) {
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
@@ -1097,7 +1099,7 @@ export function WorkspaceCollectionSyncProvider({
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           await service
             .sync({
-              backfillMode: targetIndex === finalResolvedTargetIndex ? 'enqueue' : 'defer',
+              backfillMode: targetIndex === syncableTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,
               indexingPolicyPreset,

@@ -2159,7 +2159,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         </WorkspaceCollectionSyncProvider>
       );
 
-      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
 
       expect(
         syncSpy.mock.calls.map((call) => ({
@@ -2170,7 +2170,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       ).toEqual([
         { backfillMode: 'defer', dbRootId: 'db:/workspace/root', path: root1.path },
         { backfillMode: 'enqueue', dbRootId: 'db:/workspace/root2', path: root2.path },
-        { backfillMode: 'defer', dbRootId: null, path: root3.path },
       ]);
     } finally {
       syncSpy.mockRestore();
