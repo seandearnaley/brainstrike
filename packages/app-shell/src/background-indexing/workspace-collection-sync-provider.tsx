@@ -1174,7 +1174,7 @@ export function WorkspaceCollectionSyncProvider({
     const query =
       typeof electronQuery === 'function'
         ? (((sql: string, params?: unknown[]) =>
-            electronQuery(sql, params) as Promise<{
+            electronQuery(sql, params, BACKGROUND_DATABASE_WORK_OPTIONS) as Promise<{
               rows?: unknown[];
             }>) satisfies WorkspaceIndexDebugDbQuery)
         : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
@@ -1186,7 +1186,9 @@ export function WorkspaceCollectionSyncProvider({
       chunkStatsByRoot,
       chunkStatsByRootAndSet,
       jobQueue,
+      jobQueueReadiness,
       recentEmbeddingCompletions,
+      recentEmbeddingFailures,
       databaseScheduler,
       chunkingHostStatus,
       embeddingHostStatus,
@@ -1278,6 +1280,25 @@ export function WorkspaceCollectionSyncProvider({
       ),
       readWorkspaceIndexDebugRows(
         query,
+        `/* job_queue_readiness_query_marker */
+         SELECT state,
+                COUNT(*) FILTER (WHERE run_at <= $2::text)::int AS due_count,
+                COUNT(*) FILTER (WHERE run_at > $2::text)::int AS future_count,
+                MIN(run_at) AS oldest_run_at,
+                MAX(run_at) AS newest_run_at,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY state
+          ORDER BY state`,
+        [managedCollectionId, new Date().toISOString()],
+        accessIssues,
+        'job_queue_readiness'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
         `SELECT id, state, worker_id, attempts, updated_at, payload
            FROM job_queue
           WHERE job_type = 'embed_chunk'
@@ -1288,6 +1309,20 @@ export function WorkspaceCollectionSyncProvider({
         [managedCollectionId],
         accessIssues,
         'recent_embedding_completions'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* recent_embedding_failures_query_marker */
+         SELECT id, state, worker_id, attempts, max_attempts, run_at, leased_until, error, updated_at, payload
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND state = 'failed'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          ORDER BY updated_at DESC
+          LIMIT 20`,
+        [managedCollectionId],
+        accessIssues,
+        'recent_embedding_failures'
       ),
       readDatabaseSchedulerSnapshot(),
       readDebugHostStatus('chunkingHost'),
@@ -1310,8 +1345,10 @@ export function WorkspaceCollectionSyncProvider({
       expectedCounts,
       fileRecordsByRoot,
       jobQueue,
+      jobQueueReadiness,
       managedCollectionId,
       memorySample: readWorkspaceIndexMemorySample(),
+      recentEmbeddingFailures,
       roots,
       runtimeReadiness: {
         message: service ? null : createRuntimeUnavailableMessage(missingRuntimeDependencies),

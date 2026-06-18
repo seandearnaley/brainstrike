@@ -33,6 +33,31 @@ interface WorkspaceIndexEvidenceSample {
   snapshot: WorkspaceIndexDebugSnapshot;
 }
 
+type WorkspaceIndexFullRunEvidence =
+  | {
+      completedAt: string;
+      durationMs: number;
+      fatalLogMatches: string[];
+      requiredDevice: string;
+      roots: string[];
+      samples: WorkspaceIndexEvidenceSample[];
+      status: 'completed';
+      terminalCounts: ReturnType<typeof readTerminalCounts>;
+      terminalWorkerMetadata: Record<string, unknown>;
+    }
+  | {
+      completedAt: string;
+      durationMs: number;
+      error: { message: string; name: string; stack?: string };
+      fatalLogMatches: string[];
+      requiredDevice: string;
+      roots: string[];
+      samples: WorkspaceIndexEvidenceSample[];
+      status: 'failed';
+      terminalCounts?: ReturnType<typeof readTerminalCounts>;
+      terminalWorkerMetadata?: Record<string, unknown>;
+    };
+
 const ROOTS_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_ROOTS';
 const SINGLE_ROOT_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH';
 const DEVICE_ENV = 'BRAINSTRIKE_E2E_FULL_WORKSPACE_INDEX_DEVICE';
@@ -307,76 +332,117 @@ test.describe('Full Workspace Index run', () => {
     let lastProgressValue = -1;
     let stableTerminalPolls = 0;
 
-    while (Date.now() - startedAt < testInfo.timeout - POLL_MS) {
-      const snapshot = await readWorkspaceIndexSnapshot(page);
-      samples.push({
-        capturedAt: new Date().toISOString(),
-        elapsedMs: Date.now() - startedAt,
-        snapshot,
-      });
-      assertSnapshotIsHealthy(snapshot, requiredDevice);
+    const writeEvidence = async (evidence: WorkspaceIndexFullRunEvidence): Promise<void> => {
+      const evidenceJson = JSON.stringify(evidence, null, 2);
+      await writeFile(
+        testInfo.outputPath('full-workspace-index-evidence.json'),
+        evidenceJson,
+        'utf8'
+      );
+      const stableEvidencePath = resolveStableEvidencePath();
+      await mkdir(path.dirname(stableEvidencePath), { recursive: true });
+      await writeFile(stableEvidencePath, evidenceJson, 'utf8');
+    };
 
-      const progressValue =
-        sumRows(snapshot.fileRecordsByRoot, 'file_count') +
-        sumRows(snapshot.fileRecordsByRoot, 'chunked_file_count') +
-        sumRows(snapshot.chunkStatsByRoot, 'embedded_chunk_count');
-      if (progressValue > lastProgressValue) {
-        lastProgressValue = progressValue;
-        lastProgressAt = Date.now();
-      } else if (
-        Date.now() - lastProgressAt > noProgressTimeoutMs &&
-        !isTerminalSnapshot(snapshot)
-      ) {
-        throw new Error(`Workspace Index made no progress for ${noProgressTimeoutMs}ms`);
-      }
-
-      if (isTerminalSnapshot(snapshot)) {
-        stableTerminalPolls += 1;
-        if (stableTerminalPolls >= 2) {
-          break;
-        }
-      } else {
-        stableTerminalPolls = 0;
-      }
-
+    const collectFatalLogs = async (): Promise<void> => {
       const logs = [...(await getRendererLogRecords(page)), ...(await getMainBufferedLogs(page))]
         .map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry)))
         .filter((entry) => FATAL_LOG_PATTERN.test(entry));
       fatalLogMatches.push(...logs);
-      if (fatalLogMatches.length > 0) {
-        throw new Error('Workspace Index fatal log pattern detected during full run');
+    };
+
+    try {
+      while (Date.now() - startedAt < testInfo.timeout - POLL_MS) {
+        const snapshot = await readWorkspaceIndexSnapshot(page);
+        samples.push({
+          capturedAt: new Date().toISOString(),
+          elapsedMs: Date.now() - startedAt,
+          snapshot,
+        });
+        assertSnapshotIsHealthy(snapshot, requiredDevice);
+
+        await collectFatalLogs();
+        if (fatalLogMatches.length > 0) {
+          throw new Error('Workspace Index fatal log pattern detected during full run');
+        }
+
+        const progressValue =
+          sumRows(snapshot.fileRecordsByRoot, 'file_count') +
+          sumRows(snapshot.fileRecordsByRoot, 'chunked_file_count') +
+          sumRows(snapshot.chunkStatsByRoot, 'embedded_chunk_count');
+        if (progressValue > lastProgressValue) {
+          lastProgressValue = progressValue;
+          lastProgressAt = Date.now();
+        } else if (
+          Date.now() - lastProgressAt > noProgressTimeoutMs &&
+          !isTerminalSnapshot(snapshot)
+        ) {
+          throw new Error(`Workspace Index made no progress for ${noProgressTimeoutMs}ms`);
+        }
+
+        if (isTerminalSnapshot(snapshot)) {
+          stableTerminalPolls += 1;
+          if (stableTerminalPolls >= 2) {
+            break;
+          }
+        } else {
+          stableTerminalPolls = 0;
+        }
+
+        await page.waitForTimeout(POLL_MS);
       }
 
-      await page.waitForTimeout(POLL_MS);
-    }
+      const finalSnapshot = samples.at(-1)?.snapshot;
+      if (!(finalSnapshot && isTerminalSnapshot(finalSnapshot))) {
+        throw new Error('Workspace Index did not reach terminal full-run completion');
+      }
+      const actualWorkerMetadata = getActualWorkerMetadata(finalSnapshot);
+      if (!actualWorkerMetadata) {
+        throw new Error('Workspace Index completed without actual embedding worker metadata');
+      }
 
-    const finalSnapshot = samples.at(-1)?.snapshot;
-    if (!(finalSnapshot && isTerminalSnapshot(finalSnapshot))) {
-      throw new Error('Workspace Index did not reach terminal full-run completion');
+      await writeEvidence({
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt,
+        fatalLogMatches,
+        requiredDevice,
+        roots,
+        samples,
+        status: 'completed',
+        terminalCounts: readTerminalCounts(finalSnapshot),
+        terminalWorkerMetadata: actualWorkerMetadata,
+      });
+    } catch (error) {
+      try {
+        await collectFatalLogs();
+      } catch {
+        // Ignore log collection failures so the original assertion remains the thrown error.
+      }
+      const finalSnapshot = samples.at(-1)?.snapshot;
+      await writeEvidence({
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt,
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          name: error instanceof Error ? error.name : 'Error',
+          ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+        },
+        fatalLogMatches,
+        requiredDevice,
+        roots,
+        samples,
+        status: 'failed',
+        ...(finalSnapshot ? { terminalCounts: readTerminalCounts(finalSnapshot) } : {}),
+        ...(finalSnapshot && getActualWorkerMetadata(finalSnapshot)
+          ? {
+              terminalWorkerMetadata: getActualWorkerMetadata(finalSnapshot) as Record<
+                string,
+                unknown
+              >,
+            }
+          : {}),
+      });
+      throw error;
     }
-    const actualWorkerMetadata = getActualWorkerMetadata(finalSnapshot);
-    if (!actualWorkerMetadata) {
-      throw new Error('Workspace Index completed without actual embedding worker metadata');
-    }
-
-    const evidence = {
-      completedAt: new Date().toISOString(),
-      durationMs: Date.now() - startedAt,
-      fatalLogMatches,
-      requiredDevice,
-      roots,
-      samples,
-      terminalCounts: readTerminalCounts(finalSnapshot),
-      terminalWorkerMetadata: actualWorkerMetadata,
-    };
-    const evidenceJson = JSON.stringify(evidence, null, 2);
-    await writeFile(
-      testInfo.outputPath('full-workspace-index-evidence.json'),
-      evidenceJson,
-      'utf8'
-    );
-    const stableEvidencePath = resolveStableEvidencePath();
-    await mkdir(path.dirname(stableEvidencePath), { recursive: true });
-    await writeFile(stableEvidencePath, evidenceJson, 'utf8');
   });
 });

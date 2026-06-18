@@ -2503,7 +2503,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('includes chunked records and chunk stats grouped by root and embedding set in debug snapshots', async () => {
     readFullTreeWithOptionsMock.mockResolvedValue([]);
-    const queryMock = vi.fn(async (sql: string) => {
+    const queryMock = vi.fn(async (sql: string, _params?: unknown[], _options?: unknown) => {
       if (sql.includes('FROM roots')) {
         return { rows: [] };
       }
@@ -2579,6 +2579,94 @@ describe('WorkspaceCollectionSyncProvider', () => {
         expect.objectContaining({
           embedding_set_id: 'workspace-index-set',
           root_id: 'root-id-1',
+        }),
+      ]);
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
+  it('includes failed job details and queue readiness in debug snapshots', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    const queryMock = vi.fn(async (sql: string, _params?: unknown[], _options?: unknown) => {
+      if (sql.includes('job_queue_readiness_query_marker')) {
+        return {
+          rows: [
+            {
+              due_count: 3,
+              future_count: 2,
+              newest_run_at: '2026-06-18T01:40:00.000Z',
+              oldest_run_at: '2026-06-18T01:36:00.000Z',
+              state: 'queued',
+            },
+          ],
+        };
+      }
+      if (sql.includes('recent_embedding_failures_query_marker')) {
+        return {
+          rows: [
+            {
+              attempts: 3,
+              error: 'Embedding dimension mismatch',
+              id: 'job-failed-1',
+              max_attempts: 3,
+              payload: { chunkId: 'chunk-1' },
+              run_at: '2026-06-18T01:39:00.000Z',
+              state: 'failed',
+              updated_at: '2026-06-18T01:39:01.000Z',
+              worker_id: 'embed-worker-test',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          query: queryMock,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const debugApi = (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+            snapshot: () => Promise<{
+              jobQueueReadiness?: unknown[];
+              recentEmbeddingFailures?: unknown[];
+            }>;
+          };
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+      const snapshot = await debugApi?.snapshot();
+
+      expect(
+        queryMock.mock.calls.every(([, , options]) => {
+          const priority = (options as { priority?: unknown } | undefined)?.priority;
+          return priority === 'background';
+        })
+      ).toBe(true);
+      expect(snapshot?.jobQueueReadiness).toEqual([
+        expect.objectContaining({
+          due_count: 3,
+          future_count: 2,
+          state: 'queued',
+        }),
+      ]);
+      expect(snapshot?.recentEmbeddingFailures).toEqual([
+        expect.objectContaining({
+          error: 'Embedding dimension mismatch',
+          id: 'job-failed-1',
+          payload: { chunkId: 'chunk-1' },
         }),
       ]);
     } finally {

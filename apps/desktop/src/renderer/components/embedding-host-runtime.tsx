@@ -42,6 +42,11 @@ const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
   'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
 let embeddingQueueBootstrapPromise: Promise<void> | null = null;
 
+interface HydratedEmbeddingWorkerPreferences {
+  readonly devicePref: EmbeddingDeviceType;
+  readonly reinitEveryN: number;
+}
+
 async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
   if (!embeddingQueueBootstrapPromise) {
     embeddingQueueBootstrapPromise = import('../create-embedding-queue')
@@ -249,6 +254,10 @@ function createBackendMismatchError(metadata: EmbeddingHostRuntimeMetadata): str
   return `Embedding backend mismatch: selected ${metadata.selectedDevicePreference}, actual ${actual.device}${fallbackSuffix}.`;
 }
 
+function isRecoverableEmbeddingWorkerFatalError(message: string): boolean {
+  return /WebGPU device lost|device lost/i.test(message);
+}
+
 function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): Error {
   const details = [
     detected.recommendationReason,
@@ -264,12 +273,15 @@ function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): E
   );
 }
 
-async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceType> {
+async function resolveHydratedEmbeddingWorkerPreferences(): Promise<HydratedEmbeddingWorkerPreferences> {
   const vectorPreferences = await ensureVectorPreferencesHydrated({
     forceReload: true,
   });
   if (vectorPreferences.devicePrefConfigured) {
-    return vectorPreferences.devicePref;
+    return {
+      devicePref: vectorPreferences.devicePref,
+      reinitEveryN: vectorPreferences.reinitEveryN,
+    };
   }
 
   const detected = await detectDeviceCapabilities();
@@ -283,7 +295,14 @@ async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceT
   if (vectorPreferences.devicePref !== detectedDevice) {
     useVectorPreferencesStore.getState().setDetectedDevicePref(detectedDevice);
   }
-  return detectedDevice;
+  return {
+    devicePref: detectedDevice,
+    reinitEveryN: vectorPreferences.reinitEveryN,
+  };
+}
+
+async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceType> {
+  return (await resolveHydratedEmbeddingWorkerPreferences()).devicePref;
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {
@@ -569,7 +588,8 @@ async function startEmbeddingHostWorkerRuntime({
 
   try {
     await ensureEmbeddingQueueBootstrapLoaded();
-    const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
+    const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
+    const hydratedDevicePref = hydratedPreferences.devicePref;
     embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null);
     const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
@@ -591,6 +611,7 @@ async function startEmbeddingHostWorkerRuntime({
         });
       },
       onWorkerActivityChange,
+      reinitEveryN: hydratedPreferences.reinitEveryN,
       stopOnFatalLocalError: true,
       streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     });
@@ -645,12 +666,7 @@ export function EmbeddingHostRuntime(): null {
     }
 
     let disposed = false;
-    const onFatalError = createFatalErrorHandler(
-      runtimeIdRef,
-      embeddingRuntimeRef,
-      fatalErrorRef,
-      activeRef
-    );
+    let restartAfterFatalErrorPromise: Promise<void> | null = null;
     const onWorkerActivityChange = createActivityChangeHandler(
       runtimeIdRef,
       embeddingRuntimeRef,
@@ -675,7 +691,12 @@ export function EmbeddingHostRuntime(): null {
       });
 
     const stopWorker = (
-      reason: 'command-reset' | 'command-stop' | 'dispose' | 'post-start-dispose',
+      reason:
+        | 'command-reset'
+        | 'command-stop'
+        | 'dispose'
+        | 'fatal-worker-restart'
+        | 'post-start-dispose',
       reportRuntimeId: string = runtimeIdRef.current
     ): Promise<void> => {
       if (stopPromiseRef.current) {
@@ -710,6 +731,44 @@ export function EmbeddingHostRuntime(): null {
       });
       stopPromiseRef.current = trackedStopPromise;
       return trackedStopPromise;
+    };
+
+    const restartAfterFatalError = (message: string): void => {
+      if (restartAfterFatalErrorPromise || disposed) {
+        return;
+      }
+
+      restartAfterFatalErrorPromise = (async () => {
+        logger.warn('Restarting embedding host worker after recoverable fatal error', {
+          error: message,
+          runtimeId: runtimeIdRef.current,
+        });
+        await stopWorker('fatal-worker-restart');
+        await startWorker();
+      })()
+        .catch((error: unknown) => {
+          const restartError = error instanceof Error ? error.message : String(error);
+          logger.error('Embedding host worker restart after fatal error failed', {
+            error: restartError,
+            runtimeId: runtimeIdRef.current,
+          });
+          fatalErrorRef.current = restartError;
+          reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+            embeddingRuntime: embeddingRuntimeRef.current,
+            lastError: restartError,
+          });
+        })
+        .finally(() => {
+          restartAfterFatalErrorPromise = null;
+        });
+    };
+
+    const onFatalError = (error: Error): void => {
+      createFatalErrorHandler(runtimeIdRef, embeddingRuntimeRef, fatalErrorRef, activeRef)(error);
+      if (!isRecoverableEmbeddingWorkerFatalError(error.message)) {
+        return;
+      }
+      restartAfterFatalError(error.message);
     };
 
     const resetWorker = async (nextRuntimeId: string): Promise<void> => {

@@ -39,8 +39,10 @@ export interface WorkspaceIndexDebugSnapshot {
   expectedCounts: WorkspaceIndexExpectedFileCount[];
   fileRecordsByRoot: unknown[];
   jobQueue: unknown[];
+  jobQueueReadiness: unknown[];
   managedCollectionId: string | null;
   memorySample: unknown;
+  recentEmbeddingFailures: unknown[];
   roots: unknown[];
   runtimeReadiness: unknown;
   selectedDevicePreference: unknown;
