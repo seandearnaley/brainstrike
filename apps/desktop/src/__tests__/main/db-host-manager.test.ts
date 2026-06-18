@@ -100,6 +100,7 @@ function restoreEnvValue(key: string, value: string | undefined): void {
 
 describe('DbHostManager', () => {
   const originalNodeEnv = process.env['NODE_ENV'];
+  const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
   const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
 
   beforeEach(() => {
@@ -110,12 +111,14 @@ describe('DbHostManager', () => {
     loggerErrorMock.mockReset();
     loggerInfoMock.mockReset();
     loggerWarnMock.mockReset();
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_PROFILE');
     Reflect.deleteProperty(process.env, 'SECRET_TOKEN');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
   });
 
   afterEach(() => {
     restoreEnvValue('NODE_ENV', originalNodeEnv);
+    restoreEnvValue('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
     restoreEnvValue('BRAINSTRIKE_SERIALIZE_PGLITE_INIT', originalSerializePgliteInit);
   });
 
@@ -173,6 +176,25 @@ describe('DbHostManager', () => {
       expect.objectContaining({
         env: expect.objectContaining({
           BRAINSTRIKE_DB_ROOT_PATH: expectedDbRootPath,
+        }),
+        serviceName: 'brainstrike-db-host',
+      })
+    );
+  });
+
+  it('forwards the explicit database profile to the utility DB host', async () => {
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'branch-main-wt-155ffb69';
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    void manager.getDiagnostics();
+
+    expect(forkMock).toHaveBeenCalledWith(
+      '/mock/db-host-entry.js',
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          BRAINSTRIKE_DB_PROFILE: 'branch-main-wt-155ffb69',
         }),
         serviceName: 'brainstrike-db-host',
       })
