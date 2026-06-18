@@ -1102,7 +1102,6 @@ export function WorkspaceCollectionSyncProvider({
       isAccessLoading,
       isTreeRestorationReady,
       managedCollectionId,
-      missingRuntimeDependencies,
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,
@@ -1458,30 +1457,6 @@ export function WorkspaceCollectionSyncProvider({
     [backgroundDb]
   );
 
-  const workspaceIndexDebugApi = useMemo<WorkspaceIndexDebugApi>(
-    () =>
-      Object.freeze({
-        benchmarkStage: benchmarkDebugStage,
-        configure: ({ policyPreset }: Parameters<WorkspaceIndexDebugApi['configure']>[0]) => {
-          if (policyPreset) {
-            setIndexingPolicyPreset(policyPreset);
-          }
-        },
-        countExpected: countExpectedDebugRoots,
-        snapshot: readDebugSnapshot,
-        triggerFullSync: () => {
-          triggerSync({ mode: 'full' });
-        },
-      }),
-    [
-      benchmarkDebugStage,
-      countExpectedDebugRoots,
-      readDebugSnapshot,
-      setIndexingPolicyPreset,
-      triggerSync,
-    ]
-  );
-
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -1495,13 +1470,32 @@ export function WorkspaceCollectionSyncProvider({
       window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = undefined;
       return;
     }
+    const workspaceIndexDebugApi = Object.freeze<WorkspaceIndexDebugApi>({
+      benchmarkStage: benchmarkDebugStage,
+      configure: ({ policyPreset }) => {
+        if (policyPreset) {
+          setIndexingPolicyPreset(policyPreset);
+        }
+      },
+      countExpected: countExpectedDebugRoots,
+      snapshot: readDebugSnapshot,
+      triggerFullSync: () => {
+        triggerSync({ mode: 'full' });
+      },
+    });
     window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = workspaceIndexDebugApi;
     return () => {
       if (window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === workspaceIndexDebugApi) {
         window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = undefined;
       }
     };
-  }, [workspaceIndexDebugApi]);
+  }, [
+    benchmarkDebugStage,
+    countExpectedDebugRoots,
+    readDebugSnapshot,
+    setIndexingPolicyPreset,
+    triggerSync,
+  ]);
 
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
 
