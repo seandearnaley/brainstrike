@@ -2913,6 +2913,73 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.ensureEmbeddingRuntimeStarted).not.toHaveBeenCalled();
   });
 
+  it('cancels the previously tracked backfill when hosted provider access later rejects', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    const deps = createDeps({
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            rootId: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn(async () => undefined),
+        getCoverageForSet: vi.fn(async () => ({
+          totalChunks: 10,
+          chunksWithEmbeddingsForSet: 1,
+        })),
+        insertMany: vi.fn(async () => []),
+        update: vi.fn(async () => null),
+      },
+      validateHostedProviderAccess: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Hosted provider API key is missing')),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+    expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        lastError: 'Hosted provider API key is missing',
+      })
+    );
+  });
+
   it('skips hosted-provider validation for local collections and starts the runtime directly', async () => {
     const deps = createDeps({
       embeddingSetsRepository: {

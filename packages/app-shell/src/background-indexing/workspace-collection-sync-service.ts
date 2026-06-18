@@ -953,6 +953,7 @@ export class WorkspaceCollectionSyncService {
       if (this.isCancelled(currentRunId) || isAbortError(error)) {
         return;
       }
+      await this.cancelTrackedBackfill(previousTrackedBackfill);
       this.handleSyncFailure({
         collection: context.collection,
         error,
