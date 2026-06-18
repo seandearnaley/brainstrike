@@ -903,6 +903,17 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
       const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
       return getDesktopEmbeddingBackfillsInFlight();
     },
+    getDimensionIndexMaintenanceSnapshot: async () => {
+      const { listDimensionIndexMaintenance, listDimensionIndexSuspensions } = await import(
+        '@brainstrike/db'
+      );
+      const db = await getDbHostManager().getDatabase();
+      const [maintenance, suspensions] = await Promise.all([
+        listDimensionIndexMaintenance(db),
+        listDimensionIndexSuspensions(db),
+      ]);
+      return { maintenance, suspensions };
+    },
   },
   llmHost: llmHostManager,
   logging: {

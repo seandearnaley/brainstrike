@@ -23,6 +23,12 @@ export interface DimensionIndexMaintenanceRow {
   readonly strategy: DimensionIndexMaintenanceStrategy;
 }
 
+export interface DimensionIndexSuspensionRow {
+  readonly dimension: number;
+  readonly reason: string;
+  readonly suspendedAt: string;
+}
+
 export interface RequestDimensionIndexMaintenanceInput {
   readonly dimension: number;
   readonly now?: () => Date;
@@ -96,6 +102,12 @@ interface MaintenanceRowRecord {
   readonly started_at: string | null;
   readonly state: DimensionIndexMaintenanceState;
   readonly strategy: DimensionIndexMaintenanceStrategy;
+}
+
+interface SuspensionRowRecord {
+  readonly dimension: number;
+  readonly reason: string;
+  readonly suspended_at: string;
 }
 
 interface JobStateCountRow {
@@ -232,6 +244,21 @@ export async function listDimensionIndexMaintenance(
       ORDER BY dimension`
   );
   return result.rows.map(mapMaintenanceRow);
+}
+
+export async function listDimensionIndexSuspensions(
+  db: DimensionIndexMaintenanceDb
+): Promise<readonly DimensionIndexSuspensionRow[]> {
+  const result = await db.query<SuspensionRowRecord>(
+    `SELECT dimension, reason, suspended_at
+       FROM embedding_dimension_index_suspensions
+      ORDER BY dimension`
+  );
+  return result.rows.map((row) => ({
+    dimension: row.dimension,
+    reason: row.reason,
+    suspendedAt: row.suspended_at,
+  }));
 }
 
 export async function requestDimensionIndexMaintenance(

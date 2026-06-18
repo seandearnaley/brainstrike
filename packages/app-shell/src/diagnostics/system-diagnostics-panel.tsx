@@ -67,6 +67,22 @@ interface RuntimeHostPlatformStatus {
   readonly state: RuntimeHostPlatformState;
 }
 
+type DimensionIndexMaintenanceState = 'failed' | 'pending' | 'running' | 'succeeded';
+
+interface DimensionIndexMaintenanceRow {
+  readonly dimension: number;
+  readonly lastError: string | null;
+  readonly reason: string;
+  readonly state: DimensionIndexMaintenanceState;
+  readonly strategy: 'concurrent' | 'regular';
+}
+
+interface DimensionIndexSuspensionRow {
+  readonly dimension: number;
+  readonly reason: string;
+  readonly suspendedAt: string;
+}
+
 interface DesktopPlatformDiagnosticsSnapshot {
   readonly collectedAt: string;
   readonly crashRecovery?: {
@@ -80,6 +96,10 @@ interface DesktopPlatformDiagnosticsSnapshot {
   readonly indexing?: {
     readonly activeBackfills: readonly unknown[];
     readonly databaseWork: unknown;
+    readonly dimensionIndexMaintenance?: {
+      readonly maintenance: readonly DimensionIndexMaintenanceRow[];
+      readonly suspensions: readonly DimensionIndexSuspensionRow[];
+    };
   };
   readonly llmHost: RuntimeHostPlatformStatus;
   readonly migration?: {
@@ -346,6 +366,41 @@ function getCrashRecoveryLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): st
   return formatCount(crashRecovery.rendererReloadAttemptCount, 'reload', 'reloads');
 }
 
+function getDimensionMaintenanceLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): string {
+  const dimensionIndexMaintenance = snapshot.indexing?.dimensionIndexMaintenance;
+  if (!dimensionIndexMaintenance) {
+    return 'unavailable';
+  }
+  const pending = dimensionIndexMaintenance.maintenance.filter(
+    (row) => row.state === 'pending'
+  ).length;
+  const running = dimensionIndexMaintenance.maintenance.filter(
+    (row) => row.state === 'running'
+  ).length;
+  const failed = dimensionIndexMaintenance.maintenance.filter(
+    (row) => row.state === 'failed'
+  ).length;
+  const suspended = dimensionIndexMaintenance.suspensions.length;
+  const active = pending + running + failed + suspended;
+  if (active === 0) {
+    return 'idle';
+  }
+  const labels: string[] = [];
+  if (failed > 0) {
+    labels.push(formatCount(failed, 'failed', 'failed'));
+  }
+  if (running > 0) {
+    labels.push(formatCount(running, 'running', 'running'));
+  }
+  if (pending > 0) {
+    labels.push(formatCount(pending, 'pending', 'pending'));
+  }
+  if (suspended > 0) {
+    labels.push(formatCount(suspended, 'suspended', 'suspended'));
+  }
+  return labels.join(' / ');
+}
+
 function DesktopPlatformStatusSection({
   snapshot,
 }: {
@@ -388,6 +443,10 @@ function DesktopPlatformStatusSection({
           <span className="font-medium">
             {formatCount(snapshot.indexing?.activeBackfills.length ?? 0, 'active', 'active')}
           </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Dimension Maintenance</span>
+          <span className="font-medium">{getDimensionMaintenanceLabel(snapshot)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Migration</span>

@@ -4,6 +4,7 @@ import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue } from '../src/queue/job-queue.js';
 import {
   listDimensionIndexMaintenance,
+  listDimensionIndexSuspensions,
   reconcileSuspendedDimensionIndexMaintenance,
   requestDimensionIndexMaintenance,
   runNextDimensionIndexMaintenance,
@@ -134,6 +135,28 @@ describe('dimension index maintenance service', () => {
       `memory://dimension-index-maintenance-service-${crypto.randomUUID()}`
     );
     await migrate(db);
+  });
+
+  it('lists active dimension index suspensions for diagnostics', async () => {
+    await db.query(
+      `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
+       VALUES (768, 'manual-backfill', $1),
+              (384, 'background-indexing', $2)`,
+      [NOW_ISO, RECENT_ISO]
+    );
+
+    await expect(listDimensionIndexSuspensions(db)).resolves.toEqual([
+      {
+        dimension: 384,
+        reason: 'background-indexing',
+        suspendedAt: RECENT_ISO,
+      },
+      {
+        dimension: 768,
+        reason: 'manual-backfill',
+        suspendedAt: NOW_ISO,
+      },
+    ]);
   });
 
   it('requests maintenance idempotently and keeps a pending retry visible', async () => {
