@@ -92,6 +92,18 @@ describe('background-indexing-policy', () => {
     ).toBe(false);
     expect(
       policy.shouldTraverseDirectory({
+        directoryName: 'worktrees',
+        relativePath: '.claude/worktrees',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'dual-state-refactor',
+        relativePath: '.claude/worktrees/dual-state-refactor',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
         directoryName: 'dist',
         relativePath: 'dist',
       })

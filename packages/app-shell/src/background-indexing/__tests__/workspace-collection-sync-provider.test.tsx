@@ -2674,6 +2674,112 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('exposes a lightweight debug summary without full file lists', async () => {
+    readFullTreeWithOptionsMock.mockImplementation(async () => {
+      throw new Error('summary must not read the full file tree');
+    });
+    const queryMock = vi.fn(async (sql: string, _params?: unknown[], _options?: unknown) => {
+      if (sql.includes('workspace_index_summary_roots_marker')) {
+        return {
+          rows: [{ id: 'root-id-1', path: '/workspace/root', status: 'active' }],
+        };
+      }
+      if (sql.includes('workspace_index_summary_file_records_marker')) {
+        return {
+          rows: [
+            {
+              chunked_file_count: 10,
+              file_count: 10,
+              root_id: 'root-id-1',
+              unchunked_file_count: 0,
+            },
+          ],
+        };
+      }
+      if (sql.includes('workspace_index_summary_chunks_marker')) {
+        return {
+          rows: [
+            {
+              chunk_count: 42,
+              embedded_chunk_count: 40,
+              embedding_set_id: 'workspace-index-set',
+              pending_chunk_count: 2,
+              root_id: 'root-id-1',
+            },
+          ],
+        };
+      }
+      if (sql.includes('workspace_index_summary_job_queue_marker')) {
+        return {
+          rows: [
+            {
+              count: 2,
+              job_type: 'embed_chunk',
+              queue: 'embeddings',
+              state: 'queued',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          query: queryMock,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const debugApi = (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+            summary: () => Promise<{
+              chunkStatsByRootAndSet?: unknown[];
+              fileRecordsByRoot?: unknown[];
+              jobQueue?: unknown[];
+              roots?: unknown[];
+            }>;
+          };
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+      const summary = await debugApi?.summary();
+
+      expect(summary?.roots).toEqual([expect.objectContaining({ id: 'root-id-1' })]);
+      expect(summary?.fileRecordsByRoot).toEqual([
+        expect.objectContaining({ file_count: 10, root_id: 'root-id-1' }),
+      ]);
+      expect(summary?.chunkStatsByRootAndSet).toEqual([
+        expect.objectContaining({
+          chunk_count: 42,
+          embedded_chunk_count: 40,
+          root_id: 'root-id-1',
+        }),
+      ]);
+      expect(summary?.jobQueue).toEqual([expect.objectContaining({ count: 2, state: 'queued' })]);
+      expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+      expect(
+        queryMock.mock.calls.some(([sql]) => sql.includes('chunked_records_by_root_query_marker'))
+      ).toBe(false);
+      expect(
+        queryMock.mock.calls.every(([, , options]) => {
+          const priority = (options as { priority?: unknown } | undefined)?.priority;
+          return priority === 'background';
+        })
+      ).toBe(true);
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
   it('exposes the workspace index debug API in desktop E2E mode without renderer process env', () => {
     vi.stubEnv('NODE_ENV', 'production');
     (

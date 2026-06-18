@@ -676,20 +676,35 @@ describe('applyManagedCacheBatch', () => {
     await expect(fileRecordRepository.findById('prefix-trailing-slash-child')).resolves.toBeNull();
   });
 
-  it('rejects invalidation batches that exceed the PostgreSQL parameter limit', async () => {
-    const tooManyTargets = Array.from({ length: 16_384 }, (_, index) => ({
+  it('splits large invalidation batches into bounded target queries', async () => {
+    const queryMock = vi.fn(async () => ({ rows: [] }));
+    const fakeDb = {
+      transaction: async (callback: (tx: { query: typeof queryMock }) => Promise<unknown>) =>
+        await callback({ query: queryMock }),
+    };
+    const targets = Array.from({ length: 501 }, (_, index) => ({
       rootId: 'root-fixture',
       relativePath: `src/${index}.ts`,
     }));
 
     await expect(
-      invalidateManagedCacheEntriesByIdentity(db, {
+      invalidateManagedCacheEntriesByIdentity(fakeDb, {
         embeddingSetId: 'set-1',
-        targets: tooManyTargets,
+        targets,
       })
-    ).rejects.toThrow(
-      'Managed cache invalidation exceeds the PostgreSQL parameter limit. Received 16384 targets; maximum supported invalidation target count is 16383.'
+    ).resolves.toEqual({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    });
+
+    const targetMatchQueries = queryMock.mock.calls.filter(([sql]) =>
+      sql.includes('WITH targets(mode, root_id, relative_path, expected_file_record_id)')
     );
+    expect(targetMatchQueries.length).toBeGreaterThan(1);
+    for (const [, params] of targetMatchQueries) {
+      expect(params?.length ?? 0).toBeLessThanOrEqual(1 + 250 * 4);
+    }
   });
 
   it('invalidates file records, cascades chunk deletion, refreshes stats, and returns deleted ids', async () => {

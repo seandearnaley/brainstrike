@@ -72,9 +72,19 @@ interface QueryLike {
 }
 
 const POSTGRES_PARAMETER_LIMIT = 65_535;
+const MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY = 250;
+const MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY = 5000;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function chunkArray<T>(values: readonly T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 /**
@@ -508,25 +518,29 @@ async function cancelQueuedOrRunningEmbeddingJobsForChunks(
   }
 
   const updatedAt = new Date().toISOString();
-  const result = await tx.query<{ count: string }>(
-    `WITH canceled AS (
-       UPDATE job_queue
-          SET state = 'canceled',
-              lease_token = NULL,
-              leased_until = NULL,
-              worker_id = NULL,
-              error = 'Managed-cache ${operation} deleted chunk ' || chunk_id || ' before embedding.',
-              updated_at = $1
-        WHERE job_type = 'embed_chunk'
-          AND state IN ('queued', 'running')
-          AND chunk_id = ANY($2::text[])
-        RETURNING 1
-     )
-     SELECT COUNT(*)::text AS count
-       FROM canceled`,
-    [updatedAt, [...chunkIds]]
-  );
-  return Number(result.rows[0]?.count ?? 0);
+  let canceledCount = 0;
+  for (const chunkIdBatch of chunkArray(chunkIds, MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY)) {
+    const result = await tx.query<{ count: string }>(
+      `WITH canceled AS (
+         UPDATE job_queue
+            SET state = 'canceled',
+                lease_token = NULL,
+                leased_until = NULL,
+                worker_id = NULL,
+                error = 'Managed-cache ${operation} deleted chunk ' || chunk_id || ' before embedding.',
+                updated_at = $1
+          WHERE job_type = 'embed_chunk'
+            AND state IN ('queued', 'running')
+            AND chunk_id = ANY($2::text[])
+          RETURNING 1
+       )
+       SELECT COUNT(*)::text AS count
+         FROM canceled`,
+      [updatedAt, chunkIdBatch]
+    );
+    canceledCount += Number(result.rows[0]?.count ?? 0);
+  }
+  return canceledCount;
 }
 
 interface NormalizedManagedCacheInvalidationTarget {
@@ -682,24 +696,41 @@ export async function invalidateManagedCacheEntriesByIdentity(
   }
 
   return await db.transaction(async (tx) => {
-    const matches = await listInvalidationMatches(tx, args.embeddingSetId, targets);
-    const canceledEmbeddingJobCount = await cancelQueuedOrRunningEmbeddingJobsForChunks(
-      tx,
-      matches.chunkIds,
-      'invalidation'
-    );
+    const deletedChunkIds = new Set<string>();
+    const deletedFileRecordIds = new Set<string>();
+    let canceledEmbeddingJobCount = 0;
 
-    if (matches.fileRecordIds.length > 0) {
-      await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [
+    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+      const matches = await listInvalidationMatches(tx, args.embeddingSetId, targetBatch);
+      canceledEmbeddingJobCount += await cancelQueuedOrRunningEmbeddingJobsForChunks(
+        tx,
+        matches.chunkIds,
+        'invalidation'
+      );
+
+      for (const chunkId of matches.chunkIds) {
+        deletedChunkIds.add(chunkId);
+      }
+      for (const fileRecordId of matches.fileRecordIds) {
+        deletedFileRecordIds.add(fileRecordId);
+      }
+
+      for (const fileRecordIds of chunkArray(
         matches.fileRecordIds,
-      ]);
+        MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY
+      )) {
+        await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [
+          fileRecordIds,
+        ]);
+      }
     }
+
     await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
 
     return {
       canceledEmbeddingJobCount,
-      deletedChunkIds: matches.chunkIds,
-      deletedFileRecordIds: matches.fileRecordIds,
+      deletedChunkIds: [...deletedChunkIds].sort(),
+      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
     };
   });
 }

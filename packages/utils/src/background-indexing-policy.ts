@@ -188,6 +188,9 @@ function isWithinSizeLimit(fileSize: number | undefined): boolean {
 }
 
 function shouldSkipBalancedDirectory(relativePath: string): boolean {
+  if (shouldSkipClaudeWorktreeDirectory(relativePath)) {
+    return true;
+  }
   return shouldSkipDirectoryBySegment(relativePath, BALANCED_EXCLUDED_DIRECTORY_SEGMENTS);
 }
 
@@ -221,11 +224,15 @@ function shouldSkipDirectoryBySegment(
 }
 
 function shouldSkipFullRootDirectory(relativePath: string): boolean {
-  const normalizedPath = relativePath.toLowerCase();
-  if (normalizedPath === '.claude/worktrees' || normalizedPath.startsWith('.claude/worktrees/')) {
+  if (shouldSkipClaudeWorktreeDirectory(relativePath)) {
     return true;
   }
   return shouldSkipDirectoryBySegment(relativePath, FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS);
+}
+
+function shouldSkipClaudeWorktreeDirectory(relativePath: string): boolean {
+  const normalizedPath = relativePath.toLowerCase();
+  return normalizedPath === '.claude/worktrees' || normalizedPath.startsWith('.claude/worktrees/');
 }
 
 function shouldSkipBalancedFile(input: BackgroundIndexingFileInput): boolean {

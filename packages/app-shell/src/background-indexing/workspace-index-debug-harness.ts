@@ -49,6 +49,22 @@ export interface WorkspaceIndexDebugSnapshot {
   syncStatus: unknown;
 }
 
+export interface WorkspaceIndexDebugSummary {
+  accessIssues?: WorkspaceIndexDebugAccessIssue[];
+  chunkStatsByRootAndSet: unknown[];
+  databaseScheduler: unknown;
+  embeddingHostStatus: unknown;
+  fileRecordsByRoot: unknown[];
+  jobQueue: unknown[];
+  jobQueueReadiness: unknown[];
+  managedCollectionId: string | null;
+  memorySample: unknown;
+  recentEmbeddingFailures: unknown[];
+  roots: unknown[];
+  selectedDevicePreference: unknown;
+  syncStatus: unknown;
+}
+
 export interface WorkspaceIndexDebugApi {
   benchmarkStage: (
     request: WorkspaceIndexStageBenchmarkRequest
@@ -56,6 +72,7 @@ export interface WorkspaceIndexDebugApi {
   configure: (options: { policyPreset?: BackgroundIndexingPolicyPreset }) => void;
   countExpected: () => Promise<WorkspaceIndexExpectedFileCount[]>;
   snapshot: () => Promise<WorkspaceIndexDebugSnapshot>;
+  summary: () => Promise<WorkspaceIndexDebugSummary>;
   triggerFullSync: () => void;
 }
 

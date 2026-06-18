@@ -75,6 +75,7 @@ import {
   type WorkspaceIndexDebugApi,
   type WorkspaceIndexDebugDbQuery,
   type WorkspaceIndexDebugSnapshot,
+  type WorkspaceIndexDebugSummary,
 } from './workspace-index-debug-harness';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
@@ -1368,6 +1369,142 @@ export function WorkspaceCollectionSyncProvider({
     service,
   ]);
 
+  const readDebugSummary = useCallback(async (): Promise<WorkspaceIndexDebugSummary> => {
+    const accessIssues: Array<{ reason: string; source: string }> = [];
+    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const query =
+      typeof electronQuery === 'function'
+        ? (((sql: string, params?: unknown[]) =>
+            electronQuery(sql, params, BACKGROUND_DATABASE_WORK_OPTIONS) as Promise<{
+              rows?: unknown[];
+            }>) satisfies WorkspaceIndexDebugDbQuery)
+        : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
+    const [
+      roots,
+      fileRecordsByRoot,
+      chunkStatsByRootAndSet,
+      jobQueue,
+      jobQueueReadiness,
+      recentEmbeddingFailures,
+      databaseScheduler,
+      embeddingHostStatus,
+    ] = await Promise.all([
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_roots_marker */
+         SELECT id, path, display_name, kind, status, created_at, last_verified_at
+           FROM roots
+          ORDER BY created_at ASC`,
+        [],
+        accessIssues,
+        'summary_roots'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_file_records_marker */
+         SELECT root_id, COUNT(*)::int AS file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NOT NULL)::int AS chunked_file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NULL)::int AS unchunked_file_count
+           FROM file_records
+          WHERE ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY root_id
+          ORDER BY root_id`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_file_records_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_chunks_marker */
+         SELECT fr.root_id,
+                fc.embedding_set_id,
+                COUNT(fc.id)::int AS chunk_count,
+                COUNT(fc.embedding)::int AS embedded_chunk_count,
+                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+           FROM file_chunks fc
+           JOIN file_records fr ON fr.id = fc.file_record_id
+          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          GROUP BY fr.root_id, fc.embedding_set_id
+          ORDER BY fr.root_id, fc.embedding_set_id`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_chunks_by_root_and_set'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_job_queue_marker */
+         SELECT queue, job_type, state, COUNT(*)::int AS count,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY queue, job_type, state
+          ORDER BY queue, job_type, state`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_job_queue'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_job_queue_readiness_marker */
+         SELECT state,
+                COUNT(*) FILTER (WHERE run_at <= $2::text)::int AS due_count,
+                COUNT(*) FILTER (WHERE run_at > $2::text)::int AS future_count,
+                MIN(run_at) AS oldest_run_at,
+                MAX(run_at) AS newest_run_at,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY state
+          ORDER BY state`,
+        [managedCollectionId, new Date().toISOString()],
+        accessIssues,
+        'summary_job_queue_readiness'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_recent_embedding_failures_marker */
+         SELECT id, state, worker_id, attempts, max_attempts, run_at, leased_until, error, updated_at, payload
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND state = 'failed'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          ORDER BY updated_at DESC
+          LIMIT 20`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_recent_embedding_failures'
+      ),
+      readDatabaseSchedulerSnapshot(),
+      readDebugHostStatus('embeddingHost'),
+    ]);
+
+    return {
+      ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      chunkStatsByRootAndSet,
+      databaseScheduler,
+      embeddingHostStatus,
+      fileRecordsByRoot,
+      jobQueue,
+      jobQueueReadiness,
+      managedCollectionId,
+      memorySample: readWorkspaceIndexMemorySample(),
+      recentEmbeddingFailures,
+      roots,
+      selectedDevicePreference,
+      syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
+    };
+  }, [
+    backgroundDb,
+    managedCollectionId,
+    readDatabaseSchedulerSnapshot,
+    readDebugHostStatus,
+    selectedDevicePreference,
+  ]);
+
   const benchmarkDebugStage: WorkspaceIndexDebugApi['benchmarkStage'] = useCallback(
     async (request) => {
       const electronRunTransaction =
@@ -1479,6 +1616,7 @@ export function WorkspaceCollectionSyncProvider({
       },
       countExpected: countExpectedDebugRoots,
       snapshot: readDebugSnapshot,
+      summary: readDebugSummary,
       triggerFullSync: () => {
         triggerSync({ mode: 'full' });
       },
@@ -1493,6 +1631,7 @@ export function WorkspaceCollectionSyncProvider({
     benchmarkDebugStage,
     countExpectedDebugRoots,
     readDebugSnapshot,
+    readDebugSummary,
     setIndexingPolicyPreset,
     triggerSync,
   ]);
