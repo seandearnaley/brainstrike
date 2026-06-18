@@ -87,7 +87,7 @@ const {
   // Non-null by default: managed-cache identity is root_id (source_root_path
   // retired); a null dbRootId now skips the import, which would stall these
   // integration tests that assert the full sync runs.
-  resolveDbRootIdMock: vi.fn(async (_rootPath: string) => 'db-root-id'),
+  resolveDbRootIdMock: vi.fn(async (_rootPath: string): Promise<string | null> => 'db-root-id'),
   runEnhancedImportMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
   processFilesMock: vi.fn(),
@@ -2118,6 +2118,60 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(
         syncSpy.mock.calls.map((call) => (call[0].rootDirectoryHandle as { path: string }).path)
       ).toEqual(['/workspace/root', '/workspace/root2', '/workspace/root3']);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('enqueues collection-wide embedding backfill on the final resolved root when a later root is unresolved', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    const root3 = {
+      kind: 'directory',
+      name: 'workspace3',
+      path: '/workspace/root3',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2, root3];
+    resolveDbRootIdMock.mockImplementation(async (rootPath: string) =>
+      rootPath === root3.path ? null : `db:${rootPath}`
+    );
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(3));
+
+      expect(
+        syncSpy.mock.calls.map((call) => ({
+          backfillMode: call[0].backfillMode,
+          dbRootId: call[0].dbRootId,
+          path: (call[0].rootDirectoryHandle as { path: string }).path,
+        }))
+      ).toEqual([
+        { backfillMode: 'defer', dbRootId: 'db:/workspace/root', path: root1.path },
+        { backfillMode: 'enqueue', dbRootId: 'db:/workspace/root2', path: root2.path },
+        { backfillMode: 'defer', dbRootId: null, path: root3.path },
+      ]);
     } finally {
       syncSpy.mockRestore();
     }

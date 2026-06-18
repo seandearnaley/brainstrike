@@ -1066,8 +1066,27 @@ export function WorkspaceCollectionSyncProvider({
       const myGeneration = syncLoopGenerationRef.current;
 
       void (async () => {
-        for (let targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
-          const target = targets[targetIndex];
+        if (syncLoopGenerationRef.current !== myGeneration) {
+          return;
+        }
+        // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
+        const resolvedTargets = await Promise.all(
+          targets.map(async (target): Promise<SyncLoopTarget & { dbRootId: string | null }> => {
+            const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
+            const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
+            return { ...target, dbRootId };
+          })
+        );
+        if (syncLoopGenerationRef.current !== myGeneration) {
+          return;
+        }
+
+        const finalResolvedTargetIndex = resolvedTargets.findLastIndex(
+          (target) => target.dbRootId !== null
+        );
+
+        for (let targetIndex = 0; targetIndex < resolvedTargets.length; targetIndex += 1) {
+          const target = resolvedTargets[targetIndex];
           if (!target) {
             continue;
           }
@@ -1075,16 +1094,11 @@ export function WorkspaceCollectionSyncProvider({
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
           }
-          const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
-          const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
-          if (syncLoopGenerationRef.current !== myGeneration) {
-            return;
-          }
           await service
             .sync({
-              backfillMode: targetIndex === targets.length - 1 ? 'enqueue' : 'defer',
-              dbRootId,
+              backfillMode: targetIndex === finalResolvedTargetIndex ? 'enqueue' : 'defer',
+              dbRootId: target.dbRootId,
               enabled,
               indexingPolicyPreset,
               managedCollectionId,
