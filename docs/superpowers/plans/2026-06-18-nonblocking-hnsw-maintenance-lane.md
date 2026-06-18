@@ -136,6 +136,35 @@ Proposed release thresholds for the first implementation:
 
 The release bar is intentionally stricter than "the job eventually finished." Any timeout, hidden backend fallback, incomplete durable obligation, unbounded memory growth, full-run throughput regression, or unclassified warning/error prevents `release-sufficient`.
 
+## Implementation Stop Rule
+
+Do not call this branch fixed, PR-ready, or merge-ready until the real Electron app completes the full three-root Workspace Index run end to end under Chrome DevTools observation.
+
+The active proof must include all of the following on the same commit SHA:
+
+- the full expected three-root candidate set is counted through the app's own indexing policy, not shell `find`;
+- every expected record is present by durable `root_id`/relative path accounting;
+- every expected chunk is embedded, with `embedded_chunk_count === chunk_count`;
+- `job_queue` has no queued, running, failed, or abandoned `embed_chunk` jobs for the active workspace index;
+- no stuck "2 running" or lease-expired-but-visible-running state remains;
+- the hidden embedding host reports the configured backend, actual runtime backend, precision, and `fallbackApplied:false`;
+- WebGPU is used for the WebGPU acceptance run; WASM is not an acceptable substitute and is a hard failure when WebGPU is configured;
+- no `DB host request timed out: query`, `Local embedding execution failed`, renderer crash, GPU crash, host restart loop, or silent pause occurs;
+- DB-host, visible-renderer, and embedding-host memory are sampled through completion and post-completion plateau;
+- HNSW suspension and durable maintenance rows are reconciled after embedding completion;
+- every warning/error emitted during the proof run is classified before the PR is declared ready.
+
+If the proof run fails any item above, stop claiming progress and classify the failure as either:
+
+- `indexing-pipeline-failure`: durable work was lost, stuck, or incorrectly marked complete;
+- `backend-contract-failure`: configured backend was not honored or actual runtime degraded;
+- `db-host-failure`: DB work timed out, wedged, or starved the pipeline;
+- `throughput-failure`: the pipeline completes only at an unacceptable rate without a measured resource constraint;
+- `maintenance-lane-failure`: embedding completes but HNSW suspension/maintenance does not reconcile safely;
+- `observability-failure`: logs/DevTools/diagnostics cannot prove what happened.
+
+The next engineering action must target the classified failure directly. Do not compensate by loosening tests, lowering the throughput bar, switching backend, hiding warnings, or describing retry behavior as the root fix.
+
 ## Non-Negotiable End-To-End Proof Gate
 
 Unit tests and static checks are necessary but not sufficient for this work. The branch is not ready for PR, and must not be described as fixed, until a real Electron renderer run proves the complete workspace indexing loop on the full three-root data set.
