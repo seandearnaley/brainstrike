@@ -66,6 +66,7 @@ import {
   WorkspaceIndexBlockedError,
 } from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
+import { runWorkspaceIndexStageBenchmark } from './workspace-index-debug-benchmark';
 import {
   countExpectedWorkspaceIndexFiles,
   readWorkspaceIndexDebugRows,
@@ -1216,15 +1217,15 @@ export function WorkspaceCollectionSyncProvider({
         `/* chunked_records_by_root_query_marker */
          SELECT fr.root_id,
                 fr.id,
-                fr.relative_path,
+                fr.path AS relative_path,
                 fr.chunks_processed_at,
                 COUNT(fc.id)::int AS chunk_count
            FROM file_records fr
            LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
           WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
             AND fr.chunks_processed_at IS NOT NULL
-          GROUP BY fr.root_id, fr.id, fr.relative_path, fr.chunks_processed_at
-          ORDER BY fr.root_id, fr.relative_path`,
+          GROUP BY fr.root_id, fr.id, fr.path, fr.chunks_processed_at
+          ORDER BY fr.root_id, fr.path`,
         [managedCollectionId],
         accessIssues,
         'chunked_records_by_root'
@@ -1331,9 +1332,39 @@ export function WorkspaceCollectionSyncProvider({
     service,
   ]);
 
+  const benchmarkDebugStage: WorkspaceIndexDebugApi['benchmarkStage'] = useCallback(
+    async (request) => {
+      const electronRunTransaction =
+        typeof window === 'undefined'
+          ? undefined
+          : (
+              window.electronAPI?.db as
+                | {
+                    runTransaction?: (
+                      statements: Array<{ params?: unknown[]; sql: string }>,
+                      resultIndex: number,
+                      options?: unknown
+                    ) => Promise<{ rows?: unknown[] }>;
+                  }
+                | undefined
+            )?.runTransaction;
+      if (!(backgroundDb || electronRunTransaction)) {
+        throw new Error('Workspace Index stage benchmark requires transactional database support.');
+      }
+      return await runWorkspaceIndexStageBenchmark({
+        db: backgroundDb,
+        electronRunTransaction,
+        electronTransactionOptions: BACKGROUND_DATABASE_WORK_OPTIONS,
+        request,
+      });
+    },
+    [backgroundDb]
+  );
+
   const workspaceIndexDebugApi = useMemo<WorkspaceIndexDebugApi>(
     () =>
       Object.freeze({
+        benchmarkStage: benchmarkDebugStage,
         configure: ({ policyPreset }: Parameters<WorkspaceIndexDebugApi['configure']>[0]) => {
           if (policyPreset) {
             setIndexingPolicyPreset(policyPreset);
@@ -1345,7 +1376,13 @@ export function WorkspaceCollectionSyncProvider({
           triggerSync({ mode: 'full' });
         },
       }),
-    [countExpectedDebugRoots, readDebugSnapshot, setIndexingPolicyPreset, triggerSync]
+    [
+      benchmarkDebugStage,
+      countExpectedDebugRoots,
+      readDebugSnapshot,
+      setIndexingPolicyPreset,
+      triggerSync,
+    ]
   );
 
   useEffect(() => {

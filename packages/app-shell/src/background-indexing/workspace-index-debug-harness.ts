@@ -4,6 +4,10 @@ import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/backgrou
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils/background-indexing-policy';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { flattenFileNodes } from './workspace-collection-sync-import';
+import type {
+  WorkspaceIndexStageBenchmarkRequest,
+  WorkspaceIndexStageBenchmarkResult,
+} from './workspace-index-debug-benchmark';
 
 export interface WorkspaceIndexExpectedFileSkipCounts {
   defaultIgnore: number;
@@ -44,6 +48,9 @@ export interface WorkspaceIndexDebugSnapshot {
 }
 
 export interface WorkspaceIndexDebugApi {
+  benchmarkStage: (
+    request: WorkspaceIndexStageBenchmarkRequest
+  ) => Promise<WorkspaceIndexStageBenchmarkResult>;
   configure: (options: { policyPreset?: BackgroundIndexingPolicyPreset }) => void;
   countExpected: () => Promise<WorkspaceIndexExpectedFileCount[]>;
   snapshot: () => Promise<WorkspaceIndexDebugSnapshot>;

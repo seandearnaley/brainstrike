@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
 import { existsSync } from 'node:fs';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DESKTOP_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = path.resolve(DESKTOP_APP_ROOT, '../..');
 const DEFAULT_EVIDENCE_ROOTS = [
   path.join(DESKTOP_APP_ROOT, 'test-results'),
   path.join(DESKTOP_APP_ROOT, 'blob-report'),
@@ -17,6 +20,7 @@ const BENCHMARK_MODES = new Set([
   'import-ceiling',
   'integrated',
 ]);
+const RUNNABLE_STAGE_BENCHMARK_MODES = new Set(['db-completion-ceiling']);
 
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
@@ -305,7 +309,9 @@ export function parseArgs(argv = process.argv.slice(2)) {
 }
 
 export function assertRunnableBenchmarkModes(options) {
-  const unsupportedModes = options.modes.filter((mode) => mode !== 'integrated');
+  const unsupportedModes = options.modes.filter(
+    (mode) => mode !== 'integrated' && !RUNNABLE_STAGE_BENCHMARK_MODES.has(mode)
+  );
   if (unsupportedModes.length > 0) {
     throw new Error(
       `Workspace Index benchmark mode '${unsupportedModes[0]}' requires the Electron stage benchmark harness. Current CLI only validates integrated full-run evidence; refusing to silently ignore requested stage mode(s): ${unsupportedModes.join(
@@ -313,6 +319,92 @@ export function assertRunnableBenchmarkModes(options) {
       )}.`
     );
   }
+}
+
+function getStageBenchmarkModes(options) {
+  return options.modes.filter((mode) => mode !== 'integrated');
+}
+
+function runCommand(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stderr, stdout });
+        return;
+      }
+      reject(
+        new Error(
+          `Command failed (${code}): ${command} ${args.join(' ')}\n${stdout}\n${stderr}`.trim()
+        )
+      );
+    });
+  });
+}
+
+export async function runElectronStageBenchmarks(options) {
+  const stageModes = getStageBenchmarkModes(options);
+  const results = {};
+  for (const mode of stageModes) {
+    if (!RUNNABLE_STAGE_BENCHMARK_MODES.has(mode)) {
+      throw new Error(`Workspace Index benchmark mode '${mode}' is not runnable.`);
+    }
+    const outputDir = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-stage-benchmark-'));
+    const evidencePath = path.join(outputDir, `${mode}.json`);
+    await runCommand(
+      'pnpm',
+      [
+        '--dir',
+        DESKTOP_APP_ROOT,
+        'exec',
+        'xvfb-maybe',
+        'pnpm',
+        'exec',
+        'playwright',
+        'test',
+        'e2e/workspace-index-stage-benchmark.desktop.test.ts',
+        '--project=regression',
+        '--workers=1',
+        '--retries=0',
+        '--max-failures=1',
+        '--global-timeout=300000',
+      ],
+      {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_CHUNKS:
+            String(options.stageBenchmarkChunkCount ?? 512),
+          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_DIMENSIONS:
+            String(options.stageBenchmarkDimensions ?? 384),
+          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_EVIDENCE_PATH: evidencePath,
+          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_MODE: mode,
+          LOG_LEVEL: process.env.LOG_LEVEL ?? 'warn',
+          NO_COLOR: process.env.NO_COLOR ?? '',
+        },
+      }
+    );
+    const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+    results[mode] = {
+      evidencePath,
+      ...evidence.result,
+    };
+  }
+  return results;
 }
 
 async function findEvidenceFiles(root) {
@@ -363,15 +455,21 @@ async function runCli(argv = process.argv.slice(2)) {
     return;
   }
   assertRunnableBenchmarkModes(options);
-  const evidencePath =
-    options.evidencePath ?? (await findLatestWorkspaceIndexEvidencePath());
-  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-  const result = analyzeWorkspaceIndexEvidence(evidence, options);
+  const stageBenchmarks = await runElectronStageBenchmarks(options);
+  const shouldAnalyzeIntegrated = options.modes.includes('integrated');
+  let evidencePath = null;
+  let result = null;
+  if (shouldAnalyzeIntegrated) {
+    evidencePath = options.evidencePath ?? (await findLatestWorkspaceIndexEvidencePath());
+    const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+    result = analyzeWorkspaceIndexEvidence(evidence, options);
+  }
   console.log(
     JSON.stringify(
       {
-        evidencePath,
-        ...result,
+        ...(evidencePath ? { evidencePath } : {}),
+        ...(result ?? {}),
+        stageBenchmarks,
       },
       null,
       2

@@ -71,6 +71,7 @@ const {
   validateApiKeyForSetMock,
   ensureChunkingWorkerMock,
   ensureEmbeddingRuntimeStartedMock,
+  completeEmbeddingChunkBatchMock,
   enqueueBackfillMock,
   cancelBackfillMock,
   dbState,
@@ -154,6 +155,7 @@ const {
   validateApiKeyForSetMock: vi.fn(),
   ensureChunkingWorkerMock: vi.fn(),
   ensureEmbeddingRuntimeStartedMock: vi.fn(),
+  completeEmbeddingChunkBatchMock: vi.fn(),
   enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
   cancelBackfillMock: vi.fn(async () => {}),
   resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
@@ -304,6 +306,7 @@ vi.mock('@brainstrike/db', () => ({
     return {
       enqueueBatch: vi.fn(),
       clear: vi.fn(),
+      completeEmbeddingChunkBatch: completeEmbeddingChunkBatchMock,
       getQueueStats: vi.fn(async () => []),
       requeueFailed: vi.fn(),
     };
@@ -2348,6 +2351,46 @@ describe('WorkspaceCollectionSyncProvider', () => {
     ).toBeUndefined();
   });
 
+  it('exposes a stage benchmark hook that uses the background DB completion path', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([]);
+    completeEmbeddingChunkBatchMock.mockResolvedValueOnce([{ id: 'job-0' }, { id: 'job-1' }]);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    const debugApi = (
+      window as unknown as {
+        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+          benchmarkStage: (request: {
+            chunkCount: number;
+            dimensions: number;
+            mode: 'db-completion-ceiling';
+          }) => Promise<{
+            chunkCount: number;
+            completedChunkCount: number;
+            mode: string;
+          }>;
+        };
+      }
+    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+    const result = await debugApi?.benchmarkStage({
+      chunkCount: 2,
+      dimensions: 4,
+      mode: 'db-completion-ceiling',
+    });
+
+    expect(completeEmbeddingChunkBatchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      chunkCount: 2,
+      completedChunkCount: 2,
+      mode: 'db-completion-ceiling',
+    });
+  });
+
   it('includes chunked records and chunk stats grouped by root and embedding set in debug snapshots', async () => {
     readFullTreeWithOptionsMock.mockResolvedValue([]);
     const queryMock = vi.fn(async (sql: string) => {
@@ -2417,6 +2460,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
           root_id: 'root-id-1',
         }),
       ]);
+      const chunkedRecordsQuery = queryMock.mock.calls.find(([sql]) =>
+        sql.includes('chunked_records_by_root_query_marker')
+      )?.[0];
+      expect(chunkedRecordsQuery).toContain('fr.path AS relative_path');
+      expect(chunkedRecordsQuery).not.toContain('fr.relative_path');
       expect(snapshot?.chunkStatsByRootAndSet).toEqual([
         expect.objectContaining({
           embedding_set_id: 'workspace-index-set',
