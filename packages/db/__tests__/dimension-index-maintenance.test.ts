@@ -1,9 +1,17 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
+import { JobQueue } from '../src/queue/job-queue.js';
+import {
+  listDimensionIndexMaintenance,
+  reconcileSuspendedDimensionIndexMaintenance,
+  requestDimensionIndexMaintenance,
+  runNextDimensionIndexMaintenance,
+} from '../src/services/dimension-index-maintenance.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
 const NOW_ISO = '2026-06-18T14:00:00.000Z';
+const RECENT_ISO = '2026-06-18T14:01:00.000Z';
 
 describe('dimension index maintenance migration', () => {
   let db: PGlite;
@@ -63,5 +71,208 @@ describe('dimension index maintenance migration', () => {
         [NOW_ISO]
       )
     ).rejects.toThrow();
+  });
+});
+
+async function expectMaintenanceRow(
+  db: PGlite,
+  dimension: number,
+  state: string,
+  expected: Partial<{
+    attempts: number;
+    lastError: string | null;
+    strategy: string;
+  }> = {}
+): Promise<void> {
+  const result = await db.query<{
+    attempts: number;
+    last_error: string | null;
+    state: string;
+    strategy: string;
+  }>(
+    `SELECT state, strategy, attempts, last_error
+       FROM embedding_dimension_index_maintenance
+      WHERE dimension = $1`,
+    [dimension]
+  );
+
+  expect(result.rows[0]).toMatchObject({
+    attempts: expected.attempts ?? expect.any(Number),
+    state,
+    strategy: expected.strategy ?? expect.any(String),
+  });
+  if ('lastError' in expected) {
+    expect(result.rows[0]?.last_error).toBe(expected.lastError);
+  }
+}
+
+async function expectSuspensionPresent(db: PGlite, dimension: number): Promise<void> {
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM embedding_dimension_index_suspensions
+      WHERE dimension = $1`,
+    [dimension]
+  );
+  expect(Number(result.rows[0]?.count ?? 0)).toBe(1);
+}
+
+async function expectSuspensionMissing(db: PGlite, dimension: number): Promise<void> {
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM embedding_dimension_index_suspensions
+      WHERE dimension = $1`,
+    [dimension]
+  );
+  expect(Number(result.rows[0]?.count ?? 0)).toBe(0);
+}
+
+describe('dimension index maintenance service', () => {
+  let db: PGlite;
+
+  beforeEach(async () => {
+    db = await wasmLoader.createPGlite(
+      `memory://dimension-index-maintenance-service-${crypto.randomUUID()}`
+    );
+    await migrate(db);
+  });
+
+  it('requests maintenance idempotently and keeps a pending retry visible', async () => {
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+    await db.query(
+      `UPDATE embedding_dimension_index_maintenance
+          SET state = 'failed',
+              attempts = 1,
+              last_error = 'previous failure'
+        WHERE dimension = 384`
+    );
+
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(RECENT_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+
+    const rows = await listDimensionIndexMaintenance(db);
+    expect(rows).toMatchObject([
+      {
+        attempts: 1,
+        dimension: 384,
+        lastError: 'previous failure',
+        state: 'pending',
+        strategy: 'regular',
+      },
+    ]);
+  });
+
+  it('reconciles orphaned suspensions into pending maintenance rows', async () => {
+    await db.query(
+      `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
+       VALUES (384, 'embedding-backfill:set-a', $1)`,
+      [NOW_ISO]
+    );
+
+    const count = await reconcileSuspendedDimensionIndexMaintenance(db, {
+      now: () => new Date(RECENT_ISO),
+      strategy: 'regular',
+    });
+
+    expect(count).toBe(1);
+    await expectMaintenanceRow(db, 384, 'pending', { strategy: 'regular' });
+  });
+
+  it('skips maintenance while embedding jobs are active', async () => {
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+    const queue = new JobQueue(db);
+    await queue.enqueue({
+      jobType: 'embed_chunk',
+      payload: { chunkId: crypto.randomUUID(), embeddingSetId: 'set-a' },
+      queue: 'embeddings',
+    });
+
+    const result = await runNextDimensionIndexMaintenance(db, {
+      createIndex: vi.fn(),
+      now: () => new Date(RECENT_ISO),
+      strategy: 'regular',
+    });
+
+    expect(result).toMatchObject({ reason: 'active-job-queue', status: 'skipped' });
+  });
+
+  it('creates the index then resumes the suspension on success', async () => {
+    await db.query(
+      `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
+       VALUES (384, 'embedding-backfill:set-a', $1)`,
+      [NOW_ISO]
+    );
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+    const createIndex = vi.fn(async () => undefined);
+
+    const result = await runNextDimensionIndexMaintenance(db, {
+      createIndex,
+      foregroundProbeMaxMs: 30,
+      foregroundProbeP95Ms: 20,
+      now: () => new Date(RECENT_ISO),
+      strategy: 'regular',
+    });
+
+    expect(result).toMatchObject({ dimension: 384, status: 'completed' });
+    expect(createIndex).toHaveBeenCalledWith({ dimension: 384, strategy: 'regular' });
+    await expectSuspensionMissing(db, 384);
+    await expectMaintenanceRow(db, 384, 'succeeded', {
+      attempts: 1,
+      lastError: null,
+      strategy: 'regular',
+    });
+  });
+
+  it('records retryable failure and keeps the suspension when index creation fails', async () => {
+    await db.query(
+      `INSERT INTO embedding_dimension_index_suspensions (dimension, reason, suspended_at)
+       VALUES (384, 'embedding-backfill:set-a', $1)`,
+      [NOW_ISO]
+    );
+    await requestDimensionIndexMaintenance(db, {
+      dimension: 384,
+      now: () => new Date(NOW_ISO),
+      reason: 'background-indexing-backfill-complete',
+      strategy: 'regular',
+    });
+
+    const result = await runNextDimensionIndexMaintenance(db, {
+      createIndex: vi.fn(async () => {
+        throw new Error('hnsw build failed');
+      }),
+      now: () => new Date(RECENT_ISO),
+      retryBackoffMs: 60_000,
+      strategy: 'regular',
+    });
+
+    expect(result).toMatchObject({
+      dimension: 384,
+      error: 'hnsw build failed',
+      status: 'failed',
+    });
+    await expectSuspensionPresent(db, 384);
+    await expectMaintenanceRow(db, 384, 'pending', {
+      attempts: 1,
+      lastError: 'hnsw build failed',
+      strategy: 'regular',
+    });
   });
 });

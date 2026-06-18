@@ -128,6 +128,21 @@ export {
   refreshCollectionIndexingStats,
 } from './services/collection-indexing-stats.js';
 export {
+  type DimensionIndexMaintenanceClockOptions,
+  type DimensionIndexMaintenanceRow,
+  type DimensionIndexMaintenanceSkipReason,
+  type DimensionIndexMaintenanceState,
+  type DimensionIndexMaintenanceStatus,
+  type DimensionIndexMaintenanceStrategy,
+  listDimensionIndexMaintenance,
+  type RequestDimensionIndexMaintenanceInput,
+  type RunDimensionIndexMaintenanceOptions,
+  type RunDimensionIndexMaintenanceResult,
+  reconcileSuspendedDimensionIndexMaintenance,
+  requestDimensionIndexMaintenance,
+  runNextDimensionIndexMaintenance,
+} from './services/dimension-index-maintenance.js';
+export {
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
   DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES,
