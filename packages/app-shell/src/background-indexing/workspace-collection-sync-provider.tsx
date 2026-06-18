@@ -1642,6 +1642,9 @@ export function WorkspaceCollectionSyncProvider({
   ]);
 
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
+  const invalidateActiveSyncLoopFromEffect = useEffectEvent(() => {
+    syncLoopGenerationRef.current += 1;
+  });
 
   useEffect(() => {
     setBackgroundWorkManualPause(paused);
@@ -1656,7 +1659,7 @@ export function WorkspaceCollectionSyncProvider({
     }
     return registerBackgroundWorkPauseHandler('background-indexing', {
       pause: async () => {
-        syncLoopGenerationRef.current += 1;
+        invalidateActiveSyncLoopFromEffect();
         await service.cancel();
       },
     });
@@ -1665,7 +1668,7 @@ export function WorkspaceCollectionSyncProvider({
   useEffect(() => {
     triggerSync();
     return () => {
-      syncLoopGenerationRef.current += 1;
+      invalidateActiveSyncLoopFromEffect();
       void service?.cancel().catch((error) => {
         reportAsyncError('cancel', error);
       });
