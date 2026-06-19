@@ -17,7 +17,10 @@ vi.mock('../embedding-backfill', () => ({
 }));
 
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from '../embedding-host-shared';
+import {
+  EMBEDDING_BACKFILL_CANCELED_MESSAGE,
+  EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+} from '../embedding-host-shared';
 import {
   cancelDesktopEmbeddingBackfill,
   runDesktopEmbeddingBackfill,
@@ -50,11 +53,31 @@ function createDeadSenderEvent(): IpcMainInvokeEvent {
   } as unknown as IpcMainInvokeEvent;
 }
 
-function createRunParams(embeddingSetId: string) {
+function createLiveSenderEvent(): IpcMainInvokeEvent {
+  return {
+    sender: {
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+    },
+  } as unknown as IpcMainInvokeEvent;
+}
+
+function createRunParams(
+  embeddingSetId: string,
+  source: 'background-indexing' | 'manual' = 'manual',
+  options: { dimensionIndexMaintenanceStrategy?: 'regular' | 'concurrent' | null } = {}
+) {
+  const strategy =
+    'dimensionIndexMaintenanceStrategy' in options
+      ? options.dimensionIndexMaintenanceStrategy
+      : source === 'background-indexing'
+        ? 'regular'
+        : null;
   return {
     databaseWorkScheduler: createDatabaseWorkScheduler({ foregroundQuietMs: 0 }),
     event: createDeadSenderEvent(),
     flushPendingLiveUpdates: vi.fn(),
+    getDimensionIndexMaintenanceStrategy: () => strategy,
     gpuMemoryReclaimConfig: {
       enabled: false,
       itemThreshold: 500,
@@ -64,7 +87,7 @@ function createRunParams(embeddingSetId: string) {
     hostManager: createHostManager(),
     isBackgrounded: () => true,
     normalizedEmbeddingSetId: embeddingSetId,
-    source: 'background-indexing' as const,
+    source,
   };
 }
 
@@ -143,6 +166,33 @@ describe('desktop embedding backfill termination logging', () => {
     );
   });
 
+  it('does not let a stale cancellation request poison the next backfill for that set', async () => {
+    cancelDesktopEmbeddingBackfill('set-stale-cancel');
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: unknown,
+        options: EnqueueOptions
+      ) => {
+        options.assertCanContinue();
+      }
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill(createRunParams('set-stale-cancel'))
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    const canceled = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill canceled'
+    );
+    expect(canceled).toHaveLength(0);
+  });
+
   it('classifies a WRAPPED cancellation as canceled, not failed', async () => {
     // Cancellation is tracked authoritatively in the canceled set; the log
     // classification must not depend on the error message text surviving
@@ -211,5 +261,213 @@ describe('desktop embedding backfill termination logging', () => {
     expect(completed[0]?.args).toContainEqual(
       expect.objectContaining({ embeddingSetId: 'set-completed' })
     );
+  });
+
+  it('attaches duplicate background-indexing submissions to the in-flight backfill', async () => {
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveBackfillStarted?.();
+          resolveBackfill = resolve;
+        })
+    );
+
+    const first = runDesktopEmbeddingBackfill(
+      createRunParams('set-background-attach', 'background-indexing')
+    );
+    await backfillStarted;
+    const second = await runDesktopEmbeddingBackfill(
+      createRunParams('set-background-attach', 'background-indexing')
+    );
+
+    expect(second.requestId).toMatch(/^background-indexing-backfill:/);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    resolveBackfill?.();
+    await first;
+  });
+
+  it('returns immediately after scheduling a background-indexing backfill', async () => {
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveBackfill = resolve;
+        })
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill(
+        createRunParams('set-background-immediate', 'background-indexing')
+      )
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      'set-background-immediate',
+      expect.any(Function),
+      expect.objectContaining({
+        dimensionIndexMaintenanceStrategy: 'regular',
+        rebuildDimensionIndexOnCompletion: false,
+      })
+    );
+
+    resolveBackfill?.();
+  });
+
+  it('rejects background-indexing backfill when the dimension index strategy is unavailable', async () => {
+    await expect(
+      runDesktopEmbeddingBackfill(
+        createRunParams('set-background-no-strategy', 'background-indexing', {
+          dimensionIndexMaintenanceStrategy: null,
+        })
+      )
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+
+    await vi.waitFor(() => {
+      expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+      const failed = captured.filter(
+        (record) => record.message === 'Desktop embedding backfill failed'
+      );
+      expect(failed).toHaveLength(1);
+      expect(failed[0]?.args).toContainEqual(
+        expect.objectContaining({
+          embeddingSetId: 'set-background-no-strategy',
+          error:
+            'Background indexing backfill requires dimension index maintenance strategy from startup capability probe.',
+        })
+      );
+    });
+  });
+
+  it('emits a terminal error progress event for detached background-indexing failures', async () => {
+    const event = createLiveSenderEvent();
+    enqueueEmbeddingBackfillMock.mockRejectedValueOnce(new Error('metadata missing'));
+
+    await expect(
+      runDesktopEmbeddingBackfill({
+        ...createRunParams('set-background-failed', 'background-indexing'),
+        event,
+      })
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+
+    await vi.waitFor(() => {
+      expect(event.sender.send).toHaveBeenCalledWith(
+        EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+        expect.objectContaining({
+          embeddingSetId: 'set-background-failed',
+          source: 'background-indexing',
+          stage: 'error',
+          current: 0,
+          total: 0,
+          message: 'metadata missing',
+        })
+      );
+    });
+  });
+
+  it('emits a terminal complete progress event after detached background-indexing backfill resolves', async () => {
+    const event = createLiveSenderEvent();
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (_db: unknown, _jobQueue: unknown, _embeddingSetId: string, onProgress: unknown) => {
+        (onProgress as (done: number, total: number) => void)(1, 1);
+        resolveBackfillStarted?.();
+        await new Promise<void>((resolve) => {
+          resolveBackfill = resolve;
+        });
+      }
+    );
+
+    await expect(
+      runDesktopEmbeddingBackfill({
+        ...createRunParams('set-background-completed', 'background-indexing'),
+        event,
+      })
+    ).resolves.toMatchObject({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
+    });
+    await backfillStarted;
+    expect(event.sender.send).not.toHaveBeenCalledWith(
+      EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+      expect.objectContaining({ stage: 'complete' })
+    );
+
+    resolveBackfill?.();
+
+    await vi.waitFor(() => {
+      expect(event.sender.send).toHaveBeenCalledWith(
+        EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+        expect.objectContaining({
+          embeddingSetId: 'set-background-completed',
+          source: 'background-indexing',
+          stage: 'complete',
+          current: 1,
+          total: 1,
+        })
+      );
+    });
+  });
+
+  it('delivers terminal errors to duplicate background-indexing attachers when the original sender is gone', async () => {
+    const originalEvent = createDeadSenderEvent();
+    const attachedEvent = createLiveSenderEvent();
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    let rejectBackfill: ((error: Error) => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (_db: unknown, _jobQueue: unknown, _embeddingSetId: string, onProgress: unknown) => {
+        (onProgress as (done: number, total: number) => void)(1, 1);
+        resolveBackfillStarted?.();
+        await new Promise<void>((_resolve, reject) => {
+          rejectBackfill = reject;
+        });
+      }
+    );
+
+    const first = await runDesktopEmbeddingBackfill({
+      ...createRunParams('set-background-reattach', 'background-indexing'),
+      event: originalEvent,
+    });
+    await backfillStarted;
+    const second = await runDesktopEmbeddingBackfill({
+      ...createRunParams('set-background-reattach', 'background-indexing'),
+      event: attachedEvent,
+    });
+
+    expect(second.requestId).toBe(first.requestId);
+    rejectBackfill?.(new Error('drain failed'));
+
+    await vi.waitFor(() => {
+      expect(attachedEvent.sender.send).toHaveBeenCalledWith(
+        EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+        expect.objectContaining({
+          embeddingSetId: 'set-background-reattach',
+          requestId: first.requestId,
+          source: 'background-indexing',
+          stage: 'error',
+          current: 1,
+          total: 1,
+          message: 'drain failed',
+        })
+      );
+    });
   });
 });

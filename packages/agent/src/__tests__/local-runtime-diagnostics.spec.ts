@@ -140,6 +140,35 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     ).toHaveLength(1);
   });
 
+  it('can log background probe failures at debug without hiding diagnostics', async () => {
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1300,
+      logger: loggerMock,
+    });
+
+    const status = await service.probeRuntime('ollama', {
+      diagnosticLogLevel: 'debug',
+      surface: 'desktop',
+    });
+
+    expect(status.state).toBe('unavailable');
+    expect(
+      loggerMock.warn.mock.calls.filter(
+        ([message]) => message === 'local runtime probe did not reach available state'
+      )
+    ).toHaveLength(0);
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'local runtime probe did not reach available state',
+      expect.objectContaining({
+        runtime: 'ollama',
+        message: expect.stringContaining('Failed to fetch'),
+      })
+    );
+  });
+
   it('logs model catalog failures when every endpoint returns a non-OK status', async () => {
     const fetchMock = vi.fn<FetchMock>(async () => new Response('no', { status: 503 }));
 
@@ -160,6 +189,38 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     // Local Runtimes shows Unavailable" becomes investigable.
     expect(result.state).toMatch(/failed|stale_cached/);
     expect(loggerMock.warn).toHaveBeenCalled();
+  });
+
+  it('can log background model catalog failures at debug without hiding diagnostics', async () => {
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 2050,
+      logger: loggerMock,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      diagnosticLogLevel: 'debug',
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('failed');
+    expect(
+      loggerMock.warn.mock.calls.filter(
+        ([message]) =>
+          message === 'local runtime probe did not reach available state' ||
+          message === 'local runtime model catalog failed'
+      )
+    ).toHaveLength(0);
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'local runtime model catalog failed',
+      expect.objectContaining({
+        runtime: 'ollama',
+        message: expect.stringContaining('Failed to fetch'),
+      })
+    );
   });
 
   it('dedupes concurrent model catalog failures and logs one catalog warning', async () => {

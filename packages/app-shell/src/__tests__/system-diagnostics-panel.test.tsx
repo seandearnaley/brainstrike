@@ -126,6 +126,33 @@ describe('SystemDiagnosticsPanel', () => {
               runningLabel: 'background-indexing-backfill',
               runningPriority: 'background',
             },
+            dimensionIndexMaintenance: {
+              maintenance: [
+                {
+                  attempts: 1,
+                  completedAt: null,
+                  dimension: 384,
+                  lastDurationMs: null,
+                  lastError: null,
+                  lastForegroundProbeMaxMs: null,
+                  lastForegroundProbeP95Ms: null,
+                  lastInvalidIndexName: null,
+                  nextRunAt: '2026-05-20T00:02:00.000Z',
+                  reason: 'embedding-backfill:set-1',
+                  requestedAt: '2026-05-20T00:01:00.000Z',
+                  startedAt: null,
+                  state: 'pending',
+                  strategy: 'regular',
+                },
+              ],
+              suspensions: [
+                {
+                  dimension: 384,
+                  reason: 'nonblocking-background-indexing',
+                  suspendedAt: '2026-05-20T00:00:59.000Z',
+                },
+              ],
+            },
           },
           migration: {
             attemptCount: 2,
@@ -167,6 +194,8 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
       expect(screen.getByText('Active Backfills')).toBeInTheDocument();
       expect(screen.getByText('1 active')).toBeInTheDocument();
+      expect(screen.getByText('Dimension Maintenance')).toBeInTheDocument();
+      expect(screen.getByText('1 pending / 1 suspended')).toBeInTheDocument();
       expect(screen.getByText('Migration')).toBeInTheDocument();
       expect(screen.getByText('2 attempts')).toBeInTheDocument();
       expect(screen.getByText('Crash Recovery')).toBeInTheDocument();

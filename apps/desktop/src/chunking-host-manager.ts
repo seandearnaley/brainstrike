@@ -29,7 +29,7 @@ type PendingChunkingRequest =
       readonly requesterWebContentsId: number;
       readonly reject: (error: Error) => void;
       readonly resolve: (results: unknown[]) => void;
-      readonly timeoutId: ReturnType<typeof setTimeout>;
+      timeoutId: ReturnType<typeof setTimeout>;
     }
   | {
       readonly kind: 'file';
@@ -37,7 +37,7 @@ type PendingChunkingRequest =
       readonly requesterWebContentsId: number;
       readonly reject: (error: Error) => void;
       readonly resolve: (result: unknown) => void;
-      readonly timeoutId: ReturnType<typeof setTimeout>;
+      timeoutId: ReturnType<typeof setTimeout>;
     };
 
 function createRequestFailure(message: string): Error {
@@ -262,6 +262,7 @@ export class ChunkingHostManager {
     }
 
     if (report.type === 'progress') {
+      this.refreshRequestTimeout(report.requestId);
       this.forwardProgressEvent(pending, report);
       return;
     }
@@ -386,6 +387,15 @@ export class ChunkingHostManager {
         )
       );
     }, CHUNKING_HOST_REQUEST_TIMEOUT_MS);
+  }
+
+  private refreshRequestTimeout(requestId: string): void {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    pending.timeoutId = this.createRequestTimeout(requestId);
   }
 
   private describeUnexpectedResponse(report: ChunkingHostResponseReport): string {

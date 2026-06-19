@@ -12,6 +12,8 @@ const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated' as const;
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL =
   'db:managed-cache:invalidate-by-identity' as const;
+const DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL =
+  'db:chunks:insert-and-enqueue-embedding-jobs' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 const DB_CLEAR_ALL_CHANNEL = 'db:clearAll' as const;
 const DB_DIAGNOSTICS_CHANNEL = 'db:diagnostics' as const;
@@ -79,6 +81,8 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
   DatabaseWorkOptions,
+  ElectronChunkInsert,
+  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -90,6 +94,7 @@ import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences'
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillRequest,
+  EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
 } from './embedding-host-shared';
@@ -106,6 +111,7 @@ const EMBEDDING_HOST_STOP_CHANNEL = 'embedding-host:stop' as const;
 const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
 const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
+const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = 'embedding-host:query-embedding' as const;
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
 const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
   'embedding-host:query-embedding-request' as const;
@@ -232,6 +238,47 @@ function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
 }
 
+function assertPreloadNonEmptyString(value: unknown, message: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function assertPreloadPositiveInteger(value: unknown, message: string): number {
+  if (!Number.isInteger(value) || (value as number) <= 0) {
+    throw new Error(message);
+  }
+  return value as number;
+}
+
+function assertEmbeddingHostQueryEmbeddingPayload(
+  value: unknown
+): EmbeddingHostQueryEmbeddingPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host query embedding payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    dimensions: assertPreloadPositiveInteger(
+      payload['dimensions'],
+      'Embedding host query embedding payload.dimensions must be a positive integer.'
+    ),
+    modelId: assertPreloadNonEmptyString(
+      payload['modelId'],
+      'Embedding host query embedding payload.modelId must be a non-empty string.'
+    ),
+    modelKey: assertPreloadNonEmptyString(
+      payload['modelKey'],
+      'Embedding host query embedding payload.modelKey must be a non-empty string.'
+    ),
+    query: assertPreloadNonEmptyString(
+      payload['query'],
+      'Embedding host query embedding payload.query must be a non-empty string.'
+    ),
+  };
+}
+
 function createDisabledLocalRuntimeAvailability() {
   return {
     state: 'unavailable' as const,
@@ -256,6 +303,15 @@ type LlmHostLifecycleState = EmbeddingHostLifecycleState;
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
+  readonly embeddingRuntime?: {
+    readonly actualWorkerMetadata: {
+      readonly device: 'webgpu' | 'wasm';
+      readonly dtype: string;
+      readonly fallbackApplied: boolean;
+    } | null;
+    readonly backendMismatch: boolean;
+    readonly selectedDevicePreference: 'webgpu' | 'wasm';
+  };
   readonly lastError: string | null;
   readonly runtimeId: string;
   readonly runtimeKind: 'embedding-host';
@@ -481,6 +537,17 @@ if (shouldExposeBridge('electronAPI')) {
           DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
           payload,
           options
+        ),
+      insertChunksAndEnqueueEmbeddingJobs: (
+        chunks: readonly ElectronChunkInsert[],
+        fileRecordId: string,
+        options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+        workOptions?: DatabaseWorkOptions
+      ): Promise<void> =>
+        ipcRenderer.invoke(
+          DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+          { chunks, fileRecordId, options },
+          workOptions
         ),
       ping: () => ipcRenderer.invoke(DB_PING_CHANNEL),
       diagnostics: () => ipcRenderer.invoke(DB_DIAGNOSTICS_CHANNEL),
@@ -775,6 +842,11 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
   getBackfillsInFlight: (): Promise<EmbeddingHostBackfillInfo[]> =>
     ipcRenderer.invoke(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL),
+  queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> =>
+    ipcRenderer.invoke(
+      EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
+      assertEmbeddingHostQueryEmbeddingPayload(payload)
+    ),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
   reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),
   getStatus: (): Promise<EmbeddingHostStatus> =>

@@ -21,6 +21,7 @@ import {
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import {
   useWorkspaceCollectionSyncStatusStore,
   type WorkspaceCollectionSyncStatusPatch,
@@ -33,6 +34,7 @@ import {
   setBackgroundWorkManualPause,
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
@@ -42,6 +44,7 @@ import {
   createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingPipelineInputs,
   type WorkspaceIndexingQosPolicy,
 } from '@brainstrike/utils/workspace-indexing-qos';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
@@ -49,6 +52,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -63,10 +67,28 @@ import {
   WorkspaceIndexBlockedError,
 } from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
+import { runWorkspaceIndexStageBenchmark } from './workspace-index-debug-benchmark';
+import {
+  countExpectedWorkspaceIndexFiles,
+  readWorkspaceIndexDebugRows,
+  readWorkspaceIndexMemorySample,
+  shouldExposeWorkspaceIndexDebugApi,
+  type WorkspaceIndexDebugApi,
+  type WorkspaceIndexDebugDbQuery,
+  type WorkspaceIndexDebugSnapshot,
+  type WorkspaceIndexDebugSummary,
+} from './workspace-index-debug-harness';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 
 export { FILE_EXPLORER_REFRESH_EVENT };
+
+const HIGH_RETAINED_HEAP_RATIO = 0.75;
+
+interface BrowserPerformanceMemory {
+  readonly jsHeapSizeLimit?: number;
+  readonly usedJSHeapSize?: number;
+}
 
 /**
  * The sync service signals foreground-style import progress through `setImporting`.
@@ -84,6 +106,16 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
 const BACKGROUND_PRESSURE_POLL_MS = 50;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
+const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
+const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
+  'Verifying Workspace Index coverage before reporting idle.';
+
+function createRuntimeUnavailableMessage(missingDependencies: string[]): string {
+  if (missingDependencies.length === 0) {
+    return 'Background indexing runtime is unavailable.';
+  }
+  return `Background indexing runtime is unavailable: ${missingDependencies.join(', ')}.`;
+}
 
 function createClearedProgressPatch(): Pick<
   WorkspaceCollectionSyncStatusPatch,
@@ -116,6 +148,379 @@ function createClearedProgressPatch(): Pick<
   };
 }
 
+interface WorkspaceCoverageAuditTarget {
+  readonly dbRootId: string;
+  readonly expectedFileCount: number;
+  readonly rootPath: string;
+}
+
+type WorkspaceCoverageAuditOutcome =
+  | {
+      readonly kind: 'complete';
+    }
+  | {
+      readonly kind: 'incomplete';
+      readonly indexedCounts: ReadonlyMap<string, number>;
+      readonly message: string;
+      readonly missingTargets: readonly WorkspaceCoverageAuditTarget[];
+    }
+  | {
+      readonly kind: 'unresolved-root';
+      readonly message: string;
+      readonly rootPath: string;
+    };
+type WorkspaceCoverageIncompleteOutcome = Extract<
+  WorkspaceCoverageAuditOutcome,
+  { readonly kind: 'incomplete' }
+>;
+type WorkspaceCoverageAuditTargetResult =
+  | WorkspaceCoverageAuditTarget
+  | Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }>;
+
+function parseDatabaseCount(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function readRootIdFromCountRow(row: unknown): string | null {
+  if (!(row && typeof row === 'object')) {
+    return null;
+  }
+  const record = row as Record<string, unknown>;
+  const rootId = record['root_id'] ?? record['rootId'];
+  return typeof rootId === 'string' && rootId.length > 0 ? rootId : null;
+}
+
+function readFileCountFromCountRow(row: unknown): number {
+  if (!(row && typeof row === 'object')) {
+    return 0;
+  }
+  const record = row as Record<string, unknown>;
+  return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
+}
+
+function isUnresolvedRootAuditOutcome(
+  value: WorkspaceCoverageAuditTargetResult
+): value is Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }> {
+  return 'kind' in value && value.kind === 'unresolved-root';
+}
+
+function isWorkspaceCoverageAuditTarget(
+  value: WorkspaceCoverageAuditTargetResult
+): value is WorkspaceCoverageAuditTarget {
+  return !isUnresolvedRootAuditOutcome(value);
+}
+
+async function readIndexedFileCountsByRoot(args: {
+  collectionId: string;
+  db: DbHandle;
+  rootIds: readonly string[];
+}): Promise<Map<string, number>> {
+  if (args.rootIds.length === 0) {
+    return new Map();
+  }
+  const rootPlaceholders = args.rootIds.map((_, index) => `$${index + 2}`).join(', ');
+  const result = await args.db.query(
+    `
+      SELECT root_id, COUNT(*) AS file_count
+      FROM file_records
+      WHERE embedding_set_id = $1
+        AND root_id IN (${rootPlaceholders})
+      GROUP BY root_id
+    `,
+    [args.collectionId, ...args.rootIds]
+  );
+  const counts = new Map<string, number>();
+  for (const row of Array.isArray(result.rows) ? result.rows : []) {
+    const rootId = readRootIdFromCountRow(row);
+    if (rootId) {
+      counts.set(rootId, readFileCountFromCountRow(row));
+    }
+  }
+  return counts;
+}
+
+function buildCoverageAuditMessage(args: {
+  missingTargets: readonly WorkspaceCoverageAuditTarget[];
+  indexedCounts: ReadonlyMap<string, number>;
+}): string {
+  const firstMissing = args.missingTargets[0];
+  const rootSummary = args.missingTargets
+    .slice(0, 3)
+    .map((target) => {
+      const indexedFileCount = args.indexedCounts.get(target.dbRootId) ?? 0;
+      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed)`;
+    })
+    .join('; ');
+  const extraCount =
+    args.missingTargets.length > 3 ? `; +${args.missingTargets.length - 3} more` : '';
+  return `Workspace Index coverage is incomplete after the pipeline reported idle: ${rootSummary}${extraCount}. A full recovery sync is required before this index can be treated as complete.${
+    firstMissing ? ` First incomplete root: ${firstMissing.rootPath}.` : ''
+  }`;
+}
+
+function getActiveRootHandles(args: {
+  rootDirectoryHandle: DirectoryHandle | null;
+  rootDirectoryHandles: readonly DirectoryHandle[];
+}): readonly DirectoryHandle[] {
+  if (args.rootDirectoryHandles.length > 0) {
+    return args.rootDirectoryHandles;
+  }
+  return args.rootDirectoryHandle ? [args.rootDirectoryHandle] : [];
+}
+
+function createCoverageAuditKey(args: {
+  collectionId: string;
+  handles: readonly DirectoryHandle[];
+  policyPreset: BackgroundIndexingPolicyPreset;
+  rootIdByPath: ReadonlyMap<string, string>;
+}): string {
+  const rootsKey = args.handles
+    .map((handle) => `${handle.path}:${handle.rootId ?? args.rootIdByPath.get(handle.path) ?? ''}`)
+    .join('|');
+  return `${args.collectionId}:${args.policyPreset}:${rootsKey}`;
+}
+
+function createCoverageStatusPatch(args: {
+  activeRootPath: string | null;
+  collectionId: string;
+  lastError: string | null;
+  state: 'error' | 'idle' | 'waiting';
+}): WorkspaceCollectionSyncStatusPatch {
+  return {
+    state: args.state,
+    managedCollectionId: args.collectionId,
+    activeRootPath: args.activeRootPath,
+    currentFilePath: null,
+    queuedFiles: 0,
+    lastError: args.lastError,
+    pauseReasons: [],
+  };
+}
+
+async function buildCoverageAuditTargets(args: {
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  handles: readonly DirectoryHandle[];
+  policyPreset: BackgroundIndexingPolicyPreset;
+  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
+  rootIdByPath: ReadonlyMap<string, string>;
+}): Promise<readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome> {
+  const targetResults: WorkspaceCoverageAuditTargetResult[] = await Promise.all(
+    args.handles.map(async (handle) => {
+      const adapterRootId = handle.rootId ?? args.rootIdByPath.get(handle.path);
+      const dbRootId = await args.resolveDbRootId(handle.path, adapterRootId);
+      if (!dbRootId) {
+        return {
+          kind: 'unresolved-root',
+          message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+          rootPath: handle.path,
+        };
+      }
+      const expected = await countExpectedWorkspaceIndexFiles({
+        fileSystemAdapter: args.fileSystemAdapter,
+        includeFiles: false,
+        policyPreset: args.policyPreset,
+        rootHandle: handle,
+      });
+      return {
+        dbRootId,
+        expectedFileCount: expected.expectedFileCount,
+        rootPath: handle.path,
+      };
+    })
+  );
+  const unresolvedRoot = targetResults.find(isUnresolvedRootAuditOutcome);
+  if (unresolvedRoot) {
+    return unresolvedRoot;
+  }
+  return targetResults.filter(isWorkspaceCoverageAuditTarget);
+}
+
+function isCoverageAuditOutcome(
+  value: readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome
+): value is WorkspaceCoverageAuditOutcome {
+  return !Array.isArray(value);
+}
+
+async function runWorkspaceCoverageAudit(args: {
+  collectionId: string;
+  db: DbHandle;
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  handles: readonly DirectoryHandle[];
+  isCurrent: () => boolean;
+  policyPreset: BackgroundIndexingPolicyPreset;
+  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
+  rootIdByPath: ReadonlyMap<string, string>;
+}): Promise<WorkspaceCoverageAuditOutcome | null> {
+  if (!args.isCurrent()) {
+    return null;
+  }
+  const targets = await buildCoverageAuditTargets(args);
+  if (args.isCurrent()) {
+    if (isCoverageAuditOutcome(targets)) {
+      return targets;
+    }
+  } else {
+    return null;
+  }
+  if (!args.isCurrent()) {
+    return null;
+  }
+  const indexedCounts = await readIndexedFileCountsByRoot({
+    collectionId: args.collectionId,
+    db: args.db,
+    rootIds: targets.map((target) => target.dbRootId),
+  });
+  if (args.isCurrent()) {
+    const missingTargets = targets.filter(
+      (target) => (indexedCounts.get(target.dbRootId) ?? 0) < target.expectedFileCount
+    );
+    if (missingTargets.length === 0) {
+      return { kind: 'complete' };
+    }
+    return {
+      kind: 'incomplete',
+      indexedCounts,
+      message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
+      missingTargets,
+    };
+  }
+  return null;
+}
+
+function applyWorkspaceCoverageAuditOutcome(args: {
+  activeRootPath: string | null;
+  auditKey: string;
+  collectionId: string;
+  markAuditVerified: (auditKey: string) => void;
+  outcome: WorkspaceCoverageAuditOutcome;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): boolean {
+  if (args.outcome.kind === 'complete') {
+    args.markAuditVerified(args.auditKey);
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: args.activeRootPath,
+        collectionId: args.collectionId,
+        lastError: null,
+        state: 'idle',
+      })
+    );
+    return false;
+  }
+  if (args.outcome.kind === 'unresolved-root') {
+    logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: args.outcome.rootPath,
+        collectionId: args.collectionId,
+        lastError: args.outcome.message,
+        state: 'waiting',
+      })
+    );
+    return false;
+  }
+  applyWorkspaceCoverageIncompleteOutcome({
+    collectionId: args.collectionId,
+    outcome: args.outcome,
+    setStatus: args.setStatus,
+  });
+  return true;
+}
+
+function applyWorkspaceCoverageIncompleteOutcome(args: {
+  collectionId: string;
+  outcome: WorkspaceCoverageIncompleteOutcome;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): void {
+  logger.warn('Workspace Index idle coverage audit found incomplete roots', {
+    collectionId: args.collectionId,
+    missingRoots: args.outcome.missingTargets.map((target) => ({
+      expectedFileCount: target.expectedFileCount,
+      indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
+      rootPath: target.rootPath,
+    })),
+  });
+  args.setStatus(
+    createCoverageStatusPatch({
+      activeRootPath: args.outcome.missingTargets[0]?.rootPath ?? null,
+      collectionId: args.collectionId,
+      lastError: args.outcome.message,
+      state: 'waiting',
+    })
+  );
+}
+
+function startWorkspaceCoverageAudit(args: {
+  activeRootPath: string | null;
+  auditKey: string;
+  clearInFlightAudit: (auditKey: string) => void;
+  collectionId: string;
+  db: DbHandle;
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  handles: readonly DirectoryHandle[];
+  isCurrent: () => boolean;
+  markAuditVerified: (auditKey: string) => void;
+  policyPreset: BackgroundIndexingPolicyPreset;
+  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
+  rootIdByPath: ReadonlyMap<string, string>;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): Promise<boolean> {
+  return runWorkspaceCoverageAudit({
+    collectionId: args.collectionId,
+    db: args.db,
+    fileSystemAdapter: args.fileSystemAdapter,
+    handles: args.handles,
+    isCurrent: args.isCurrent,
+    policyPreset: args.policyPreset,
+    resolveDbRootId: args.resolveDbRootId,
+    rootIdByPath: args.rootIdByPath,
+  })
+    .then((outcome) => {
+      if (!outcome) {
+        return false;
+      }
+      return applyWorkspaceCoverageAuditOutcome({
+        activeRootPath: args.activeRootPath,
+        auditKey: args.auditKey,
+        collectionId: args.collectionId,
+        markAuditVerified: args.markAuditVerified,
+        outcome,
+        setStatus: args.setStatus,
+      });
+    })
+    .catch((error: unknown) => {
+      if (!args.isCurrent()) {
+        return false;
+      }
+      const message = `Workspace Index coverage audit failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      logger.error(message, { error });
+      args.setStatus(
+        createCoverageStatusPatch({
+          activeRootPath: args.activeRootPath,
+          collectionId: args.collectionId,
+          lastError: message,
+          state: 'error',
+        })
+      );
+      return false;
+    })
+    .finally(() => {
+      args.clearInFlightAudit(args.auditKey);
+    });
+}
+
 interface WorkspaceIndexingPowerBridge {
   getSnapshot?: () => Promise<WorkspaceIndexingPowerSnapshot>;
 }
@@ -140,11 +545,19 @@ interface SyncLoopTarget {
   };
 }
 
+type ResolvedSyncLoopTarget = SyncLoopTarget & { dbRootId: string };
+
 function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarget[] {
   return handles.map((handle) => ({
     handle,
     scope: { mode: 'full' },
   }));
+}
+
+function hasResolvedDbRootId(
+  target: SyncLoopTarget & { dbRootId: string | null }
+): target is ResolvedSyncLoopTarget {
+  return target.dbRootId !== null;
 }
 
 export interface WorkspaceCollectionSyncProviderProps {
@@ -153,17 +566,26 @@ export interface WorkspaceCollectionSyncProviderProps {
 
 function createBackgroundRepositoryDb(db: DbHandle): {
   exec: (sql: string) => Promise<void>;
+  insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
   query: DbHandle['query'];
 } {
   if (!db.exec) {
     throw new Error('Background indexing requires database exec support.');
   }
-  return {
+  const handle: {
+    exec: (sql: string) => Promise<void>;
+    insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
+    query: DbHandle['query'];
+  } = {
     query: db.query,
     exec: async (sql: string) => {
       await db.exec?.(sql);
     },
   };
+  if (db.insertChunksAndEnqueueEmbeddingJobs) {
+    handle.insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs.bind(db);
+  }
+  return handle;
 }
 
 function isFileSystemChange(value: unknown): value is FileSystemChange {
@@ -349,6 +771,54 @@ function createReadDatabasePressure(
   return async () => toWorkspaceIndexingDatabasePressure(await schedulerSnapshot());
 }
 
+function readRendererMemoryPressure(): WorkspaceIndexingPipelineInputs['memory'] {
+  const memory = (globalThis.performance as Performance & { memory?: BrowserPerformanceMemory })
+    .memory;
+  const used = memory?.usedJSHeapSize;
+  const limit = memory?.jsHeapSizeLimit;
+  if (
+    typeof used !== 'number' ||
+    typeof limit !== 'number' ||
+    !Number.isFinite(used) ||
+    !Number.isFinite(limit) ||
+    limit <= 0
+  ) {
+    return { available: false };
+  }
+  const retainedHeapRatio = used / limit;
+  return {
+    available: true,
+    pressure: retainedHeapRatio >= HIGH_RETAINED_HEAP_RATIO ? 'high' : 'normal',
+    retainedHeapRatio,
+  };
+}
+
+function createReadPipelineInputs(db: DbHandle): () => Promise<WorkspaceIndexingPipelineInputs> {
+  return async () => {
+    const result = await db.query<{ count: number | string }>(
+      `SELECT COUNT(*)::int AS count
+         FROM job_queue
+        WHERE queue = 'embeddings'
+          AND job_type = 'embed_chunk'
+          AND state IN ('queued', 'running')`
+    );
+    const rawCount = result.rows[0]?.count;
+    const activeEmbeddingJobs = typeof rawCount === 'number' ? rawCount : Number(rawCount ?? 0);
+    if (!Number.isFinite(activeEmbeddingJobs) || activeEmbeddingJobs < 0) {
+      throw new Error('Workspace Index QoS received an invalid embedding queue depth.');
+    }
+    return {
+      accelerator: { available: false },
+      memory: readRendererMemoryPressure(),
+      progress: { available: false },
+      queueDepth: {
+        activeEmbeddingJobs,
+        available: true,
+      },
+    };
+  };
+}
+
 function createReadPowerSnapshot(): (() => Promise<WorkspaceIndexingPowerSnapshot>) | null {
   if (typeof window === 'undefined') {
     return null;
@@ -525,6 +995,10 @@ export function WorkspaceCollectionSyncProvider({
     () => (backgroundDb ? createReadDatabasePressure(backgroundDb) : null),
     [backgroundDb]
   );
+  const readPipelineInputs = useMemo(
+    () => (backgroundDb ? createReadPipelineInputs(backgroundDb) : null),
+    [backgroundDb]
+  );
   const readPowerSnapshot = useMemo(() => createReadPowerSnapshot(), []);
   const backgroundRepositories = useMemo(() => {
     if (!backgroundDb) {
@@ -549,9 +1023,19 @@ export function WorkspaceCollectionSyncProvider({
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
   );
+  const setIndexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.setIndexingPolicyPreset
+  );
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
+  const selectedDevicePreference = useVectorPreferencesStore((state) => ({
+    devicePref: state.devicePref,
+    devicePrefConfigured: state.devicePrefConfigured,
+    hasHydrated: state.hasHydrated,
+    reinitEveryN: state.reinitEveryN,
+    verboseOrtLogs: state.verboseOrtLogs,
+  }));
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
   const windowVisible = useDocumentVisibility();
@@ -634,7 +1118,7 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
-    if (!readDatabasePressure) {
+    if (!(readDatabasePressure && readPipelineInputs)) {
       throw new Error('Workspace Index QoS requires database scheduler snapshots.');
     }
     const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
@@ -648,6 +1132,7 @@ export function WorkspaceCollectionSyncProvider({
       idleState: powerSnapshot?.idleState ?? 'unknown',
       idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
       manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
+      pipeline: await readPipelineInputs(),
       powerSource: powerSnapshot?.powerSource ?? 'unknown',
       // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
       // backfill exposes provider throttling as durable state.
@@ -658,7 +1143,43 @@ export function WorkspaceCollectionSyncProvider({
     });
     observeQosTransition(policy);
     return policy;
-  }, [observeQosTransition, readDatabasePressure, readPowerSnapshot, readRecentUserInputMs]);
+  }, [
+    observeQosTransition,
+    readDatabasePressure,
+    readPipelineInputs,
+    readPowerSnapshot,
+    readRecentUserInputMs,
+  ]);
+
+  const missingRuntimeDependencies = useMemo(() => {
+    const missing: string[] = [];
+    if (!db) {
+      missing.push('db');
+    }
+    if (!backgroundDb) {
+      missing.push('backgroundDb');
+    }
+    if (!waitForBackgroundPermit) {
+      missing.push('waitForBackgroundPermit');
+    }
+    if (backgroundRepositories) {
+      if (!backgroundRepositories.fileRecordRepository) {
+        missing.push('fileRecordRepository');
+      }
+      if (!backgroundRepositories.chunkRepository) {
+        missing.push('chunkRepository');
+      }
+      if (!backgroundRepositories.embeddingSetsRepository) {
+        missing.push('embeddingSetsRepository');
+      }
+    } else {
+      missing.push('backgroundRepositories');
+    }
+    if (!fileSystemAdapter) {
+      missing.push('fileSystemAdapter');
+    }
+    return missing;
+  }, [backgroundDb, backgroundRepositories, db, fileSystemAdapter, waitForBackgroundPermit]);
 
   const service = useMemo(() => {
     if (
@@ -837,14 +1358,14 @@ export function WorkspaceCollectionSyncProvider({
       if (!service) {
         if (enabled) {
           setSyncStatus({
-            state: 'error',
+            state: 'waiting',
             managedCollectionId,
             managedCollectionName: null,
             activeRootPath: rootDirectoryHandle?.path ?? null,
             currentFilePath: null,
             queuedFiles: 0,
             processedFiles: 0,
-            lastError: 'Background indexing runtime is unavailable.',
+            lastError: null,
           });
         } else {
           resetSyncStatus();
@@ -929,19 +1450,33 @@ export function WorkspaceCollectionSyncProvider({
       const myGeneration = syncLoopGenerationRef.current;
 
       void (async () => {
-        for (const target of targets) {
+        if (syncLoopGenerationRef.current !== myGeneration) {
+          return;
+        }
+        // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
+        const resolvedTargets = await Promise.all(
+          targets.map(async (target): Promise<SyncLoopTarget & { dbRootId: string | null }> => {
+            const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
+            const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
+            return { ...target, dbRootId };
+          })
+        );
+        if (syncLoopGenerationRef.current !== myGeneration) {
+          return;
+        }
+
+        const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
+
+        for (const [targetIndex, target] of syncableTargets.entries()) {
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
           }
-          const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
-          const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
-          if (syncLoopGenerationRef.current !== myGeneration) {
-            return;
-          }
+          // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           await service
             .sync({
-              dbRootId,
+              backfillMode: targetIndex === syncableTargets.length - 1 ? 'enqueue' : 'defer',
+              dbRootId: target.dbRootId,
               enabled,
               indexingPolicyPreset,
               managedCollectionId,
@@ -976,6 +1511,629 @@ export function WorkspaceCollectionSyncProvider({
       triggerWorkspaceIndexBootstrap,
     ]
   );
+  const triggerSyncFromEvent = useEffectEvent(triggerSync);
+
+  useEffect(() => {
+    let disposed = false;
+    let activeAuditToken: symbol | null = null;
+    let inFlightAuditKey: string | null = null;
+    let verifiedAuditKey: string | null = null;
+
+    const maybeAuditIdleCoverage = (
+      status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
+    ): void => {
+      if (status.state !== 'idle') {
+        if (status.state !== 'waiting') {
+          activeAuditToken = null;
+          inFlightAuditKey = null;
+          verifiedAuditKey = null;
+        }
+        return;
+      }
+      const collectionId = status.managedCollectionId ?? managedCollectionId;
+      if (!(enabled && collectionId && backgroundDb && fileSystemAdapter)) {
+        return;
+      }
+      const handles = getActiveRootHandles({ rootDirectoryHandle, rootDirectoryHandles });
+      if (handles.length === 0) {
+        return;
+      }
+
+      const auditKey = createCoverageAuditKey({
+        collectionId,
+        handles,
+        policyPreset: indexingPolicyPreset,
+        rootIdByPath,
+      });
+      if (verifiedAuditKey === auditKey || inFlightAuditKey === auditKey) {
+        return;
+      }
+
+      const auditToken = Symbol('workspace-coverage-audit');
+      activeAuditToken = auditToken;
+      inFlightAuditKey = auditKey;
+      const activeRootPath = rootDirectoryHandle?.path ?? handles[0]?.path ?? null;
+      setSyncStatus(
+        createCoverageStatusPatch({
+          activeRootPath,
+          collectionId,
+          lastError: WORKSPACE_COVERAGE_AUDIT_MESSAGE,
+          state: 'waiting',
+        })
+      );
+
+      void startWorkspaceCoverageAudit({
+        activeRootPath,
+        auditKey,
+        clearInFlightAudit: (completedAuditKey) => {
+          if (!(disposed || inFlightAuditKey !== completedAuditKey)) {
+            inFlightAuditKey = null;
+          }
+        },
+        collectionId,
+        db: backgroundDb,
+        fileSystemAdapter,
+        handles,
+        isCurrent: () => !disposed && activeAuditToken === auditToken,
+        markAuditVerified: (verifiedKey) => {
+          if (!disposed) {
+            verifiedAuditKey = verifiedKey;
+          }
+        },
+        policyPreset: indexingPolicyPreset,
+        resolveDbRootId,
+        rootIdByPath,
+        setStatus: setSyncStatus,
+      }).then((requiresRecoverySync) => {
+        if (!disposed && requiresRecoverySync) {
+          triggerSyncFromEvent({ mode: 'full' });
+        }
+      });
+    };
+
+    maybeAuditIdleCoverage(useWorkspaceCollectionSyncStatusStore.getState());
+    const unsubscribe = useWorkspaceCollectionSyncStatusStore.subscribe(maybeAuditIdleCoverage);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [
+    backgroundDb,
+    enabled,
+    fileSystemAdapter,
+    indexingPolicyPreset,
+    managedCollectionId,
+    resolveDbRootId,
+    rootDirectoryHandle,
+    rootDirectoryHandles,
+    rootIdByPath,
+    setSyncStatus,
+  ]);
+
+  const readDatabaseSchedulerSnapshot = useCallback(async (): Promise<unknown> => {
+    if (backgroundDb) {
+      const scheduler = getDatabaseWorkScheduler(backgroundDb);
+      if (scheduler) {
+        return scheduler.getSnapshot();
+      }
+    }
+    const schedulerSnapshot =
+      typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+    return schedulerSnapshot ? await schedulerSnapshot() : null;
+  }, [backgroundDb]);
+
+  const countExpectedDebugRoots = useCallback(async () => {
+    const handles =
+      rootDirectoryHandles.length > 0
+        ? rootDirectoryHandles
+        : rootDirectoryHandle
+          ? [rootDirectoryHandle]
+          : [];
+    return await Promise.all(
+      handles.map((handle) =>
+        countExpectedWorkspaceIndexFiles({
+          fileSystemAdapter,
+          policyPreset: indexingPolicyPreset,
+          rootHandle: handle,
+        })
+      )
+    );
+  }, [fileSystemAdapter, indexingPolicyPreset, rootDirectoryHandle, rootDirectoryHandles]);
+
+  const readDebugHostStatus = useCallback(async (bridgeName: 'chunkingHost' | 'embeddingHost') => {
+    const bridge = (window as unknown as Record<typeof bridgeName, unknown>)[bridgeName] as
+      | { getStatus?: () => Promise<unknown> }
+      | undefined;
+    if (typeof bridge?.getStatus !== 'function') {
+      return {
+        available: false,
+        reason: `${bridgeName} bridge unavailable`,
+      };
+    }
+    try {
+      return {
+        available: true,
+        status: await bridge.getStatus(),
+      };
+    } catch (error) {
+      return {
+        available: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, []);
+
+  const readDebugSnapshot = useCallback(async (): Promise<WorkspaceIndexDebugSnapshot> => {
+    const accessIssues: Array<{ reason: string; source: string }> = [];
+    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const query =
+      typeof electronQuery === 'function'
+        ? (((sql: string, params?: unknown[]) =>
+            electronQuery(sql, params, BACKGROUND_DATABASE_WORK_OPTIONS) as Promise<{
+              rows?: unknown[];
+            }>) satisfies WorkspaceIndexDebugDbQuery)
+        : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
+    const [
+      expectedCounts,
+      roots,
+      fileRecordsByRoot,
+      chunkedRecordsByRoot,
+      chunkStatsByRoot,
+      chunkStatsByRootAndSet,
+      jobQueue,
+      jobQueueReadiness,
+      recentEmbeddingCompletions,
+      recentEmbeddingFailures,
+      databaseScheduler,
+      chunkingHostStatus,
+      embeddingHostStatus,
+    ] = await Promise.all([
+      countExpectedDebugRoots(),
+      readWorkspaceIndexDebugRows(
+        query,
+        'SELECT id, path, display_name, kind, status, created_at, last_verified_at FROM roots ORDER BY created_at ASC',
+        [],
+        accessIssues,
+        'roots'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT root_id, COUNT(*)::int AS file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NOT NULL)::int AS chunked_file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NULL)::int AS unchunked_file_count
+           FROM file_records
+          WHERE ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY root_id
+          ORDER BY root_id`,
+        [managedCollectionId],
+        accessIssues,
+        'file_records_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* chunked_records_by_root_query_marker */
+         SELECT fr.root_id,
+                fr.id,
+                fr.path AS relative_path,
+                fr.chunks_processed_at,
+                COUNT(fc.id)::int AS chunk_count
+           FROM file_records fr
+           LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
+          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+            AND fr.chunks_processed_at IS NOT NULL
+          GROUP BY fr.root_id, fr.id, fr.path, fr.chunks_processed_at
+          ORDER BY fr.root_id, fr.path`,
+        [managedCollectionId],
+        accessIssues,
+        'chunked_records_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT fr.root_id,
+                COUNT(fc.id)::int AS chunk_count,
+                COUNT(fc.embedding)::int AS embedded_chunk_count,
+                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+           FROM file_chunks fc
+           JOIN file_records fr ON fr.id = fc.file_record_id
+          WHERE ($1::text IS NULL OR fc.embedding_set_id = $1::text)
+          GROUP BY fr.root_id
+          ORDER BY fr.root_id`,
+        [managedCollectionId],
+        accessIssues,
+        'chunks_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* chunks_by_root_and_set_query_marker */
+         SELECT fr.root_id,
+                fc.embedding_set_id,
+                COUNT(fc.id)::int AS chunk_count,
+                COUNT(fc.embedding)::int AS embedded_chunk_count,
+                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+           FROM file_chunks fc
+           JOIN file_records fr ON fr.id = fc.file_record_id
+          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          GROUP BY fr.root_id, fc.embedding_set_id
+          ORDER BY fr.root_id, fc.embedding_set_id`,
+        [managedCollectionId],
+        accessIssues,
+        'chunks_by_root_and_set'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT queue, job_type, state, COUNT(*)::int AS count,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY queue, job_type, state
+          ORDER BY queue, job_type, state`,
+        [managedCollectionId],
+        accessIssues,
+        'job_queue'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* job_queue_readiness_query_marker */
+         SELECT state,
+                COUNT(*) FILTER (WHERE run_at <= $2::text)::int AS due_count,
+                COUNT(*) FILTER (WHERE run_at > $2::text)::int AS future_count,
+                MIN(run_at) AS oldest_run_at,
+                MAX(run_at) AS newest_run_at,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY state
+          ORDER BY state`,
+        [managedCollectionId, new Date().toISOString()],
+        accessIssues,
+        'job_queue_readiness'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `SELECT id, state, worker_id, attempts, updated_at, payload
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND state = 'succeeded'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          ORDER BY updated_at DESC
+          LIMIT 10`,
+        [managedCollectionId],
+        accessIssues,
+        'recent_embedding_completions'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* recent_embedding_failures_query_marker */
+         SELECT id, state, worker_id, attempts, max_attempts, run_at, leased_until, error, updated_at, payload
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND state = 'failed'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          ORDER BY updated_at DESC
+          LIMIT 20`,
+        [managedCollectionId],
+        accessIssues,
+        'recent_embedding_failures'
+      ),
+      readDatabaseSchedulerSnapshot(),
+      readDebugHostStatus('chunkingHost'),
+      readDebugHostStatus('embeddingHost'),
+    ]);
+
+    return {
+      ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      chunkingHostStatus,
+      chunkStatsByRoot,
+      chunkStatsByRootAndSet,
+      chunkedRecordsByRoot,
+      databaseScheduler,
+      embeddingHostStatus: {
+        ...((embeddingHostStatus && typeof embeddingHostStatus === 'object'
+          ? embeddingHostStatus
+          : {}) as Record<string, unknown>),
+        recentEmbeddingCompletions,
+      },
+      expectedCounts,
+      fileRecordsByRoot,
+      jobQueue,
+      jobQueueReadiness,
+      managedCollectionId,
+      memorySample: readWorkspaceIndexMemorySample(),
+      recentEmbeddingFailures,
+      roots,
+      runtimeReadiness: {
+        message: service ? null : createRuntimeUnavailableMessage(missingRuntimeDependencies),
+        missingDependencies: missingRuntimeDependencies,
+        serviceAvailable: Boolean(service),
+      },
+      selectedDevicePreference,
+      syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
+    };
+  }, [
+    backgroundDb,
+    countExpectedDebugRoots,
+    managedCollectionId,
+    missingRuntimeDependencies,
+    readDatabaseSchedulerSnapshot,
+    readDebugHostStatus,
+    selectedDevicePreference,
+    service,
+  ]);
+
+  const readDebugSummary = useCallback(async (): Promise<WorkspaceIndexDebugSummary> => {
+    const accessIssues: Array<{ reason: string; source: string }> = [];
+    const electronQuery = typeof window === 'undefined' ? undefined : window.electronAPI?.db?.query;
+    const query =
+      typeof electronQuery === 'function'
+        ? (((sql: string, params?: unknown[]) =>
+            electronQuery(sql, params, BACKGROUND_DATABASE_WORK_OPTIONS) as Promise<{
+              rows?: unknown[];
+            }>) satisfies WorkspaceIndexDebugDbQuery)
+        : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
+    const [
+      roots,
+      fileRecordsByRoot,
+      chunkStatsByRootAndSet,
+      jobQueue,
+      jobQueueReadiness,
+      recentEmbeddingFailures,
+      databaseScheduler,
+      embeddingHostStatus,
+    ] = await Promise.all([
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_roots_marker */
+         SELECT id, path, display_name, kind, status, created_at, last_verified_at
+           FROM roots
+          ORDER BY created_at ASC`,
+        [],
+        accessIssues,
+        'summary_roots'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_file_records_marker */
+         SELECT root_id, COUNT(*)::int AS file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NOT NULL)::int AS chunked_file_count,
+                COUNT(*) FILTER (WHERE chunks_processed_at IS NULL)::int AS unchunked_file_count
+           FROM file_records
+          WHERE ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY root_id
+          ORDER BY root_id`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_file_records_by_root'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_chunks_marker */
+         SELECT fr.root_id,
+                fc.embedding_set_id,
+                COUNT(fc.id)::int AS chunk_count,
+                COUNT(fc.embedding)::int AS embedded_chunk_count,
+                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+           FROM file_chunks fc
+           JOIN file_records fr ON fr.id = fc.file_record_id
+          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          GROUP BY fr.root_id, fc.embedding_set_id
+          ORDER BY fr.root_id, fc.embedding_set_id`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_chunks_by_root_and_set'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_job_queue_marker */
+         SELECT queue, job_type, state, COUNT(*)::int AS count,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY queue, job_type, state
+          ORDER BY queue, job_type, state`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_job_queue'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_job_queue_readiness_marker */
+         SELECT state,
+                COUNT(*) FILTER (WHERE run_at <= $2::text)::int AS due_count,
+                COUNT(*) FILTER (WHERE run_at > $2::text)::int AS future_count,
+                MIN(run_at) AS oldest_run_at,
+                MAX(run_at) AS newest_run_at,
+                MIN(updated_at) AS oldest_updated_at,
+                MAX(updated_at) AS newest_updated_at
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          GROUP BY state
+          ORDER BY state`,
+        [managedCollectionId, new Date().toISOString()],
+        accessIssues,
+        'summary_job_queue_readiness'
+      ),
+      readWorkspaceIndexDebugRows(
+        query,
+        `/* workspace_index_summary_recent_embedding_failures_marker */
+         SELECT id, state, worker_id, attempts, max_attempts, run_at, leased_until, error, updated_at, payload
+           FROM job_queue
+          WHERE job_type = 'embed_chunk'
+            AND state = 'failed'
+            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+          ORDER BY updated_at DESC
+          LIMIT 20`,
+        [managedCollectionId],
+        accessIssues,
+        'summary_recent_embedding_failures'
+      ),
+      readDatabaseSchedulerSnapshot(),
+      readDebugHostStatus('embeddingHost'),
+    ]);
+
+    return {
+      ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      chunkStatsByRootAndSet,
+      databaseScheduler,
+      embeddingHostStatus,
+      fileRecordsByRoot,
+      jobQueue,
+      jobQueueReadiness,
+      managedCollectionId,
+      memorySample: readWorkspaceIndexMemorySample(),
+      recentEmbeddingFailures,
+      roots,
+      selectedDevicePreference,
+      syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
+    };
+  }, [
+    backgroundDb,
+    managedCollectionId,
+    readDatabaseSchedulerSnapshot,
+    readDebugHostStatus,
+    selectedDevicePreference,
+  ]);
+
+  const benchmarkDebugStage: WorkspaceIndexDebugApi['benchmarkStage'] = useCallback(
+    async (request) => {
+      const electronRunTransaction =
+        typeof window === 'undefined'
+          ? undefined
+          : (
+              window.electronAPI?.db as
+                | {
+                    runTransaction?: (
+                      statements: Array<{ params?: unknown[]; sql: string }>,
+                      resultIndex: number,
+                      options?: unknown
+                    ) => Promise<{ rows?: unknown[] }>;
+                  }
+                | undefined
+            )?.runTransaction;
+      const chunkingHost =
+        typeof window === 'undefined'
+          ? undefined
+          : (
+              window as Window & {
+                chunkingHost?: {
+                  chunkBatch?: (request: {
+                    files: readonly {
+                      content: string;
+                      fileName: string;
+                      filePath: string;
+                      fileRecordId: string;
+                    }[];
+                    kind: 'chunk-batch';
+                    options: {
+                      allowLargeFiles: boolean;
+                      forceStrategy: boolean;
+                      ignoreFileTypeRecommendations: boolean;
+                      maxTokens: number;
+                      overlap: number;
+                      requestedStrategy: 'recursive';
+                      tokenTrueSizing: boolean;
+                    };
+                    requestId: string;
+                  }) => Promise<readonly unknown[]>;
+                };
+              }
+            ).chunkingHost;
+      const embeddingHost =
+        typeof window === 'undefined'
+          ? undefined
+          : (
+              window as Window & {
+                embeddingHost?: {
+                  getStatus?: () => Promise<unknown>;
+                  queryEmbedding?: (payload: {
+                    dimensions: number;
+                    modelId: string;
+                    modelKey: string;
+                    query: string;
+                  }) => Promise<readonly number[]>;
+                };
+              }
+            ).embeddingHost;
+      const applyManagedCacheBatch = async (
+        args: Parameters<typeof applyManagedCacheBatchLocally>[1]
+      ) => {
+        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        if (electronApplyManagedCacheBatch) {
+          await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
+          return;
+        }
+        if (!backgroundDb) {
+          throw new Error('Workspace Index stage benchmark requires managed-cache apply support.');
+        }
+        await applyManagedCacheBatchLocally(backgroundDb, args);
+      };
+      if (request.mode === 'db-completion-ceiling' && !(backgroundDb || electronRunTransaction)) {
+        throw new Error('Workspace Index stage benchmark requires transactional database support.');
+      }
+      return await runWorkspaceIndexStageBenchmark({
+        applyManagedCacheBatch,
+        chunkingHost,
+        db: backgroundDb,
+        embeddingHost,
+        electronRunTransaction,
+        electronTransactionOptions: BACKGROUND_DATABASE_WORK_OPTIONS,
+        request,
+      });
+    },
+    [backgroundDb]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const env = (
+      import.meta as ImportMeta & {
+        env?: Record<string, unknown>;
+      }
+    ).env;
+    if (!shouldExposeWorkspaceIndexDebugApi(env)) {
+      window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = undefined;
+      return;
+    }
+    const workspaceIndexDebugApi = Object.freeze<WorkspaceIndexDebugApi>({
+      benchmarkStage: benchmarkDebugStage,
+      configure: ({ policyPreset }) => {
+        if (policyPreset) {
+          setIndexingPolicyPreset(policyPreset);
+        }
+      },
+      countExpected: countExpectedDebugRoots,
+      snapshot: readDebugSnapshot,
+      summary: readDebugSummary,
+      triggerFullSync: () => {
+        triggerSync({ mode: 'full' });
+      },
+    });
+    window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = workspaceIndexDebugApi;
+    return () => {
+      if (window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === workspaceIndexDebugApi) {
+        window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ = undefined;
+      }
+    };
+  }, [
+    benchmarkDebugStage,
+    countExpectedDebugRoots,
+    readDebugSnapshot,
+    readDebugSummary,
+    setIndexingPolicyPreset,
+    triggerSync,
+  ]);
+
+  const invalidateActiveSyncLoopFromEffect = useEffectEvent(() => {
+    syncLoopGenerationRef.current += 1;
+  });
 
   useEffect(() => {
     setBackgroundWorkManualPause(paused);
@@ -990,6 +2148,7 @@ export function WorkspaceCollectionSyncProvider({
     }
     return registerBackgroundWorkPauseHandler('background-indexing', {
       pause: async () => {
+        invalidateActiveSyncLoopFromEffect();
         await service.cancel();
       },
     });
@@ -998,6 +2157,7 @@ export function WorkspaceCollectionSyncProvider({
   useEffect(() => {
     triggerSync();
     return () => {
+      invalidateActiveSyncLoopFromEffect();
       void service?.cancel().catch((error) => {
         reportAsyncError('cancel', error);
       });
@@ -1006,14 +2166,36 @@ export function WorkspaceCollectionSyncProvider({
 
   useEffect(() => {
     const handleRefresh = (event: Event): void => {
-      triggerSync(parseRefreshSyncScope(event));
+      triggerSyncFromEvent(parseRefreshSyncScope(event));
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     return () => {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
-  }, [triggerSync]);
+  }, []);
+
+  useEffect(() => {
+    const handleQueueDrained = (event: Event): void => {
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+      const detail = event.detail as { embeddingSetId?: unknown; queue?: unknown } | null;
+      if (
+        detail?.queue !== 'embeddings' ||
+        typeof detail.embeddingSetId !== 'string' ||
+        detail.embeddingSetId !== managedCollectionId
+      ) {
+        return;
+      }
+      triggerSyncFromEvent({ mode: 'full' });
+    };
+
+    window.addEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
+    return () => {
+      window.removeEventListener(QUEUE_DRAINED_EVENT, handleQueueDrained);
+    };
+  }, [managedCollectionId]);
 
   // Recovery point for a backfill killed while the window was hidden (e.g. a
   // top-level navigation mid-backfill): re-sync on return to visibility so the

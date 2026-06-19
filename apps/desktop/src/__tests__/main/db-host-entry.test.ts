@@ -15,6 +15,18 @@ const dbMainMocks = vi.hoisted(() => ({
 
 vi.mock('../../db-main', () => dbMainMocks);
 
+const dbPackageMocks = vi.hoisted(() => ({
+  insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+}));
+
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...original,
+    insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,
+  };
+});
+
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 
 function restoreParentPort(): void {
@@ -71,6 +83,7 @@ describe('db-host-entry', () => {
     dbMainMocks.initializeMainDatabase.mockReset();
     dbMainMocks.initializeMainDatabase.mockResolvedValue(undefined);
     dbMainMocks.resetLocalDatabase.mockReset();
+    dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs.mockClear();
   });
 
   afterEach(() => {
@@ -118,6 +131,48 @@ describe('db-host-entry', () => {
       level: 'info',
       message: 'DB host process started',
     });
+  });
+
+  it('emits structured slow-request diagnostics while a query is still running', async () => {
+    vi.useFakeTimers();
+    try {
+      const query = vi.fn(() => new Promise(() => undefined));
+      dbMainMocks.getDatabase.mockResolvedValue({ query });
+      const { listeners, parentPort } = installParentPortMock();
+      await import('../../db-host-entry');
+
+      listeners[0]?.({
+        data: {
+          id: 'slow-query-request',
+          kind: 'request',
+          request: {
+            kind: 'query',
+            sql: 'SELECT * FROM file_chunks WHERE embedding IS NULL',
+            params: ['set-1'],
+          },
+        },
+      });
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(parentPort.postMessage).toHaveBeenCalledWith({
+        context: expect.objectContaining({
+          activeDurationMs: 5000,
+          paramsCount: 1,
+          pendingControlRequests: 0,
+          pendingGeneralRequests: 0,
+          pendingTransactionRequests: 0,
+          requestId: 'slow-query-request',
+          requestKind: 'query',
+          sqlPreview: 'SELECT * FROM file_chunks WHERE embedding IS NULL',
+        }),
+        kind: 'log',
+        level: 'warn',
+        message: 'DB host request still running',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects non-array query params before calling PGlite', async () => {
@@ -379,5 +434,61 @@ describe('db-host-entry', () => {
         ok: false,
       })
     );
+  });
+
+  it('forwards parsed atomic chunk/job enqueue requests without reparsing the renderer envelope', async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    dbMainMocks.getDatabase.mockResolvedValue(db);
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+    const now = new Date().toISOString();
+
+    listeners[0]?.({
+      data: {
+        id: 'atomic-chunk-job',
+        kind: 'request',
+        request: {
+          kind: 'chunks:insert-and-enqueue-embedding-jobs',
+          payload: {
+            chunks: [
+              {
+                chunkIndex: 0,
+                chunkSize: 12,
+                chunkType: 'sentence',
+                content: 'hello world',
+                contentHash: 'chunk-hash',
+                createdAt: now,
+                fileRecordId: 'file-1',
+                id: 'chunk-1',
+                tokenCount: 2,
+                updatedAt: now,
+              },
+            ],
+            dimensionParameter: null,
+            fileRecordId: 'file-1',
+            model: 'local::Xenova/all-MiniLM-L6-v2',
+            provider: 'local',
+            targetDimension: 384,
+            targetEmbeddingSetId: 'workspace-index',
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        fileRecordId: 'file-1',
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        targetDimension: 384,
+      })
+    );
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'atomic-chunk-job',
+      kind: 'response',
+      ok: true,
+      result: { inserted: true },
+    });
   });
 });

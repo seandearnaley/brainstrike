@@ -40,6 +40,10 @@ import { migration038PgTrgmGrepIndex } from './038-pg-trgm-grep-index.js';
 import { migration039RootsTable } from './039-roots-table.js';
 import { migration040RetireSourceRootPath } from './040-retire-source-root-path.js';
 import { migration041RootsPathIdentity } from './041-roots-path-identity.js';
+import { migration042JobQueueChunkId } from './042-job-queue-chunk-id.js';
+import { migration043JobQueueEmbeddingSetId } from './043-job-queue-embedding-set-id.js';
+import { migration044DimensionIndexSuspensions } from './044-dimension-index-suspensions.js';
+import { migration045DimensionIndexMaintenance } from './045-dimension-index-maintenance.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -86,6 +90,10 @@ export const migrations: Migration[] = [
   migration039RootsTable,
   migration040RetireSourceRootPath,
   migration041RootsPathIdentity,
+  migration042JobQueueChunkId,
+  migration043JobQueueEmbeddingSetId,
+  migration044DimensionIndexSuspensions,
+  migration045DimensionIndexMaintenance,
 ];
 
 // Export base migrations (without chunks table) for test environments

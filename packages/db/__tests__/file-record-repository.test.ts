@@ -145,18 +145,28 @@ describe('FileRecordRepository', () => {
   });
 
   it('round-trips root_id metadata for managed cache entries', async () => {
+    const chunkedAt = '2026-06-16T18:00:00.000Z';
     await seedManagedCacheEntry(db, repo, {
       id: 'roundtrip-a',
       embeddingSetId: '00000000-0000-0000-0000-000000000101',
       path: 'src/index.ts',
       rootId: 'root-a',
     });
+    await db.query(
+      'UPDATE file_records SET chunks_count = $1, chunks_processed_at = $2 WHERE id = $3',
+      [3, chunkedAt, 'roundtrip-a']
+    );
 
     const entries = await repo.listManagedCacheEntryMetadata(
       '00000000-0000-0000-0000-000000000101'
     );
     expect(entries).toEqual([
-      expect.objectContaining({ fileRecordId: 'roundtrip-a', rootId: 'root-a' }),
+      expect.objectContaining({
+        chunksCount: 3,
+        chunksProcessedAt: chunkedAt,
+        fileRecordId: 'roundtrip-a',
+        rootId: 'root-a',
+      }),
     ]);
   });
 
@@ -178,6 +188,34 @@ describe('FileRecordRepository', () => {
     const found = await repo.findById(record.id);
     expect(found?.content).toBe('');
     expect(found?.tokenCount).toBe(0);
+  });
+
+  it('rejects null bytes in file content before creating records', async () => {
+    const record = createTestRecord({
+      id: 'null-create',
+      content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+      contentHash: 'hash-null-create',
+      processedAt: new Date().toISOString(),
+      tokenCount: 1,
+    });
+
+    await expect(repo.createWithContent(record)).rejects.toThrow(
+      'File record content cannot contain null bytes.'
+    );
+  });
+
+  it('rejects null bytes in file content before updating records', async () => {
+    const record = createTestRecord({ id: 'null-update' });
+    await repo.create(record);
+
+    await expect(
+      repo.updateContent(
+        record.id,
+        `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        'hash-null-update',
+        1
+      )
+    ).rejects.toThrow('File record content cannot contain null bytes.');
   });
 
   it('finds managed cache entries by embedding set, root id, and relative path', async () => {

@@ -856,9 +856,15 @@ export class LocalRuntimeModelCatalogService {
     const force = options.force ? 'force' : 'cache';
     const verify = options.verifyEmbeddingDimensions ? 'verify' : 'no-verify';
     const maxVerificationModels = options.maxVerificationModels ?? 'default';
-    return [runtime, effectiveBaseUrl, surface, force, verify, String(maxVerificationModels)].join(
-      '\u0000'
-    );
+    return [
+      runtime,
+      effectiveBaseUrl,
+      surface,
+      force,
+      verify,
+      String(maxVerificationModels),
+      options.diagnosticLogLevel ?? 'warn',
+    ].join('\u0000');
   }
 
   private async listRuntimeModelsUnshared(
@@ -876,6 +882,7 @@ export class LocalRuntimeModelCatalogService {
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.surface ? { surface: options.surface } : {}),
       ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+      ...(options.diagnosticLogLevel ? { diagnosticLogLevel: options.diagnosticLogLevel } : {}),
     };
 
     const availability = await this.discoveryService.probeRuntime(runtime, probeOptions);
@@ -888,7 +895,8 @@ export class LocalRuntimeModelCatalogService {
         availability,
         cached,
         undefined,
-        effectiveBaseUrl
+        effectiveBaseUrl,
+        options.diagnosticLogLevel
       );
     }
 
@@ -939,7 +947,8 @@ export class LocalRuntimeModelCatalogService {
       availability,
       cached,
       loaded.message,
-      effectiveBaseUrl
+      effectiveBaseUrl,
+      options.diagnosticLogLevel
     );
   }
 
@@ -1100,7 +1109,8 @@ export class LocalRuntimeModelCatalogService {
     availability: LocalRuntimeAvailabilityState,
     cached: RuntimeModelCacheEntry | undefined,
     message?: string,
-    baseUrl?: string
+    baseUrl?: string,
+    diagnosticLogLevel?: ListLocalRuntimeModelsOptions['diagnosticLogLevel']
   ): LocalRuntimeModelCatalogState {
     const failureMessage = message ?? buildRuntimeAvailabilityMessage(runtime, availability);
     const nextFailures = (cached?.consecutiveFailures ?? 0) + 1;
@@ -1139,7 +1149,7 @@ export class LocalRuntimeModelCatalogService {
       availability: availability.state,
       consecutiveFailures: nextFailures,
     };
-    if (nextStatus.state === 'stale_cached' || nextFailures > 1) {
+    if (nextStatus.state === 'stale_cached' || nextFailures > 1 || diagnosticLogLevel === 'debug') {
       this.logger.debug('local runtime model catalog failed', catalogFailurePayload);
     } else {
       this.logger.warn('local runtime model catalog failed', catalogFailurePayload);

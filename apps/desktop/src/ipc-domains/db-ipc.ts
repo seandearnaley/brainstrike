@@ -11,7 +11,9 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
 import {
   DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+  DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
   DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+  parseInsertChunksAndEnqueueEmbeddingJobsArgs,
   parseManagedCacheInvalidationsArgs,
 } from '../db-shared';
 import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
@@ -595,6 +597,25 @@ export function registerDatabaseIpcHandlers(
             const { getDbHostManager } = await import('../db-host-manager');
             return await getDbHostManager().invalidateManagedCacheEntriesByIdentity(parsedPayload);
           }, DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL)
+      );
+    }
+  );
+
+  registry.registerInvoke(
+    'db',
+    DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+    async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
+      const parsedPayload = parseInsertChunksAndEnqueueEmbeddingJobsArgs(payload);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDbHostManager } = await import('../db-host-manager');
+            await getDbHostManager().insertChunksAndEnqueueEmbeddingJobs(parsedPayload);
+          }, DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL)
       );
     }
   );

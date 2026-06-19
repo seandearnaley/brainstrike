@@ -27,6 +27,7 @@ export const DESKTOP_IPC_CHANNELS = {
     test: 'db:test',
     transaction: 'db:transaction',
     invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
+    insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',

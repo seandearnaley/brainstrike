@@ -2113,7 +2113,7 @@ export async function getEmbeddingSetQueueStats(
        FROM job_queue
        WHERE queue = 'embeddings'
          AND job_type = 'embed_chunk'
-         AND payload->>'embeddingSetId' = $1`,
+         AND embedding_set_id = $1`,
       [id],
       { label: 'e2e-get-embedding-set-queue-stats', priority: 'background' }
     );

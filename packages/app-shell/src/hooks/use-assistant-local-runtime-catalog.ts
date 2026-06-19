@@ -6,8 +6,12 @@ import {
 } from '../assistant-ui-panel-wrapper-runtime';
 
 interface UseAssistantLocalRuntimeCatalogArgs {
-  readonly getLocalRuntimeModels: () => Promise<LocalRuntimeModelCatalogMap>;
-  readonly getLocalRuntimeStatuses: () => Promise<LocalRuntimeStatusMap>;
+  readonly getLocalRuntimeModels: (options?: {
+    readonly diagnosticLogLevel?: 'debug' | 'warn';
+  }) => Promise<LocalRuntimeModelCatalogMap>;
+  readonly getLocalRuntimeStatuses: (options?: {
+    readonly diagnosticLogLevel?: 'debug' | 'warn';
+  }) => Promise<LocalRuntimeStatusMap>;
 }
 
 interface UseAssistantLocalRuntimeCatalogResult {
@@ -38,7 +42,7 @@ export function useAssistantLocalRuntimeCatalog({
       lmstudio: { state: 'checking' },
     });
 
-    void getLocalRuntimeStatuses()
+    void getLocalRuntimeStatuses({ diagnosticLogLevel: 'debug' })
       .then((statuses) => {
         if (!cancelled) {
           setLocalRuntimeStatuses(statuses);
@@ -84,7 +88,7 @@ export function useAssistantLocalRuntimeCatalog({
 
     let cancelled = false;
 
-    void getLocalRuntimeModels()
+    void getLocalRuntimeModels({ diagnosticLogLevel: 'debug' })
       .then((catalog) => {
         if (!cancelled) {
           setLocalRuntimeModels(catalog);

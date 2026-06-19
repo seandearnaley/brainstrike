@@ -98,6 +98,31 @@ describe('@brainstrike/worker-runtime', () => {
     ).toThrow('Runtime status must not include non-canonical status field "phase".');
   });
 
+  it('preserves explicitly allowed runtime status extension fields', () => {
+    const initial = createBackgroundRuntimeStatus('embedding-host', 'runtime-1', 'running', {
+      active: true,
+    }) as BackgroundRuntimeStatus<'embedding-host'> & {
+      readonly embeddingRuntime?: { readonly device: 'webgpu' };
+    };
+    const store = createRuntimeStatusStore(initial, {
+      allowedExtensionKeys: ['embeddingRuntime'],
+    });
+    const listener = vi.fn();
+    const cleanup = store.subscribe(listener);
+
+    const status = {
+      ...createBackgroundRuntimeStatus('embedding-host', 'runtime-1', 'running', {
+        active: true,
+      }),
+      embeddingRuntime: { device: 'webgpu' as const },
+    };
+
+    expect(store.setStatus(status)).toEqual(status);
+    expect(store.getStatus()).toEqual(status);
+    expect(listener).toHaveBeenCalledWith(status);
+    cleanup();
+  });
+
   it('creates stopped statuses with canonical runtime ids', () => {
     expect(createStoppedBackgroundRuntimeStatus('chunking-host')).toEqual({
       runtimeKind: 'chunking-host',

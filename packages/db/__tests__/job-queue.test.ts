@@ -29,6 +29,26 @@ describe('JobQueue', () => {
     expect(claimed?.leasedUntil).toBeTruthy();
   });
 
+  it('persists chunk_id for indexed embedding-job cancellation', async () => {
+    const queue = new JobQueue(db);
+
+    const job = await queue.enqueue({
+      queue: 'embeddings',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-indexed-write' },
+    });
+    expect(job.chunk_id).toBe('chunk-indexed-write');
+
+    const result = await db.query<{ chunk_id: string | null }>(
+      'SELECT chunk_id FROM job_queue WHERE id = $1',
+      [job.id]
+    );
+    expect(result.rows).toEqual([{ chunk_id: 'chunk-indexed-write' }]);
+
+    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    expect(claimed?.chunk_id).toBe('chunk-indexed-write');
+  });
+
   it('heartbeat extends lease', async () => {
     const queue = new JobQueue(db);
     const _job = await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });

@@ -98,7 +98,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   getStatus(): TStatus {
-    return this.options.createStatus(this.status);
+    return this.createStatusSnapshot(this.status);
   }
 
   isHostWindow(window: BrowserWindow): boolean {
@@ -263,7 +263,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           return;
         }
         cleanup();
-        resolve(this.options.createStatus(status));
+        resolve(this.createStatusSnapshot(status));
       };
 
       timeoutId = setTimeout(() => {
@@ -276,7 +276,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   setStatus(status: TStatus): void {
-    const nextStatus = this.options.createStatus(status);
+    const nextStatus = this.createStatusSnapshot(status);
     if (this.areStatusesEqual(this.status, nextStatus)) {
       return;
     }
@@ -319,6 +319,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.pendingWaiterRejectors.clear();
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
+  }
+
+  private createStatusSnapshot(status: TStatus): TStatus {
+    return {
+      ...status,
+      ...this.options.createStatus(status),
+    };
   }
 
   private buildWindow(): BrowserWindow {
@@ -473,14 +480,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private areStatusesEqual(left: TStatus, right: TStatus): boolean {
-    // RendererHostStatusShape intentionally treats these four fields as the canonical broadcast
-    // contract. If a host status grows additional UI-significant fields, this comparison must be
-    // updated at the same time so we do not silently suppress meaningful broadcasts.
-    return (
-      left.state === right.state &&
-      left.active === right.active &&
-      left.lastError === right.lastError &&
-      left.runtimeId === right.runtimeId
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every(
+      (key) =>
+        JSON.stringify((left as Record<string, unknown>)[key]) ===
+        JSON.stringify((right as Record<string, unknown>)[key])
     );
   }
 }

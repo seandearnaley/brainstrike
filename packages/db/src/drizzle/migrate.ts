@@ -31,6 +31,10 @@ import { migration038PgTrgmGrepIndex } from '../migrations/038-pg-trgm-grep-inde
 import { migration039RootsTable } from '../migrations/039-roots-table.js';
 import { migration040RetireSourceRootPath } from '../migrations/040-retire-source-root-path.js';
 import { migration041RootsPathIdentity } from '../migrations/041-roots-path-identity.js';
+import { migration042JobQueueChunkId } from '../migrations/042-job-queue-chunk-id.js';
+import { migration043JobQueueEmbeddingSetId } from '../migrations/043-job-queue-embedding-set-id.js';
+import { migration044DimensionIndexSuspensions } from '../migrations/044-dimension-index-suspensions.js';
+import { migration045DimensionIndexMaintenance } from '../migrations/045-dimension-index-maintenance.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -164,6 +168,10 @@ const customMigrations: Migration[] = [
   customMigration('custom-039-roots-table', migration039RootsTable),
   customMigration('custom-040-retire-source-root-path', migration040RetireSourceRootPath),
   customMigration('custom-041-roots-path-identity', migration041RootsPathIdentity),
+  customMigration('custom-042-job-queue-chunk-id', migration042JobQueueChunkId),
+  customMigration('custom-043-job-queue-embedding-set-id', migration043JobQueueEmbeddingSetId),
+  customMigration('custom-044-dimension-index-suspensions', migration044DimensionIndexSuspensions),
+  customMigration('custom-045-dimension-index-maintenance', migration045DimensionIndexMaintenance),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

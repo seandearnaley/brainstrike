@@ -1,4 +1,8 @@
-import type { DatabaseWorkSchedulerSnapshot } from '@brainstrike/db';
+import type {
+  DatabaseWorkSchedulerSnapshot,
+  DimensionIndexMaintenanceRow,
+  DimensionIndexSuspensionRow,
+} from '@brainstrike/db';
 import { LogLevel } from '@brainstrike/utils/logger';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
@@ -23,6 +27,7 @@ export interface DesktopPlatformDiagnosticsSnapshot {
     readonly databaseWork: {
       readonly scheduler: DatabaseWorkSchedulerSnapshot | null;
     };
+    readonly dimensionIndexMaintenance: DesktopDimensionIndexMaintenanceSnapshot;
   };
   readonly llmHost: RuntimeHostPlatformStatus<'llm-host'>;
   readonly logging: LoggingSettingsPayload;
@@ -36,6 +41,11 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly telemetry: {
     readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
   };
+}
+
+export interface DesktopDimensionIndexMaintenanceSnapshot {
+  readonly maintenance: readonly DimensionIndexMaintenanceRow[];
+  readonly suspensions: readonly DimensionIndexSuspensionRow[];
 }
 
 export interface DesktopPlatformDiagnosticsProviders {
@@ -55,6 +65,9 @@ export interface DesktopPlatformDiagnosticsProviders {
     readonly getBackfillsInFlight: () =>
       | Promise<readonly EmbeddingHostBackfillInfo[]>
       | readonly EmbeddingHostBackfillInfo[];
+    readonly getDimensionIndexMaintenanceSnapshot: () =>
+      | Promise<DesktopDimensionIndexMaintenanceSnapshot>
+      | DesktopDimensionIndexMaintenanceSnapshot;
   };
   readonly llmHost: {
     readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'llm-host'>;
@@ -75,6 +88,7 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'crashRecovery'
   | 'database'
   | 'databaseScheduler'
+  | 'dimensionIndexMaintenance'
   | 'embeddingHost'
   | 'llmHost'
   | 'logging'
@@ -139,6 +153,12 @@ export async function collectDesktopPlatformDiagnostics(
     () => providers.indexing.getBackfillsInFlight(),
     []
   );
+  const dimensionIndexMaintenance = await readDiagnosticsProvider(
+    errors,
+    'dimensionIndexMaintenance',
+    () => providers.indexing.getDimensionIndexMaintenanceSnapshot(),
+    { maintenance: [], suspensions: [] }
+  );
   const reset = await readDiagnosticsProvider(
     errors,
     'reset',
@@ -194,6 +214,7 @@ export async function collectDesktopPlatformDiagnostics(
     indexing: {
       activeBackfills,
       databaseWork: { scheduler: databaseScheduler },
+      dimensionIndexMaintenance,
     },
     llmHost: await readDiagnosticsProvider(
       errors,

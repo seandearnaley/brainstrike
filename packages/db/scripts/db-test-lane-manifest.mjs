@@ -7,6 +7,7 @@ export const dbUnitLaneDefinitions = [
       /^bootstrap\.test\.ts$/,
       /^db-migration-authority\.test\.ts$/,
       /^db-runtime-baseline\.test\.ts$/,
+      /^dimension-index-maintenance\.test\.ts$/,
       /^dimension-hnsw-indexes\.integration\.test\.ts$/,
       /^frontier-models-migration\.test\.ts$/,
       /^drizzle-database(\.integration)?\.test\.ts$/,

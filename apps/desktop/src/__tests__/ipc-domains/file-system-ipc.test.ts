@@ -493,6 +493,36 @@ describe('fs:addRoot', () => {
     // The fixture root still gets a rootsList entry (rootId reuse on re-pick).
     expect(storage.setItem).toHaveBeenCalledWith('rootsList', expect.stringContaining('/fixture'));
   });
+
+  it('test mode: uses the opt-in real root path and persists it through rootsList', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    const realRootPath = path.resolve('/users/test/real-e2e-root');
+    vi.stubEnv('BRAINSTRIKE_E2E_REAL_ROOT_PATH', realRootPath);
+    fileSystem = createFileSystem('/unused-picker');
+    storage = createStorage();
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toMatchObject({
+      displayName: 'real-e2e-root',
+      handle: {
+        kind: 'directory',
+        name: 'real-e2e-root',
+        path: realRootPath,
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+    });
+    expect(fileSystem.requestDirectoryAccess).not.toHaveBeenCalled();
+    expect(fileSystem.exists).toHaveBeenCalledWith(realRootPath);
+    expect(storage.setItem).toHaveBeenCalledWith(
+      'rootsList',
+      expect.stringContaining(realRootPath)
+    );
+  });
 });
 
 describe('fs:saveLastFolder (legacy shim)', () => {

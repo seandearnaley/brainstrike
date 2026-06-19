@@ -17,6 +17,7 @@ describe('validateDesktopBridgeContract', () => {
       throw new Error('Expected contract validation to fail.');
     }
     expect(result.missing).toContain('window.electronAPI.fileSystem.requestDirectoryAccess');
+    expect(result.missing).toContain('window.electronAPI.db.insertChunksAndEnqueueEmbeddingJobs');
     expect(result.missing).toContain('window.logging.getPreferences');
   });
 
@@ -27,6 +28,7 @@ describe('validateDesktopBridgeContract', () => {
           clearAll: async () => ({ deletedChunks: 0, deletedFiles: 0, success: true }),
           diagnostics: async () => null,
           exec: async () => undefined,
+          insertChunksAndEnqueueEmbeddingJobs: async () => undefined,
           query: async () => ({ rows: [] }),
           resetLocal: async () => ({ success: true }),
           test: async () => ({ dbLocation: '/tmp/db', message: 'ok', success: true }),

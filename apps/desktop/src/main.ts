@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
@@ -30,6 +31,15 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import {
+  type DimensionIndexStrategySelection,
+  probeDimensionIndexRuntimeCapabilities,
+  selectDimensionIndexStrategy,
+} from './dimension-index-maintenance-capabilities';
+import {
+  createDesktopDimensionIndexMaintenanceScheduler,
+  type DesktopDimensionIndexMaintenanceScheduler,
+} from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -61,6 +71,7 @@ import {
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
+import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
@@ -594,6 +605,35 @@ async function openLogDestination(target: string | null): Promise<boolean> {
   }
 }
 
+async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
+  try {
+    const capabilities = await probeDimensionIndexRuntimeCapabilities({
+      db: await getDatabase(),
+      foregroundHealthProbe: async () => {
+        throw new Error('Startup capability probe must not run foreground health measurement.');
+      },
+      initialMemoryBytes: null,
+      now: () => new Date(),
+      scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
+    });
+    desktopDimensionIndexStrategySelection = selectDimensionIndexStrategy({
+      concurrentIndexBuild: capabilities.concurrentIndexBuild,
+      foregroundHealthThresholdMs: 5000,
+    });
+    logger.info('Dimension index maintenance capability probe completed', {
+      concurrentIndexBuild: capabilities.concurrentIndexBuild,
+      hnswIndexBuild: capabilities.hnswIndexBuild,
+      maintenanceSettings: capabilities.maintenanceSettings,
+      progressReporting: capabilities.progressReporting,
+      strategyReason: desktopDimensionIndexStrategySelection.reason,
+      strategy: desktopDimensionIndexStrategySelection.strategy,
+    });
+  } catch (error) {
+    desktopDimensionIndexStrategySelection = null;
+    logger.error('Dimension index maintenance capability probe failed', { error });
+  }
+}
+
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
@@ -607,6 +647,9 @@ let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
+let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
+  null;
+let desktopDimensionIndexStrategySelection: DimensionIndexStrategySelection | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -719,6 +762,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     }
 
     const databaseFailure = await runShutdownStep('database', async () => {
+      desktopDimensionIndexMaintenanceScheduler?.stop();
+      desktopDimensionIndexMaintenanceScheduler = null;
       desktopDatabaseMaintenanceScheduler?.stop();
       desktopDatabaseMaintenanceScheduler = null;
       await cleanupDesktopLiveSubscriptionsForShutdown();
@@ -802,6 +847,14 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
 });
+desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
+  getDatabase,
+  getDimensionIndexStrategy: () => desktopDimensionIndexStrategySelection,
+  getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
+  getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  logger,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
+});
 
 unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
@@ -826,6 +879,8 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   chunkingHostManager,
   embeddingHostManager,
+  getDimensionIndexMaintenanceStrategy: () =>
+    desktopDimensionIndexStrategySelection?.strategy ?? null,
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
@@ -847,6 +902,17 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
     getBackfillsInFlight: async () => {
       const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
       return getDesktopEmbeddingBackfillsInFlight();
+    },
+    getDimensionIndexMaintenanceSnapshot: async () => {
+      const { listDimensionIndexMaintenance, listDimensionIndexSuspensions } = await import(
+        '@brainstrike/db'
+      );
+      const db = await getDbHostManager().getDatabase();
+      const [maintenance, suspensions] = await Promise.all([
+        listDimensionIndexMaintenance(db),
+        listDimensionIndexSuspensions(db),
+      ]);
+      return { maintenance, suspensions };
     },
   },
   llmHost: llmHostManager,
@@ -991,8 +1057,11 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
+      await initializeDesktopDimensionIndexStrategy();
       desktopDatabaseMaintenanceScheduler?.start();
       logger.debug('Scheduled desktop database maintenance started');
+      desktopDimensionIndexMaintenanceScheduler?.start();
+      logger.debug('Scheduled desktop dimension index maintenance started');
 
       // Setup security before creating windows
       setupSecurity();
@@ -1209,7 +1278,7 @@ if (singleInstanceLockAcquired) {
 
           // Always log — if entries stop appearing, the event loop is stuck.
           // NOTE: pino API requires (obj, msg) order to merge fields into the entry.
-          if (cpuPercent > 0.1 || p99 > 100 || max > 500) {
+          if (isMainProcessHealthDegraded({ loopLagMaxMs: max, loopLagP99Ms: p99 })) {
             logger.warn(payload, 'main-process-health');
           } else {
             logger.debug(payload, 'main-process-health');

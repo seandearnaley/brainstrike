@@ -89,7 +89,15 @@ vi.mock('@brainstrike/db', async () => {
         return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
       }
       const query = options.query;
-      if (query.includes("payload->>'embeddingSetId'")) {
+      if (query.includes('chunksWithEmbeddingsForSet')) {
+        return {
+          rows: liveQueryState.coverage.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.coverage,
+        };
+      }
+      if (query.includes('embedding_set_id')) {
         return {
           rows: liveQueryState.activeSetQueueCounts.rows,
           loading: false,
@@ -127,14 +135,6 @@ vi.mock('@brainstrike/db', async () => {
           loading: false,
           error: null,
           refresh: liveQueryRefresh.latency,
-        };
-      }
-      if (query.includes('chunksWithEmbeddingsForSet')) {
-        return {
-          rows: liveQueryState.coverage.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.coverage,
         };
       }
       return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
@@ -432,7 +432,7 @@ describe('useVectorQueueState', () => {
         options.query.includes('ORDER BY updated_at DESC') && options.query.includes('LIMIT 1')
     );
     const activeSetQueueCountsCall = liveQueryCalls.find((options) =>
-      options.query.includes("payload->>'embeddingSetId'")
+      options.query.includes('embedding_set_id')
     );
     const throughputCall = liveQueryCalls.find((options) =>
       options.query.includes("INTERVAL '60 seconds'")

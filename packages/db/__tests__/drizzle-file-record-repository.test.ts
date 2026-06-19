@@ -376,6 +376,27 @@ describe('DrizzleFileRecordRepository', () => {
       expect(updated?.tokenCount).toBe(4);
       expect(updated?.processedAt).toBeDefined();
     });
+
+    it('rejects null bytes in content updates before PGlite', async () => {
+      const now = new Date().toISOString();
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000099',
+        name: 'file.ts',
+        path: '/src/file.ts',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(
+        repository.updateContent(
+          '00000000-0000-0000-0000-000000000099',
+          `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          'hash-null-update',
+          1
+        )
+      ).rejects.toThrow('File record content cannot contain null bytes.');
+    });
   });
 
   describe('delete', () => {
@@ -457,6 +478,24 @@ describe('DrizzleFileRecordRepository', () => {
       expect(results).toHaveLength(3);
       expect(results.every((r) => r.imported)).toBe(true);
       expect(await repository.count()).toBe(3);
+    });
+
+    it('reports null-byte content as batch errors before records reach PGlite', async () => {
+      const results = await repository.bulkImport([
+        { name: 'clean.ts', path: '/src/clean.ts', size: 10, content: 'const clean = true;' },
+        {
+          name: 'late-null.ts',
+          path: '/src/late-null.ts',
+          size: 620,
+          content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        },
+      ]);
+
+      expect(results.map((result) => result.error)).toEqual([
+        'Batch failed: File record content cannot contain null bytes.',
+        'Batch failed: File record content cannot contain null bytes.',
+      ]);
+      expect(await repository.count()).toBe(0);
     });
 
     it('should detect duplicates by content hash', async () => {

@@ -17,6 +17,10 @@ import type {
   ManagedCacheEntryMetadata,
 } from '../../models/file-record.js';
 import { fileRecords } from '../../schema/index.js';
+import {
+  assertTextContentHasNoNullBytes,
+  assertTextContentsHaveNoNullBytes,
+} from '../../text-content-invariants.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -129,6 +133,7 @@ export class DrizzleFileRecordRepository {
   }
 
   async createWithContent(record: FileRecord): Promise<void> {
+    assertTextContentHasNoNullBytes(record.content, 'File record content');
     await this.db.insert(fileRecords).values({
       id: record.id,
       name: record.name,
@@ -237,6 +242,8 @@ export class DrizzleFileRecordRepository {
         contentHash: fileRecords.contentHash,
         size: fileRecords.size,
         mtimeMs: fileRecords.mtimeMs,
+        chunksCount: fileRecords.chunksCount,
+        chunksProcessedAt: fileRecords.chunksProcessedAt,
         updatedAt: fileRecords.updatedAt,
       })
       .from(fileRecords)
@@ -264,6 +271,8 @@ export class DrizzleFileRecordRepository {
           contentHash: row.contentHash ?? '',
           size: row.size,
           mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
+          chunksCount: row.chunksCount,
+          chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
           updatedAt: row.updatedAt.toISOString(),
         } satisfies ManagedCacheEntryMetadata,
       ];
@@ -377,6 +386,7 @@ export class DrizzleFileRecordRepository {
         break;
       case 'content':
         updateData.content = validateNullableString(value, 'content');
+        assertTextContentHasNoNullBytes(updateData.content, 'File record content');
         break;
       case 'contentHash':
         updateData.contentHash = validateNullableString(value, 'contentHash');
@@ -408,6 +418,7 @@ export class DrizzleFileRecordRepository {
     contentHash: string,
     tokenCount: number
   ): Promise<void> {
+    assertTextContentHasNoNullBytes(content, 'File record content');
     const now = new Date();
     await this.db
       .update(fileRecords)
@@ -515,6 +526,7 @@ export class DrizzleFileRecordRepository {
     total = 0
   ): Promise<FileImportResult[]> {
     const results: FileImportResult[] = [];
+    assertTextContentsHaveNoNullBytes(batch, (request) => request.content, 'File record content');
 
     // Step 1: Pre-compute all content hashes in parallel
     const hashPromises = batch.map(async (request, index) => ({

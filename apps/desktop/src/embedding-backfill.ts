@@ -1,6 +1,18 @@
-import type { IDatabase, JobQueue } from '@brainstrike/db';
+import {
+  createDimensionIndex,
+  type DimensionIndexMaintenanceStrategy,
+  dropDimensionIndex,
+  hnswParams,
+  type IDatabase,
+  type JobQueue,
+  type RequestDimensionIndexMaintenanceInput,
+  requestDimensionIndexMaintenance,
+  resumeDimensionIndexBuilds,
+  suspendDimensionIndexBuilds,
+} from '@brainstrike/db';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from './embedding-host-shared';
 
 export interface EmbeddingBackfillQueueCounts {
   failed: number;
@@ -17,6 +29,7 @@ export interface EnqueueEmbeddingBackfillOptions {
    */
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs?: number;
+  dimensionIndexMaintenanceStrategy?: DimensionIndexMaintenanceStrategy;
   drainTimeoutMs?: number;
   maxQueueDepth?: number;
   now?: () => number;
@@ -29,19 +42,28 @@ export interface EnqueueEmbeddingBackfillOptions {
   progressIntervalBatches?: number;
   progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
-  vacuumIntervalMs?: number;
+  rebuildDimensionIndexOnCompletion?: boolean;
+  requestDimensionIndexMaintenance?: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
 }
 
 interface ResolvedEnqueueEmbeddingBackfillOptions {
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs: number;
+  dimensionIndexMaintenanceStrategy?: DimensionIndexMaintenanceStrategy;
   drainTimeoutMs: number;
   maxQueueDepth: number;
   now: () => number;
   progressIntervalBatches: number;
   progressIntervalMs: number;
   queueCapacityTimeoutMs: number;
-  vacuumIntervalMs: number;
+  rebuildDimensionIndexOnCompletion: boolean;
+  requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
 }
 
 interface EmbeddingSetJobMetadata {
@@ -211,11 +233,12 @@ function resolveEnqueueEmbeddingBackfillOptions(
       EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
       'queueCapacityTimeoutMs'
     ),
-    vacuumIntervalMs: resolvePositiveIntegerOption(
-      options?.vacuumIntervalMs,
-      VACUUM_INTERVAL_MS,
-      'vacuumIntervalMs'
-    ),
+    ...(options?.dimensionIndexMaintenanceStrategy
+      ? { dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy }
+      : {}),
+    rebuildDimensionIndexOnCompletion: options?.rebuildDimensionIndexOnCompletion ?? true,
+    requestDimensionIndexMaintenance:
+      options?.requestDimensionIndexMaintenance ?? requestDimensionIndexMaintenance,
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
 }
@@ -244,7 +267,7 @@ async function getEmbeddingSetQueueCounts(
      FROM job_queue
      WHERE queue = $1
        AND job_type = 'embed_chunk'
-       AND payload->>'embeddingSetId' = $2
+       AND embedding_set_id = $2
        AND ($3::text IS NULL OR updated_at >= $3::text)`,
     [EMBEDDINGS_QUEUE, embeddingSetId, updatedAfter ?? null]
   );
@@ -282,28 +305,32 @@ function finalizeBackfillCounts(
   return queueCounts;
 }
 
+function isEmbeddingBackfillCancellationError(error: unknown): boolean {
+  return error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE;
+}
+
 async function countPendingEmbeddingSetJobs(
   db: Pick<IDatabase, 'query'>,
   embeddingSetId: string
 ): Promise<number> {
   const result = await db.query<{ count: number | string | null }>(
     `SELECT COUNT(*)::int AS count
-       FROM job_queue
-      WHERE queue = $1
-        AND state IN ('queued', 'running')
-        AND payload->>'embeddingSetId' = $2`,
+      FROM job_queue
+     WHERE queue = $1
+       AND state IN ('queued', 'running')
+        AND embedding_set_id = $2`,
     [EMBEDDINGS_QUEUE, embeddingSetId]
   );
   return Number(result.rows[0]?.count ?? 0);
 }
 
 // PGlite runs PostgreSQL in WASM without autovacuum. Each embedding UPDATE
-// creates MVCC dead tuples that accumulate in WASM memory (which can only
-// grow, never shrink). Periodic VACUUM reclaims dead tuple space, preventing
-// unbounded memory growth during large backfills.
-const VACUUM_INTERVAL_MS = 30_000;
+// creates MVCC dead tuples. Reclaim only after the scoped backfill queue drains:
+// VACUUM is table-wide maintenance and must not occupy the DB host while active
+// embedding workers need claim/complete queries to stay responsive.
 const VACUUM_FAILURE_WARN_EVERY = 10;
 const DRAIN_TICK_FAILURE_WARN_EVERY = 10;
+const deferredDimensionIndexRebuilds = new Set<string>();
 
 interface VacuumLogState {
   consecutiveVacuumFailures: number;
@@ -311,6 +338,285 @@ interface VacuumLogState {
 
 interface DrainTickLogState {
   consecutiveDrainTickFailures: number;
+}
+
+interface ExistingScopedBackfillDrainResult {
+  counts: EmbeddingBackfillQueueCounts;
+  done: number;
+}
+
+interface DrainExistingScopedBackfillJobsOptions {
+  assertCanContinue?: () => void | Promise<void>;
+  backlogPollMs: number;
+  db: EmbeddingBackfillDatabase;
+  drainTimeoutMs: number;
+  embeddingSetId: string;
+  existingPending: number;
+  now: () => number;
+  observeMaintenance?: () => void | Promise<void>;
+  onProgress: (done: number, total: number) => void;
+  runStartedAt: string;
+}
+
+interface EmbeddingBackfillDatabase {
+  readonly maintenance?: {
+    readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  };
+  readonly query: <T = unknown>(sql: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+}
+
+function normalizeSqlParams(params: unknown): unknown[] | undefined {
+  return Array.isArray(params) ? [...params] : params === undefined ? undefined : [params];
+}
+
+function requiresMaintenanceExec(sql: string): boolean {
+  return sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_');
+}
+
+function createDimensionIndexDbAdapter(db: EmbeddingBackfillDatabase) {
+  return {
+    exec: async (sql: string, params?: unknown): Promise<void> => {
+      const normalizedParams = normalizeSqlParams(params);
+      if (requiresMaintenanceExec(sql)) {
+        if (!db.maintenance?.exec) {
+          throw new Error(
+            'Embedding backfill dimension HNSW rebuild requires DB maintenance exec support.'
+          );
+        }
+        await db.maintenance.exec(sql, normalizedParams);
+        return;
+      }
+      await db.query(sql, normalizedParams);
+    },
+    query: db.query.bind(db),
+  };
+}
+
+async function suspendBackfillDimensionIndex(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  now: () => number
+): Promise<void> {
+  const startedAt = now();
+  await suspendDimensionIndexBuilds(
+    db,
+    dimension,
+    `embedding-backfill:${embeddingSetId}`,
+    new Date(startedAt).toISOString()
+  );
+  await dropDimensionIndex(createDimensionIndexDbAdapter(db), dimension);
+  logger.info('Suspended dimension HNSW index for embedding backfill', {
+    dimension,
+    durationMs: now() - startedAt,
+    embeddingSetId,
+  });
+}
+
+async function rebuildBackfillDimensionIndex(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  now: () => number
+): Promise<void> {
+  const startedAt = now();
+  await createDimensionIndex(createDimensionIndexDbAdapter(db), dimension, hnswParams());
+  await resumeDimensionIndexBuilds(db, dimension);
+  logger.info('Rebuilt dimension HNSW index after embedding backfill', {
+    dimension,
+    durationMs: now() - startedAt,
+    embeddingSetId,
+  });
+}
+
+interface CompleteBackfillDimensionIndexMaintenanceOptions {
+  readonly dimensionIndexMaintenanceStrategy?: DimensionIndexMaintenanceStrategy;
+  readonly rebuildDimensionIndexOnCompletion: boolean;
+  readonly requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
+}
+
+function createCompleteBackfillDimensionIndexMaintenanceOptions(input: {
+  readonly dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
+  readonly rebuildDimensionIndexOnCompletion: boolean;
+  readonly requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
+}): CompleteBackfillDimensionIndexMaintenanceOptions {
+  const base = {
+    rebuildDimensionIndexOnCompletion: input.rebuildDimensionIndexOnCompletion,
+    requestDimensionIndexMaintenance: input.requestDimensionIndexMaintenance,
+  };
+  return input.dimensionIndexMaintenanceStrategy
+    ? { ...base, dimensionIndexMaintenanceStrategy: input.dimensionIndexMaintenanceStrategy }
+    : base;
+}
+
+async function completeBackfillDimensionIndexMaintenance(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  now: () => number,
+  options: CompleteBackfillDimensionIndexMaintenanceOptions
+): Promise<boolean> {
+  if (options.rebuildDimensionIndexOnCompletion) {
+    await rebuildBackfillDimensionIndex(db, embeddingSetId, dimension, now);
+    return false;
+  }
+  if (!options.dimensionIndexMaintenanceStrategy) {
+    throw new Error(
+      'Deferred dimension HNSW index maintenance requires an explicit maintenance strategy.'
+    );
+  }
+  await options.requestDimensionIndexMaintenance(db, {
+    dimension,
+    now: () => new Date(now()),
+    reason: `embedding-backfill:${embeddingSetId}`,
+    strategy: options.dimensionIndexMaintenanceStrategy,
+  });
+  logger.info('Dimension HNSW index rebuild requested as durable idle maintenance', {
+    dimension,
+    embeddingSetId,
+    maintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
+    reason: 'nonblocking-background-indexing',
+  });
+  return true;
+}
+
+function getDeferredDimensionIndexRebuildKey(embeddingSetId: string, dimension: number): string {
+  return `${embeddingSetId}:${dimension}`;
+}
+
+function scheduleDeferredBackfillDimensionIndexRebuild(params: {
+  backlogPollMs: number;
+  db: EmbeddingBackfillDatabase;
+  dimension: number;
+  drainTimeoutMs: number;
+  embeddingSetId: string;
+  now: () => number;
+  dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
+  rebuildDimensionIndexOnCompletion: boolean;
+  requestDimensionIndexMaintenance: (
+    db: EmbeddingBackfillDatabase,
+    request: RequestDimensionIndexMaintenanceInput
+  ) => Promise<void>;
+}): void {
+  const {
+    backlogPollMs,
+    db,
+    dimension,
+    drainTimeoutMs,
+    embeddingSetId,
+    now,
+    dimensionIndexMaintenanceStrategy,
+    rebuildDimensionIndexOnCompletion,
+    requestDimensionIndexMaintenance,
+  } = params;
+  const key = getDeferredDimensionIndexRebuildKey(embeddingSetId, dimension);
+  if (deferredDimensionIndexRebuilds.has(key)) {
+    logger.debug('Deferred dimension HNSW index rebuild already scheduled', {
+      dimension,
+      embeddingSetId,
+    });
+    return;
+  }
+  deferredDimensionIndexRebuilds.add(key);
+  void (async () => {
+    try {
+      const counts = await waitForEmbeddingSetDrain(
+        db,
+        embeddingSetId,
+        backlogPollMs,
+        drainTimeoutMs,
+        now
+      );
+      await vacuumBackfillTables(db, { consecutiveVacuumFailures: 0 }, now);
+      await completeBackfillDimensionIndexMaintenance(
+        db,
+        embeddingSetId,
+        dimension,
+        now,
+        createCompleteBackfillDimensionIndexMaintenanceOptions({
+          dimensionIndexMaintenanceStrategy,
+          rebuildDimensionIndexOnCompletion,
+          requestDimensionIndexMaintenance,
+        })
+      );
+      logger.info('Completed deferred dimension HNSW index rebuild after canceled backfill', {
+        counts,
+        dimension,
+        embeddingSetId,
+        dimensionIndexMaintenanceStrategy,
+        rebuildDimensionIndexOnCompletion,
+      });
+    } catch (error) {
+      logger.error('Deferred dimension HNSW index rebuild after canceled backfill failed', {
+        dimension,
+        embeddingSetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      deferredDimensionIndexRebuilds.delete(key);
+    }
+  })();
+}
+
+async function restoreCanceledBackfillDimensionIndex(
+  db: EmbeddingBackfillDatabase,
+  embeddingSetId: string,
+  dimension: number,
+  now: () => number,
+  options: {
+    backlogPollMs: number;
+    dimensionIndexMaintenanceStrategy: DimensionIndexMaintenanceStrategy | undefined;
+    drainTimeoutMs: number;
+    rebuildDimensionIndexOnCompletion: boolean;
+    requestDimensionIndexMaintenance: (
+      db: EmbeddingBackfillDatabase,
+      request: RequestDimensionIndexMaintenanceInput
+    ) => Promise<void>;
+  }
+): Promise<boolean> {
+  const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
+  if (pending > 0) {
+    logger.info('Deferred dimension HNSW index rebuild after canceled embedding backfill', {
+      dimension,
+      embeddingSetId,
+      pending,
+    });
+    scheduleDeferredBackfillDimensionIndexRebuild({
+      backlogPollMs: options.backlogPollMs,
+      db,
+      dimension,
+      drainTimeoutMs: options.drainTimeoutMs,
+      embeddingSetId,
+      now,
+      dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
+      rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
+      requestDimensionIndexMaintenance: options.requestDimensionIndexMaintenance,
+    });
+    return false;
+  }
+  const remainsSuspended = await completeBackfillDimensionIndexMaintenance(
+    db,
+    embeddingSetId,
+    dimension,
+    now,
+    createCompleteBackfillDimensionIndexMaintenanceOptions({
+      dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
+      rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
+      requestDimensionIndexMaintenance: options.requestDimensionIndexMaintenance,
+    })
+  );
+  logger.info('Restored dimension HNSW index after canceled embedding backfill', {
+    dimension,
+    embeddingSetId,
+    rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
+  });
+  return !remainsSuspended;
 }
 
 async function vacuumBackfillTables(
@@ -325,7 +631,7 @@ async function vacuumBackfillTables(
     vacuumTable = 'job_queue';
     await db.query('VACUUM job_queue');
     logState.consecutiveVacuumFailures = 0;
-    logger.info('Periodic VACUUM during backfill completed', {
+    logger.info('Post-drain VACUUM after backfill completed', {
       durationMs: now() - startedAt,
       tables: ['file_chunks', 'job_queue'],
     });
@@ -341,40 +647,11 @@ async function vacuumBackfillTables(
       failedTable: vacuumTable,
     };
     if (shouldWarn) {
-      logger.warn('Periodic VACUUM during backfill failed (non-fatal)', logPayload);
+      logger.warn('Post-drain VACUUM after backfill failed (non-fatal)', logPayload);
       return;
     }
-    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', logPayload);
+    logger.debug('Post-drain VACUUM after backfill failed (non-fatal)', logPayload);
   }
-}
-
-interface BackfillVacuumScheduler {
-  forceVacuum: () => Promise<void>;
-  maybeVacuum: () => Promise<void>;
-}
-
-function createBackfillVacuumScheduler(
-  db: Pick<IDatabase, 'query'>,
-  logState: VacuumLogState,
-  intervalMs: number,
-  now: () => number
-): BackfillVacuumScheduler {
-  let lastVacuumAt = now();
-
-  return {
-    forceVacuum: async () => {
-      await vacuumBackfillTables(db, logState, now);
-      lastVacuumAt = now();
-    },
-    maybeVacuum: async () => {
-      const currentTime = now();
-      if (currentTime - lastVacuumAt < intervalMs) {
-        return;
-      }
-      await vacuumBackfillTables(db, logState, now);
-      lastVacuumAt = now();
-    },
-  };
 }
 
 async function waitForEmbeddingSetDrain(
@@ -391,6 +668,7 @@ async function waitForEmbeddingSetDrain(
   while (true) {
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
+      await observeMaintenance?.();
       return await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
     }
     await assertCanContinue?.();
@@ -514,6 +792,45 @@ async function loadBackfillCandidateBatch(
   return result.rows;
 }
 
+async function drainExistingScopedBackfillJobs({
+  assertCanContinue,
+  backlogPollMs,
+  db,
+  drainTimeoutMs,
+  embeddingSetId,
+  existingPending,
+  now,
+  observeMaintenance,
+  onProgress,
+  runStartedAt,
+}: DrainExistingScopedBackfillJobsOptions): Promise<ExistingScopedBackfillDrainResult | null> {
+  if (existingPending <= 0) {
+    return null;
+  }
+
+  logger.info('Backfill found existing active scoped jobs; draining before candidate scan', {
+    embeddingSetId,
+    pending: existingPending,
+  });
+  onProgress(0, existingPending);
+  const counts = await waitForEmbeddingSetDrain(
+    db,
+    embeddingSetId,
+    backlogPollMs,
+    drainTimeoutMs,
+    now,
+    assertCanContinue,
+    runStartedAt,
+    observeMaintenance
+  );
+  if (counts.failed > 0) {
+    throw new Error(
+      `Backfill failed for embedding set '${embeddingSetId}': ${counts.failed} job(s) failed.`
+    );
+  }
+  return { counts, done: existingPending };
+}
+
 async function enqueueEmbeddingChunkJobsBatch(
   jobQueue: Pick<EmbeddingBackfillJobQueue, 'enqueueBatch'>,
   batch: BackfillCandidate[],
@@ -619,64 +936,51 @@ async function repairScopedEmbeddingBackfillQueue(
   });
 }
 
-export async function enqueueEmbeddingBackfill(
-  db: Pick<IDatabase, 'query'>,
-  jobQueue: EmbeddingBackfillJobQueue,
-  embeddingSetId: string,
-  onProgress: (done: number, total: number) => void,
-  options?: EnqueueEmbeddingBackfillOptions
-): Promise<EmbeddingBackfillQueueCounts> {
-  if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
-    throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
-  }
+interface EnqueueBackfillCandidateBatchesOptions {
+  assertCanContinue?: () => void | Promise<void>;
+  backlogPollMs: number;
+  db: EmbeddingBackfillDatabase;
+  embeddingSetId: string;
+  initialDone: number;
+  jobQueue: EmbeddingBackfillJobQueue;
+  maxQueueDepth: number;
+  metadata: EmbeddingSetJobMetadata;
+  now: () => number;
+  observeMaintenance: () => Promise<void>;
+  onProgress: (done: number, total: number) => void;
+  progressIntervalBatches: number;
+  progressIntervalMs: number;
+  queueCapacityTimeoutMs: number;
+  total: number;
+}
 
+async function enqueueBackfillCandidateBatches(
+  options: EnqueueBackfillCandidateBatchesOptions
+): Promise<number> {
   const {
     assertCanContinue,
     backlogPollMs,
-    drainTimeoutMs,
+    db,
+    embeddingSetId,
+    initialDone,
+    jobQueue,
     maxQueueDepth,
+    metadata,
     now,
+    observeMaintenance,
+    onProgress,
     progressIntervalBatches,
     progressIntervalMs,
     queueCapacityTimeoutMs,
-    vacuumIntervalMs,
-  } = resolveEnqueueEmbeddingBackfillOptions(options);
-  const onDrainTick = options?.onDrainTick;
-
-  const runStartedAt = new Date().toISOString();
-  logger.info('Backfill requested', { embeddingSetId });
-  const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
-  await repairScopedEmbeddingBackfillQueue(jobQueue, embeddingSetId);
-  const total = await countBackfillCandidates(db, embeddingSetId);
-  logger.info('Embedding set metadata resolved for backfill', {
-    embeddingSetId,
-    modelKey: metadata.modelKey,
-    expectedDimension: metadata.expectedDimension,
-    candidates: total,
-  });
-
-  let done = 0;
-  let cursor: string | null = null;
-  let exhaustedCursor = false;
-  let batchesSinceProgress = 0;
-  let lastReportedDone = -1;
+    total,
+  } = options;
   let availableCapacity = 0;
+  let batchesSinceProgress = 0;
+  let cursor: string | null = null;
+  let done = initialDone;
+  let exhaustedCursor = false;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
-  const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
-  const drainTickLogState: DrainTickLogState = { consecutiveDrainTickFailures: 0 };
-  const vacuumScheduler = createBackfillVacuumScheduler(db, vacuumLogState, vacuumIntervalMs, now);
-  const observeDrainProgress = createDrainProgressObserver(
-    db,
-    embeddingSetId,
-    runStartedAt,
-    onDrainTick,
-    drainTickLogState
-  );
-  const observeMaintenance = async (): Promise<void> => {
-    await observeDrainProgress?.();
-    await vacuumScheduler.maybeVacuum();
-  };
-
+  let lastReportedDone = -1;
   const reportProgress = (
     nextDone: number,
     nextTotal: number,
@@ -748,11 +1052,11 @@ export async function enqueueEmbeddingBackfill(
     availableCapacity = Math.max(0, availableCapacity - inserted);
     batchesSinceProgress += 1;
     if (
-      done >= total ||
-      batchesSinceProgress >= progressIntervalBatches ||
-      now() - lastReportedAt >= progressIntervalMs
+      done < total &&
+      (batchesSinceProgress >= progressIntervalBatches ||
+        now() - lastReportedAt >= progressIntervalMs)
     ) {
-      reportProgress(done, total, { force: done >= total });
+      reportProgress(done, total);
       batchesSinceProgress = 0;
     }
     if (selected === batchLimit && done < total) {
@@ -760,24 +1064,170 @@ export async function enqueueEmbeddingBackfill(
     }
   }
 
-  const drainedCounts = await waitForEmbeddingSetDrain(
-    db,
-    embeddingSetId,
+  return done;
+}
+
+export async function enqueueEmbeddingBackfill(
+  db: EmbeddingBackfillDatabase,
+  jobQueue: EmbeddingBackfillJobQueue,
+  embeddingSetId: string,
+  onProgress: (done: number, total: number) => void,
+  options?: EnqueueEmbeddingBackfillOptions
+): Promise<EmbeddingBackfillQueueCounts> {
+  if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
+    throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
+  }
+
+  const {
+    assertCanContinue,
     backlogPollMs,
     drainTimeoutMs,
+    maxQueueDepth,
     now,
-    assertCanContinue,
+    progressIntervalBatches,
+    progressIntervalMs,
+    queueCapacityTimeoutMs,
+    dimensionIndexMaintenanceStrategy,
+    rebuildDimensionIndexOnCompletion,
+    requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+  } = resolveEnqueueEmbeddingBackfillOptions(options);
+  const onDrainTick = options?.onDrainTick;
+
+  const runStartedAt = new Date().toISOString();
+  const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
+  const drainTickLogState: DrainTickLogState = { consecutiveDrainTickFailures: 0 };
+  const observeDrainProgress = createDrainProgressObserver(
+    db,
+    embeddingSetId,
     runStartedAt,
-    observeMaintenance
+    onDrainTick,
+    drainTickLogState
   );
-  if (drainedCounts.failed > 0) {
-    throw new Error(
-      `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
+  const observeMaintenance = async (): Promise<void> => {
+    await observeDrainProgress?.();
+  };
+  logger.info('Backfill requested', { embeddingSetId });
+  const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
+  let dimensionIndexSuspended = false;
+
+  try {
+    await suspendBackfillDimensionIndex(db, embeddingSetId, metadata.expectedDimension, now);
+    dimensionIndexSuspended = true;
+    await repairScopedEmbeddingBackfillQueue(jobQueue, embeddingSetId);
+    const existingPending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
+    const drainedExisting = await drainExistingScopedBackfillJobs({
+      ...(assertCanContinue ? { assertCanContinue } : {}),
+      backlogPollMs,
+      db,
+      drainTimeoutMs,
+      embeddingSetId,
+      existingPending,
+      now,
+      observeMaintenance,
+      onProgress,
+      runStartedAt,
+    });
+    let done = drainedExisting?.done ?? 0;
+    const candidates = await countBackfillCandidates(db, embeddingSetId);
+    const total = done + candidates;
+    logger.info('Embedding set metadata resolved for backfill', {
+      embeddingSetId,
+      modelKey: metadata.modelKey,
+      expectedDimension: metadata.expectedDimension,
+      candidates,
+      preExistingDrained: done,
+      total,
+    });
+    if (candidates === 0 && drainedExisting) {
+      await vacuumBackfillTables(db, vacuumLogState, now);
+      dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
+        db,
+        embeddingSetId,
+        metadata.expectedDimension,
+        now,
+        createCompleteBackfillDimensionIndexMaintenanceOptions({
+          dimensionIndexMaintenanceStrategy,
+          rebuildDimensionIndexOnCompletion,
+          requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+        })
+      );
+      onProgress(done, total);
+      return finalizeBackfillCounts(embeddingSetId, total, done, drainedExisting.counts);
+    }
+
+    done = await enqueueBackfillCandidateBatches({
+      ...(assertCanContinue ? { assertCanContinue } : {}),
+      backlogPollMs,
+      db,
+      embeddingSetId,
+      initialDone: done,
+      jobQueue,
+      maxQueueDepth,
+      metadata,
+      now,
+      observeMaintenance,
+      onProgress,
+      progressIntervalBatches,
+      progressIntervalMs,
+      queueCapacityTimeoutMs,
+      total,
+    });
+
+    const drainedCounts = await waitForEmbeddingSetDrain(
+      db,
+      embeddingSetId,
+      backlogPollMs,
+      drainTimeoutMs,
+      now,
+      assertCanContinue,
+      runStartedAt,
+      observeMaintenance
     );
+    if (drainedCounts.failed > 0) {
+      throw new Error(
+        `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
+      );
+    }
+    onProgress(total, total);
+    // Final VACUUM to reclaim all dead tuples from the completed backfill
+    await vacuumBackfillTables(db, vacuumLogState, now);
+    dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
+      db,
+      embeddingSetId,
+      metadata.expectedDimension,
+      now,
+      createCompleteBackfillDimensionIndexMaintenanceOptions({
+        dimensionIndexMaintenanceStrategy,
+        rebuildDimensionIndexOnCompletion,
+        requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+      })
+    );
+    logger.info('Backfill complete', { embeddingSetId, total, done });
+    return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
+  } catch (error) {
+    if (dimensionIndexSuspended) {
+      if (isEmbeddingBackfillCancellationError(error)) {
+        dimensionIndexSuspended = !(await restoreCanceledBackfillDimensionIndex(
+          db,
+          embeddingSetId,
+          metadata.expectedDimension,
+          now,
+          {
+            backlogPollMs,
+            dimensionIndexMaintenanceStrategy,
+            drainTimeoutMs,
+            rebuildDimensionIndexOnCompletion,
+            requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+          }
+        ));
+        throw error;
+      }
+      logger.warn('Dimension HNSW index remains suspended after failed embedding backfill', {
+        dimension: metadata.expectedDimension,
+        embeddingSetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
   }
-  // Final VACUUM to reclaim all dead tuples from the completed backfill
-  await vacuumScheduler.forceVacuum();
-  logger.info('Backfill complete', { embeddingSetId, total, done });
-  reportProgress(total, total, { force: true });
-  return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
 }

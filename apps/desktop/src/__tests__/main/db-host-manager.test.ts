@@ -100,6 +100,7 @@ function restoreEnvValue(key: string, value: string | undefined): void {
 
 describe('DbHostManager', () => {
   const originalNodeEnv = process.env['NODE_ENV'];
+  const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
   const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
 
   beforeEach(() => {
@@ -110,12 +111,14 @@ describe('DbHostManager', () => {
     loggerErrorMock.mockReset();
     loggerInfoMock.mockReset();
     loggerWarnMock.mockReset();
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_PROFILE');
     Reflect.deleteProperty(process.env, 'SECRET_TOKEN');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
   });
 
   afterEach(() => {
     restoreEnvValue('NODE_ENV', originalNodeEnv);
+    restoreEnvValue('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
     restoreEnvValue('BRAINSTRIKE_SERIALIZE_PGLITE_INIT', originalSerializePgliteInit);
   });
 
@@ -173,6 +176,25 @@ describe('DbHostManager', () => {
       expect.objectContaining({
         env: expect.objectContaining({
           BRAINSTRIKE_DB_ROOT_PATH: expectedDbRootPath,
+        }),
+        serviceName: 'brainstrike-db-host',
+      })
+    );
+  });
+
+  it('forwards the explicit database profile to the utility DB host', async () => {
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'branch-main-wt-155ffb69';
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    void manager.getDiagnostics();
+
+    expect(forkMock).toHaveBeenCalledWith(
+      '/mock/db-host-entry.js',
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          BRAINSTRIKE_DB_PROFILE: 'branch-main-wt-155ffb69',
         }),
         serviceName: 'brainstrike-db-host',
       })
@@ -446,6 +468,95 @@ describe('DbHostManager', () => {
         hasDatabaseHandle: true,
       });
       await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('logs request context when a query request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const queryPromise = database.query(
+        'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
+        ['set-timeout']
+      );
+      const timeoutAssertion = expect(queryPromise).rejects.toThrow(
+        'DB host request timed out: query'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await timeoutAssertion;
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 5,
+          paramsCount: 1,
+          pendingCount: 1,
+          requestKind: 'query',
+          sqlPreview: 'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
+          timeoutMs: 5,
+        }),
+        'DB host request timed out'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the maintenance timeout for explicit maintenance exec requests', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        maintenanceRequestTimeoutMs: 50,
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const execPromise = database.maintenance.exec(
+        'CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384 ON file_chunks USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops)'
+      );
+      const execAssertion = expect(execPromise).rejects.toThrow(
+        'DB host request timed out: maintenance:exec'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await flushMicrotasks();
+      expect(loggerWarnMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ requestKind: 'maintenance:exec' }),
+        'DB host request timed out'
+      );
+
+      await vi.advanceTimersByTimeAsync(45);
+      await execAssertion;
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 50,
+          pendingCount: 1,
+          requestKind: 'maintenance:exec',
+          sqlPreview:
+            'CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384 ON file_chunks USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops)',
+          timeoutMs: 50,
+        }),
+        'DB host request timed out'
+      );
     } finally {
       vi.useRealTimers();
     }

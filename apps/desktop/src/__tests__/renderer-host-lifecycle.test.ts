@@ -69,6 +69,13 @@ function createStatus(status: RendererHostStatusShape): RendererHostStatusShape 
   };
 }
 
+interface ExtendedStatus extends RendererHostStatusShape {
+  readonly runtimeMetadata?: {
+    readonly device: 'webgpu' | 'wasm';
+    readonly fallbackApplied: boolean;
+  };
+}
+
 function createFakeWindow(id: number): FakeWindow {
   const listeners: FakeListenerMap = {};
   const webContentsListeners: FakeListenerMap = {};
@@ -119,6 +126,61 @@ describe('RendererHostLifecycle', () => {
     process.argv = [...baseArgv];
     Reflect.deleteProperty(process.env, 'CI');
     app.isPackaged = false;
+  });
+
+  it('preserves typed status extension fields across status snapshots', () => {
+    const lifecycle = new RendererHostLifecycle<ExtendedStatus>({
+      createStatus: (status) => createStatus(status),
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    lifecycle.setStatus({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'webgpu',
+        fallbackApplied: false,
+      },
+    });
+
+    expect(lifecycle.getStatus()).toMatchObject({
+      state: 'running',
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'webgpu',
+        fallbackApplied: false,
+      },
+    });
+
+    lifecycle.setStatus({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'wasm',
+        fallbackApplied: true,
+      },
+    });
+
+    expect(lifecycle.getStatus()).toMatchObject({
+      runtimeMetadata: {
+        device: 'wasm',
+        fallbackApplied: true,
+      },
+    });
   });
 
   it('assigns the host role before beginning renderer load', async () => {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   applyManagedCacheBatch,
   escapePGliteLiveQueryFormatPercents,
+  insertChunksAndEnqueueEmbeddingJobs,
   invalidateManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
@@ -22,7 +23,10 @@ import {
   initializeMainDatabase,
   resetLocalDatabase,
 } from './db-main';
-import { parseManagedCacheInvalidationsArgs } from './db-shared';
+import {
+  parseInsertChunksAndEnqueueEmbeddingJobsArgs,
+  parseManagedCacheInvalidationsArgs,
+} from './db-shared';
 
 interface ParentPortLike {
   readonly on: (event: 'message', listener: (message: unknown) => void) => void;
@@ -85,6 +89,7 @@ const pendingControlRequests: QueuedRequest[] = [];
 const pendingGeneralRequests: QueuedRequest[] = [];
 const pendingTransactionRequests: QueuedRequest[] = [];
 const liveQueries = new Map<string, LiveQueryRecord>();
+const SLOW_REQUEST_WARNING_MS = 5000;
 
 function createLiveId(): string {
   return `live:${randomUUID()}`;
@@ -132,6 +137,70 @@ function postLog(
 }
 
 postLog('info', 'DB host process started');
+
+function createQueryPreview(query: string): string {
+  return query.replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function getParamsCount(params: readonly unknown[] | null | undefined): number | undefined {
+  return params === undefined || params === null ? undefined : params.length;
+}
+
+function summarizeRequestForDiagnostics(envelope: DbHostRequestEnvelope): Record<string, unknown> {
+  const { request } = envelope;
+  const base: Record<string, unknown> = {
+    requestId: envelope.id,
+    requestKind: request.kind,
+  };
+
+  switch (request.kind) {
+    case 'query':
+    case 'exec':
+    case 'maintenance:exec':
+      return {
+        ...base,
+        sqlPreview: createQueryPreview(request.sql),
+        paramsCount: getParamsCount(request.params),
+      };
+    case 'transaction:query':
+    case 'transaction:exec':
+      return {
+        ...base,
+        transactionId: request.transactionId,
+        sqlPreview: createQueryPreview(request.sql),
+        paramsCount: getParamsCount(request.params),
+      };
+    case 'transaction:commit':
+    case 'transaction:rollback':
+    case 'transaction:start':
+      return {
+        ...base,
+        transactionId: request.transactionId,
+      };
+    case 'live:start':
+      return {
+        ...base,
+        payloadQueryPreview: createQueryPreview(request.payload.query),
+        paramsCount: getParamsCount(request.payload.params),
+      };
+    case 'live:refresh':
+    case 'live:stop':
+      return {
+        ...base,
+        liveId: request.liveId,
+      };
+    default:
+      return base;
+  }
+}
+
+function getQueuedRequestCounts(): Record<string, number> {
+  return {
+    pendingControlRequests: pendingControlRequests.length,
+    pendingGeneralRequests: pendingGeneralRequests.length,
+    pendingTransactionRequests: pendingTransactionRequests.length,
+  };
+}
 
 function postResponse(id: string, result: unknown): void {
   const response: DbHostResponseEnvelope = {
@@ -342,6 +411,10 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       const db = await getQueryableDatabase();
       return await execSql(db, request.sql, requireParamsArray(request.params, 'exec'));
     }
+    case 'maintenance:exec': {
+      const db = await getQueryableDatabase();
+      return await execSql(db, request.sql, requireParamsArray(request.params, 'maintenance exec'));
+    }
     case 'transaction:start': {
       if (activeTransactionId !== null) {
         throw new Error(`DB transaction already active: ${activeTransactionId}`);
@@ -412,6 +485,14 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
         parseManagedCacheInvalidationsArgs(request.payload)
       );
     }
+    case 'chunks:insert-and-enqueue-embedding-jobs': {
+      const db = await getQueryableDatabase();
+      await insertChunksAndEnqueueEmbeddingJobs(
+        db,
+        parseInsertChunksAndEnqueueEmbeddingJobsArgs(request.payload)
+      );
+      return { inserted: true };
+    }
     case 'diagnostics':
       return getDatabaseDiagnostics();
     case 'reset':
@@ -428,12 +509,25 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
 }
 
 async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
+  const startedAt = Date.now();
+  const requestDiagnostics = summarizeRequestForDiagnostics(envelope);
+  const slowRequestTimer = setTimeout(() => {
+    postLog('warn', 'DB host request still running', {
+      ...requestDiagnostics,
+      ...getQueuedRequestCounts(),
+      activeDurationMs: Math.max(0, Date.now() - startedAt),
+    });
+  }, SLOW_REQUEST_WARNING_MS);
+
   try {
     const result = await handleRequest(envelope.request);
     postResponse(envelope.id, result);
   } catch (error) {
     const serializedError = serializeError(error);
     postLog('error', 'DB host request failed', {
+      ...requestDiagnostics,
+      ...getQueuedRequestCounts(),
+      durationMs: Math.max(0, Date.now() - startedAt),
       error: {
         ...(serializedError.code ? { code: serializedError.code } : {}),
         message: serializedError.message,
@@ -442,6 +536,8 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
       requestKind: envelope.request.kind,
     });
     postError(envelope.id, error);
+  } finally {
+    clearTimeout(slowRequestTimer);
   }
 }
 

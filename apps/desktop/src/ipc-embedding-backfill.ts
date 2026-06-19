@@ -2,18 +2,22 @@ import {
   createScheduledDbHandle,
   type DatabaseWorkPriority,
   type DatabaseWorkScheduler,
+  type DimensionIndexMaintenanceStrategy,
   JobQueue,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createRequestId } from '@brainstrike/worker-runtime';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import {
   BackfillMaintenanceCoordinator,
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
 import { getDatabase } from './db-main';
-import { enqueueEmbeddingBackfill } from './embedding-backfill';
+import {
+  type EnqueueEmbeddingBackfillOptions,
+  enqueueEmbeddingBackfill,
+} from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
   EMBEDDING_BACKFILL_CANCELED_MESSAGE,
@@ -45,8 +49,14 @@ const EMBEDDING_BACKFILL_SET_ID_PATTERN = /^[A-Za-z0-9._:-]+$/u;
 
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
+  progressTargets: Map<WebContents, EmbeddingBackfillProgressTarget>;
   requestId: string;
   source: EmbeddingBackfillSource;
+}
+
+interface EmbeddingBackfillProgressTarget {
+  sender: WebContents;
+  unavailableRef: { current: boolean };
 }
 
 export interface EmbeddingBackfillRequest {
@@ -62,6 +72,18 @@ const embeddingBackfillsCanceled = new Set<string>();
 export function resetEmbeddingBackfillStateForTests(): void {
   embeddingBackfillsInFlight.clear();
   embeddingBackfillsCanceled.clear();
+}
+
+function resolveBackgroundDimensionIndexMaintenanceStrategy(
+  getDimensionIndexMaintenanceStrategy: (() => DimensionIndexMaintenanceStrategy | null) | undefined
+): DimensionIndexMaintenanceStrategy {
+  const strategy = getDimensionIndexMaintenanceStrategy?.() ?? null;
+  if (!strategy) {
+    throw new Error(
+      'Background indexing backfill requires dimension index maintenance strategy from startup capability probe.'
+    );
+  }
+  return strategy;
 }
 
 function parseStrictBooleanEnv(name: string): boolean | undefined {
@@ -174,50 +196,109 @@ export function isDisposedRenderFrameSendError(error: unknown): boolean {
   return error.message.toLowerCase().includes('frame was disposed');
 }
 
+function createDesktopBackfillProgressTarget(
+  event: IpcMainInvokeEvent
+): EmbeddingBackfillProgressTarget {
+  return {
+    sender: event.sender,
+    unavailableRef: { current: false },
+  };
+}
+
+function registerDesktopBackfillProgressTarget(
+  inFlight: EmbeddingBackfillInFlightState,
+  event: IpcMainInvokeEvent
+): EmbeddingBackfillProgressTarget {
+  const target = createDesktopBackfillProgressTarget(event);
+  inFlight.progressTargets.set(event.sender, target);
+  return target;
+}
+
+function sendDesktopBackfillProgressToTarget(params: {
+  current: number;
+  message?: string;
+  normalizedEmbeddingSetId: string;
+  requestId: string;
+  source: EmbeddingBackfillSource;
+  stage: string;
+  target: EmbeddingBackfillProgressTarget;
+  total: number;
+}): boolean {
+  const { current, message, normalizedEmbeddingSetId, requestId, source, stage, target, total } =
+    params;
+
+  if (target.unavailableRef.current || target.sender.isDestroyed()) {
+    target.unavailableRef.current = true;
+    return false;
+  }
+  try {
+    target.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      embeddingSetId: normalizedEmbeddingSetId,
+      requestId,
+      source,
+      stage,
+      current,
+      total,
+      ...(message ? { message } : {}),
+    });
+  } catch (error) {
+    if (isDisposedRenderFrameSendError(error)) {
+      target.unavailableRef.current = true;
+      logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
+        embeddingSetId: normalizedEmbeddingSetId,
+        requestId,
+      });
+      return false;
+    }
+    throw error;
+  }
+  return true;
+}
+
+function broadcastDesktopBackfillProgress(params: {
+  current: number;
+  message?: string;
+  normalizedEmbeddingSetId: string;
+  requestId: string;
+  source: EmbeddingBackfillSource;
+  stage: string;
+  total: number;
+}): void {
+  const inFlight = embeddingBackfillsInFlight.get(params.normalizedEmbeddingSetId);
+  if (!inFlight) {
+    return;
+  }
+  for (const [sender, target] of inFlight.progressTargets) {
+    const delivered = sendDesktopBackfillProgressToTarget({
+      ...params,
+      target,
+    });
+    if (!delivered) {
+      inFlight.progressTargets.delete(sender);
+    }
+  }
+}
+
 function createDesktopBackfillProgressReporter(params: {
-  backfillProgressTargetUnavailableRef: { current: boolean };
   backfillRequestId: string;
-  event: IpcMainInvokeEvent;
   normalizedEmbeddingSetId: string;
   source: EmbeddingBackfillSource;
 }): (done: number, total: number) => void {
-  const {
-    backfillProgressTargetUnavailableRef,
-    backfillRequestId,
-    event,
-    normalizedEmbeddingSetId,
-    source,
-  } = params;
+  const { backfillRequestId, normalizedEmbeddingSetId, source } = params;
 
   return (done: number, total: number) => {
     const inFlight = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
     if (inFlight) {
       inFlight.progress = { current: done, total };
     }
-    if (backfillProgressTargetUnavailableRef.current || event.sender.isDestroyed()) {
-      backfillProgressTargetUnavailableRef.current = true;
-      return;
-    }
-    try {
-      event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
-        embeddingSetId: normalizedEmbeddingSetId,
-        requestId: backfillRequestId,
-        source,
-        stage: 'backfill',
-        current: done,
-        total,
-      });
-    } catch (error) {
-      if (isDisposedRenderFrameSendError(error)) {
-        backfillProgressTargetUnavailableRef.current = true;
-        logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
-          embeddingSetId: normalizedEmbeddingSetId,
-          requestId: backfillRequestId,
-        });
-        return;
-      }
-      throw error;
-    }
+    broadcastDesktopBackfillProgress({
+      current: done,
+      normalizedEmbeddingSetId,
+      requestId: backfillRequestId,
+      source,
+      stage: 'backfill',
+      total,
+    });
   };
 }
 
@@ -227,6 +308,7 @@ export async function runDesktopEmbeddingBackfill(params: {
   flushPendingLiveUpdates: () => void;
   gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
   hostManager: EmbeddingHostManager;
+  getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   isBackgrounded: () => boolean;
   normalizedEmbeddingSetId: string;
   source: EmbeddingBackfillSource;
@@ -235,32 +317,60 @@ export async function runDesktopEmbeddingBackfill(params: {
     databaseWorkScheduler,
     event,
     flushPendingLiveUpdates,
+    getDimensionIndexMaintenanceStrategy,
     gpuMemoryReclaimConfig,
     hostManager,
     isBackgrounded,
     normalizedEmbeddingSetId,
     source,
   } = params;
-  if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
+  const inFlightBackfill = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
+  if (inFlightBackfill) {
+    if (source === 'background-indexing') {
+      const target = registerDesktopBackfillProgressTarget(inFlightBackfill, event);
+      logger.info('Desktop background indexing backfill attached to existing run', {
+        embeddingSetId: normalizedEmbeddingSetId,
+        existingRequestId: inFlightBackfill.requestId,
+        existingSource: inFlightBackfill.source,
+        progress: inFlightBackfill.progress,
+      });
+      if (inFlightBackfill.progress) {
+        sendDesktopBackfillProgressToTarget({
+          current: inFlightBackfill.progress.current,
+          normalizedEmbeddingSetId,
+          requestId: inFlightBackfill.requestId,
+          source: inFlightBackfill.source,
+          stage: 'backfill',
+          target,
+          total: inFlightBackfill.progress.total,
+        });
+        if (target.unavailableRef.current) {
+          inFlightBackfill.progressTargets.delete(event.sender);
+        }
+      }
+      return { requestId: inFlightBackfill.requestId };
+    }
     throw new Error(`Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`);
   }
 
   const backfillRequestId = createRequestId(
     source === 'background-indexing' ? 'background-indexing-backfill' : 'embedding-backfill'
   );
-  const backfillProgressTargetUnavailableRef = { current: false };
   const maintenanceCoordinator = new BackfillMaintenanceCoordinator(
     gpuMemoryReclaimConfig,
     normalizedEmbeddingSetId,
     hostManager
   );
-  embeddingBackfillsInFlight.set(normalizedEmbeddingSetId, {
+  const inFlightState: EmbeddingBackfillInFlightState = {
     requestId: backfillRequestId,
     progress: null,
+    progressTargets: new Map(),
     source,
-  });
+  };
+  registerDesktopBackfillProgressTarget(inFlightState, event);
+  embeddingBackfillsInFlight.set(normalizedEmbeddingSetId, inFlightState);
 
-  try {
+  const runBackfill = async (): Promise<void> => {
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
     if (hostStatus.state !== 'running') {
       throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
@@ -279,15 +389,24 @@ export async function runDesktopEmbeddingBackfill(params: {
       EMBEDDING_BACKFILL_DATABASE_PRIORITY
     );
     const jobQueue = new JobQueue(scheduledDb);
+    const backgroundIndexingOptions: Partial<EnqueueEmbeddingBackfillOptions> =
+      source === 'background-indexing'
+        ? {
+            dimensionIndexMaintenanceStrategy: resolveBackgroundDimensionIndexMaintenanceStrategy(
+              getDimensionIndexMaintenanceStrategy
+            ),
+            drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
+            queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+            rebuildDimensionIndexOnCompletion: false,
+          }
+        : {};
 
     await enqueueEmbeddingBackfill(
       scheduledDb,
       jobQueue,
       normalizedEmbeddingSetId,
       createDesktopBackfillProgressReporter({
-        backfillProgressTargetUnavailableRef,
         backfillRequestId,
-        event,
         normalizedEmbeddingSetId,
         source,
       }),
@@ -304,12 +423,7 @@ export async function runDesktopEmbeddingBackfill(params: {
         },
         progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
         progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
-        ...(source === 'background-indexing'
-          ? {
-              drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
-              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
-            }
-          : {}),
+        ...backgroundIndexingOptions,
       }
     );
     logger.info('Desktop embedding backfill completed', {
@@ -317,38 +431,78 @@ export async function runDesktopEmbeddingBackfill(params: {
       requestId: backfillRequestId,
       source,
     });
+  };
+
+  const runBackfillWithLifecycle = async (): Promise<void> => {
+    try {
+      await runBackfill();
+      const progress = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId)?.progress ?? {
+        current: 0,
+        total: 0,
+      };
+      broadcastDesktopBackfillProgress({
+        current: progress.current,
+        normalizedEmbeddingSetId,
+        requestId: backfillRequestId,
+        source,
+        stage: 'complete',
+        total: progress.total,
+      });
+    } catch (error) {
+      // This invocation's IPC rejection is silently discarded by Electron when the
+      // requesting renderer has been torn down (e.g. a top-level navigation
+      // mid-backfill), so main MUST log the terminal outcome itself or the
+      // backfill vanishes from the logs without a trace.
+      const message = error instanceof Error ? error.message : String(error);
+      // Classify canceled-vs-failed from the authoritative canceled set (still
+      // populated here; the finally below clears it), not the error message —
+      // a wrapped cancellation must not be logged at error level as a failure.
+      if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
+        logger.info('Desktop embedding backfill canceled', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+          source,
+        });
+      } else {
+        logger.error('Desktop embedding backfill failed', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          error: message,
+          requestId: backfillRequestId,
+          source,
+        });
+        const progress = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId)?.progress ?? {
+          current: 0,
+          total: 0,
+        };
+        broadcastDesktopBackfillProgress({
+          current: progress.current,
+          message,
+          normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+          source,
+          stage: 'error',
+          total: progress.total,
+        });
+      }
+      throw error;
+    } finally {
+      embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
+      embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
+      if (!isBackgrounded()) {
+        flushPendingLiveUpdates();
+      }
+    }
+  };
+
+  if (source === 'background-indexing') {
+    void runBackfillWithLifecycle().catch(() => {
+      // runBackfillWithLifecycle logs the terminal error with request context.
+    });
     return { requestId: backfillRequestId };
-  } catch (error) {
-    // This invocation's IPC rejection is silently discarded by Electron when the
-    // requesting renderer has been torn down (e.g. a top-level navigation
-    // mid-backfill), so main MUST log the terminal outcome itself or the
-    // backfill vanishes from the logs without a trace.
-    const message = error instanceof Error ? error.message : String(error);
-    // Classify canceled-vs-failed from the authoritative canceled set (still
-    // populated here; the finally below clears it), not the error message —
-    // a wrapped cancellation must not be logged at error level as a failure.
-    if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
-      logger.info('Desktop embedding backfill canceled', {
-        embeddingSetId: normalizedEmbeddingSetId,
-        requestId: backfillRequestId,
-        source,
-      });
-    } else {
-      logger.error('Desktop embedding backfill failed', {
-        embeddingSetId: normalizedEmbeddingSetId,
-        error: message,
-        requestId: backfillRequestId,
-        source,
-      });
-    }
-    throw error;
-  } finally {
-    embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
-    embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
-    if (!isBackgrounded()) {
-      flushPendingLiveUpdates();
-    }
   }
+
+  await runBackfillWithLifecycle();
+  return { requestId: backfillRequestId };
 }
 
 export function cancelAllDesktopEmbeddingBackfills(): void {
@@ -360,7 +514,9 @@ export function cancelAllDesktopEmbeddingBackfills(): void {
 
 export function cancelDesktopEmbeddingBackfill(embeddingSetId: string): void {
   logCancellationRequested(embeddingSetId);
-  embeddingBackfillsCanceled.add(embeddingSetId);
+  if (embeddingBackfillsInFlight.has(embeddingSetId)) {
+    embeddingBackfillsCanceled.add(embeddingSetId);
+  }
 }
 
 function logCancellationRequested(embeddingSetId: string): void {

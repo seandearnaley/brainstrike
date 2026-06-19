@@ -61,6 +61,12 @@ export interface DatabaseWorkScheduler {
 
 export interface ScheduledDbHandle {
   readonly exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+  readonly insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: readonly never[],
+    fileRecordId: string,
+    options: never,
+    workOptions?: DatabaseWorkOptions
+  ) => Promise<void>;
   readonly query: <T = unknown>(
     sql: string,
     params?: unknown[],
@@ -722,6 +728,17 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       }
     : undefined;
 
+  const baseInsertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs;
+  const prioritizedInsertChunksAndEnqueueEmbeddingJobs = baseInsertChunksAndEnqueueEmbeddingJobs
+    ? async (...args: unknown[]) => {
+        const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
+        return await Reflect.apply(baseInsertChunksAndEnqueueEmbeddingJobs, db, [
+          ...forwardedArgs,
+          mergeOptions(priority, databaseWorkOptions),
+        ]);
+      }
+    : undefined;
+
   const baseTransaction = db.transaction;
   const prioritizedTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
     ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
@@ -737,6 +754,9 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       }
       if (property === 'exec') {
         return prioritizedExec;
+      }
+      if (property === 'insertChunksAndEnqueueEmbeddingJobs') {
+        return prioritizedInsertChunksAndEnqueueEmbeddingJobs;
       }
       if (property === 'transaction') {
         return prioritizedTransaction;
