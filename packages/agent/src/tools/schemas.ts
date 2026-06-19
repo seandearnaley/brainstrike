@@ -183,7 +183,7 @@ export const StringReplaceWorkspaceFileInputSchema = z
       .min(1)
       .max(8_000_000)
       .describe(
-        'The exact block of existing text to replace. Include enough surrounding context that it uniquely identifies ONE location — a single line that matches several places is refused.'
+        'The exact block of existing text to replace. Pass WHOLE LINES with enough surrounding context that the block uniquely identifies ONE location: a block that matches more than once is REFUSED (re-call with more context), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings.'
       ),
     newStr: z
       .string()

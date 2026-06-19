@@ -155,3 +155,79 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     expect((thrown as StringReplaceError).reason).toBe('no_op');
   });
 });
+
+describe('applyStringReplace — MULTI-LINE duplicate block guard (over-broad-edit fix)', () => {
+  // Regression: tryExactMatch previously did split(oldStr).join(newStr) = replace
+  // ALL, and the occurrence guard was single-line-only. A multi-line block
+  // appearing N>1 times rewrote EVERY location with matchType 'exact'. The guard
+  // now counts EXACT occurrences regardless of newlines and refuses >1.
+  const block = ['if (cfg) {', '  enable();', '}'].join('\n');
+
+  it('THROWS ambiguous when a multi-line block appears exactly twice (writes nothing)', () => {
+    const fileContent = [block, 'middle();', block, 'tail();'].join('\n');
+    let thrown: unknown;
+    try {
+      applyStringReplace({ fileContent, oldStr: block, newStr: 'disable();' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(StringReplaceError);
+    const typed = thrown as StringReplaceError;
+    expect(typed.reason).toBe('ambiguous');
+    expect(typed.message).toMatch(/2 locations/);
+    expect(typed.message).toContain('surrounding');
+  });
+
+  it('THROWS ambiguous when a multi-line block appears exactly three times', () => {
+    const fileContent = [block, 'a();', block, 'b();', block].join('\n');
+    expect(() => applyStringReplace({ fileContent, oldStr: block, newStr: 'x();' })).toThrow(
+      /3 locations/
+    );
+  });
+
+  it('applies a multi-line block that appears exactly ONCE — and only that occurrence', () => {
+    // The unique block is surrounded by a SIMILAR-but-distinct block so a buggy
+    // replace-all would also corrupt the neighbor.
+    const uniqueBlock = ['if (cfg) {', '  enableUnique();', '}'].join('\n');
+    const neighbor = ['if (cfg) {', '  enableOther();', '}'].join('\n');
+    const fileContent = [neighbor, 'sep();', uniqueBlock, 'sep();'].join('\n');
+    const result = applyStringReplace({
+      fileContent,
+      oldStr: uniqueBlock,
+      newStr: 'if (cfg) {\n  enableReplaced();\n}',
+    });
+    expect(result.matchType).toBe('exact');
+    expect(result.newContent).toContain('enableReplaced();');
+    // The neighbor block was NOT touched.
+    expect(result.newContent).toContain('enableOther();');
+    // The original unique body is gone.
+    expect(result.newContent).not.toContain('enableUnique();');
+  });
+});
+
+describe('applyStringReplace — no-op success guard (silent-failure fix)', () => {
+  it('THROWS not_found when a fuzzy replace-in-line match produces NO change', () => {
+    // The fuzzy replace-in-line branch selects the line "  return foo ( x ) ;"
+    // via a whitespace-removed includes() match for "foo(x)", but the RAW
+    // .replace('foo(x)', …) finds nothing because the literal differs (the file
+    // line has interior spaces). Pre-fix this returned replaced=true on an
+    // UNCHANGED file (silent failure); assertChanged now throws not_found with the
+    // "located but produced no change" message instead of a phantom success.
+    const fileContent = 'head\n  return foo ( x ) ;\ntail';
+    let thrown: unknown;
+    try {
+      applyStringReplace({
+        fileContent,
+        oldStr: 'foo(x)',
+        newStr: 'bar(x)',
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(StringReplaceError);
+    const typed = thrown as StringReplaceError;
+    expect(typed.reason).toBe('not_found');
+    // Specifically the no-op guard, not a generic miss.
+    expect(typed.message).toContain('produced no change');
+  });
+});

@@ -114,18 +114,26 @@ function countOccurrences(haystack: string, needle: string): number {
 
 // --- Cascade branches --------------------------------------------------------
 
-/** Phase 1: exact substring match. */
+/**
+ * Phase 1: exact substring match. Replaces ONLY the single located occurrence by
+ * index — NEVER `split().join()`, which would rewrite EVERY occurrence and
+ * silently corrupt a file with a duplicated block. The caller
+ * ({@link applyStringReplace}) guarantees exactly one occurrence via
+ * {@link countOccurrences} before reaching here (>1 throws 'ambiguous').
+ */
 function tryExactMatch(
   fileContent: string,
   oldStr: string,
   newStr: string
 ): StringReplaceResult | undefined {
-  if (!fileContent.includes(oldStr)) {
+  const index = fileContent.indexOf(oldStr);
+  if (index === -1) {
     return;
   }
-  const newContent = fileContent.split(oldStr).join(newStr);
-  // Best-effort start line (0-based) of the first occurrence.
-  const startLine = fileContent.slice(0, fileContent.indexOf(oldStr)).split('\n').length - 1;
+  const newContent =
+    fileContent.slice(0, index) + newStr + fileContent.slice(index + oldStr.length);
+  // 0-based start line of the (single) occurrence.
+  const startLine = fileContent.slice(0, index).split('\n').length - 1;
   return { newContent, matchType: 'exact', startLine };
 }
 
@@ -376,9 +384,31 @@ function tryFuzzyMatch(
 }
 
 /**
+ * Guard against a "successful" no-op: a fuzzy branch (notably `replace-in-line`,
+ * which locates a line by normalized-includes but then does a RAW `.replace`
+ * that can match nothing when whitespace differs) can return content identical
+ * to the input. Reporting replaced=true on an unchanged file is a silent failure
+ * — the model believes its edit landed when it did not. Throw instead so the
+ * caller re-reads and supplies a matching old_str (no silent fallbacks).
+ */
+function assertChanged(result: StringReplaceResult, fileContent: string): StringReplaceResult {
+  if (result.newContent === fileContent) {
+    throw new StringReplaceError(
+      'not_found',
+      'old_str was located but the replacement produced no change (the matched text did not align well enough to edit). Re-read the file and provide an old_str that matches the current content exactly.'
+    );
+  }
+  return result;
+}
+
+/**
  * Replace exactly one occurrence of `oldStr` with `newStr` in `fileContent`,
  * using the fuzzy-match cascade. Returns the new content; THROWS a
  * {@link StringReplaceError} when the match is ambiguous, absent, or a no-op.
+ *
+ * Input size is bounded by the desktop read tool's ~2 MB byte cap (the file is
+ * read through `readWorkspaceTextFile` before this runs), so the matcher needs
+ * no separate length bound of its own.
  */
 export function applyStringReplace(args: {
   fileContent: string;
@@ -400,34 +430,33 @@ export function applyStringReplace(args: {
     );
   }
 
-  // SINGLE-LINE EXACT AMBIGUITY GUARD. The exact branch below replaces EVERY
-  // occurrence (split/join). For a single-line old_str that appears exactly more
-  // than once, that is a silent multi-location edit — the precise corruption the
-  // fuzzy single-line guard prevents. Refuse here too (no silent fallbacks):
-  // demand surrounding context so exactly one location is targeted. Multi-line
-  // exact blocks are specific enough to keep the all-occurrences semantics.
-  if (!oldStr.includes('\n')) {
-    const occurrences = countOccurrences(fileContent, oldStr);
-    if (occurrences > 1) {
-      throw new StringReplaceError(
-        'ambiguous',
-        `The single-line old_str matches ${occurrences} locations exactly. Add surrounding lines to old_str so it uniquely identifies one location, then retry.`
-      );
-    }
+  // EXACT AMBIGUITY GUARD (applies to ANY old_str, single OR multi-line). The
+  // tool's contract is to replace exactly ONE block. If old_str appears exactly
+  // more than once, the edit is ambiguous and applying it to every match (or
+  // guessing one) would silently corrupt code — the precise failure the model is
+  // promised never happens. Refuse here (no silent fallbacks) and demand
+  // surrounding context BEFORE the exact/whitespace branches run, so a duplicated
+  // block can never be replace-all'd no matter which branch would match it.
+  const exactOccurrences = countOccurrences(fileContent, oldStr);
+  if (exactOccurrences > 1) {
+    throw new StringReplaceError(
+      'ambiguous',
+      `old_str matches ${exactOccurrences} locations exactly, but only one block can be edited. Add surrounding lines to old_str so it uniquely identifies one location, then retry.`
+    );
   }
 
-  // Phase 1: exact.
+  // Phase 1: exact (replaces only the single located occurrence, by index).
   const exact = tryExactMatch(fileContent, oldStr, newStr);
   if (exact) {
-    return exact;
+    return assertChanged(exact, fileContent);
   }
 
   // Phase 2: whitespace-normalized.
   const whitespace = tryWhitespaceNormalizedMatch(fileContent, oldStr, newStr);
   if (whitespace) {
-    return whitespace;
+    return assertChanged(whitespace, fileContent);
   }
 
   // Phase 3: char-level / Levenshtein-fuzzy (throws on ambiguity / no-match).
-  return tryFuzzyMatch(fileContent, oldStr, newStr);
+  return assertChanged(tryFuzzyMatch(fileContent, oldStr, newStr), fileContent);
 }

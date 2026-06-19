@@ -1687,6 +1687,32 @@ describe('assistant-tools', () => {
       }
     });
 
+    it('THROWS on a MULTI-LINE duplicate block and rewrites NOTHING (over-broad-edit fix)', async () => {
+      // Regression for the reviewer-found over-broad edit: a multi-line oldStr
+      // matching N>1 locations previously rewrote EVERY block (replace-all). It
+      // must now be refused, leaving the whole file byte-identical.
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'src', 'dupblock.ts');
+      const block = 'if (cfg) {\n  enable();\n}';
+      const original = `${block}\nmiddle();\n${block}\ntail();\n`;
+      await fsPromises.writeFile(filePath, original, 'utf8');
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({
+            context: { path: '/src/dupblock.ts', oldStr: block, newStr: 'disable();' },
+          })
+        ).rejects.toThrow(/2 locations|surrounding/i);
+        // BOTH blocks intact — nothing was replace-all'd.
+        expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
     it('THROWS when old_str is not found and writes NOTHING', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
