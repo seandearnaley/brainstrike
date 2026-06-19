@@ -20,6 +20,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
+  writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
 } as const;
 
 interface ModelFacingToolNames {
@@ -32,6 +33,7 @@ interface ModelFacingToolNames {
   readWorkspaceFile: string | null;
   updateWorkspaceContextSelection: string | null;
   updateWorkspaceTapestrySelections: string | null;
+  writeWorkspaceFile: string | null;
 }
 
 function buildOriginalToModelFacingToolNameMap(
@@ -90,6 +92,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
     ),
+    writeWorkspaceFile: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.writeWorkspaceFile
+    ),
   };
 }
 
@@ -142,6 +148,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.readWorkspaceFile,
     names.readWorkspaceContext,
     names.findWorkspaceSymbol,
+    names.writeWorkspaceFile,
   ].filter((name): name is string => Boolean(name));
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
     return '';
@@ -155,6 +162,18 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
       ? ` Selection write-back (${writeBackTools.join(', ')}) accepts the same "root" argument: pass it to curate a specific open folder (it need not be the focused one); omit it when only one folder is open.`
       : '';
   return `The workspace can have several folders ("roots") open at once: ${names.listWorkspaceContext} returns workspaceRoots — each open folder's name and id. File paths are relative to a root, so when more than one folder is open a bare path is ambiguous: pass a "root" argument (the folder name or id from workspaceRoots) to ${rootQualifiedToolNames.join(', ')} to say which folder you mean, and omit it when only one folder is open. Search and read results are labelled with their owning rootName/rootId — use that label to disambiguate and to choose the root for any follow-up call.${writeBackNote}`;
+}
+
+/**
+ * Guidance for the first mutation tool (writeWorkspaceFile). Empty when the tool
+ * is not registered, so it disappears from the prompt rather than advertising an
+ * unavailable verb.
+ */
+function buildWriteInstruction(names: ModelFacingToolNames): string {
+  if (!names.writeWorkspaceFile) {
+    return '';
+  }
+  return `To create or edit a file, use ${names.writeWorkspaceFile}: it writes the full UTF-8 content to a workspace-relative path, OVERWRITING any existing file and creating missing parent directories. It is workspace-scoped (the path can never leave the open folder) and edit-risk, so only call it after the user confirms the change.`;
 }
 
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
@@ -176,6 +195,7 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
       : names.readWorkspaceFile
         ? `Use ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond retrieved source line ranges.`
         : 'Workspace file reading is unavailable in this run.';
+  const writeInstruction = buildWriteInstruction(names);
   const curationInstruction =
     names.queryEmbeddingSpace &&
     names.updateWorkspaceContextSelection &&
@@ -221,7 +241,7 @@ ${HARNESS_FRAMING}
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${grepSearchInstruction} ${semanticSearchInstruction} ${readContextInstruction}
+When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${grepSearchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction}
 ${multiRootInstruction}
 ${curationInstruction}
 ${selectionLine}

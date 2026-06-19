@@ -141,6 +141,15 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: false,
     estimatedTokens: 140,
   },
+  // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
+  // the Phase 1 permission engine gates it when enforcement is on.
+  'brainstrike.writeWorkspaceFile': {
+    category: 'action',
+    loadingTier: 'critical',
+    requiresApproval: true,
+    estimatedTokens: 140,
+    riskCategory: 'edit',
+  },
   'brainstrike.findWorkspaceSymbol': {
     category: 'retrieval',
     loadingTier: 'critical',

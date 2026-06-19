@@ -148,6 +148,26 @@ export const ReadWorkspaceFileInputSchema = z
 
 export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema>;
 
+export const WriteWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
+      ),
+    content: z
+      // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
+      // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
+      .string()
+      .max(8_000_000)
+      .describe('Full UTF-8 file content to write (up to ~2 MB). Overwrites any existing file.'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSchema>;
+
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
     path: z.string().optional().describe('Directory path (defaults to root)'),
@@ -478,6 +498,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
