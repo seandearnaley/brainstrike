@@ -88,17 +88,27 @@ describe('resolveToolRiskCategory', () => {
       }
     });
 
+    it('classifies the shell tool as execute (via explicit annotation)', () => {
+      const metadata = NATIVE_TOOL_DEFAULTS['brainstrike.executeCommand'];
+      if (!metadata) {
+        expect.unreachable('brainstrike.executeCommand should exist in NATIVE_TOOL_DEFAULTS');
+      }
+      expect(resolveToolRiskCategory(metadata)).toBe('execute');
+    });
+
     it("classifies every other current native tool as 'read' (no throw)", () => {
-      const explicitlyEdited = new Set<string>([
+      const explicitlyNonRead = new Set<string>([
         'brainstrike.updateWorkspaceContextSelection',
         'brainstrike.updateWorkspaceTapestrySelections',
         'brainstrike.writeWorkspaceFile',
         'brainstrike.stringReplaceWorkspaceFile',
+        // The shell tool is the first 'execute'-risk native tool.
+        'brainstrike.executeCommand',
       ]);
-      const readTools = entries.filter(([id]) => !explicitlyEdited.has(id));
+      const readTools = entries.filter(([id]) => !explicitlyNonRead.has(id));
 
-      // Guard: this PR predates any execute/mcp native tool, so the remainder
-      // must all be read-only. If a future tool breaks this, update the test.
+      // Guard: every remaining native tool must be read-only. If a future tool
+      // breaks this, update the explicitlyNonRead set above.
       expect(readTools.length).toBeGreaterThan(0);
       for (const [id, metadata] of readTools) {
         const resolved: ToolRiskCategory = resolveToolRiskCategory(metadata);
@@ -132,14 +142,16 @@ describe('buildNativeToolRiskMap', () => {
     }
   });
 
-  it("classifies the approval-gated mutators as 'edit' and the rest as 'read'", () => {
+  it("classifies the approval-gated mutators as 'edit', the shell tool as 'execute', and the rest as 'read'", () => {
     const riskByTool = buildNativeToolRiskMap();
 
     for (const id of EDIT_TOOLS) {
       expect(riskByTool[id]).toBe('edit');
     }
+    expect(riskByTool['brainstrike.executeCommand']).toBe('execute');
 
-    const readTools = Object.keys(riskByTool).filter((id) => !EDIT_TOOLS.includes(id));
+    const nonRead = new Set<string>([...EDIT_TOOLS, 'brainstrike.executeCommand']);
+    const readTools = Object.keys(riskByTool).filter((id) => !nonRead.has(id));
     expect(readTools.length).toBeGreaterThan(0);
     for (const id of readTools) {
       expect(riskByTool[id], `${id} should be 'read'`).toBe('read');

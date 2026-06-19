@@ -225,6 +225,17 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 130,
     riskCategory: 'read',
   },
+  // Arbitrary shell execution — THE highest-risk native tool. There is NO
+  // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
+  // When the permission engine enforces a policy, 'execute' that is not 'allow'
+  // omits this tool from the map the model sees.
+  'brainstrike.executeCommand': {
+    category: 'action',
+    loadingTier: 'critical',
+    requiresApproval: true,
+    estimatedTokens: 180,
+    riskCategory: 'execute',
+  },
 };
 
 /**

@@ -677,6 +677,49 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'Matching workspace-relative paths (each labelled with its root), self-bound to the tool output budget, with totals, a truncation flag, and a continuation hint',
   },
+
+  'brainstrike.executeCommand': {
+    toolId: 'brainstrike.executeCommand',
+    description:
+      "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. It is gated by the permission engine and requires approval. The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
+    parameters: [
+      {
+        name: 'command',
+        type: 'string',
+        description:
+          'The shell command line, passed verbatim to the shell as `-c command`. Arbitrary execution, no sandbox.',
+        required: true,
+        minLength: 1,
+        maxLength: 10_000,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional folder name or id to choose which open folder to start in (omit when only one is open)',
+        required: false,
+      },
+      {
+        name: 'cwd',
+        type: 'string',
+        description:
+          'Optional start directory (absolute or relative to the root) that MUST resolve inside an open folder. Defaults to the workspace root.',
+        required: false,
+      },
+      {
+        name: 'timeoutMs',
+        type: 'number',
+        description:
+          'Kill the whole process tree after this many milliseconds; the result reports timedOut: true',
+        required: false,
+        default: 120_000,
+        min: 1,
+        max: 600_000,
+      },
+    ],
+    returns:
+      'exitCode (null when killed by signal), the terminating signal, a budget-bounded tail of stdout and stderr (truncated flag + hint when trimmed), durationMs, timedOut, and the resolved cwd',
+  },
 };
 
 /**

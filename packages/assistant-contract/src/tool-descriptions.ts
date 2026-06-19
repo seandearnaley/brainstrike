@@ -25,4 +25,6 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
   'brainstrike.globWorkspace':
     'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). Excludes .git/node_modules/build output by default; read-only',
+  'brainstrike.executeCommand':
+    'Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox — gated by the permission engine and requires approval. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs',
 };

@@ -14,6 +14,7 @@
  * first turn and a final answer on the second, mirroring the stream-part shape
  * produced by the in-repo `LocalLanguageModel`.
  */
+import { spawn } from 'node:child_process';
 import { ReadableStream } from 'node:stream/web';
 import type {
   LanguageModelV2,
@@ -164,6 +165,64 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // And the tool result flowed back through to a terminal run-event + answer.
     expect(runEventKinds).toContain('tool.completed');
     expect(finalText).toContain('21C in Paris');
+  });
+
+  // Live-loop proof for the SHAPE of brainstrike.executeCommand (an execute-risk
+  // shell tool): the real Mastra loop drives a tool whose execute spawns a REAL
+  // `/bin/sh -c 'echo hello'` subprocess, and its exitCode 0 + stdout flow back.
+  // The desktop runExecuteCommand cannot run here (the desktop test setup stubs
+  // streamMastraAgent), so this mirrors its core behavior in the unmocked agent
+  // package: real loop + real subprocess.
+  it('drives a shell-spawning tool through the real loop (echo hello → exitCode 0)', async () => {
+    const shellTool = createTool({
+      id: 'run_shell',
+      description: 'Run a shell command and return its exit code and stdout.',
+      inputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({ exitCode: z.number().nullable(), stdout: z.string() }),
+      execute: ({ command }: { command: string }) =>
+        new Promise<{ exitCode: number | null; stdout: string }>((resolve, reject) => {
+          const child = spawn(process.env['SHELL'] || '/bin/sh', ['-c', command], {
+            detached: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          let stdout = '';
+          child.stdout?.on('data', (chunk: Buffer) => {
+            stdout += chunk.toString('utf8');
+          });
+          child.on('error', reject);
+          child.on('close', (code) => resolve({ exitCode: code, stdout }));
+        }),
+    });
+
+    modelHolder.current = createScriptedToolCallModel({
+      toolName: 'run_shell',
+      toolCallId: 'call-shell-1',
+      input: JSON.stringify({ command: 'echo hello-from-real-shell' }),
+      finalText: 'The shell printed hello-from-real-shell.',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-shell', role: 'user', parts: [{ type: 'text', text: 'run echo' }] }],
+      {
+        runtime: { provider: 'openai', apiKey: 'test-key' },
+        tools: { run_shell: shellTool },
+      }
+    );
+
+    const runEventKinds: string[] = [];
+    let finalText = '';
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      } else if (chunk.type === 'text-delta') {
+        finalText += chunk.value;
+      }
+    }
+
+    // The real subprocess ran to completion through the real loop and its result
+    // (echoed stdout) flowed back to the model's final answer.
+    expect(runEventKinds).toContain('tool.completed');
+    expect(finalText).toContain('hello-from-real-shell');
   });
 
   it('terminates the real agent loop when a tool execute never resolves', async () => {

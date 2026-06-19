@@ -3,6 +3,8 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
   applyStringReplace,
+  type ExecuteCommandInput,
+  ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
@@ -56,6 +58,7 @@ import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
+import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-tool';
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
@@ -1918,6 +1921,28 @@ export function buildDesktopAssistantTools(
           return await runGlobWorkspace(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('globWorkspace failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [EXECUTE_COMMAND_TOOL_ID]: {
+      id: EXECUTE_COMMAND_TOOL_ID,
+      description:
+        "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can, so it is gated by the permission engine and requires approval. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
+      inputSchema: ExecuteCommandInputSchema,
+      // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
+      // we thread into the run so a cancelled run kills the process tree.
+      execute: async (
+        input: ToolExecuteInput<ExecuteCommandInput>,
+        options?: { abortSignal?: AbortSignal }
+      ) => {
+        const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
+        try {
+          return await runExecuteCommand(resolvedInput, runtimeData, {
+            signal: options?.abortSignal,
+          });
+        } catch (error) {
+          logger.error('executeCommand failed', { error, input: resolvedInput });
           throw error;
         }
       },

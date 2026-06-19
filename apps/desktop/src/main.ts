@@ -18,6 +18,7 @@ import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron'
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { startAssistantServer } from './assistant-server';
+import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -723,6 +724,9 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
     if (stopAssistantServer) {
       const failure = await runShutdownStep('assistant-server', async () => {
+        // Reap any shell command the assistant left running FIRST so no orphaned
+        // subprocess (vitest/build) keeps eating CPU/battery after the app exits.
+        disposeLiveChildProcesses();
         if (stopAssistantServer) {
           await stopAssistantServer();
           stopAssistantServer = null;
@@ -840,6 +844,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
     { name: 'llm-host', stop: () => llmHostManager.stop() },
+    // Reap any shell command the assistant left running so a factory reset is a
+    // true fresh start with no orphaned subprocess surviving the wipe.
+    {
+      name: 'shell-children',
+      stop: () => {
+        disposeLiveChildProcesses();
+        return Promise.resolve();
+      },
+    },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
   userDataPath: app.getPath('userData'),
