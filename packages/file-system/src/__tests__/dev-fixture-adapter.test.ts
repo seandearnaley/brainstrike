@@ -274,6 +274,35 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     });
   });
 
+  it('streams fixture directories through the stamped rootId alias', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), {
+      platform: 'web',
+    });
+    const root = await adapter.loadInlineFixture(FIXTURE);
+
+    if (!root.rootId) {
+      throw new Error('Expected fixture root to be stamped with a rootId');
+    }
+
+    const streamed: IFileNode[] = [];
+    await adapter.readDirectoryStreaming?.(
+      {
+        path: `${root.rootId}/src`,
+        name: 'src',
+        kind: 'directory',
+        platform: 'web',
+      },
+      (nodes) => {
+        streamed.push(...nodes);
+      }
+    );
+
+    expect(streamed.map((node) => node.path)).toEqual([
+      'fixture-root/src/nested',
+      'fixture-root/src/a.ts',
+    ]);
+  });
+
   it('treats null file leaves as fixture files with stable default content', async () => {
     const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
     await adapter.loadInlineFixture(NULL_SHORTHAND_FIXTURE);

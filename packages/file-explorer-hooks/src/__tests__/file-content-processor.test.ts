@@ -104,6 +104,42 @@ describe('DirectFileContentProcessor', () => {
     });
   });
 
+  it('uses the canonical handle path for direct reads when node paths are display-relative', async () => {
+    const processor = new DirectFileContentProcessor();
+    const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
+    mockReadFile.mockResolvedValue('file content');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('md');
+    vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+    vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+    vi.mocked(fileContent.isTextContent).mockReturnValue(true);
+
+    await processor.processFiles([
+      {
+        compositeKey: 'fixture-root|@|docs/guide.md',
+        fileNode: {
+          ...mockFileNode,
+          name: 'guide.md',
+          path: 'docs/guide.md',
+          handle: {
+            kind: 'file',
+            name: 'guide.md',
+            path: 'fixture-root/docs/guide.md',
+            platform: 'web',
+          } as unknown as FileSystemFileHandle,
+          rootFolderId: 'fixture-root',
+        },
+        fileSystemAdapter: mockFileSystemAdapter,
+      },
+    ]);
+
+    expect(mockReadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: 'fixture-root/docs/guide.md',
+        rootFolderId: 'fixture-root',
+      })
+    );
+  });
+
   it('should handle binary files', async () => {
     const processor = new DirectFileContentProcessor();
     vi.mocked(fileExplorer.getFileExtension).mockReturnValue('png');
@@ -363,6 +399,42 @@ describe('WorkerFileContentProcessor', () => {
       handle?: { size?: number };
     };
     expect(workerRequest?.handle?.size).toBeUndefined();
+  });
+
+  it('uses the canonical handle path for worker reads when node paths are display-relative', async () => {
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const processor = new WorkerFileContentProcessor(mockFileSystemAdapter);
+    await processor.processFiles([
+      {
+        compositeKey: 'fixture-root|@|docs/guide.md',
+        fileNode: {
+          ...mockFileNode,
+          name: 'guide.md',
+          path: 'docs/guide.md',
+          handle: {
+            kind: 'file',
+            name: 'guide.md',
+            path: 'fixture-root/docs/guide.md',
+            platform: 'web',
+          } as unknown as FileSystemFileHandle,
+          rootFolderId: 'fixture-root',
+        },
+        fileSystemAdapter: mockFileSystemAdapter,
+      },
+    ]);
+
+    const workerRequest = mockWorker.mock.calls[0]?.[0]?.[0] as {
+      handle?: { path?: string; rootFolderId?: string };
+    };
+    expect(workerRequest?.handle).toEqual(
+      expect.objectContaining({
+        path: 'fixture-root/docs/guide.md',
+        rootFolderId: 'fixture-root',
+      })
+    );
   });
 
   it('should pass abort options through to the worker', async () => {

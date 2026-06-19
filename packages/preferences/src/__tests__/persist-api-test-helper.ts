@@ -17,6 +17,8 @@ export type PersistApi<T> = T & {
       };
       version?: number;
     };
+    hasHydrated?: () => boolean;
+    rehydrate?: () => Promise<void> | void;
     clearStorage?: () => void;
   };
 };

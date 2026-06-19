@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   type BackgroundIndexingPreferencesStore,
+  ensureBackgroundIndexingPreferencesHydrated,
   useBackgroundIndexingPreferencesStore,
 } from '../stores/background-indexing-preferences-store';
 import type { PersistApi } from './persist-api-test-helper';
+
+const storeWithPersist = useBackgroundIndexingPreferencesStore as PersistApi<
+  typeof useBackgroundIndexingPreferencesStore
+>;
 
 describe('background-indexing-preferences-store', () => {
   beforeEach(() => {
@@ -119,5 +124,146 @@ describe('background-indexing-preferences-store', () => {
       paused: false,
       hasHydrated: true,
     });
+  });
+
+  it('explicitly rehydrates through the exported helper', async () => {
+    const persistApi = storeWithPersist.persist;
+    if (!persistApi?.rehydrate) {
+      throw new Error('persist rehydrate unavailable for test');
+    }
+
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      paused: false,
+      hasHydrated: false,
+    });
+
+    const rehydrateSpy = vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
+      useBackgroundIndexingPreferencesStore.setState({
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'collection-1',
+        mode: 'root-folder-cache',
+        paused: false,
+        hasHydrated: true,
+      });
+    });
+
+    const state = await ensureBackgroundIndexingPreferencesHydrated();
+
+    expect(rehydrateSpy).toHaveBeenCalledOnce();
+    expect(state).toMatchObject({
+      indexingPolicyPreset: 'full-root',
+      managedCollectionId: 'collection-1',
+      hasHydrated: true,
+    });
+  });
+
+  it('repairs the store hydration marker when persist has completed', async () => {
+    const persistApi = storeWithPersist.persist;
+    if (!persistApi?.rehydrate) {
+      throw new Error('persist rehydrate unavailable for test');
+    }
+
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      paused: false,
+      hasHydrated: false,
+    });
+
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(true);
+    vi.spyOn(persistApi, 'rehydrate').mockResolvedValue(undefined);
+
+    await expect(ensureBackgroundIndexingPreferencesHydrated()).resolves.toMatchObject({
+      enabled: true,
+      hasHydrated: true,
+    });
+  });
+
+  it('hydrates from configured storage when persist rehydrate does not finish', async () => {
+    const persistApi = storeWithPersist.persist;
+    if (!(persistApi?.rehydrate && persistApi.hasHydrated && persistApi.getOptions)) {
+      throw new Error('persist API unavailable for test');
+    }
+
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      paused: false,
+      hasHydrated: false,
+    });
+    window.localStorage.setItem(
+      'background-indexing-preferences.v1',
+      JSON.stringify({
+        state: {
+          enabled: false,
+          indexingPolicyPreset: 'full-root',
+          managedCollectionId: 'persisted-workspace-index',
+          mode: 'root-folder-cache',
+          paused: true,
+        },
+        version: 4,
+      })
+    );
+
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(false);
+    vi.spyOn(persistApi, 'rehydrate').mockResolvedValue(undefined);
+
+    await expect(ensureBackgroundIndexingPreferencesHydrated()).resolves.toMatchObject({
+      enabled: false,
+      hasHydrated: true,
+      indexingPolicyPreset: 'full-root',
+      managedCollectionId: 'persisted-workspace-index',
+      paused: true,
+    });
+  });
+
+  it('auto-hydrates on first module evaluation without manual rehydrate', async () => {
+    Reflect.deleteProperty(
+      globalThis as unknown as Record<string, unknown>,
+      '__brainstrike_background_indexing_preferences_store__'
+    );
+    vi.resetModules();
+
+    const module = await import('../stores/background-indexing-preferences-store');
+    const freshStore = module.useBackgroundIndexingPreferencesStore as PersistApi<
+      typeof module.useBackgroundIndexingPreferencesStore
+    >;
+
+    expect(freshStore.getState().hasHydrated).toBe(true);
+    expect(freshStore.persist?.hasHydrated?.()).toBe(true);
+  });
+
+  it('replaces a branded global singleton that lacks the persist API', async () => {
+    const staleStore = Object.assign(vi.fn(), {
+      getState: vi.fn(() => ({
+        ...useBackgroundIndexingPreferencesStore.getState(),
+      })),
+      setState: vi.fn(),
+      __brainstrike_store_brand__: 1,
+    });
+    Reflect.set(
+      globalThis as unknown as Record<string, unknown>,
+      '__brainstrike_background_indexing_preferences_store__',
+      staleStore
+    );
+    vi.resetModules();
+
+    const module = await import('../stores/background-indexing-preferences-store');
+    const freshStore = module.useBackgroundIndexingPreferencesStore as PersistApi<
+      typeof module.useBackgroundIndexingPreferencesStore
+    >;
+
+    expect(freshStore).not.toBe(staleStore);
+    expect(freshStore.persist?.rehydrate).toEqual(expect.any(Function));
+    expect(freshStore.persist?.hasHydrated).toEqual(expect.any(Function));
   });
 });
