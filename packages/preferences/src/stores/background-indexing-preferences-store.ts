@@ -1,7 +1,7 @@
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
-import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 export type BackgroundIndexingMode = 'root-folder-cache';
 
@@ -65,69 +65,7 @@ function createBackgroundIndexingPreferencesStorage() {
     };
   }
 
-  return createLocalBrowserJsonStorage();
-}
-
-function readBrowserLocalStorage(): Storage | undefined {
-  try {
-    return typeof window === 'undefined' ? undefined : window.localStorage;
-  } catch {
-    return;
-  }
-}
-
-function removeBrowserStoredValue(storage: Storage | undefined, key: string): void {
-  try {
-    storage?.removeItem(key);
-  } catch {
-    // A failed cleanup must not make the preference store non-persistent.
-  }
-}
-
-function createLocalBrowserJsonStorage(): StateStorage {
-  const memory = new Map<string, string>();
-
-  return {
-    getItem: (key) => {
-      const storage = readBrowserLocalStorage();
-      let storedValue: string | null | undefined;
-      try {
-        storedValue = storage?.getItem(key);
-      } catch {
-        storedValue = undefined;
-      }
-
-      const raw = storedValue ?? memory.get(key) ?? null;
-      if (raw === null) {
-        return null;
-      }
-
-      try {
-        JSON.parse(raw);
-        return raw;
-      } catch {
-        removeBrowserStoredValue(storage, key);
-        memory.delete(key);
-        return null;
-      }
-    },
-    removeItem: (key) => {
-      removeBrowserStoredValue(readBrowserLocalStorage(), key);
-      memory.delete(key);
-    },
-    setItem: (key, value) => {
-      const storage = readBrowserLocalStorage();
-      if (storage) {
-        try {
-          storage.setItem(key, value);
-          return;
-        } catch {
-          // Fall through to memory for browsers that deny localStorage writes.
-        }
-      }
-      memory.set(key, value);
-    },
-  };
+  return createBrowserJsonStorage();
 }
 
 const storage = createJSONStorage(() => createBackgroundIndexingPreferencesStorage());

@@ -2467,6 +2467,74 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('stops the active root loop when background indexing is disabled mid-loop', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    let firstSyncStarted!: () => void;
+    const firstSyncStartedPromise = new Promise<void>((resolve) => {
+      firstSyncStarted = resolve;
+    });
+    let releaseFirstSync!: () => void;
+    const firstSyncReleasePromise = new Promise<void>((resolve) => {
+      releaseFirstSync = resolve;
+    });
+
+    const enabledSyncCallHandles: string[] = [];
+    const disabledSyncCalls: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        if (!req.enabled) {
+          disabledSyncCalls.push(path);
+          return;
+        }
+        enabledSyncCallHandles.push(path);
+        if (path === root1.path) {
+          firstSyncStarted();
+          await firstSyncReleasePromise;
+        }
+      });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await firstSyncStartedPromise;
+
+      act(() => {
+        useBackgroundIndexingPreferencesStore.setState({ enabled: false });
+      });
+
+      await waitFor(() => expect(disabledSyncCalls.length).toBeGreaterThan(0));
+      releaseFirstSync();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+
+      expect(enabledSyncCallHandles).toEqual([root1.path]);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('stops the active root loop when the provider unmounts mid-loop', async () => {
     const root1 = {
       kind: 'directory',

@@ -709,6 +709,9 @@ function createScheduledLiveNamespace<TLive extends object>(
   priority: DatabaseWorkPriority
 ): TLive {
   const liveQueryPriority = priority === 'foreground' ? 'normal' : priority;
+  // PGlite live-query refreshes can fire from broad invalidations. Keep the
+  // initial subscription responsive, but route repaint refreshes through the
+  // idle lane so reactive churn cannot starve background indexing indefinitely.
   const liveRefreshPriority = priority === 'foreground' ? 'background' : priority;
   return new Proxy(live, {
     get(target, property, receiver) {

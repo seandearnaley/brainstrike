@@ -414,6 +414,8 @@ export function createVectorQueueService(
       });
       if (total === 0) {
         const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
+        // An already-current incremental pass legitimately has no candidates;
+        // diagnostics remain attached for investigation without surfacing a warning.
         logger.info('Backfill found no eligible chunks', {
           embeddingSetId: activeSetId,
           diagnostics,

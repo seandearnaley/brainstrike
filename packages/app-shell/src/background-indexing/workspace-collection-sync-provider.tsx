@@ -1332,6 +1332,8 @@ export function WorkspaceCollectionSyncProvider({
         dependencyUpdatedAt: new Date().toISOString(),
       };
     };
+    // Always-on, ref-only diagnostics keep production failures explainable.
+    // The data is exposed only when the Workspace Index debug API is enabled.
     const embeddingSetsRepository = new Proxy(backgroundRepositories.embeddingSetsRepository, {
       get(target, property, receiver) {
         const value = Reflect.get(target, property, receiver);
