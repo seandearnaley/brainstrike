@@ -403,9 +403,8 @@ function applyWorkspaceCoverageAuditOutcome(args: {
   collectionId: string;
   markAuditVerified: (auditKey: string) => void;
   outcome: WorkspaceCoverageAuditOutcome;
-  requestRecoverySync: () => void;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): void {
+}): boolean {
   if (args.outcome.kind === 'complete') {
     args.markAuditVerified(args.auditKey);
     args.setStatus(
@@ -416,7 +415,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         state: 'idle',
       })
     );
-    return;
+    return false;
   }
   if (args.outcome.kind === 'unresolved-root') {
     logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
@@ -428,20 +427,19 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         state: 'waiting',
       })
     );
-    return;
+    return false;
   }
   applyWorkspaceCoverageIncompleteOutcome({
     collectionId: args.collectionId,
     outcome: args.outcome,
-    requestRecoverySync: args.requestRecoverySync,
     setStatus: args.setStatus,
   });
+  return true;
 }
 
 function applyWorkspaceCoverageIncompleteOutcome(args: {
   collectionId: string;
   outcome: WorkspaceCoverageIncompleteOutcome;
-  requestRecoverySync: () => void;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
 }): void {
   logger.warn('Workspace Index idle coverage audit found incomplete roots', {
@@ -460,7 +458,6 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
       state: 'waiting',
     })
   );
-  args.requestRecoverySync();
 }
 
 function startWorkspaceCoverageAudit(args: {
@@ -475,11 +472,10 @@ function startWorkspaceCoverageAudit(args: {
   markAuditVerified: (auditKey: string) => void;
   policyPreset: BackgroundIndexingPolicyPreset;
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
-  requestRecoverySync: () => void;
   rootIdByPath: ReadonlyMap<string, string>;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): void {
-  void runWorkspaceCoverageAudit({
+}): Promise<boolean> {
+  return runWorkspaceCoverageAudit({
     collectionId: args.collectionId,
     db: args.db,
     fileSystemAdapter: args.fileSystemAdapter,
@@ -491,21 +487,20 @@ function startWorkspaceCoverageAudit(args: {
   })
     .then((outcome) => {
       if (!outcome) {
-        return;
+        return false;
       }
-      applyWorkspaceCoverageAuditOutcome({
+      return applyWorkspaceCoverageAuditOutcome({
         activeRootPath: args.activeRootPath,
         auditKey: args.auditKey,
         collectionId: args.collectionId,
         markAuditVerified: args.markAuditVerified,
         outcome,
-        requestRecoverySync: args.requestRecoverySync,
         setStatus: args.setStatus,
       });
     })
     .catch((error: unknown) => {
       if (!args.isCurrent()) {
-        return;
+        return false;
       }
       const message = `Workspace Index coverage audit failed: ${
         error instanceof Error ? error.message : String(error)
@@ -519,6 +514,7 @@ function startWorkspaceCoverageAudit(args: {
           state: 'error',
         })
       );
+      return false;
     })
     .finally(() => {
       args.clearInFlightAudit(args.auditKey);
@@ -1566,7 +1562,7 @@ export function WorkspaceCollectionSyncProvider({
         })
       );
 
-      startWorkspaceCoverageAudit({
+      void startWorkspaceCoverageAudit({
         activeRootPath,
         auditKey,
         clearInFlightAudit: (completedAuditKey) => {
@@ -1586,11 +1582,12 @@ export function WorkspaceCollectionSyncProvider({
         },
         policyPreset: indexingPolicyPreset,
         resolveDbRootId,
-        requestRecoverySync: () => {
-          triggerSyncFromEvent({ mode: 'full' });
-        },
         rootIdByPath,
         setStatus: setSyncStatus,
+      }).then((requiresRecoverySync) => {
+        if (!disposed && requiresRecoverySync) {
+          triggerSyncFromEvent({ mode: 'full' });
+        }
       });
     };
 
@@ -1611,7 +1608,6 @@ export function WorkspaceCollectionSyncProvider({
     rootDirectoryHandles,
     rootIdByPath,
     setSyncStatus,
-    triggerSyncFromEvent,
   ]);
 
   const readDatabaseSchedulerSnapshot = useCallback(async (): Promise<unknown> => {
