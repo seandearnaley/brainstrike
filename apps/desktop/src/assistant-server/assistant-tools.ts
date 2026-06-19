@@ -78,6 +78,19 @@ type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  /**
+   * Whether the permission engine is actively enforcing a policy this request
+   * (i.e. the server resolved a trusted `permissionPolicy` snapshot because the
+   * user opted into `enforce`). The execute-risk shell tool
+   * (`brainstrike.executeCommand`) is registered ONLY when this is true: with
+   * enforcement OFF (the default) the Mastra permission filter is a no-op, so
+   * registering arbitrary shell execution would expose it unprompted and
+   * ungated. Gating its REGISTRATION on enforcement keeps the highest-risk tool
+   * off the model's map until the user has deliberately turned enforcement on
+   * (and set execute to 'allow'/yolo) — the permission gate then handles the
+   * per-policy allow/ask/deny decision. Defaults to false (safe).
+   */
+  permissionEnforcementEnabled?: boolean;
 }
 
 const logger = createLogger('DesktopAssistantTools');
@@ -1925,28 +1938,6 @@ export function buildDesktopAssistantTools(
         }
       },
     },
-    [EXECUTE_COMMAND_TOOL_ID]: {
-      id: EXECUTE_COMMAND_TOOL_ID,
-      description:
-        "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can, so it is gated by the permission engine and requires approval. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
-      inputSchema: ExecuteCommandInputSchema,
-      // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
-      // we thread into the run so a cancelled run kills the process tree.
-      execute: async (
-        input: ToolExecuteInput<ExecuteCommandInput>,
-        options?: { abortSignal?: AbortSignal }
-      ) => {
-        const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
-        try {
-          return await runExecuteCommand(resolvedInput, runtimeData, {
-            signal: options?.abortSignal,
-          });
-        } catch (error) {
-          logger.error('executeCommand failed', { error, input: resolvedInput });
-          throw error;
-        }
-      },
-    },
     [READ_WORKSPACE_FILE_TOOL_ID]: {
       id: READ_WORKSPACE_FILE_TOOL_ID,
       description:
@@ -2112,6 +2103,39 @@ export function buildDesktopAssistantTools(
       },
     },
   };
+
+  // Arbitrary shell execution is registered ONLY when the user has turned
+  // permission enforcement ON. With enforcement OFF (the default) the Mastra
+  // permission filter is a no-op, so registering this would expose unprompted,
+  // ungated, unsandboxed shell execution to the model. Gating REGISTRATION on
+  // enforcement keeps the highest-risk tool off the map by default; when
+  // enforcement is on, the permission gate then decides allow/ask/deny by the
+  // user's `execute` policy (so 'ask'/'deny' still omit it, fail-safe).
+  if (dependencies.permissionEnforcementEnabled === true) {
+    tools[EXECUTE_COMMAND_TOOL_ID] = {
+      id: EXECUTE_COMMAND_TOOL_ID,
+      description:
+        "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
+      inputSchema: ExecuteCommandInputSchema,
+      // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
+      // we thread into the run so a cancelled run kills the process tree.
+      execute: async (
+        input: ToolExecuteInput<ExecuteCommandInput>,
+        options?: { abortSignal?: AbortSignal }
+      ) => {
+        const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
+        try {
+          return await runExecuteCommand(resolvedInput, runtimeData, {
+            signal: options?.abortSignal,
+          });
+        } catch (error) {
+          logger.error('executeCommand failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    };
+  }
+
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;
   if (!Array.isArray(enabledNativeToolIds)) {
     return tools;

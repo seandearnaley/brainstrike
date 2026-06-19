@@ -2,8 +2,9 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
-import { fitItemsToCharBudget, NATIVE_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
+import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
@@ -29,6 +30,30 @@ const MAX_CAPTURED_OUTPUT_BYTES = 1_000_000;
  * reaped by the follow-up SIGKILL.
  */
 const KILL_GRACE_MS = 2000;
+
+/**
+ * Resolve the shell + argument convention for the current platform.
+ *
+ * - POSIX (macOS/Linux): the user's `$SHELL` (or `/bin/sh`) with `-c command`.
+ * - Windows: `%ComSpec%` (or `cmd.exe`) with `/d /s /c command` — the same
+ *   convention Node's own `child_process` uses for `shell: true`. `/d` skips
+ *   AutoRun, `/s /c` runs the rest of the line as-is. `$SHELL` is normally unset
+ *   on Windows, so the POSIX fallback to `/bin/sh` would ENOENT — hence the
+ *   per-platform split (the original cause of the Windows spawn bug).
+ *
+ * Exported for unit tests that assert selection per `process.platform`.
+ */
+export function resolveShellInvocation(
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): { shell: string; args: string[] } {
+  if (platform === 'win32') {
+    const shell = process.env['ComSpec'] || 'cmd.exe';
+    return { shell, args: ['/d', '/s', '/c', command] };
+  }
+  const shell = process.env['SHELL'] || '/bin/sh';
+  return { shell, args: ['-c', command] };
+}
 
 export interface ExecuteCommandToolResult {
   command: string;
@@ -74,6 +99,14 @@ const liveChildProcesses = new Map<number, ChildProcess>();
  * `tree-kill` is the cross-platform backstop (it walks the child tree itself and
  * is the only mechanism on Windows, which has no negative-pid groups). A kill
  * failure is logged, never swallowed (no-silent-fallbacks).
+ *
+ * KNOWN, ACCEPTED LIMITATION: a process that deliberately double-forks /
+ * daemonizes (setsid → reparents to PID 1 in its own new process group) escapes
+ * BOTH the negative-pgid signal AND tree-kill's ps-tree ancestry walk — it is no
+ * longer in our group nor a descendant of `pid`. This is a fundamental POSIX
+ * limitation (the reference mastra-code-ui shell.ts has it too); you cannot
+ * reliably reap a deliberate daemonize by ancestry. Normal agent commands
+ * (tests, builds, git, package managers) do not daemonize, so this is acceptable.
  */
 function killProcessTree(pid: number, signal: NodeJS.Signals): void {
   let groupKilled = false;
@@ -177,10 +210,12 @@ interface SpawnOutcome {
 }
 
 /**
- * Spawn the user's shell with `-c command`, detached so the child leads its own
- * process group. Captures stdout/stderr up to {@link MAX_CAPTURED_OUTPUT_BYTES}.
- * On timeout OR abort, the WHOLE process tree is killed (SIGTERM then SIGKILL),
- * and the child is reaped from the global registry in `finally`.
+ * Spawn the user's platform shell (see {@link resolveShellInvocation}), detached
+ * so the child leads its own process group. Captures stdout/stderr up to
+ * {@link MAX_CAPTURED_OUTPUT_BYTES}. On timeout OR abort, the WHOLE process tree
+ * is killed (SIGTERM then SIGKILL); on a clean shell exit any background work it
+ * left running is best-effort group-reaped. The child is always removed from the
+ * global registry in `cleanup` (run from the close/error handlers).
  */
 function runShellCommand(args: {
   command: string;
@@ -189,12 +224,20 @@ function runShellCommand(args: {
   signal: AbortSignal | undefined;
 }): Promise<SpawnOutcome> {
   const { command, cwd, timeoutMs, signal } = args;
-  const shell = process.env['SHELL'] || '/bin/sh';
+  const { shell, args: shellArgs } = resolveShellInvocation(command);
 
   return new Promise<SpawnOutcome>((resolve, reject) => {
+    // Already-aborted-before-spawn: honor it without ever starting the shell.
+    // (e.g. the signal fired while resolveCommandCwd was awaiting realpath — a
+    // listener added after the event would never fire.)
+    if (signal?.aborted) {
+      reject(new Error('Command aborted before execution.'));
+      return;
+    }
+
     let child: ChildProcess;
     try {
-      child = spawn(shell, ['-c', command], {
+      child = spawn(shell, shellArgs, {
         cwd,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -224,6 +267,7 @@ function runShellCommand(args: {
     let stderrBytes = 0;
     let timedOut = false;
     let settled = false;
+    let tornDown = false;
     let killTimer: NodeJS.Timeout | undefined;
 
     const appendBounded = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
@@ -246,7 +290,13 @@ function runShellCommand(args: {
 
     // Escalating teardown: polite SIGTERM, then SIGKILL after a grace window in
     // case the tree ignored SIGTERM. Always kills the GROUP, not just the shell.
+    // Idempotent: a second trigger (timeout AND abort) must not overwrite
+    // killTimer (which would leak the first SIGKILL timer) or re-SIGTERM.
     const tearDownTree = (): void => {
+      if (tornDown) {
+        return;
+      }
+      tornDown = true;
       killProcessTree(pid, 'SIGTERM');
       killTimer = setTimeout(() => {
         killProcessTree(pid, 'SIGKILL');
@@ -283,6 +333,23 @@ function runShellCommand(args: {
       reject(error);
     });
 
+    // 'exit' fires when the SHELL process itself terminates — BEFORE the stdio
+    // pipes close. If the command backgrounded work that inherited those pipes
+    // (e.g. `sleep 60 &`), 'close' would otherwise wait for that grandchild to
+    // finish (deferring the whole tool call). So when the shell exits on its OWN
+    // (not via our teardown), reap the rest of the process group here: this kills
+    // any background pipe-holder, which then lets 'close' fire promptly with the
+    // captured output. Without this, a `&`-detached grandchild both stalls the
+    // call AND survives the tool (the registry entry is deleted on close).
+    // RESIDUAL GAP (documented, accepted): a deliberately daemonized grandchild
+    // that left the group (setsid → reparents to PID 1) escapes this too — see
+    // killProcessTree.
+    child.on('exit', () => {
+      if (!(settled || tornDown)) {
+        killProcessTree(pid, 'SIGTERM');
+      }
+    });
+
     child.on('close', (code, closeSignal) => {
       if (settled) {
         return;
@@ -300,10 +367,45 @@ function runShellCommand(args: {
   });
 }
 
+/** Keep the largest TAIL (last N lines) of `lines` that fits `charBudget`. */
+function fitTailToCharBudget(
+  lines: readonly string[],
+  charBudget: number
+): {
+  text: string;
+  truncated: boolean;
+} {
+  if (charBudget <= 0 || lines.length === 0) {
+    return { text: '', truncated: lines.length > 0 };
+  }
+  // Walk from the LAST line backwards, accumulating until the next line would
+  // overflow. +1 per joined newline.
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i] ?? '';
+    const cost = line.length + (kept.length > 0 ? 1 : 0);
+    if (used + cost > charBudget) {
+      break;
+    }
+    kept.push(line);
+    used += cost;
+  }
+  kept.reverse();
+  return { text: kept.join('\n'), truncated: kept.length < lines.length };
+}
+
 /**
  * Bound captured output to the model token budget, keeping the TAIL (the most
- * recent lines — where errors and final status live). Splits both streams into
- * lines and fits the largest tail-biased prefix that serializes within budget.
+ * recent lines — where errors and final status live). ANSI escape codes are
+ * stripped FIRST: test runners, builds, and git emit color/cursor escapes that
+ * pollute the model-facing text and waste the token budget.
+ *
+ * FAIR SPLIT (deterministic, stdout-priority): the two streams are budgeted
+ * INDEPENDENTLY so a chatty stderr (build/test progress is commonly on stderr)
+ * can never starve the stdout result the model actually wants. stdout gets the
+ * larger share of the per-stream budget and any leftover; stderr keeps a
+ * guaranteed minimum tail. Each stream then keeps its own most-recent lines.
  */
 function buildResult(args: {
   command: string;
@@ -312,64 +414,70 @@ function buildResult(args: {
   outcome: SpawnOutcome;
 }): ExecuteCommandToolResult {
   const { command, cwd, durationMs, outcome } = args;
-  // Tail bias: reverse so fitItemsToCharBudget keeps the prefix of the REVERSED
-  // list (i.e. the LAST lines of the real output), then un-reverse for display.
-  const stdoutLines = outcome.stdout.split('\n');
-  const stderrLines = outcome.stderr.split('\n');
-  const reversedTail = [
-    ...stderrLines.map((line) => ({ stream: 'stderr' as const, line })).reverse(),
-    ...stdoutLines.map((line) => ({ stream: 'stdout' as const, line })).reverse(),
-  ];
+  // Strip ANSI before line-splitting/budgeting so escape codes never reach the
+  // model or consume the token budget.
+  const stdoutLines = stripAnsi(outcome.stdout).split('\n');
+  const stderrLines = stripAnsi(outcome.stderr).split('\n');
 
-  const base = {
-    command,
+  // The echoed command can be up to the schema max (10k chars); bound it so it
+  // cannot blow the result envelope (the model already knows what it sent).
+  const MaxEchoedCommandChars = 500;
+  const echoedCommand =
+    command.length > MaxEchoedCommandChars
+      ? `${command.slice(0, MaxEchoedCommandChars)}…`
+      : command;
+
+  // Reserve a small envelope for the base fields + hint, then split the rest:
+  // stdout-priority (60%) with the remainder to stderr. If one stream is empty,
+  // the other gets the whole content budget.
+  const envelopeReserveChars = 1200;
+  const contentBudget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - envelopeReserveChars);
+  const hasStdout = outcome.stdout.length > 0;
+  const hasStderr = outcome.stderr.length > 0;
+  let stdoutBudget: number;
+  let stderrBudget: number;
+  if (hasStdout && hasStderr) {
+    stdoutBudget = Math.floor(contentBudget * 0.6);
+    stderrBudget = contentBudget - stdoutBudget;
+  } else if (hasStdout) {
+    stdoutBudget = contentBudget;
+    stderrBudget = 0;
+  } else {
+    stdoutBudget = 0;
+    stderrBudget = contentBudget;
+  }
+
+  const fittedStdout = fitTailToCharBudget(stdoutLines, stdoutBudget);
+  const fittedStderr = fitTailToCharBudget(stderrLines, stderrBudget);
+  const truncated = fittedStdout.truncated || fittedStderr.truncated;
+
+  return {
+    command: echoedCommand,
     cwd,
     durationMs,
     exitCode: outcome.exitCode,
     signal: outcome.signal,
     timedOut: outcome.timedOut,
+    stdout: fittedStdout.text,
+    stderr: fittedStderr.text,
+    truncated,
+    ...(truncated
+      ? {
+          hint: 'Output was truncated to fit the budget; only the most recent lines of each stream are shown (stdout prioritized). Re-run piping through "| tail -n N", or scope the command to produce less output.',
+        }
+      : {}),
   };
-
-  const { kept, result } = fitItemsToCharBudget(
-    reversedTail,
-    (lines): ExecuteCommandToolResult => {
-      const keptStdout = lines
-        .filter((entry) => entry.stream === 'stdout')
-        .reverse()
-        .map((entry) => entry.line)
-        .join('\n');
-      const keptStderr = lines
-        .filter((entry) => entry.stream === 'stderr')
-        .reverse()
-        .map((entry) => entry.line)
-        .join('\n');
-      const truncated = lines.length < reversedTail.length;
-      return {
-        ...base,
-        stdout: keptStdout,
-        stderr: keptStderr,
-        truncated,
-        ...(truncated
-          ? {
-              hint: 'Output was truncated to fit the budget; only the most recent lines are shown. Re-run piping through "| tail -n N", or scope the command to produce less output.',
-            }
-          : {}),
-      };
-    },
-    NATIVE_TOOL_RESULT_CHAR_BUDGET
-  );
-
-  // Defensive: if even zero lines somehow overflow (impossible in practice), the
-  // fitter returns its build([]) result, which is already budget-shaped.
-  void kept;
-  return result;
 }
 
 /**
  * Execute an arbitrary shell command in the workspace. THE highest-risk tool:
- * there is NO sandbox. Safety comes from the permission engine (execute-risk +
- * requiresApproval gating), the cwd containment, the bounded output, and the
- * detached process-group teardown that guarantees no orphaned subprocess.
+ * there is NO sandbox. Containment that actually exists here: the cwd is pinned
+ * inside a workspace root, output is bounded, and the detached process-group
+ * teardown guarantees no orphaned subprocess. The tool is only REGISTERED when
+ * the user has turned on permission enforcement (see buildDesktopAssistantTools)
+ * — there is no interactive approval prompt yet (Mastra v1 'ask' omits the tool;
+ * the real approve-then-run UX lands in a later PR). So this function assumes
+ * the caller has already decided the command may run.
  */
 export async function runExecuteCommand(
   input: ExecuteCommandInput,

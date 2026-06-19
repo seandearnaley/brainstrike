@@ -26,5 +26,5 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.globWorkspace':
     'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). Excludes .git/node_modules/build output by default; read-only',
   'brainstrike.executeCommand':
-    'Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox — gated by the permission engine and requires approval. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs',
+    'Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. Permission gating is available but OFF unless the user has enabled enforcement. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs',
 };

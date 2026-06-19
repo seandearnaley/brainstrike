@@ -15,6 +15,7 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   disposeLiveChildProcesses,
+  resolveShellInvocation,
   runExecuteCommand,
 } from '../../assistant-server/execute-command-tool';
 
@@ -205,6 +206,38 @@ describe('runExecuteCommand — output bounding (no unbounded result)', () => {
   });
 });
 
+describe('runExecuteCommand — ANSI stripping', () => {
+  it('strips ANSI color/escape codes from stdout (red text, no escapes)', async () => {
+    const root = await makeWorkspace();
+    // printf interprets the \033 (ESC) escapes, emitting a real coloured string:
+    // ESC[31m red ESC[0m. The result must contain the visible text without any
+    // escape codes (no ESC byte, no "[31m"/"[0m" sequences).
+    const result = await runExecuteCommand(
+      { command: String.raw`printf '\033[31mred\033[0m\n'` },
+      singleRoot(root)
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('red');
+    // No raw ESC byte (0x1b) and no SGR sequences survive into model-facing text.
+    const ESC = String.fromCharCode(27);
+    expect(result.stdout).not.toContain(ESC);
+    expect(result.stdout).not.toContain('[31m');
+    expect(result.stdout).not.toContain('[0m');
+  });
+
+  it('strips ANSI from stderr too', async () => {
+    const root = await makeWorkspace();
+    const result = await runExecuteCommand(
+      { command: String.raw`printf '\033[33mwarn\033[0m\n' 1>&2` },
+      singleRoot(root)
+    );
+    const ESC = String.fromCharCode(27);
+    expect(result.stderr).toContain('warn');
+    expect(result.stderr).not.toContain(ESC);
+    expect(result.stderr).not.toContain('[33m');
+  });
+});
+
 describe('runExecuteCommand — cwd containment', () => {
   it('rejects an absolute cwd outside the workspace root', async () => {
     const root = await makeWorkspace();
@@ -283,5 +316,128 @@ describe('runExecuteCommand — runs node', () => {
     );
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('2');
+  });
+});
+
+describe('resolveShellInvocation — per-platform shell selection', () => {
+  const originalShell = process.env['SHELL'];
+  const originalComSpec = process.env['ComSpec'];
+
+  afterEach(() => {
+    if (originalShell === undefined) {
+      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      delete process.env['SHELL'];
+    } else {
+      process.env['SHELL'] = originalShell;
+    }
+    if (originalComSpec === undefined) {
+      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      delete process.env['ComSpec'];
+    } else {
+      process.env['ComSpec'] = originalComSpec;
+    }
+  });
+
+  it('uses cmd.exe with /d /s /c on win32 (NOT /bin/sh — the ENOENT bug)', () => {
+    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    delete process.env['SHELL']; // SHELL is normally unset on Windows.
+    process.env['ComSpec'] = 'C:\\Windows\\System32\\cmd.exe';
+    const { shell, args } = resolveShellInvocation('echo hi', 'win32');
+    expect(shell).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(args).toEqual(['/d', '/s', '/c', 'echo hi']);
+    expect(shell).not.toBe('/bin/sh');
+  });
+
+  it('falls back to cmd.exe on win32 when ComSpec is unset', () => {
+    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    delete process.env['ComSpec'];
+    const { shell, args } = resolveShellInvocation('echo hi', 'win32');
+    expect(shell).toBe('cmd.exe');
+    expect(args[0]).toBe('/d');
+  });
+
+  it('uses $SHELL with -c on POSIX (darwin/linux)', () => {
+    process.env['SHELL'] = '/usr/bin/zsh';
+    const darwin = resolveShellInvocation('echo hi', 'darwin');
+    expect(darwin.shell).toBe('/usr/bin/zsh');
+    expect(darwin.args).toEqual(['-c', 'echo hi']);
+    const linux = resolveShellInvocation('echo hi', 'linux');
+    expect(linux.args).toEqual(['-c', 'echo hi']);
+  });
+
+  it('falls back to /bin/sh on POSIX when SHELL is unset', () => {
+    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    delete process.env['SHELL'];
+    const { shell, args } = resolveShellInvocation('echo hi', 'linux');
+    expect(shell).toBe('/bin/sh');
+    expect(args).toEqual(['-c', 'echo hi']);
+  });
+});
+
+describe('runExecuteCommand — abort before spawn (already-aborted signal)', () => {
+  it('never spawns and rejects when the signal is already aborted', async () => {
+    const root = await makeWorkspace();
+    const marker = path.join(root, 'should-not-exist.marker');
+    const controller = new AbortController();
+    controller.abort(); // aborted BEFORE the call — simulates abort during cwd resolve.
+
+    await expect(
+      runExecuteCommand({ command: `echo ran > "${marker}"` }, singleRoot(root), {
+        signal: controller.signal,
+      })
+    ).rejects.toThrow(/aborted before execution/i);
+
+    // Proof it never spawned: the marker the command would write does not exist.
+    await expect(fsPromises.access(marker)).rejects.toThrow();
+  });
+});
+
+describe('runExecuteCommand — reaps background work the shell left running (CRITICAL)', () => {
+  it('kills a backgrounded grandchild even when the shell exits 0', async () => {
+    const root = await makeWorkspace();
+    const childPidFile = path.join(root, 'bg.pid');
+    // The shell backgrounds a long sleep, records its pid, and EXITS 0 normally
+    // (no timeout, no abort). Without best-effort group-reap-on-exit, that
+    // detached grandchild would survive the tool returning.
+    const result = await runExecuteCommand(
+      { command: `sleep 30 & echo $! > "${childPidFile}"; exit 0`, timeoutMs: 30_000 },
+      singleRoot(root)
+    );
+
+    // The shell itself exited cleanly (0), not via our teardown.
+    expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBe(false);
+
+    const grandchildPid = Number.parseInt(
+      (await fsPromises.readFile(childPidFile, 'utf8')).trim(),
+      10
+    );
+    expect(Number.isInteger(grandchildPid)).toBe(true);
+    // The backgrounded grandchild must be dead — best-effort group reap on exit.
+    expect(await waitForPidDead(grandchildPid)).toBe(true);
+  });
+});
+
+describe('runExecuteCommand — fair stdout/stderr tail split', () => {
+  it('keeps a stdout tail even when stderr floods the output', async () => {
+    const root = await makeWorkspace();
+    // Flood stderr with ~100k lines, then print the real result to stdout LAST.
+    // The old stderr-first budgeting would drop stdout entirely; the fair split
+    // must preserve the stdout marker.
+    const result = await runExecuteCommand(
+      {
+        command: 'seq 1 100000 | sed "s/.*/noise/" 1>&2; echo RESULT_MARKER',
+        timeoutMs: 30_000,
+      },
+      singleRoot(root)
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(true);
+    // stdout is preserved (not starved by the chatty stderr).
+    expect(result.stdout).toContain('RESULT_MARKER');
+    // stderr still gets a (bounded) tail.
+    expect(result.stderr).toContain('noise');
+    // The whole serialized result stays within the model budget.
+    expect(JSON.stringify(result).length).toBeLessThan(14_000);
   });
 });

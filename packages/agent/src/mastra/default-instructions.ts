@@ -236,14 +236,15 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
 
 /**
  * Guidance for the shell execution tool. Emitted only when the tool is
- * registered, so an unavailable verb is never advertised. The wording is honest
- * about there being NO sandbox and that it is gated by the permission engine.
+ * registered (which happens only when the user has enabled permission
+ * enforcement), so an unavailable verb is never advertised. The wording is
+ * honest: there is NO sandbox and no interactive approval prompt yet.
  */
 function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
     return '';
   }
-  return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox, so it is gated by the permission engine and only runs after the user approves it. The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asks. Only call it after the user confirms.`;
+  return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox: it can read or change anything the user can, and it runs immediately when you call it (there is no approval prompt). The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asked for that exact action.`;
 }
 
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
