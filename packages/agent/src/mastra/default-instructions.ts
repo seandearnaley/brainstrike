@@ -18,6 +18,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
+  stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
   writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
@@ -31,6 +32,7 @@ interface ModelFacingToolNames {
   queryEmbeddingSpace: string | null;
   readWorkspaceContext: string | null;
   readWorkspaceFile: string | null;
+  stringReplaceWorkspaceFile: string | null;
   updateWorkspaceContextSelection: string | null;
   updateWorkspaceTapestrySelections: string | null;
   writeWorkspaceFile: string | null;
@@ -83,6 +85,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     readWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceFile
+    ),
+    stringReplaceWorkspaceFile: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.stringReplaceWorkspaceFile
     ),
     updateWorkspaceContextSelection: resolveModelFacingToolName(
       originalToModelFacing,
@@ -149,6 +155,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.readWorkspaceContext,
     names.findWorkspaceSymbol,
     names.writeWorkspaceFile,
+    names.stringReplaceWorkspaceFile,
   ].filter((name): name is string => Boolean(name));
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
     return '';
@@ -165,15 +172,32 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
 }
 
 /**
- * Guidance for the first mutation tool (writeWorkspaceFile). Empty when the tool
- * is not registered, so it disappears from the prompt rather than advertising an
- * unavailable verb.
+ * Guidance for the mutation tools (writeWorkspaceFile + stringReplaceWorkspaceFile).
+ * Each clause is emitted only when its tool is registered, so an unavailable verb
+ * is never advertised.
  */
 function buildWriteInstruction(names: ModelFacingToolNames): string {
-  if (!names.writeWorkspaceFile) {
+  const clauses: string[] = [];
+  if (names.writeWorkspaceFile) {
+    clauses.push(
+      `To create a new file or fully rewrite one, use ${names.writeWorkspaceFile}: it writes the full UTF-8 content to a workspace-relative path, OVERWRITING any existing file and creating missing parent directories.`
+    );
+  }
+  if (names.stringReplaceWorkspaceFile) {
+    const preferClause = names.writeWorkspaceFile
+      ? ` Prefer ${names.stringReplaceWorkspaceFile} over ${names.writeWorkspaceFile} when changing part of an existing file.`
+      : '';
+    clauses.push(
+      `To make a surgical edit to an existing file, use ${names.stringReplaceWorkspaceFile}: read the file first, then pass an old_str block (with enough surrounding context to identify ONE location) and the new_str to replace it with (empty new_str deletes the block). It REFUSES ambiguous or not-found matches instead of guessing, so re-read and add context if it reports one.${preferClause}`
+    );
+  }
+  if (clauses.length === 0) {
     return '';
   }
-  return `To create or edit a file, use ${names.writeWorkspaceFile}: it writes the full UTF-8 content to a workspace-relative path, OVERWRITING any existing file and creating missing parent directories. It is workspace-scoped (the path can never leave the open folder) and edit-risk, so only call it after the user confirms the change.`;
+  clauses.push(
+    'These edit tools are workspace-scoped (the path can never leave the open folder) and edit-risk, so only call them after the user confirms the change.'
+  );
+  return clauses.join(' ');
 }
 
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {

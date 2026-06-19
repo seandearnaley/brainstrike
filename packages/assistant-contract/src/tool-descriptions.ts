@@ -3,6 +3,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Read a file from the selected workspace root with optional range and truncation',
   'brainstrike.writeWorkspaceFile':
     'Write or create a UTF-8 file in the selected workspace root (overwrites existing content; workspace-scoped, requires approval)',
+  'brainstrike.stringReplaceWorkspaceFile':
+    'Surgically edit a workspace file by replacing one old_str block with new_str (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
   'brainstrike.findWorkspaceSymbol':
     "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
   'brainstrike.readWorkspaceDirectory':

@@ -1578,8 +1578,229 @@ describe('assistant-tools', () => {
     });
   });
 
+  describe('stringReplaceWorkspaceFile', () => {
+    it('applies an exact match and leaves the rest of the file intact', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        const result = await tool.execute({
+          context: {
+            path: '/src/lib/math.ts',
+            oldStr: 'export const add = () => 1;',
+            newStr: 'export const add = () => 2;',
+          },
+        });
+
+        expect(result.replaced).toBe(true);
+        expect(result.path).toBe('/src/lib/math.ts');
+        expect(result.matchType).toBe('exact');
+        const onDisk = await fsPromises.readFile(
+          path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
+          'utf8'
+        );
+        expect(onDisk).toBe('export const add = () => 2;\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('applies a whitespace-normalized match when only indentation differs', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'src', 'ws.ts');
+      // Tab indentation + extra inner spaces in the file.
+      await fsPromises.writeFile(filePath, 'function f() {\n\treturn   1 ;\n}\n', 'utf8');
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        const result = await tool.execute({
+          context: {
+            path: '/src/ws.ts',
+            oldStr: 'return 1 ;',
+            newStr: '  return 2;',
+          },
+        });
+
+        expect(result.matchType).toBe('whitespace-normalized');
+        const onDisk = await fsPromises.readFile(filePath, 'utf8');
+        expect(onDisk).toContain('return 2;');
+        expect(onDisk).not.toContain('return   1');
+        expect(onDisk.startsWith('function f() {')).toBe(true);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('applies a close (Levenshtein-fuzzy) multi-line match', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'src', 'cfg.ts');
+      await fsPromises.writeFile(
+        filePath,
+        'const config = {\n  enabled: true,\n  retries: 3,\n};\n',
+        'utf8'
+      );
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        await tool.execute({
+          context: {
+            path: '/src/cfg.ts',
+            oldStr: 'const config = {\n  enabled: true,\n  retries: 3,\n};',
+            newStr: 'const config = {\n  enabled: false,\n  retries: 5,\n};',
+          },
+        });
+
+        const onDisk = await fsPromises.readFile(filePath, 'utf8');
+        expect(onDisk).toContain('enabled: false');
+        expect(onDisk).toContain('retries: 5');
+        expect(onDisk).not.toContain('retries: 3');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('THROWS on an ambiguous single-line old_str and writes NOTHING', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'src', 'dup.ts');
+      const original = 'count++;\ndoThing();\ncount++;\ndoOther();\ncount++;\n';
+      await fsPromises.writeFile(filePath, original, 'utf8');
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({
+            context: { path: '/src/dup.ts', oldStr: 'count++;', newStr: 'count--;' },
+          })
+        ).rejects.toThrow(/locations|matches|surrounding/i);
+        // The file is untouched — no partial / wrong-location edit.
+        expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('THROWS when old_str is not found and writes NOTHING', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
+      const original = await fsPromises.readFile(filePath, 'utf8');
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({
+            context: {
+              path: '/src/lib/math.ts',
+              oldStr: 'this string is absolutely nowhere in the file content',
+              newStr: 'x',
+            },
+          })
+        ).rejects.toThrow(/no sufficiently close match|not\s|Re-read/i);
+        expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('serializes two concurrent edits to the SAME file (both apply, no lost update)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
+      // Two distinct, non-overlapping lines so both edits target different blocks.
+      await fsPromises.writeFile(filePath, 'const a = 1;\nconst b = 2;\n', 'utf8');
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        // Fire both at once; the per-file lock must serialize their
+        // read-modify-write cycles so neither clobbers the other's edit.
+        const [r1, r2] = await Promise.all([
+          tool.execute({
+            context: { path: '/src/lib/math.ts', oldStr: 'const a = 1;', newStr: 'const a = 10;' },
+          }),
+          tool.execute({
+            context: { path: '/src/lib/math.ts', oldStr: 'const b = 2;', newStr: 'const b = 20;' },
+          }),
+        ]);
+
+        expect(r1.replaced).toBe(true);
+        expect(r2.replaced).toBe(true);
+        // BOTH edits landed — a lost update would leave one original line.
+        const onDisk = await fsPromises.readFile(filePath, 'utf8');
+        expect(onDisk).toBe('const a = 10;\nconst b = 20;\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('inherits the symlink-leaf write rejection (cannot escape via the write-back)', async () => {
+      // Reuse of PR-2.1's symlink-leaf protection through the SHARED safe write:
+      // a leaf symlink pointing outside the root must be refused, so the edited
+      // bytes never escape. (Proves stringReplace uses the same audited write
+      // path — not a weaker copy.)
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-sr-ll-'));
+      const outsideTarget = path.join(outsideRoot, 'pwned.txt');
+      const leafLink = path.join(workspaceRootPath, 'src', 'evil.ts');
+      await fsPromises.writeFile(outsideTarget, 'original\n', 'utf8');
+      try {
+        try {
+          await fsPromises.symlink(outsideTarget, leafLink, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.stringReplaceWorkspaceFile'
+        ];
+
+        // The read side resolves the symlink and reads the outside file's content;
+        // the write-back must then REFUSE the symlink leaf. Either way no bytes
+        // escape through the link.
+        await expect(
+          tool.execute({
+            context: { path: '/src/evil.ts', oldStr: 'original', newStr: 'PWNED' },
+          })
+        ).rejects.toThrow(/outside the selected workspace root/i);
+        // The outside file was NOT modified through the symlink.
+        expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('original\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('fails explicitly when no workspace folder is open', async () => {
+      const tool = buildDesktopAssistantTools(undefined)['brainstrike.stringReplaceWorkspaceFile'];
+      await expect(
+        tool.execute({ context: { path: '/x.ts', oldStr: 'a', newStr: 'b' } })
+      ).rejects.toThrow(/No folder is open/i);
+    });
+  });
+
   it('marks writeWorkspaceFile as an edit-risk approval-gated action tool', () => {
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.writeWorkspaceFile']).toMatchObject({
+      category: 'action',
+      requiresApproval: true,
+      riskCategory: 'edit',
+    });
+  });
+
+  it('marks stringReplaceWorkspaceFile as an edit-risk approval-gated action tool', () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.stringReplaceWorkspaceFile']).toMatchObject({
       category: 'action',
       requiresApproval: true,
       riskCategory: 'edit',

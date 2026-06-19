@@ -2,6 +2,7 @@ import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
+  applyStringReplace,
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
@@ -24,12 +25,16 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  type StringReplaceMatchType,
+  type StringReplaceWorkspaceFileInput,
+  StringReplaceWorkspaceFileInputSchema,
   type UpdateWorkspaceContextSelectionInput,
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
+  withFileLock,
 } from '@brainstrike/agent';
 import {
   EmbeddingSetsRepository,
@@ -73,6 +78,7 @@ const logger = createLogger('DesktopAssistantTools');
 const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const;
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const WRITE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile' as const;
+const STRING_REPLACE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
 const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
@@ -429,24 +435,26 @@ async function runReadWorkspaceFile(
   };
 }
 
-async function runWriteWorkspaceFile(
-  input: WriteWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
-): Promise<{
-  rootName: string;
-  path: string;
-  bytesWritten: number;
-  created: boolean;
-}> {
-  const buffer = Buffer.from(input.content, 'utf8');
-  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
-    throw new Error(
-      `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
-    );
-  }
-
-  const root = resolveWorkspaceRoot(runtimeData, input.root);
-  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+/**
+ * Symlink-safe, containment-checked write of `buffer` to the already-resolved
+ * workspace write path. This is the SINGLE audited write path shared by
+ * `writeWorkspaceFile` and `stringReplaceWorkspaceFile` — do not fork a weaker
+ * copy. It enforces every PR-2.1 guarantee:
+ *  - leaf lstat rejects a symlink leaf (live OR dangling) and a directory target,
+ *  - parents are created one component at a time, rejecting symlinked intermediates,
+ *  - the final open uses O_NOFOLLOW to close the lstat→open TOCTOU window.
+ *
+ * Caller must have resolved the path through {@link resolveWorkspaceWritePath}
+ * (so ".." is clamped and the canonical existing-ancestor is contained) and must
+ * pass `requestedPath` only for error messages. Returns whether the file was
+ * newly created.
+ */
+async function writeContainedFileBytes(args: {
+  resolved: { absolutePath: string; canonicalRootPath: string };
+  buffer: Buffer;
+  requestedPath: string;
+}): Promise<{ created: boolean }> {
+  const { resolved, buffer, requestedPath } = args;
 
   // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
   // dangling) passes the canonical-ancestor containment check yet writeFile would
@@ -456,10 +464,12 @@ async function runWriteWorkspaceFile(
   try {
     const leafStats = await fsPromises.lstat(resolved.absolutePath);
     if (leafStats.isSymbolicLink()) {
-      throw new Error(`Path "${input.path}" is outside the selected workspace root.`);
+      throw new Error(`Path "${requestedPath}" is outside the selected workspace root.`);
     }
     if (leafStats.isDirectory()) {
-      throw new Error(`Path "${input.path}" is a directory and cannot be overwritten with a file.`);
+      throw new Error(
+        `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
+      );
     }
     created = false;
   } catch (error) {
@@ -485,6 +495,34 @@ async function runWriteWorkspaceFile(
   } finally {
     await fileHandle.close();
   }
+  return { created };
+}
+
+async function runWriteWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  rootName: string;
+  path: string;
+  bytesWritten: number;
+  created: boolean;
+}> {
+  const buffer = Buffer.from(input.content, 'utf8');
+  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+    throw new Error(
+      `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+    );
+  }
+
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+
+  // Serialize same-file writes against concurrent edits (Mastra runs tool calls
+  // within a step concurrently). Key by the canonical absolute path so two edits
+  // to the same file can never interleave and lose an update.
+  const { created } = await withFileLock(resolved.absolutePath, () =>
+    writeContainedFileBytes({ resolved, buffer, requestedPath: input.path })
+  );
   // TODO(PR-2.3): enqueue re-chunk/re-embed via job_queue so RAG stays coherent after edits
 
   return {
@@ -492,6 +530,64 @@ async function runWriteWorkspaceFile(
     path: resolved.workspacePath,
     bytesWritten: buffer.byteLength,
     created,
+  };
+}
+
+async function runStringReplaceWorkspaceFile(
+  input: StringReplaceWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  rootName: string;
+  path: string;
+  bytesWritten: number;
+  matchType: StringReplaceMatchType;
+  replaced: true;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  // Resolve the write path up front so we can lock on the canonical absolute
+  // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
+  // ancestors; the read below uses the same containment as the read tools.
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+
+  // The whole read-modify-write cycle runs under the per-file lock so a
+  // concurrent edit (another stringReplace, or a writeWorkspaceFile) to the SAME
+  // file cannot interleave and drop an update. Edits to different files still run
+  // in parallel.
+  const result = await withFileLock(resolved.absolutePath, async () => {
+    // Read through the SAME checked read path the read tools use (isFile, 2 MB
+    // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
+    // edit inherits PR-2.1's path-escape protection on the read side too.
+    const file = await readWorkspaceTextFile({
+      rootPath: root.path,
+      requestedPath: input.path,
+    });
+
+    // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
+    // matches — never applies a low-confidence edit (no silent fallbacks).
+    const replacement = applyStringReplace({
+      fileContent: file.content,
+      oldStr: input.oldStr,
+      newStr: input.newStr,
+    });
+
+    const buffer = Buffer.from(replacement.newContent, 'utf8');
+    if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+      throw new Error(
+        `Edited content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+      );
+    }
+
+    await writeContainedFileBytes({ resolved, buffer, requestedPath: input.path });
+    // TODO(PR-2.3): enqueue re-chunk/re-embed via job_queue so RAG stays coherent after edits
+    return { bytesWritten: buffer.byteLength, matchType: replacement.matchType };
+  });
+
+  return {
+    rootName: root.displayName,
+    path: resolved.workspacePath,
+    bytesWritten: result.bytesWritten,
+    matchType: result.matchType,
+    replaced: true,
   };
 }
 
@@ -1739,6 +1835,24 @@ export function buildDesktopAssistantTools(
           logger.error('writeWorkspaceFile failed', {
             error,
             input: { ...resolvedInput, content: undefined },
+          });
+          throw error;
+        }
+      },
+    },
+    [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
+      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+      description:
+        'Surgically edit an existing workspace file: replace one old_str block with new_str. Read the file first, then pass an old_str with enough surrounding context to identify ONE location (a single line matching several places is refused), and the new_str (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
+      inputSchema: StringReplaceWorkspaceFileInputSchema,
+      execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
+        const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
+        try {
+          return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('stringReplaceWorkspaceFile failed', {
+            error,
+            input: { ...resolvedInput, oldStr: undefined, newStr: undefined },
           });
           throw error;
         }

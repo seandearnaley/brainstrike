@@ -150,6 +150,15 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 140,
     riskCategory: 'edit',
   },
+  // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an old_str
+  // block and replaces it. Same edit-risk gating.
+  'brainstrike.stringReplaceWorkspaceFile': {
+    category: 'action',
+    loadingTier: 'critical',
+    requiresApproval: true,
+    estimatedTokens: 160,
+    riskCategory: 'edit',
+  },
   'brainstrike.findWorkspaceSymbol': {
     category: 'retrieval',
     loadingTier: 'critical',
