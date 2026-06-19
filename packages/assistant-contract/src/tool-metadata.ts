@@ -6,6 +6,7 @@ export {
   type PermissionDecision,
   type PermissionDecisionInput,
   type PermissionPolicies,
+  type PermissionToolGateSnapshot,
   type PerToolPermissionOverrides,
   resolvePermissionDecision,
 } from './permission-policy.js';

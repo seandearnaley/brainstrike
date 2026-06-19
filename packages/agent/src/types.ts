@@ -5,6 +5,7 @@ import type {
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
@@ -106,6 +107,15 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Mastra dependency. Do NOT move this to assistant-contract.
    */
   memory?: RuntimeMemoryContext;
+  /**
+   * Serializable permission posture + caller-provided tool risk classification.
+   * When present, the runtime gates the agent's tool map by the policy BEFORE
+   * the immutable Mastra `Agent` is built (`filterToolsByPermission`): `'allow'`
+   * keeps a tool, `'deny'`/`'ask'` omit it (`'ask'` is fail-safe-omitted, never
+   * silently run). OPTIONAL — when absent, the tool map is unchanged
+   * (production-default). Agent-only. See `mastra/permission-tool-gate.ts`.
+   */
+  permissionPolicy?: PermissionToolGateSnapshot;
   /**
    * Provider-specific runtime options. Agent keeps the AI-SDK-bound shape
    * (`@ai-sdk/provider` SharedV2/V3ProviderOptions) — diverges from the
