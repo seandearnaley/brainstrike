@@ -148,6 +148,21 @@ export const ReadWorkspaceFileInputSchema = z
 
 export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema>;
 
+export const WriteWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
+      ),
+    content: z.string().describe('Full UTF-8 file content to write. Overwrites any existing file.'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSchema>;
+
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
     path: z.string().optional().describe('Directory path (defaults to root)'),
@@ -478,6 +493,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,

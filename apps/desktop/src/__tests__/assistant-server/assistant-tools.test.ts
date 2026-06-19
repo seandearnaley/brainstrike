@@ -1276,6 +1276,197 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  describe('writeWorkspaceFile', () => {
+    it('creates a new file (created: true) with the right content and byte count', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tool = tools['brainstrike.writeWorkspaceFile'];
+
+        const result = await tool.execute({
+          context: { path: '/src/new-file.ts', content: 'export const created = true;\n' },
+        });
+
+        expect(result.path).toBe('/src/new-file.ts');
+        expect(result.created).toBe(true);
+        expect(result.bytesWritten).toBe(Buffer.byteLength('export const created = true;\n'));
+        const onDisk = await fsPromises.readFile(
+          path.join(workspaceRootPath, 'src', 'new-file.ts'),
+          'utf8'
+        );
+        expect(onDisk).toBe('export const created = true;\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('creates missing parent directories', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        const result = await tool.execute({
+          context: { path: '/deeply/nested/dir/file.txt', content: 'hello' },
+        });
+
+        expect(result.created).toBe(true);
+        const onDisk = await fsPromises.readFile(
+          path.join(workspaceRootPath, 'deeply', 'nested', 'dir', 'file.txt'),
+          'utf8'
+        );
+        expect(onDisk).toBe('hello');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('overwrites an existing file (created: false)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        const result = await tool.execute({
+          context: { path: '/README.md', content: '# Overwritten\n' },
+        });
+
+        expect(result.created).toBe(false);
+        const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
+        expect(onDisk).toBe('# Overwritten\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a relative "../" escape and writes no file outside the root', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-out-'));
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        // "../" is clamped at the root by normalizeWorkspacePath, so this normalizes
+        // to "/escaped.txt" INSIDE the root — it must NOT land in the sibling dir.
+        await tool.execute({ context: { path: '../escaped.txt', content: 'nope' } });
+
+        await expect(
+          fsPromises.access(path.join(path.dirname(workspaceRootPath), 'escaped.txt'))
+        ).rejects.toThrow();
+        await expect(fsPromises.access(path.join(outsideRoot, 'escaped.txt'))).rejects.toThrow();
+        // Landed safely inside the root instead.
+        const onDisk = await fsPromises.readFile(
+          path.join(workspaceRootPath, 'escaped.txt'),
+          'utf8'
+        );
+        expect(onDisk).toBe('nope');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a write through a symlinked directory that escapes the root', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-link-'));
+      const linkDir = path.join(workspaceRootPath, 'src', 'linked');
+      try {
+        try {
+          await fsPromises.symlink(outsideRoot, linkDir, 'dir');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({ context: { path: '/src/linked/pwned.txt', content: 'escape' } })
+        ).rejects.toThrow('is outside the selected workspace root');
+        // Nothing was written through the symlink into the outside dir.
+        await expect(fsPromises.access(path.join(outsideRoot, 'pwned.txt'))).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects writing to the workspace root itself', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+        await expect(tool.execute({ context: { path: '/', content: 'x' } })).rejects.toThrow(
+          /workspace root/i
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects overwriting a directory with file content', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+        await expect(tool.execute({ context: { path: '/src', content: 'x' } })).rejects.toThrow(
+          /is a directory/i
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
+    it('writes to the folder named by `root` in a multi-root workspace', async () => {
+      const rootA = await createWorkspaceFixture();
+      const rootB = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({
+          workspaceRoots: [
+            { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
+            { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+          ],
+        } as unknown as RuntimeData)['brainstrike.writeWorkspaceFile'];
+
+        const result = await tool.execute({
+          context: { path: '/note.txt', content: 'into B', root: 'ProjectB' },
+        });
+
+        expect(result.rootName).toBe('ProjectB');
+        expect(await fsPromises.readFile(path.join(rootB, 'note.txt'), 'utf8')).toBe('into B');
+        await expect(fsPromises.access(path.join(rootA, 'note.txt'))).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(rootA, { recursive: true, force: true });
+        await fsPromises.rm(rootB, { recursive: true, force: true });
+      }
+    });
+
+    it('fails explicitly when no workspace folder is open', async () => {
+      const tool = buildDesktopAssistantTools(undefined)['brainstrike.writeWorkspaceFile'];
+      await expect(tool.execute({ context: { path: '/x.txt', content: 'x' } })).rejects.toThrow(
+        /No folder is open/i
+      );
+    });
+  });
+
+  it('marks writeWorkspaceFile as an edit-risk approval-gated action tool', () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.writeWorkspaceFile']).toMatchObject({
+      category: 'action',
+      requiresApproval: true,
+      riskCategory: 'edit',
+    });
+  });
+
   it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
     // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
     // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools

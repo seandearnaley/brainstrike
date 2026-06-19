@@ -27,6 +27,8 @@ import {
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
+  type WriteWorkspaceFileInput,
+  WriteWorkspaceFileInputSchema,
 } from '@brainstrike/agent';
 import {
   EmbeddingSetsRepository,
@@ -69,6 +71,7 @@ const logger = createLogger('DesktopAssistantTools');
 
 const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const;
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
+const WRITE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
 const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
@@ -176,6 +179,72 @@ async function resolveWorkspaceAbsolutePath(
   // the remaining vector — a symlink whose target lives outside the root.
   const canonicalRootPath = await fsPromises.realpath(rootPath);
   const canonicalAbsolutePath = await fsPromises.realpath(absolutePath);
+  if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
+    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+  }
+  return {
+    workspacePath: normalizedWorkspacePath,
+    absolutePath: canonicalAbsolutePath,
+  };
+}
+
+/**
+ * Find the canonical (symlink-resolved) path of the nearest existing ancestor of
+ * `absolutePath`. The target file may not exist yet (the common write case), so
+ * `fs.realpath` on it would throw ENOENT. We walk up until a directory exists,
+ * `realpath` THAT, then re-append the not-yet-created tail. This canonicalizes
+ * every existing symlink on the path so a symlinked parent that points outside
+ * the root is still caught by the containment check below.
+ */
+async function resolveCanonicalWritablePath(absolutePath: string): Promise<string> {
+  const segments: string[] = [];
+  let current = absolutePath;
+  // Walk up to the nearest existing ancestor. `path.dirname` is a fixpoint at the
+  // filesystem root, so the loop always terminates.
+  for (;;) {
+    try {
+      const canonicalExisting = await fsPromises.realpath(current);
+      return segments.length > 0
+        ? path.join(canonicalExisting, ...segments.reverse())
+        : canonicalExisting;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        throw error;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        // Reached the filesystem root without finding an existing ancestor; return
+        // the path unchanged (containment is still checked by the caller).
+        return absolutePath;
+      }
+      segments.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Resolve a virtual workspace path to a containment-checked absolute path for a
+ * WRITE, where the target file (and possibly some parent directories) may not yet
+ * exist. Mirrors {@link resolveWorkspaceAbsolutePath}'s guarantees: ".." is
+ * clamped in `normalizeWorkspacePath`, and the canonical existing-ancestor path
+ * is containment-checked against the canonical root so a symlinked directory
+ * cannot redirect the write outside the workspace.
+ */
+async function resolveWorkspaceWritePath(
+  rootPath: string,
+  workspacePath: string
+): Promise<{ workspacePath: string; absolutePath: string }> {
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+  const relativePath =
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+  if (relativePath.length === 0) {
+    throw new Error(`Path "${workspacePath}" is the workspace root, not a writable file.`);
+  }
+  const absolutePath = path.resolve(rootPath, relativePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath);
+  const canonicalAbsolutePath = await resolveCanonicalWritablePath(absolutePath);
   if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
@@ -302,6 +371,46 @@ async function runReadWorkspaceFile(
     omittedChars: truncated.omittedChars,
     approxOutputTokens: countTokensHeuristic(truncated.content),
     content: truncated.content,
+  };
+}
+
+async function runWriteWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  rootName: string;
+  path: string;
+  bytesWritten: number;
+  created: boolean;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+
+  // A directory at the target path cannot be overwritten with file content.
+  let created = true;
+  try {
+    const existing = await fsPromises.stat(resolved.absolutePath);
+    if (existing.isDirectory()) {
+      throw new Error(`Path "${input.path}" is a directory and cannot be overwritten with a file.`);
+    }
+    created = false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  await fsPromises.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
+  const buffer = Buffer.from(input.content, 'utf8');
+  await fsPromises.writeFile(resolved.absolutePath, buffer);
+  // TODO(PR-2.3): enqueue re-chunk/re-embed via job_queue so RAG stays coherent after edits
+
+  return {
+    rootName: root.displayName,
+    path: resolved.workspacePath,
+    bytesWritten: buffer.byteLength,
+    created,
   };
 }
 
@@ -1532,6 +1641,24 @@ export function buildDesktopAssistantTools(
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('readWorkspaceFile failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [WRITE_WORKSPACE_FILE_TOOL_ID]: {
+      id: WRITE_WORKSPACE_FILE_TOOL_ID,
+      description:
+        'Write or create a UTF-8 file in the selected workspace root. Overwrites existing content and creates missing parent directories. The path is clamped to the workspace root and can never escape it. Requires user approval (edit-risk).',
+      inputSchema: WriteWorkspaceFileInputSchema,
+      execute: async (input: ToolExecuteInput<WriteWorkspaceFileInput>) => {
+        const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
+        try {
+          return await runWriteWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('writeWorkspaceFile failed', {
+            error,
+            input: { ...resolvedInput, content: undefined },
+          });
           throw error;
         }
       },

@@ -72,10 +72,11 @@ describe('resolveToolRiskCategory', () => {
       expect(['read', 'edit', 'execute', 'mcp']).toContain(resolved);
     });
 
-    it('classifies the two approval-gated workspace mutators as edit (via explicit annotation)', () => {
+    it('classifies the approval-gated workspace mutators as edit (via explicit annotation)', () => {
       const editTools: readonly string[] = [
         'brainstrike.updateWorkspaceContextSelection',
         'brainstrike.updateWorkspaceTapestrySelections',
+        'brainstrike.writeWorkspaceFile',
       ];
       for (const id of editTools) {
         const metadata = NATIVE_TOOL_DEFAULTS[id];
@@ -90,6 +91,7 @@ describe('resolveToolRiskCategory', () => {
       const explicitlyEdited = new Set<string>([
         'brainstrike.updateWorkspaceContextSelection',
         'brainstrike.updateWorkspaceTapestrySelections',
+        'brainstrike.writeWorkspaceFile',
       ]);
       const readTools = entries.filter(([id]) => !explicitlyEdited.has(id));
 
@@ -108,6 +110,7 @@ describe('buildNativeToolRiskMap', () => {
   const EDIT_TOOLS: readonly string[] = [
     'brainstrike.updateWorkspaceContextSelection',
     'brainstrike.updateWorkspaceTapestrySelections',
+    'brainstrike.writeWorkspaceFile',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {
@@ -126,7 +129,7 @@ describe('buildNativeToolRiskMap', () => {
     }
   });
 
-  it("classifies the two approval-gated mutators as 'edit' and the rest as 'read'", () => {
+  it("classifies the approval-gated mutators as 'edit' and the rest as 'read'", () => {
     const riskByTool = buildNativeToolRiskMap();
 
     for (const id of EDIT_TOOLS) {
