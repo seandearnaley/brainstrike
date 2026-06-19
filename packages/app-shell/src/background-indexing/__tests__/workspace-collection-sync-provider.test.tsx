@@ -503,6 +503,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     getByIdMock.mockResolvedValue(collection);
     getOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
+    resolveDbRootIdMock.mockImplementation(
+      async (_rootPath: string): Promise<string | null> => 'db-root-id'
+    );
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
     ensureChunkingWorkerMock.mockResolvedValue({
       isReady: () => true,
@@ -2499,6 +2502,94 @@ describe('WorkspaceCollectionSyncProvider', () => {
         .slice(callsBeforeAdd)
         .map((call) => (call[0].rootDirectoryHandle as { path?: string } | null)?.path);
       expect(syncedPaths).toContain(root1?.path);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('does not allow idle status when an active root is missing expected indexed files', async () => {
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+    };
+    const rootB = {
+      kind: 'directory',
+      name: 'root-b',
+      path: '/workspace/root-b',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [rootA, rootB];
+    fileSystemState.rootIdByPath = new Map<string, string>([
+      [rootA.path, 'adapter-root-a'],
+      [rootB.path, 'adapter-root-b'],
+    ]);
+    resolveDbRootIdMock.mockImplementation(async (rootPath: string) => {
+      if (rootPath === rootA.path) {
+        return 'db-root-a';
+      }
+      if (rootPath === rootB.path) {
+        return 'db-root-b';
+      }
+      return null;
+    });
+    readFullTreeWithOptionsMock.mockImplementation(async (_adapter, handle) => {
+      const rootPath = (handle as { path: string }).path;
+      return [
+        {
+          name: 'index.ts',
+          path: `${rootPath}/index.ts`,
+          type: 'file',
+          handle: { platform: 'electron', path: `${rootPath}/index.ts` },
+          rootFolderId: rootPath,
+        },
+      ];
+    });
+    dbState.current = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM file_records')) {
+          return {
+            rows: [{ file_count: '1', root_id: 'db-root-a' }],
+          };
+        }
+        return { rows: [] };
+      }),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          state: 'idle',
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          activeRootPath: rootB.path,
+          currentFilePath: null,
+          lastError: null,
+          processedFiles: 2,
+          queuedFiles: 0,
+        });
+      });
+
+      await waitFor(() => {
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          state: 'waiting',
+          activeRootPath: rootB.path,
+        });
+      });
+      expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain(rootB.path);
     } finally {
       syncSpy.mockRestore();
     }

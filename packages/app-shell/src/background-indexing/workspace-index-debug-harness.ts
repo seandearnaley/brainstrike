@@ -80,6 +80,7 @@ export interface CountExpectedWorkspaceIndexFilesArgs {
   abortSignal?: AbortSignal;
   concurrency?: number;
   fileSystemAdapter: FileSystemAdapter;
+  includeFiles?: boolean;
   policyPreset: BackgroundIndexingPolicyPreset;
   rootHandle: DirectoryHandle;
 }
@@ -101,6 +102,7 @@ export async function countExpectedWorkspaceIndexFiles({
   abortSignal,
   concurrency,
   fileSystemAdapter,
+  includeFiles = true,
   policyPreset,
   rootHandle,
 }: CountExpectedWorkspaceIndexFilesArgs): Promise<WorkspaceIndexExpectedFileCount> {
@@ -124,16 +126,19 @@ export async function countExpectedWorkspaceIndexFiles({
     },
     propagateDirectoryReadErrors: true,
   });
-  const includedFiles = flattenFileNodes(tree)
-    .map((node) =>
-      normalizeSelectionPathForFolder(node.path, rootHandle.path, {
-        label: 'Workspace Index expected file path',
-      })
-    )
-    .sort((left, right) => left.localeCompare(right));
+  const fileNodes = flattenFileNodes(tree);
+  const includedFiles = includeFiles
+    ? fileNodes
+        .map((node) =>
+          normalizeSelectionPathForFolder(node.path, rootHandle.path, {
+            label: 'Workspace Index expected file path',
+          })
+        )
+        .sort((left, right) => left.localeCompare(right))
+    : [];
 
   return {
-    expectedFileCount: includedFiles.length,
+    expectedFileCount: fileNodes.length,
     includedFiles,
     policyPreset: entryPolicy.preset,
     rootPath: rootHandle.path,

@@ -34,6 +34,7 @@ import {
   setBackgroundWorkManualPause,
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
@@ -106,6 +107,8 @@ const BACKGROUND_PRESSURE_POLL_MS = 50;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
+const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
+  'Verifying Workspace Index coverage before reporting idle.';
 
 function createRuntimeUnavailableMessage(missingDependencies: string[]): string {
   if (missingDependencies.length === 0) {
@@ -143,6 +146,353 @@ function createClearedProgressPatch(): Pick<
     lastError: null,
     pauseReasons: [],
   };
+}
+
+interface WorkspaceCoverageAuditTarget {
+  readonly dbRootId: string;
+  readonly expectedFileCount: number;
+  readonly rootPath: string;
+}
+
+type WorkspaceCoverageAuditOutcome =
+  | {
+      readonly kind: 'complete';
+    }
+  | {
+      readonly kind: 'incomplete';
+      readonly indexedCounts: ReadonlyMap<string, number>;
+      readonly message: string;
+      readonly missingTargets: readonly WorkspaceCoverageAuditTarget[];
+    }
+  | {
+      readonly kind: 'unresolved-root';
+      readonly message: string;
+      readonly rootPath: string;
+    };
+type WorkspaceCoverageIncompleteOutcome = Extract<
+  WorkspaceCoverageAuditOutcome,
+  { readonly kind: 'incomplete' }
+>;
+
+function parseDatabaseCount(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function readRootIdFromCountRow(row: unknown): string | null {
+  if (!(row && typeof row === 'object')) {
+    return null;
+  }
+  const record = row as Record<string, unknown>;
+  const rootId = record['root_id'] ?? record['rootId'];
+  return typeof rootId === 'string' && rootId.length > 0 ? rootId : null;
+}
+
+function readFileCountFromCountRow(row: unknown): number {
+  if (!(row && typeof row === 'object')) {
+    return 0;
+  }
+  const record = row as Record<string, unknown>;
+  return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
+}
+
+async function readIndexedFileCountsByRoot(args: {
+  collectionId: string;
+  db: DbHandle;
+  rootIds: readonly string[];
+}): Promise<Map<string, number>> {
+  if (args.rootIds.length === 0) {
+    return new Map();
+  }
+  const rootPlaceholders = args.rootIds.map((_, index) => `$${index + 2}`).join(', ');
+  const result = await args.db.query(
+    `
+      SELECT root_id, COUNT(*) AS file_count
+      FROM file_records
+      WHERE embedding_set_id = $1
+        AND root_id IN (${rootPlaceholders})
+      GROUP BY root_id
+    `,
+    [args.collectionId, ...args.rootIds]
+  );
+  const counts = new Map<string, number>();
+  for (const row of Array.isArray(result.rows) ? result.rows : []) {
+    const rootId = readRootIdFromCountRow(row);
+    if (rootId) {
+      counts.set(rootId, readFileCountFromCountRow(row));
+    }
+  }
+  return counts;
+}
+
+function buildCoverageAuditMessage(args: {
+  missingTargets: readonly WorkspaceCoverageAuditTarget[];
+  indexedCounts: ReadonlyMap<string, number>;
+}): string {
+  const firstMissing = args.missingTargets[0];
+  const rootSummary = args.missingTargets
+    .slice(0, 3)
+    .map((target) => {
+      const indexedFileCount = args.indexedCounts.get(target.dbRootId) ?? 0;
+      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed)`;
+    })
+    .join('; ');
+  const extraCount =
+    args.missingTargets.length > 3 ? `; +${args.missingTargets.length - 3} more` : '';
+  return `Workspace Index coverage is incomplete after the pipeline reported idle: ${rootSummary}${extraCount}. A full recovery sync is required before this index can be treated as complete.${
+    firstMissing ? ` First incomplete root: ${firstMissing.rootPath}.` : ''
+  }`;
+}
+
+function getActiveRootHandles(args: {
+  rootDirectoryHandle: DirectoryHandle | null;
+  rootDirectoryHandles: readonly DirectoryHandle[];
+}): readonly DirectoryHandle[] {
+  if (args.rootDirectoryHandles.length > 0) {
+    return args.rootDirectoryHandles;
+  }
+  return args.rootDirectoryHandle ? [args.rootDirectoryHandle] : [];
+}
+
+function createCoverageAuditKey(args: {
+  collectionId: string;
+  handles: readonly DirectoryHandle[];
+  policyPreset: BackgroundIndexingPolicyPreset;
+  rootIdByPath: ReadonlyMap<string, string>;
+}): string {
+  const rootsKey = args.handles
+    .map((handle) => `${handle.path}:${handle.rootId ?? args.rootIdByPath.get(handle.path) ?? ''}`)
+    .join('|');
+  return `${args.collectionId}:${args.policyPreset}:${rootsKey}`;
+}
+
+function createCoverageStatusPatch(args: {
+  activeRootPath: string | null;
+  collectionId: string;
+  lastError: string | null;
+  state: 'error' | 'idle' | 'waiting';
+}): WorkspaceCollectionSyncStatusPatch {
+  return {
+    state: args.state,
+    managedCollectionId: args.collectionId,
+    activeRootPath: args.activeRootPath,
+    currentFilePath: null,
+    queuedFiles: 0,
+    lastError: args.lastError,
+    pauseReasons: [],
+  };
+}
+
+async function buildCoverageAuditTargets(args: {
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  handles: readonly DirectoryHandle[];
+  policyPreset: BackgroundIndexingPolicyPreset;
+  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
+  rootIdByPath: ReadonlyMap<string, string>;
+}): Promise<readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome> {
+  const auditTargets: WorkspaceCoverageAuditTarget[] = [];
+  for (const handle of args.handles) {
+    const adapterRootId = handle.rootId ?? args.rootIdByPath.get(handle.path);
+    const dbRootId = await args.resolveDbRootId(handle.path, adapterRootId);
+    if (!dbRootId) {
+      return {
+        kind: 'unresolved-root',
+        message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+        rootPath: handle.path,
+      };
+    }
+    const expected = await countExpectedWorkspaceIndexFiles({
+      fileSystemAdapter: args.fileSystemAdapter,
+      includeFiles: false,
+      policyPreset: args.policyPreset,
+      rootHandle: handle,
+    });
+    auditTargets.push({
+      dbRootId,
+      expectedFileCount: expected.expectedFileCount,
+      rootPath: handle.path,
+    });
+  }
+  return auditTargets;
+}
+
+function isCoverageAuditOutcome(
+  value: readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome
+): value is WorkspaceCoverageAuditOutcome {
+  return !Array.isArray(value);
+}
+
+async function runWorkspaceCoverageAudit(args: {
+  collectionId: string;
+  db: DbHandle;
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  handles: readonly DirectoryHandle[];
+  isCurrent: () => boolean;
+  policyPreset: BackgroundIndexingPolicyPreset;
+  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
+  rootIdByPath: ReadonlyMap<string, string>;
+}): Promise<WorkspaceCoverageAuditOutcome | null> {
+  const targets = await buildCoverageAuditTargets(args);
+  if (!args.isCurrent()) {
+    return null;
+  }
+  if (isCoverageAuditOutcome(targets)) {
+    return targets;
+  }
+  const indexedCounts = await readIndexedFileCountsByRoot({
+    collectionId: args.collectionId,
+    db: args.db,
+    rootIds: targets.map((target) => target.dbRootId),
+  });
+  if (!args.isCurrent()) {
+    return null;
+  }
+  const missingTargets = targets.filter(
+    (target) => (indexedCounts.get(target.dbRootId) ?? 0) < target.expectedFileCount
+  );
+  if (missingTargets.length === 0) {
+    return { kind: 'complete' };
+  }
+  return {
+    kind: 'incomplete',
+    indexedCounts,
+    message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
+    missingTargets,
+  };
+}
+
+function applyWorkspaceCoverageAuditOutcome(args: {
+  activeRootPath: string | null;
+  auditKey: string;
+  collectionId: string;
+  outcome: WorkspaceCoverageAuditOutcome;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+  verifiedKeyRef: { current: string | null };
+}): void {
+  if (args.outcome.kind === 'complete') {
+    args.verifiedKeyRef.current = args.auditKey;
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: args.activeRootPath,
+        collectionId: args.collectionId,
+        lastError: null,
+        state: 'idle',
+      })
+    );
+    return;
+  }
+  if (args.outcome.kind === 'unresolved-root') {
+    logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: args.outcome.rootPath,
+        collectionId: args.collectionId,
+        lastError: args.outcome.message,
+        state: 'waiting',
+      })
+    );
+    return;
+  }
+  applyWorkspaceCoverageIncompleteOutcome({
+    collectionId: args.collectionId,
+    outcome: args.outcome,
+    setStatus: args.setStatus,
+  });
+}
+
+function applyWorkspaceCoverageIncompleteOutcome(args: {
+  collectionId: string;
+  outcome: WorkspaceCoverageIncompleteOutcome;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): void {
+  logger.warn('Workspace Index idle coverage audit found incomplete roots', {
+    collectionId: args.collectionId,
+    missingRoots: args.outcome.missingTargets.map((target) => ({
+      expectedFileCount: target.expectedFileCount,
+      indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
+      rootPath: target.rootPath,
+    })),
+  });
+  args.setStatus(
+    createCoverageStatusPatch({
+      activeRootPath: args.outcome.missingTargets[0]?.rootPath ?? null,
+      collectionId: args.collectionId,
+      lastError: args.outcome.message,
+      state: 'waiting',
+    })
+  );
+}
+
+function startWorkspaceCoverageAudit(args: {
+  activeRootPath: string | null;
+  auditGeneration: number;
+  auditKey: string;
+  collectionId: string;
+  db: DbHandle;
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  generationRef: { current: number };
+  handles: readonly DirectoryHandle[];
+  inFlightKeyRef: { current: string | null };
+  policyPreset: BackgroundIndexingPolicyPreset;
+  resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
+  rootIdByPath: ReadonlyMap<string, string>;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+  verifiedKeyRef: { current: string | null };
+}): void {
+  void runWorkspaceCoverageAudit({
+    collectionId: args.collectionId,
+    db: args.db,
+    fileSystemAdapter: args.fileSystemAdapter,
+    handles: args.handles,
+    isCurrent: () => args.generationRef.current === args.auditGeneration,
+    policyPreset: args.policyPreset,
+    resolveDbRootId: args.resolveDbRootId,
+    rootIdByPath: args.rootIdByPath,
+  })
+    .then((outcome) => {
+      if (!outcome) {
+        return;
+      }
+      applyWorkspaceCoverageAuditOutcome({
+        activeRootPath: args.activeRootPath,
+        auditKey: args.auditKey,
+        collectionId: args.collectionId,
+        outcome,
+        setStatus: args.setStatus,
+        verifiedKeyRef: args.verifiedKeyRef,
+      });
+    })
+    .catch((error: unknown) => {
+      if (args.generationRef.current !== args.auditGeneration) {
+        return;
+      }
+      const message = `Workspace Index coverage audit failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      logger.error(message, { error });
+      args.setStatus(
+        createCoverageStatusPatch({
+          activeRootPath: args.activeRootPath,
+          collectionId: args.collectionId,
+          lastError: message,
+          state: 'error',
+        })
+      );
+    })
+    .finally(() => {
+      if (args.inFlightKeyRef.current === args.auditKey) {
+        args.inFlightKeyRef.current = null;
+      }
+    });
 }
 
 interface WorkspaceIndexingPowerBridge {
@@ -671,6 +1021,9 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
+  const coverageAuditGenerationRef = useRef(0);
+  const coverageAuditInFlightKeyRef = useRef<string | null>(null);
+  const coverageAuditVerifiedKeyRef = useRef<string | null>(null);
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -1135,6 +1488,91 @@ export function WorkspaceCollectionSyncProvider({
       triggerWorkspaceIndexBootstrap,
     ]
   );
+
+  useEffect(() => {
+    const maybeAuditIdleCoverage = (
+      status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
+    ): void => {
+      if (status.state !== 'idle') {
+        if (status.state !== 'waiting') {
+          coverageAuditGenerationRef.current += 1;
+          coverageAuditInFlightKeyRef.current = null;
+          coverageAuditVerifiedKeyRef.current = null;
+        }
+        return;
+      }
+      const collectionId = status.managedCollectionId ?? managedCollectionId;
+      if (!(enabled && collectionId && backgroundDb && fileSystemAdapter)) {
+        return;
+      }
+      const handles = getActiveRootHandles({ rootDirectoryHandle, rootDirectoryHandles });
+      if (handles.length === 0) {
+        return;
+      }
+
+      const auditKey = createCoverageAuditKey({
+        collectionId,
+        handles,
+        policyPreset: indexingPolicyPreset,
+        rootIdByPath,
+      });
+      if (
+        coverageAuditVerifiedKeyRef.current === auditKey ||
+        coverageAuditInFlightKeyRef.current === auditKey
+      ) {
+        return;
+      }
+
+      const auditGeneration = coverageAuditGenerationRef.current + 1;
+      coverageAuditGenerationRef.current = auditGeneration;
+      coverageAuditInFlightKeyRef.current = auditKey;
+      const activeRootPath = rootDirectoryHandle?.path ?? handles[0]?.path ?? null;
+      setSyncStatus(
+        createCoverageStatusPatch({
+          activeRootPath,
+          collectionId,
+          lastError: WORKSPACE_COVERAGE_AUDIT_MESSAGE,
+          state: 'waiting',
+        })
+      );
+
+      startWorkspaceCoverageAudit({
+        activeRootPath,
+        auditGeneration,
+        auditKey,
+        collectionId,
+        db: backgroundDb,
+        fileSystemAdapter,
+        generationRef: coverageAuditGenerationRef,
+        handles,
+        inFlightKeyRef: coverageAuditInFlightKeyRef,
+        policyPreset: indexingPolicyPreset,
+        resolveDbRootId,
+        rootIdByPath,
+        setStatus: setSyncStatus,
+        verifiedKeyRef: coverageAuditVerifiedKeyRef,
+      });
+    };
+
+    maybeAuditIdleCoverage(useWorkspaceCollectionSyncStatusStore.getState());
+    const unsubscribe = useWorkspaceCollectionSyncStatusStore.subscribe(maybeAuditIdleCoverage);
+    return () => {
+      unsubscribe();
+      coverageAuditGenerationRef.current += 1;
+      coverageAuditInFlightKeyRef.current = null;
+    };
+  }, [
+    backgroundDb,
+    enabled,
+    fileSystemAdapter,
+    indexingPolicyPreset,
+    managedCollectionId,
+    resolveDbRootId,
+    rootDirectoryHandle,
+    rootDirectoryHandles,
+    rootIdByPath,
+    setSyncStatus,
+  ]);
 
   const readDatabaseSchedulerSnapshot = useCallback(async (): Promise<unknown> => {
     if (backgroundDb) {
