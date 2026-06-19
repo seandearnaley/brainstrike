@@ -520,6 +520,13 @@ function toFileRecordRelativePath(workspacePath: string): string {
  * stale chunks are cleared, in-flight embed jobs canceled, the row marked
  * un-chunked, and indexing stats refreshed. When the path is not part of the
  * Workspace Index (no embedding set, or no file_records row), it no-ops.
+ *
+ * Two failure tiers, both non-fatal (the edit already succeeded):
+ *  - DB UNAVAILABLE (getDatabase() throws — e.g. no DB initialized, as in the
+ *    DB-less unit tests): DEBUG log only. A missing DB is an environment state,
+ *    not a re-index defect, so it must not raise alarm-level noise on every edit.
+ *  - RE-INDEX FAILED on a real DB (the transaction throws): ERROR log, since a
+ *    resolvable DB that then fails to re-index is a genuine, debuggable problem.
  */
 async function triggerEditedFileReindex(args: {
   runtimeData: RuntimeData | undefined;
@@ -529,8 +536,20 @@ async function triggerEditedFileReindex(args: {
   content: string;
   size: number;
 }): Promise<void> {
+  let db: ReindexDatabaseHandle;
   try {
-    const db = (await getDatabase()) as unknown as ReindexDatabaseHandle;
+    db = (await getDatabase()) as unknown as ReindexDatabaseHandle;
+  } catch (error) {
+    // DB unavailable (no DB initialized). Non-fatal and expected outside a
+    // running app — log at debug so it is traceable without alarming.
+    logger.debug('Skipped re-index: database unavailable', {
+      error,
+      path: args.workspacePath,
+    });
+    return;
+  }
+
+  try {
     const relativePath = toFileRecordRelativePath(args.workspacePath);
     await reindexEditedFile(db, {
       rootId: args.rootId,
@@ -542,8 +561,8 @@ async function triggerEditedFileReindex(args: {
       workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
     });
   } catch (error) {
-    // Non-fatal: the edit already succeeded. Surface the failure (no silent
-    // swallow) so a broken re-index path is debuggable, but never fail the edit.
+    // A resolvable DB that then fails to re-index is a genuine problem — surface
+    // it (no silent swallow) but never fail the already-successful edit.
     logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
       error,
       path: args.workspacePath,

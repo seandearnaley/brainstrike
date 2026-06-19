@@ -11,18 +11,18 @@ const logger = createLogger('ReindexEditedFile');
 
 /**
  * The DB handle returned by `getDatabase()` (apps/desktop/src/db-main.ts) is one
- * of two shapes:
- *  - the local PGlite instance (utility-process runtime) — exposes `query` +
- *    `transaction`, so we drive the standalone `applyManagedCacheBatch(db, args)`.
- *  - the `RemoteDbClient` (DB-host runtime) — also exposes `query`, plus a
- *    dedicated `applyManagedCacheBatch(payload)` IPC method that runs the
- *    operation atomically inside the host (a `transaction` callback can't cross
- *    IPC). We prefer that method when present, mirroring the renderer's
- *    `hasTransactionalChunkJobEnqueueSupport` dispatch.
+ * of two shapes, and BOTH drive the standalone `applyManagedCacheBatch(db, args)`
+ * over `db.transaction`:
+ *  - the local PGlite instance (utility-process runtime) — `transaction` runs
+ *    in-process.
+ *  - the `RemoteDbClient` (DB-host runtime) — `transaction` is real IPC-backed
+ *    (the host runs the callback atomically). Its dedicated
+ *    `applyManagedCacheBatch` IPC method lives on the `DbHostManager`, NOT on the
+ *    client `getDatabase()` returns, so the trigger never sees it — there is no
+ *    handle-method fast path to take.
  * Structural so it stays trivially mockable in tests.
  */
 export interface ReindexDatabaseHandle {
-  applyManagedCacheBatch?: (payload: unknown) => Promise<void>;
   query<T = unknown>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
   transaction?: <TResult>(fn: (tx: unknown) => Promise<TResult>) => Promise<TResult>;
 }
@@ -88,29 +88,19 @@ async function findIndexedFileRecordId(
  * background sync re-chunks + re-embeds it), then refreshes
  * collection_indexing_stats. We never hand-roll chunking/embedding here.
  *
- * Dispatch matches the renderer seam: prefer the handle's own
- * `applyManagedCacheBatch` (DB-host IPC), else the standalone function over
- * `db.transaction` (local PGlite).
+ * Both DB runtimes drive the standalone function over `db.transaction` (local
+ * PGlite in-process; RemoteDbClient.transaction is real IPC-backed).
  */
 async function applyManagedCacheReplace(
   db: ReindexDatabaseHandle,
   args: ApplyManagedCacheBatchArgs
 ): Promise<void> {
-  if (typeof db.applyManagedCacheBatch === 'function') {
-    // The DB-host parses this payload with `parseManagedCacheBatchArgs`, which
-    // requires the full record shape we build below.
-    await db.applyManagedCacheBatch(args);
-    return;
+  if (typeof db.transaction !== 'function') {
+    throw new Error('Re-index requires a database handle with transaction support.');
   }
-  if (typeof db.transaction === 'function') {
-    await applyManagedCacheBatchStandalone(
-      db as Parameters<typeof applyManagedCacheBatchStandalone>[0],
-      args
-    );
-    return;
-  }
-  throw new Error(
-    'Re-index requires a database handle with applyManagedCacheBatch or transaction support.'
+  await applyManagedCacheBatchStandalone(
+    db as Parameters<typeof applyManagedCacheBatchStandalone>[0],
+    args
   );
 }
 
