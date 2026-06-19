@@ -5,7 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch, LineMatcher } from '@brainstrike/db';
-import { collectGrepMatchesInContent } from '@brainstrike/db';
+import { collectGrepMatchesInContent, extractTrigramLiteral } from '@brainstrike/db';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { walkWorkspaceRoot } from './workspace-file-walk';
@@ -161,31 +161,81 @@ export function resetRipgrepAvailabilityForTests(): void {
   resolvedRipgrepPath = undefined;
 }
 
-/** Build the ripgrep argument list for a literal-or-regex prefilter. */
-function buildRipgrepArgs(args: {
+/**
+ * The literal ripgrep prefilters on. ripgrep ONLY ever runs in `--fixed-strings`
+ * mode (never on a raw regex) so its match set is always a guaranteed SUPERSET of
+ * the authoritative JS matcher's:
+ * - For a literal grep the prefilter literal IS the pattern.
+ * - For a regex grep it is the longest guaranteed-present literal extracted by
+ *   {@link extractTrigramLiteral} (the SAME extraction the indexed path uses to
+ *   drive its trigram prefilter). A regex match must contain that literal, so
+ *   prefiltering on it can never drop a file the JS regex would match.
+ *
+ * `null` means "no safe prefilter literal" (a regex with no extractable ≥3-char
+ * literal — the indexed path's `scanLimited` case). The caller MUST NOT hand the
+ * raw regex to ripgrep then (Rust's regex dialect can match a NARROWER set than
+ * JS `RegExp`, silently dropping files); it falls back to the bounded JS walk.
+ */
+function resolveRipgrepPrefilterLiteral(args: {
   pattern: string;
   isRegex: boolean;
-  caseSensitive: boolean;
-}): string[] {
+}): string | null {
+  return args.isRegex ? extractTrigramLiteral(args.pattern) : args.pattern;
+}
+
+/** Build the ripgrep argument list for a fixed-string (literal) prefilter. */
+function buildRipgrepArgs(args: { prefilterLiteral: string; caseSensitive: boolean }): string[] {
   const rgArgs = [
     '--json',
     '--no-config',
     '--no-follow',
+    // The indexer policy (re-applied in resolveCandidate) is the SINGLE source of
+    // truth for exclusions, so disable ripgrep's own .gitignore/.ignore/.rgignore
+    // and hidden-file filtering. Otherwise rg drops files (gitignored-but-present,
+    // dotfiles like `.github/...`) that the JS-walk fallback keeps, so rg's
+    // candidate set would not be a SUPERSET of the JS walk's and the live pass
+    // would silently miss fresh content. `--no-ignore` already implies
+    // --no-ignore-global/--no-ignore-parent/--no-ignore-vcs. (`.git` is still
+    // hard-excluded and realpath-containment-checked in resolveCandidate.)
+    '--no-ignore',
+    '--hidden',
+    // Prune the two directories the indexer policy excludes UNCONDITIONALLY by
+    // name at ANY depth (`.git` is hard-excluded in resolveCandidate; both are in
+    // the 'balanced' policy's excluded directory segments). `--no-ignore --hidden`
+    // would otherwise make rg DESCEND into them — a pure regression vs the JS
+    // walk, which prunes at the directory boundary (`policy.shouldTraverseDirectory`).
+    // Two harms: (a) a populated node_modules can blow RIPGREP_TIMEOUT_MS → the
+    // whole pass degrades to the JS walk (defeating rg); (b) rg emits in traversal
+    // order and `node_modules` sorts before `src`, so the 32MB --max-buffer can
+    // fill with (policy-filtered-to-nothing) node_modules candidates while real
+    // fresh src/ matches fall off the end → genuinely MISSED. These globs prune
+    // ONLY dirs the policy already hard-excludes by name, so the candidate set
+    // stays a strict SUPERSET of policy-kept files (parity with the JS walk).
+    '--glob=!**/.git/',
+    '--glob=!**/node_modules/',
+    // Treat EVERY file as text. By default rg's content heuristic skips any file
+    // with a NUL byte before the first match (no `begin` event → never a
+    // candidate), but brainstrike's exclusion authority (`isBinaryFile`, the
+    // indexer policy) is EXTENSION-based: a `.ts`/`.md`/`.json` file with a NUL
+    // byte (UTF-16 content, an embedded blob, a partial save) is INCLUDED by the
+    // policy and read as utf8 by the JS-walk + the authoritative matcher. Without
+    // `--text` rg would drop exactly those files, so its candidate set would not
+    // be a SUPERSET of the JS walk's and the live pass would silently miss them.
+    // Extension/size exclusions remain the single authority via resolveCandidate.
+    '--text',
     `--max-filesize=${RIPGREP_MAX_FILESIZE}`,
     `--max-count=${RIPGREP_MAX_COUNT_PER_FILE}`,
+    // Always fixed-strings: rg is a literal SUPERSET prefilter only; the
+    // authoritative literal/regex match is re-derived by the shared JS matcher.
+    '--fixed-strings',
   ];
-  if (!args.isRegex) {
-    // Fixed-string mode: rg treats the pattern as a literal, matching the
-    // indexed path's literal semantics. (The JS matcher re-asserts this.)
-    rgArgs.push('--fixed-strings');
-  }
   if (args.caseSensitive) {
     rgArgs.push('--case-sensitive');
   } else {
     rgArgs.push('--ignore-case');
   }
-  // `--` terminates options so a pattern starting with `-` is not parsed as a flag.
-  rgArgs.push('--', args.pattern, '.');
+  // `--` terminates options so a literal starting with `-` is not parsed as a flag.
+  rgArgs.push('--', args.prefilterLiteral, '.');
   return rgArgs;
 }
 
@@ -198,17 +248,17 @@ interface RipgrepRun {
 
 /**
  * Spawn ripgrep in `canonicalRootPath` and collect the set of candidate file
- * paths (those with ≥1 match). ripgrep is the FAST disk prefilter only; the
- * authoritative match (and final ignore/containment filtering) is re-derived in
- * JS, so rg's regex dialect can never diverge the results. Bounded by timeout,
- * max-filesize, max-count, and max-buffer. Throws on spawn/exec failure so the
- * caller can fall back to the JS walk.
+ * paths (those with ≥1 match). ripgrep is the FAST disk prefilter only, run on a
+ * fixed-string SUPERSET literal (never a raw regex); the authoritative match (and
+ * final ignore/containment filtering) is re-derived in JS, so ripgrep's match
+ * dialect can never diverge the results. Bounded by timeout, max-filesize,
+ * max-count, and max-buffer. Throws on spawn/exec failure so the caller can fall
+ * back to the JS walk.
  */
 function runRipgrep(args: {
   ripgrepPath: string;
   canonicalRootPath: string;
-  pattern: string;
-  isRegex: boolean;
+  prefilterLiteral: string;
   caseSensitive: boolean;
 }): Promise<RipgrepRun> {
   return new Promise<RipgrepRun>((resolve, reject) => {
@@ -401,8 +451,8 @@ async function collectRipgrepCandidates(args: {
   ripgrepPath: string;
   root: RuntimeWorkspaceRoot;
   canonicalRootPath: string;
-  pattern: string;
-  isRegex: boolean;
+  /** Fixed-string SUPERSET literal rg prefilters on (never the raw regex). */
+  prefilterLiteral: string;
   caseSensitive: boolean;
   /** Remaining global candidate budget — STOP resolving once this is reached. */
   maxCandidates: number;
@@ -410,8 +460,7 @@ async function collectRipgrepCandidates(args: {
   const run = await runRipgrep({
     ripgrepPath: args.ripgrepPath,
     canonicalRootPath: args.canonicalRootPath,
-    pattern: args.pattern,
-    isRegex: args.isRegex,
+    prefilterLiteral: args.prefilterLiteral,
     caseSensitive: args.caseSensitive,
   });
   const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
@@ -455,12 +504,30 @@ export interface LiveGrepOptions {
  * indexed path may miss (just-edited / unindexed / not-yet-reindexed content).
  *
  * Two-phase, mirroring the indexed path: a FAST prefilter (ripgrep, or a bounded
- * JS file-walk when rg is unavailable) finds candidate files, then each candidate
- * is read and run through the SAME authoritative JS matcher the indexed service
- * uses — so live and indexed matches are shaped identically and rg's regex
- * dialect can never diverge the result. Ignore policy, symlink discipline, and
- * path containment are reused from glob (`createBackgroundIndexingEntryPolicy` +
- * `isWithinRoot`), scoped to the SAME root(s) the indexed path searches.
+ * JS file-walk) finds candidate files, then each candidate is read and run
+ * through the SAME authoritative JS matcher the indexed service uses — so live
+ * and indexed matches are shaped identically.
+ *
+ * Superset soundness (so the prefilter never silently drops a real match):
+ * - Exclusions: ripgrep runs with its own .gitignore/.ignore/hidden filtering
+ *   DISABLED (`--no-ignore --hidden`), so its candidate set is a raw superset;
+ *   the indexer policy (`createBackgroundIndexingEntryPolicy`) + the `.git`
+ *   re-assertion + realpath containment in resolveCandidate are the SINGLE
+ *   authority on what is excluded — matching the JS-walk fallback exactly.
+ * - Binary detection: ripgrep treats every file as text (`--text`), because the
+ *   exclusion authority (`isBinaryFile`, the indexer policy) is EXTENSION-based.
+ *   Otherwise rg's content heuristic would drop a policy-INCLUDED source file
+ *   that happens to contain a NUL byte — a file the JS walk reads as utf8 and
+ *   matches — breaking the superset.
+ * - Matching: ripgrep ONLY ever prefilters on a FIXED-STRING literal, never a
+ *   raw regex. For a regex grep that literal is the longest guaranteed-present
+ *   substring (`extractTrigramLiteral`, the SAME extraction the indexed path
+ *   uses); since every regex match must contain it, rg cannot drop a file the JS
+ *   regex would match. A regex with NO extractable literal (the indexed path's
+ *   `scanLimited` case) takes the bounded JS walk instead of trusting rg's
+ *   narrower Rust regex dialect.
+ * Symlink discipline and path containment are reused from glob (`isWithinRoot`),
+ * scoped to the SAME root(s) the indexed path searches.
  *
  * Robust by contract: a missing / failing / timed-out rg degrades to the JS walk
  * (logged + a non-silent `note`), never throwing — grep still returns. An invalid
@@ -480,12 +547,20 @@ interface CandidateGatherState {
 }
 
 /** Gather candidate files for ONE root, mutating `state` (ripgrep-then-walk fallback). */
-async function gatherRootCandidates(
-  options: LiveGrepOptions,
-  root: RuntimeWorkspaceRoot,
-  ripgrepPath: string | null,
-  state: CandidateGatherState
-): Promise<void> {
+async function gatherRootCandidates(args: {
+  root: RuntimeWorkspaceRoot;
+  ripgrepPath: string | null;
+  /**
+   * The fixed-string SUPERSET literal ripgrep prefilters on, or null when the
+   * pattern is a regex with no extractable literal. A null literal means rg
+   * CANNOT be used soundly (its raw-regex match set may be narrower than the JS
+   * matcher's) — every root must take the bounded JS walk instead.
+   */
+  prefilterLiteral: string | null;
+  caseSensitive: boolean;
+  state: CandidateGatherState;
+}): Promise<void> {
+  const { root, ripgrepPath, prefilterLiteral, caseSensitive, state } = args;
   let canonicalRootPath: string;
   try {
     canonicalRootPath = await fsPromises.realpath(root.path);
@@ -495,15 +570,18 @@ async function gatherRootCandidates(
   }
   state.anyRootAccessible = true;
 
-  if (ripgrepPath !== null && !state.degradedToWalk) {
+  // rg is usable only when it is present, has not already failed, AND a safe
+  // superset literal exists. A regex with no extractable literal takes the JS
+  // walk (it scans candidate files directly, which the authoritative matcher
+  // then re-checks) so a narrower rg regex dialect can never silently miss it.
+  if (ripgrepPath !== null && prefilterLiteral !== null && !state.degradedToWalk) {
     try {
       const { candidates, prefilterTruncated, capHit } = await collectRipgrepCandidates({
         ripgrepPath,
         root,
         canonicalRootPath,
-        pattern: options.pattern,
-        isRegex: options.isRegex,
-        caseSensitive: options.caseSensitive,
+        prefilterLiteral,
+        caseSensitive,
         // Remaining global budget so per-root resolve never overshoots the cap.
         maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
       });
@@ -540,6 +618,18 @@ export async function runLiveGrep(
 
   const ripgrepPath = await resolveRipgrepPath();
   const rgPresent = ripgrepPath !== null;
+  // The fixed-string SUPERSET literal rg prefilters on. For a regex this is the
+  // longest guaranteed-present literal (the SAME extraction the indexed path uses
+  // for its trigram prefilter); null when no such literal exists (the indexed
+  // path's `scanLimited` case). A null literal means rg cannot soundly prefilter
+  // a regex, so the live pass takes the bounded JS walk for every root instead.
+  const prefilterLiteral = resolveRipgrepPrefilterLiteral({
+    pattern: options.pattern,
+    isRegex: options.isRegex,
+  });
+  const regexNoLiteralPrefilter = options.isRegex && prefilterLiteral === null;
+  // rg actually runs only when it is present AND a safe superset literal exists.
+  const rgUsed = rgPresent && !regexNoLiteralPrefilter;
   const state: CandidateGatherState = {
     anyRootAccessible: false,
     candidates: [],
@@ -551,7 +641,13 @@ export async function runLiveGrep(
   };
 
   for (const root of options.roots) {
-    await gatherRootCandidates(options, root, ripgrepPath, state);
+    await gatherRootCandidates({
+      root,
+      ripgrepPath,
+      prefilterLiteral,
+      caseSensitive: options.caseSensitive,
+      state,
+    });
   }
 
   if (!state.anyRootAccessible) {
@@ -563,8 +659,7 @@ export async function runLiveGrep(
     };
   }
 
-  const engine: LiveGrepResult['engine'] =
-    state.degradedToWalk || !rgPresent ? 'js-walk' : 'ripgrep';
+  const engine: LiveGrepResult['engine'] = state.degradedToWalk || !rgUsed ? 'js-walk' : 'ripgrep';
 
   // Apply the optional exact-path allowlist and the global candidate cap. The
   // per-root resolve loop already STOPS at the cap (so the realpath+stat burst
@@ -587,6 +682,8 @@ export async function runLiveGrep(
   const truncated = state.prefilterTruncated || state.scanLimited || candidateTruncated;
   const note = buildLiveNote({
     rgPresent,
+    rgUsed,
+    regexNoLiteralPrefilter,
     degradedToWalk: state.degradedToWalk,
     degradeReason: state.degradeReason,
     scanLimited: state.scanLimited,
@@ -605,6 +702,8 @@ export async function runLiveGrep(
 /** Compose the non-silent live-pass note (degradation + cap warnings), or undefined when clean. */
 function buildLiveNote(args: {
   rgPresent: boolean;
+  rgUsed: boolean;
+  regexNoLiteralPrefilter: boolean;
   degradedToWalk: boolean;
   degradeReason: string | null;
   scanLimited: boolean;
@@ -617,6 +716,16 @@ function buildLiveNote(args: {
   } else if (args.degradedToWalk) {
     parts.push(
       `ripgrep failed (${args.degradeReason ?? 'unknown error'}); the live pass fell back to a bounded file-walk.`
+    );
+  } else if (args.regexNoLiteralPrefilter) {
+    // rg is present but was deliberately not used: this regex has no literal that
+    // rg could prefilter on as a guaranteed superset, so the live pass scanned
+    // candidate files directly with the authoritative matcher (consistent with
+    // the indexed path's scanLimited regex case) rather than trusting rg's
+    // narrower regex dialect. Never silent.
+    parts.push(
+      'The live pass scanned on-disk files without a ripgrep prefilter ' +
+        '(this regex has no extractable literal), so it was bounded by the file-walk cap.'
     );
   }
   if (args.scanLimited) {
