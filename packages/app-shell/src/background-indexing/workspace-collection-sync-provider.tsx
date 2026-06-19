@@ -60,7 +60,10 @@ import {
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
-import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
+import {
+  type WorkspaceCollectionSyncRequest,
+  WorkspaceCollectionSyncService,
+} from './workspace-collection-sync-service';
 import {
   isWorkspaceIndexBlockedError,
   WorkspaceIndexBlockedError,
@@ -559,6 +562,39 @@ function hasResolvedDbRootId(
   return target.dbRootId !== null;
 }
 
+// Roots not yet synced this session come first (stable within each group) so a
+// newly added root is reached before the long re-scan of already-covered roots.
+function orderTargetsBySessionCoverage(
+  targets: readonly ResolvedSyncLoopTarget[],
+  syncedRootIds: ReadonlySet<string>
+): ResolvedSyncLoopTarget[] {
+  const pending = targets.filter((target) => !syncedRootIds.has(target.dbRootId));
+  const settled = targets.filter((target) => syncedRootIds.has(target.dbRootId));
+  return [...pending, ...settled];
+}
+
+async function runRootSyncPass(args: {
+  isCurrentGeneration: () => boolean;
+  markCovered: () => void;
+  reportAsyncError: (operation: string, error: unknown) => void;
+  request: WorkspaceCollectionSyncRequest;
+  service: Pick<WorkspaceCollectionSyncService, 'sync'>;
+}): Promise<void> {
+  try {
+    await args.service.sync(args.request);
+    // service.sync resolves WITHOUT throwing when a newer triggerSync supersedes
+    // it (it bumps the run id and aborts the in-flight pass), so mark covered
+    // ONLY if this loop is still current — an aborted/incomplete pass must keep
+    // its first-claim priority, or the new root could be reordered last again
+    // under sustained churn, re-opening the starvation.
+    if (args.isCurrentGeneration()) {
+      args.markCovered();
+    }
+  } catch (error) {
+    args.reportAsyncError('sync', error);
+  }
+}
+
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
 }
@@ -1046,12 +1082,14 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
-  // Db root ids that have completed at least one successful sync pass this
+  // Db root ids that have completed at least one NON-superseded sync pass this
   // session. A newly added root (absent here) is synced FIRST so a loop that is
-  // restarted by churn (queue-drain events, QoS/pressure re-triggers) reaches it
+  // restarted by a frequent re-trigger (queue-drain / refresh events) reaches it
   // immediately instead of starving it behind a long re-scan of already-covered
   // roots. This is the core fix for "a folder added mid-session never indexed".
-  const rootsSyncedThisSessionRef = useRef(new Set<string>());
+  // Lazily initialized at first use (see triggerSync) so the Set is not rebuilt
+  // and discarded on every render.
+  const rootsSyncedThisSessionRef = useRef<Set<string> | null>(null);
 
   const reportAsyncError = useCallback(
     (operation: string, error: unknown): void => {
@@ -1473,44 +1511,42 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
-        // Sync roots NOT yet synced this session first (stable within each group).
-        // A folder added mid-session has no entry here, so it is processed before
-        // the long re-scan of already-covered roots — guaranteeing it is reached
-        // even when churn keeps restarting the loop from the top.
-        const orderedTargets = [
-          ...syncableTargets.filter(
-            (target) => !rootsSyncedThisSessionRef.current.has(target.dbRootId)
-          ),
-          ...syncableTargets.filter((target) =>
-            rootsSyncedThisSessionRef.current.has(target.dbRootId)
-          ),
-        ];
+        let syncedRootIds = rootsSyncedThisSessionRef.current;
+        if (!syncedRootIds) {
+          syncedRootIds = new Set<string>();
+          rootsSyncedThisSessionRef.current = syncedRootIds;
+        }
+        // Sync roots NOT yet synced this session first: a folder added mid-session
+        // has no entry, so it is processed before the long re-scan of
+        // already-covered roots — guaranteeing it is reached even when a frequent
+        // re-trigger (queue-drain / refresh events) keeps restarting the loop.
+        const orderedTargets = orderTargetsBySessionCoverage(syncableTargets, syncedRootIds);
 
         for (const [targetIndex, target] of orderedTargets.entries()) {
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
           }
-          try {
-            // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
-            await service.sync({
+          const scope =
+            target.scope.mode === 'paths'
+              ? { mode: 'paths' as const, changes: target.scope.changes ?? [] }
+              : { mode: 'full' as const };
+          // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
+          await runRootSyncPass({
+            isCurrentGeneration: () => syncLoopGenerationRef.current === myGeneration,
+            markCovered: () => syncedRootIds.add(target.dbRootId),
+            reportAsyncError,
+            request: {
               backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,
               indexingPolicyPreset,
               managedCollectionId,
               rootDirectoryHandle: target.handle,
-              scope:
-                target.scope.mode === 'paths'
-                  ? { mode: 'paths', changes: target.scope.changes ?? [] }
-                  : { mode: 'full' },
-            });
-            // Mark covered only on success so a failed/aborted pass keeps its
-            // first-claim priority on the next loop.
-            rootsSyncedThisSessionRef.current.add(target.dbRootId);
-          } catch (error) {
-            reportAsyncError('sync', error);
-          }
+              scope,
+            },
+            service,
+          });
         }
       })();
     },

@@ -209,7 +209,7 @@ test.describe('Mid-session add root indexing', () => {
     });
 
     // 2) Wait until root #1 has STARTED importing but is NOT yet done (it has
-    //    200 files) — so root #2 is added while the pipeline is under load.
+    //    ROOT_ONE_FILE_COUNT files) — so root #2 is added while under load.
     const afterRootOne = await pollUntil(
       page,
       (snap) => fileCountForRootPath(snap, ROOT_ONE_DIR) >= 5,

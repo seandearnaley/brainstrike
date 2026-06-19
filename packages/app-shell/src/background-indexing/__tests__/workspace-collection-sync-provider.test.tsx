@@ -2570,6 +2570,97 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('does NOT mark a superseded root sync as covered, so it keeps first-claim priority', async () => {
+    // service.sync resolves WITHOUT throwing when a newer triggerSync supersedes
+    // it (bumps the run id + aborts the in-flight pass). If the loop marked that
+    // aborted pass "covered", the newly added root would be reordered last on the
+    // next loop — re-opening the starvation. This proves the generation check.
+    const root1 = {
+      kind: 'directory',
+      name: 'root1',
+      path: '/workspace/root-1',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'root2',
+      path: '/workspace/root-2',
+      platform: 'electron',
+    };
+    resolveDbRootIdMock.mockImplementation(async (rootPath: string) =>
+      rootPath === root2.path ? 'db-root-2' : 'db-root-1'
+    );
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1];
+
+    const callOrder: string[] = [];
+    let releaseRoot2FirstPass!: () => void;
+    const root2FirstPassGate = new Promise<void>((res) => {
+      releaseRoot2FirstPass = res;
+    });
+    let signalRoot2FirstPassStarted!: () => void;
+    const root2FirstPassStarted = new Promise<void>((res) => {
+      signalRoot2FirstPassStarted = res;
+    });
+    let root2SyncCalls = 0;
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        callOrder.push(path);
+        if (path === root2.path) {
+          root2SyncCalls += 1;
+          if (root2SyncCalls === 1) {
+            // Hold the first (soon-to-be-superseded) root2 pass in-flight.
+            signalRoot2FirstPassStarted();
+            await root2FirstPassGate;
+          }
+        }
+      });
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(callOrder).toContain(root1.path));
+
+      // Add root2 (uncovered → synced first). Its first pass starts and hangs.
+      fileSystemState.rootDirectoryHandles = [root1, root2];
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await root2FirstPassStarted;
+      const callsBeforeSupersede = callOrder.length;
+
+      // Supersede the in-flight root2 pass with a fresh trigger, THEN let the
+      // superseded pass resolve (without throwing, as the real service does).
+      fileSystemState.rootDirectoryHandles = [root1, root2];
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      releaseRoot2FirstPass();
+
+      // The superseded pass must not have marked root2 covered, so the new loop
+      // still syncs root2 BEFORE root1.
+      await waitFor(() => expect(root2SyncCalls).toBeGreaterThanOrEqual(2));
+      const postSupersede = callOrder.slice(callsBeforeSupersede);
+      const root2Index = postSupersede.indexOf(root2.path);
+      const root1Index = postSupersede.indexOf(root1.path);
+      expect(root2Index).toBeGreaterThanOrEqual(0);
+      expect(root2Index).toBeLessThan(root1Index === -1 ? Number.POSITIVE_INFINITY : root1Index);
+    } finally {
+      releaseRoot2FirstPass();
+      syncSpy.mockRestore();
+    }
+  });
+
   it('re-runs the sync when background work resumes after a pause (resume edge is wired without the dep)', async () => {
     const root = {
       kind: 'directory',
