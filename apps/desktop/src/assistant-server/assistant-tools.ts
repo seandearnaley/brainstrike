@@ -597,20 +597,28 @@ async function runWriteWorkspaceFile(
 
   // Serialize same-file writes against concurrent edits (Mastra runs tool calls
   // within a step concurrently). Key by the canonical absolute path so two edits
-  // to the same file can never interleave and lose an update.
-  const { created } = await withFileLock(resolved.absolutePath, () =>
-    writeContainedFileBytes({ resolved, buffer, requestedPath: input.path })
-  );
-
-  // Keep the RAG index coherent: re-index the just-written file (no-ops when it
-  // isn't part of the Workspace Index). Runs after the write and is non-fatal.
-  await triggerEditedFileReindex({
-    runtimeData,
-    rootId: root.rootId,
-    workspacePath: resolved.workspacePath,
-    absolutePath: resolved.absolutePath,
-    content: input.content,
-    size: buffer.byteLength,
+  // to the same file can never interleave and lose an update. The re-index runs
+  // INSIDE the lock so the write + the re-index-enqueue are one atomic critical
+  // section per file: a concurrent edit can never slip its newer bytes (and
+  // mtime) between this write and its re-index, which would otherwise leave the
+  // RAG row stale relative to disk. `triggerEditedFileReindex` is already
+  // non-fatal (it catches+logs internally), so it never extends the lock's
+  // failure surface.
+  const { created } = await withFileLock(resolved.absolutePath, async () => {
+    const writeResult = await writeContainedFileBytes({
+      resolved,
+      buffer,
+      requestedPath: input.path,
+    });
+    await triggerEditedFileReindex({
+      runtimeData,
+      rootId: root.rootId,
+      workspacePath: resolved.workspacePath,
+      absolutePath: resolved.absolutePath,
+      content: input.content,
+      size: buffer.byteLength,
+    });
+    return writeResult;
   });
 
   return {
@@ -637,10 +645,10 @@ async function runStringReplaceWorkspaceFile(
   // ancestors; the read below uses the same containment as the read tools.
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
 
-  // The whole read-modify-write cycle runs under the per-file lock so a
-  // concurrent edit (another stringReplace, or a writeWorkspaceFile) to the SAME
-  // file cannot interleave and drop an update. Edits to different files still run
-  // in parallel.
+  // The whole read-modify-write-AND-reindex cycle runs under the per-file lock so
+  // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
+  // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
+  // different files still run in parallel.
   const result = await withFileLock(resolved.absolutePath, async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
@@ -666,23 +674,29 @@ async function runStringReplaceWorkspaceFile(
     }
 
     await writeContainedFileBytes({ resolved, buffer, requestedPath: input.path });
+
+    // Keep the RAG index coherent: re-index the edited file INSIDE the same
+    // per-file critical section as the read-modify-write. Running it after the
+    // lock released reopened the very race the lock closes — a concurrent edit
+    // could land its newer bytes (and mtime) between this write and its
+    // re-index, leaving the file_records row stale relative to disk and
+    // self-healing-proof (matching mtime skips the next sync's re-read). No-ops
+    // when the file isn't part of the Workspace Index; already non-fatal (it
+    // catches+logs internally), so it never undoes a successful edit nor
+    // extends the lock's failure surface.
+    await triggerEditedFileReindex({
+      runtimeData,
+      rootId: root.rootId,
+      workspacePath: resolved.workspacePath,
+      absolutePath: resolved.absolutePath,
+      content: replacement.newContent,
+      size: buffer.byteLength,
+    });
+
     return {
       bytesWritten: buffer.byteLength,
       matchType: replacement.matchType,
-      newContent: replacement.newContent,
     };
-  });
-
-  // Keep the RAG index coherent: re-index the edited file after the write (and
-  // after the lock releases). No-ops when the file isn't part of the Workspace
-  // Index; non-fatal so a re-index failure can never undo a successful edit.
-  await triggerEditedFileReindex({
-    runtimeData,
-    rootId: root.rootId,
-    workspacePath: resolved.workspacePath,
-    absolutePath: resolved.absolutePath,
-    content: result.newContent,
-    size: result.bytesWritten,
   });
 
   return {
