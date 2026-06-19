@@ -1,3 +1,4 @@
+import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -87,6 +88,7 @@ const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceCon
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
+const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
@@ -235,7 +237,7 @@ async function resolveCanonicalWritablePath(absolutePath: string): Promise<strin
 async function resolveWorkspaceWritePath(
   rootPath: string,
   workspacePath: string
-): Promise<{ workspacePath: string; absolutePath: string }> {
+): Promise<{ canonicalRootPath: string; workspacePath: string; absolutePath: string }> {
   const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
@@ -249,9 +251,62 @@ async function resolveWorkspaceWritePath(
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
+    canonicalRootPath,
     workspacePath: normalizedWorkspacePath,
     absolutePath: canonicalAbsolutePath,
   };
+}
+
+/**
+ * Create every missing directory between `canonicalRootPath` (which must already
+ * exist) and `targetDir`, ONE component at a time, rejecting any existing
+ * component that is a symlink. A plain `mkdir -p` would happily traverse a
+ * symlinked intermediate directory (including a dangling one, by creating its
+ * target), which is a containment-escape vector. Walking component-by-component
+ * with an `lstat` guard keeps every created/traversed segment a real directory
+ * inside the root.
+ */
+async function ensureContainedDirectory(
+  canonicalRootPath: string,
+  targetDir: string
+): Promise<void> {
+  if (targetDir === canonicalRootPath) {
+    return;
+  }
+  const relative = path.relative(canonicalRootPath, targetDir);
+  // Defence in depth: resolveWorkspaceWritePath already guarantees containment.
+  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Path "${targetDir}" is outside the selected workspace root.`);
+  }
+  const segments = relative.split(path.sep).filter((segment) => segment.length > 0);
+  let current = canonicalRootPath;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    let stats: import('node:fs').Stats | undefined;
+    try {
+      stats = await fsPromises.lstat(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    if (stats) {
+      // An existing component that is a symlink (live OR dangling) could redirect
+      // the write outside the root — reject it rather than traverse it.
+      if (stats.isSymbolicLink()) {
+        throw new Error(
+          `Path component "${current}" is a symlink, which is outside the selected workspace root.`
+        );
+      }
+      if (!stats.isDirectory()) {
+        throw new Error(`Path component "${current}" is not a directory.`);
+      }
+      continue;
+    }
+    // Component does not exist: mkdir creates a REAL directory (it never follows
+    // into a symlink it did not create).
+    await fsPromises.mkdir(current);
+  }
 }
 
 function sliceContentByLineRange(
@@ -383,14 +438,27 @@ async function runWriteWorkspaceFile(
   bytesWritten: number;
   created: boolean;
 }> {
+  const buffer = Buffer.from(input.content, 'utf8');
+  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+    throw new Error(
+      `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+    );
+  }
+
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
 
-  // A directory at the target path cannot be overwritten with file content.
+  // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
+  // dangling) passes the canonical-ancestor containment check yet writeFile would
+  // follow it OUTSIDE the root — reject it as a containment escape. lstat also
+  // distinguishes a directory target, which cannot be overwritten with content.
   let created = true;
   try {
-    const existing = await fsPromises.stat(resolved.absolutePath);
-    if (existing.isDirectory()) {
+    const leafStats = await fsPromises.lstat(resolved.absolutePath);
+    if (leafStats.isSymbolicLink()) {
+      throw new Error(`Path "${input.path}" is outside the selected workspace root.`);
+    }
+    if (leafStats.isDirectory()) {
       throw new Error(`Path "${input.path}" is a directory and cannot be overwritten with a file.`);
     }
     created = false;
@@ -401,9 +469,22 @@ async function runWriteWorkspaceFile(
     }
   }
 
-  await fsPromises.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
-  const buffer = Buffer.from(input.content, 'utf8');
-  await fsPromises.writeFile(resolved.absolutePath, buffer);
+  // Create missing parents one component at a time, rejecting symlinked
+  // intermediates (a plain mkdir -p would traverse them).
+  await ensureContainedDirectory(resolved.canonicalRootPath, path.dirname(resolved.absolutePath));
+
+  // O_NOFOLLOW closes the lstat→open TOCTOU window: if the leaf is (or becomes) a
+  // symlink, the open syscall itself fails with ELOOP rather than following it.
+  // (Falls back to 0 on platforms without O_NOFOLLOW, e.g. Windows; the lstat
+  // guard above is the portable backstop.)
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  const writeFlags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | noFollow;
+  const fileHandle = await fsPromises.open(resolved.absolutePath, writeFlags);
+  try {
+    await fileHandle.writeFile(buffer);
+  } finally {
+    await fileHandle.close();
+  }
   // TODO(PR-2.3): enqueue re-chunk/re-embed via job_queue so RAG stays coherent after edits
 
   return {

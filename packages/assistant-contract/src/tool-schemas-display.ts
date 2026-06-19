@@ -104,8 +104,9 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       {
         name: 'content',
         type: 'string',
-        description: 'Full UTF-8 file content to write (overwrites any existing file)',
+        description: 'Full UTF-8 file content to write, up to ~2 MB (overwrites any existing file)',
         required: true,
+        maxLength: 8_000_000,
       },
       {
         name: 'root',

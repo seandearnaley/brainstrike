@@ -156,7 +156,12 @@ export const WriteWorkspaceFileInputSchema = z
       .describe(
         'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
       ),
-    content: z.string().describe('Full UTF-8 file content to write. Overwrites any existing file.'),
+    content: z
+      // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
+      // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
+      .string()
+      .max(8_000_000)
+      .describe('Full UTF-8 file content to write (up to ~2 MB). Overwrites any existing file.'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();

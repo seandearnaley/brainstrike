@@ -1399,6 +1399,125 @@ describe('assistant-tools', () => {
       }
     });
 
+    it('rejects a DANGLING symlink leaf that points outside the root (regression: escaped containment)', async () => {
+      // The leaf is an existing symlink whose target does NOT exist. realpath(leaf)
+      // throws ENOENT, so the old resolver treated it as not-yet-created and wrote
+      // through the real symlink, landing bytes OUTSIDE the root. Must now throw.
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-dl-'));
+      const outsideTarget = path.join(outsideRoot, 'pwned.txt'); // never created (dangling)
+      const leafLink = path.join(workspaceRootPath, 'src', 'evil.txt');
+      try {
+        try {
+          await fsPromises.symlink(outsideTarget, leafLink, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({ context: { path: '/src/evil.txt', content: 'PWNED' } })
+        ).rejects.toThrow('is outside the selected workspace root');
+        // The bytes never escaped through the dangling symlink.
+        await expect(fsPromises.access(outsideTarget)).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a LIVE symlink leaf that points outside the root', async () => {
+      // The leaf symlink targets an EXISTING file outside the root; writeFile would
+      // overwrite it. Must throw and leave the outside file untouched.
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-ll-'));
+      const outsideTarget = path.join(outsideRoot, 'pwned.txt');
+      const leafLink = path.join(workspaceRootPath, 'src', 'evil.txt');
+      await fsPromises.writeFile(outsideTarget, 'original', 'utf8');
+      try {
+        try {
+          await fsPromises.symlink(outsideTarget, leafLink, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({ context: { path: '/src/evil.txt', content: 'PWNED' } })
+        ).rejects.toThrow('is outside the selected workspace root');
+        // The outside file was NOT overwritten through the symlink.
+        expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('original');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects an INTERMEDIATE dangling symlinked directory that escapes the root', async () => {
+      // A parent component is a symlink to a non-existent outside dir. A plain
+      // mkdir -p would create the target and write through it; must throw instead.
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-id-'));
+      const outsideDir = path.join(outsideRoot, 'subdir'); // never created (dangling)
+      const linkDir = path.join(workspaceRootPath, 'src', 'linkdir');
+      try {
+        try {
+          await fsPromises.symlink(outsideDir, linkDir, 'dir');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+
+        await expect(
+          tool.execute({ context: { path: '/src/linkdir/pwned.txt', content: 'PWNED' } })
+        ).rejects.toThrow('outside the selected workspace root');
+        // Nothing was created under the dangling intermediate symlink.
+        await expect(fsPromises.access(path.join(outsideDir, 'pwned.txt'))).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects content exceeding the write byte cap with a typed error', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.writeWorkspaceFile'
+        ];
+        // 2 MB + 1 byte exceeds MAX_WRITE_WORKSPACE_FILE_BYTES.
+        const oversized = 'a'.repeat(2_000_001);
+        await expect(
+          tool.execute({ context: { path: '/big.txt', content: oversized } })
+        ).rejects.toThrow(/exceeding the .* byte write limit/i);
+        // No partial/empty file was created.
+        await expect(fsPromises.access(path.join(workspaceRootPath, 'big.txt'))).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      }
+    });
+
     it('rejects writing to the workspace root itself', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
