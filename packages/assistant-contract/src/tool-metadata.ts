@@ -1,4 +1,15 @@
 export {
+  DEFAULT_PERMISSION_POLICIES,
+  InvalidPermissionPolicyError,
+  isPermissionDecision,
+  PERMISSION_DECISIONS,
+  type PermissionDecision,
+  type PermissionDecisionInput,
+  type PermissionPolicies,
+  type PerToolPermissionOverrides,
+  resolvePermissionDecision,
+} from './permission-policy.js';
+export {
   compareByLoadPriority,
   getCategoryInfo,
   getNativeToolDefaults,

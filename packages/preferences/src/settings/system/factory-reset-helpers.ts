@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
 
 const logger = createLogger('FactoryReset');
 
@@ -287,6 +288,17 @@ function isMissingStorageEntryError(error: unknown): boolean {
 }
 
 function clearBrowserStorage(): void {
+  // Reset live in-memory stores that hold session-only state. The blanket
+  // localStorage.clear() below wipes persisted slices, but session-lived state
+  // (e.g. permission session grants) lives only in the running store instance,
+  // so it would survive a reset that does not force a reload (web path). Reset
+  // it explicitly per the FACTORY RESET CONTRACT.
+  try {
+    resetPermissionPolicyStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset permission policy store', { error });
+  }
+
   // Clear localStorage - blanket clear, no fallback lists
   try {
     if (typeof localStorage !== 'undefined' && typeof localStorage.clear === 'function') {
