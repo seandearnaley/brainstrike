@@ -455,6 +455,39 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
     expect(result.note).toMatch(/without a ripgrep prefilter/i);
   });
 
+  it('regex with an ESCAPE-encoded literal (\\x66oo matches "foo") is found, not silently missed', async () => {
+    // `\x66oo` decodes to `foo` in JS RegExp (\x66 = 'f'). The literal extractor
+    // must NOT yield the mis-decoded fixed string `66oo` (which rg would prefilter
+    // on and find nothing → silent miss). Instead it returns null for the escape-
+    // laden pattern, so the live pass takes the bounded JS walk and the
+    // authoritative matcher finds the `foo` line. Proven with rg present so the
+    // "rg deliberately not used for a mis-decodable literal" path is exercised.
+    const dir = await makeWorkspace({
+      'src/escaped.ts': 'value = foobar end\n',
+      'src/decoy.ts': 'value = 66oo end\n',
+    });
+    const pattern = '\\x66oo';
+    // Sanity: the authoritative matcher matches the `foo` line, not the `66oo` one.
+    expect(regexMatcher(pattern).matches('value = foobar end')).toBe(true);
+    expect(regexMatcher(pattern).matches('value = 66oo end')).toBe(false);
+
+    const result = await runLiveGrep(
+      {
+        pattern,
+        isRegex: true,
+        caseSensitive: false,
+        contextLines: 0,
+        roots: [root(dir)],
+      },
+      regexMatcher(pattern)
+    );
+    // No safe fixed-string literal → JS walk, not a mis-decoded rg prefilter.
+    expect(result.engine).toBe('js-walk');
+    // The `foo` (foobar) line is FOUND; the `66oo` decoy is NOT matched.
+    expect(result.matches.map((m) => m.path)).toEqual(['src/escaped.ts']);
+    expect(result.matches[0]?.lineText).toContain('foobar');
+  });
+
   it('regex with NO extractable literal also finds the match when rg is absent', async () => {
     // Force rg absent so the walk path is exercised on CI (no rg) too: the same
     // literal-free regex must still find its on-disk match via the JS matcher.
@@ -581,6 +614,77 @@ describe('runLiveGrep — binary-detection superset (--text; NUL-containing sour
       'src/plain.ts',
       'src/withnul.ts',
     ]);
+  });
+});
+
+describe('runLiveGrep — rg prunes .git/node_modules at the rg level (perf + parity)', () => {
+  it('does NOT surface node_modules/.git matches (pruned by glob), but DOES surface src', async () => {
+    const realRg = await findRealRipgrep();
+    if (realRg === null) {
+      // rg-specific: the `--glob=!**/.git/` + `--glob=!**/node_modules/` pruning
+      // happens inside rg. The JS walk prunes the same dirs at its own boundary,
+      // so there is nothing rg-specific to prove without rg installed. Skip.
+      return;
+    }
+    // node_modules and .git both contain the token. `--no-ignore --hidden` would
+    // make rg DESCEND into them without the prune globs; the globs prune them at
+    // the rg level (matching the JS walk's directory pruning), so neither appears.
+    const dir = await makeWorkspace({
+      'src/keep.ts': 'PRUNE_PROBE keep\n',
+      'node_modules/dep/index.ts': 'PRUNE_PROBE dep\n',
+      'node_modules/dep/nested/deep.ts': 'PRUNE_PROBE deep\n',
+    });
+    await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });
+    await fsPromises.writeFile(path.join(dir, '.git', 'config'), 'PRUNE_PROBE gitdir\n', 'utf8');
+
+    const result = await runLiveGrep(
+      {
+        pattern: 'PRUNE_PROBE',
+        isRegex: false,
+        caseSensitive: false,
+        contextLines: 0,
+        roots: [root(dir)],
+      },
+      literalMatcher('PRUNE_PROBE')
+    );
+    expect(result.engine).toBe('ripgrep');
+    // Only the src file survives — node_modules/.git are pruned before resolveCandidate.
+    expect(result.matches.map((m) => m.path)).toEqual(['src/keep.ts']);
+    expect(result.matches.some((m) => m.path.startsWith('node_modules/'))).toBe(false);
+    expect(result.matches.some((m) => m.path.includes('.git'))).toBe(false);
+  });
+
+  it('rg-vs-walk parity holds with node_modules/.git present (both exclude them)', async () => {
+    const realRg = await findRealRipgrep();
+    if (realRg === null) {
+      return;
+    }
+    const dir = await makeWorkspace({
+      'src/a.ts': 'NMGIT_TOKEN a\n',
+      'src/b.ts': 'NMGIT_TOKEN b\n',
+      'node_modules/dep/index.ts': 'NMGIT_TOKEN dep\n',
+    });
+    await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });
+    await fsPromises.writeFile(path.join(dir, '.git', 'config'), 'NMGIT_TOKEN gitdir\n', 'utf8');
+
+    const options = {
+      pattern: 'NMGIT_TOKEN',
+      isRegex: false,
+      caseSensitive: false,
+      contextLines: 0,
+      roots: [root(dir)],
+    };
+    const rgResult = await runLiveGrep(options, literalMatcher('NMGIT_TOKEN'));
+    expect(rgResult.engine).toBe('ripgrep');
+    const walkResult = await withRipgrepHidden(() =>
+      runLiveGrep(options, literalMatcher('NMGIT_TOKEN'))
+    );
+    expect(walkResult.engine).toBe('js-walk');
+
+    const rgPaths = rgResult.matches.map((m) => m.path).sort();
+    const walkPaths = walkResult.matches.map((m) => m.path).sort();
+    expect(rgPaths).toEqual(walkPaths);
+    expect(rgPaths).toEqual(['src/a.ts', 'src/b.ts']);
   });
 });
 

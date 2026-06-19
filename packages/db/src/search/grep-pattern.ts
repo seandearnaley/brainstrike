@@ -79,16 +79,78 @@ function dropLastAndEndRun(state: ScanState): void {
   endRun(state);
 }
 
+/**
+ * Consume the ENCODING characters of a backslash escape whose first char (after
+ * `\`) is alphanumeric, returning the index just past the whole escape token.
+ * Critical for soundness: the chars that ENCODE an escape are NOT literal text,
+ * so they must never be collected into a run. `\x66` encodes `f` (1 char), not
+ * the literal "x66"; collecting "66" would make a fixed-string prefilter look for
+ * "66oo" and silently miss a line the JS RegExp matches as "foo".
+ *
+ * `i` points at the first char after the backslash (already known alphanumeric).
+ * Returns the index of the first char AFTER the escape's encoding (where a NEW
+ * literal run may legitimately begin, e.g. the `oo` in `\x66oo`).
+ *
+ * Class escapes (`\d \w \s \b …`) and single-digit backrefs encode no trailing
+ * literal text, so they consume just the one char (the existing behaviour).
+ */
+const HEX_DIGIT = /[0-9a-fA-F]/;
+const OCTAL_DIGIT = /[0-7]/;
+
+/** Advance past up to `max` chars from `start` that match `pattern`; return the new index. */
+function consumeWhile(source: string, start: number, max: number, pattern: RegExp): number {
+  let j = start;
+  let consumed = 0;
+  while (j < source.length && consumed < max && pattern.test(source[j] ?? '')) {
+    j += 1;
+    consumed += 1;
+  }
+  return j;
+}
+
+/** Past the matching `}` of a `\u{…}` braced code-point escape. */
+function skipBracedCodePoint(source: string, openBrace: number): number {
+  let j = openBrace;
+  while (j < source.length && source[j] !== '}') {
+    j += 1;
+  }
+  return j + 1;
+}
+
+function skipEscapeEncoding(source: string, i: number): number {
+  const marker = source[i] ?? '';
+  if (marker === 'x') {
+    return consumeWhile(source, i + 1, 2, HEX_DIGIT); // \xHH — up to two hex digits
+  }
+  if (marker === 'u') {
+    return source[i + 1] === '{'
+      ? skipBracedCodePoint(source, i + 1) // \u{H…}
+      : consumeWhile(source, i + 1, 4, HEX_DIGIT); // \uHHHH
+  }
+  if (marker === 'c') {
+    return i + 2; // \cX — a single control-letter
+  }
+  if (OCTAL_DIGIT.test(marker)) {
+    return consumeWhile(source, i + 1, 2, OCTAL_DIGIT); // \0/\12/\123 — first digit + up to 2 more
+  }
+  // Class escape / word-boundary / backreference (\d \w \s \b \1 …): the marker
+  // itself encodes no literal text; consume only it (the prior behaviour).
+  return i + 1;
+}
+
 /** Returns the updated source position after consuming one logical token (may span multiple characters). */
 function processToken(source: string, i: number, state: ScanState): number {
   const ch = source[i] ?? '';
   if (ch === '\\') {
     const next = source[i + 1] ?? '';
     if (/[a-zA-Z0-9]/.test(next)) {
-      endRun(state); // class escape (\d \w \b \1 ...) — not a guaranteed literal
-    } else {
-      state.current += next; // escaped punctuation IS a literal character
+      // An encoded/class escape — NOT a guaranteed literal. End the run, then skip
+      // the ENTIRE escape token so its encoding chars (e.g. the `66` of `\x66`)
+      // never leak into a literal and mislead the fixed-string prefilter.
+      endRun(state);
+      return skipEscapeEncoding(source, i + 1);
     }
+    state.current += next; // escaped punctuation IS a literal character
     return i + 2;
   }
   if (ch === '[') {

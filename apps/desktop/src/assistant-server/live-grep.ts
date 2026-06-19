@@ -199,6 +199,20 @@ function buildRipgrepArgs(args: { prefilterLiteral: string; caseSensitive: boole
     // hard-excluded and realpath-containment-checked in resolveCandidate.)
     '--no-ignore',
     '--hidden',
+    // Prune the two directories the indexer policy excludes UNCONDITIONALLY by
+    // name at ANY depth (`.git` is hard-excluded in resolveCandidate; both are in
+    // the 'balanced' policy's excluded directory segments). `--no-ignore --hidden`
+    // would otherwise make rg DESCEND into them — a pure regression vs the JS
+    // walk, which prunes at the directory boundary (`policy.shouldTraverseDirectory`).
+    // Two harms: (a) a populated node_modules can blow RIPGREP_TIMEOUT_MS → the
+    // whole pass degrades to the JS walk (defeating rg); (b) rg emits in traversal
+    // order and `node_modules` sorts before `src`, so the 32MB --max-buffer can
+    // fill with (policy-filtered-to-nothing) node_modules candidates while real
+    // fresh src/ matches fall off the end → genuinely MISSED. These globs prune
+    // ONLY dirs the policy already hard-excludes by name, so the candidate set
+    // stays a strict SUPERSET of policy-kept files (parity with the JS walk).
+    '--glob=!**/.git/',
+    '--glob=!**/node_modules/',
     // Treat EVERY file as text. By default rg's content heuristic skips any file
     // with a NUL byte before the first match (no `begin` event → never a
     // candidate), but brainstrike's exclusion authority (`isBinaryFile`, the
