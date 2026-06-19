@@ -97,6 +97,26 @@ describe('runGlobWorkspace — pattern matching', () => {
     expect(result.truncated).toBe(false);
     expect(result.hint).toBeUndefined();
   });
+
+  it('matches a root-anchored pattern (/src/**/*.ts) the same as the unrooted form', async () => {
+    const root = await makeWorkspace([
+      'src/main.ts',
+      'src/lib/util.ts',
+      'src/components/button.tsx',
+      'README.md',
+    ]);
+    const rooted = await runGlobWorkspace({ pattern: '/src/**/*.ts' }, singleRoot(root));
+    const unrooted = await runGlobWorkspace({ pattern: 'src/**/*.ts' }, singleRoot(root));
+    expect(paths(rooted)).toEqual(['/src/lib/util.ts', '/src/main.ts']);
+    // The rooted form must compile to the SAME matcher as the unrooted form.
+    expect(paths(rooted)).toEqual(paths(unrooted));
+  });
+
+  it('still matches a root-anchored recursive pattern (/**/*.ts)', async () => {
+    const root = await makeWorkspace(['src/main.ts', 'src/lib/util.ts', 'README.md']);
+    const result = await runGlobWorkspace({ pattern: '/**/*.ts' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/src/lib/util.ts', '/src/main.ts']);
+  });
 });
 
 describe('runGlobWorkspace — ignore handling', () => {
@@ -242,6 +262,26 @@ describe('runGlobWorkspace — token budget + paging', () => {
     expect(result.matches.length).toBeGreaterThan(0);
     expect(result.hint).toBeDefined();
     expect(result.hint).toMatch(/offset:/);
+    // The hint's "of N" count MUST report the true total (600), not the
+    // limited window size (the default `limit` of 200). Reporting the window
+    // size tells the model there are fewer matches than exist → it under-pages.
+    expect(result.hint).toMatch(/of 600\b/);
+    expect(result.hint).not.toMatch(/of 200\b/);
+  });
+
+  it('reports the true total in the hint when limit caps the set below the budget', async () => {
+    // 10 small matches, limit 4: the budget fits all 4 surfaced rows, so the
+    // ONLY truncation is the user-facing limit. The hint must still say "of 10".
+    const files = Array.from({ length: 10 }, (_, index) => `src/file-${index}.ts`);
+    const root = await makeWorkspace(files);
+    const result = await runGlobWorkspace({ pattern: '**/*.ts', limit: 4 }, singleRoot(root));
+    expect(result.matches.length).toBe(4);
+    expect(result.totalMatches).toBe(10);
+    expect(result.truncated).toBe(true);
+    expect(result.hint).toBeDefined();
+    expect(result.hint).toMatch(/of 10\b/);
+    // Never the window size (4) the limit produced.
+    expect(result.hint).not.toMatch(/of 4\b/);
   });
 
   it('respects an explicit limit and pages via offset', async () => {
