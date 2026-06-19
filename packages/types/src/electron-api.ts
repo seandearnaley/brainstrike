@@ -125,6 +125,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
+  readonly queuedLabels: Record<DatabaseWorkPriority, readonly (string | null)[]>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
   readonly snapshotAt: number;

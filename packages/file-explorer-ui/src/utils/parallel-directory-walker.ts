@@ -345,11 +345,16 @@ export async function walkDirectoryParallel(
     finalPath: string,
     parentHandle: DirectoryHandle
   ): DirectoryHandle {
+    const entryHandle = entry.handle as Partial<DirectoryHandle> | undefined;
+    const childPath =
+      typeof entryHandle?.path === 'string' && entryHandle.path.length > 0
+        ? entryHandle.path
+        : finalPath;
     return {
-      path: finalPath,
+      path: childPath,
       name: entry.name,
       kind: 'directory',
-      platform: parentHandle.platform,
+      platform: entryHandle?.platform ?? parentHandle.platform,
       _internal: entry.handle,
     };
   }
