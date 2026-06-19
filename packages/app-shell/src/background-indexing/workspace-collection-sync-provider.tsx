@@ -59,6 +59,7 @@ import {
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
+import { boundBackgroundPermitWait } from './background-permit-wait';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
 import {
   type WorkspaceCollectionSyncRequest,
@@ -106,13 +107,6 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
   priority: 'background',
 } as const;
 const BACKGROUND_PRESSURE_POLL_MS = 50;
-// Longest a single background DB permit waits for foreground pressure to clear
-// before proceeding anyway. Bounds the indefinite block that otherwise starves
-// a newly-added root: the indexer's own writes refire foreground `live` queries,
-// producing a lagging/self-inflicted foreground-latency signal that never clears
-// while background work is pending. Paired with the QoS starvation bypass so a
-// starved sync phase downgrades to gentle, constrained batches.
-const BACKGROUND_PERMIT_MAX_WAIT_MS = 5000;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
 // Longest the background indexer will defer to an unsettled file-tree UI
@@ -786,40 +780,6 @@ function buildSyncLoopTargets(args: {
   return buildFullSyncTargets(allHandles);
 }
 
-// Wrap a database-pressure permit so it can never block longer than
-// BACKGROUND_PERMIT_MAX_WAIT_MS. The underlying permit polls until foreground
-// pressure clears with no upper bound; under a lagging/self-inflicted
-// foreground-latency signal (the indexer's own writes refire foreground `live`
-// queries) that can be indefinite, starving a newly-added root. On timeout we
-// abort the underlying wait and proceed — the QoS layer keeps the resulting work
-// gentle (constrained batches). Genuine foreground-query yielding is unaffected:
-// the import phase only runs once the QoS gate allows new work, which still
-// excludes foreground-query.
-export function boundBackgroundPermitWait(
-  basePermit: (options: { readonly label: string; readonly signal?: AbortSignal }) => Promise<void>
-): (options: { readonly label: string }) => Promise<void> {
-  return async (options: { readonly label: string }): Promise<void> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      controller.abort();
-    }, BACKGROUND_PERMIT_MAX_WAIT_MS);
-    try {
-      await basePermit({ label: options.label, signal: controller.signal });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        logger.warn('Background DB permit exceeded max wait; proceeding to avoid starvation', {
-          label: options.label,
-          maxWaitMs: BACKGROUND_PERMIT_MAX_WAIT_MS,
-        });
-        return;
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-}
-
 function createWaitForBackgroundPermit(
   db: DbHandle
 ): (options: { readonly label: string }) => Promise<void> {
@@ -1192,22 +1152,11 @@ export function WorkspaceCollectionSyncProvider({
   // root can keep the tree loading for minutes, which must not wedge a
   // freshly-added folder in "waiting" forever (the real "added a folder, nothing
   // happened" cause). After the grace window, index regardless of tree state.
-  const [treeRestorationGraceExpired, setTreeRestorationGraceExpired] = useState(false);
-  useEffect(() => {
-    if (treeRestorationSettled) {
-      setTreeRestorationGraceExpired(false);
-      return;
-    }
-    const timer = setTimeout(() => {
-      logger.warn(
-        'File explorer restoration did not settle within the grace window; starting background indexing anyway',
-        { graceMs: TREE_RESTORATION_GRACE_MS }
-      );
-      setTreeRestorationGraceExpired(true);
-    }, TREE_RESTORATION_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [treeRestorationSettled]);
-  const isTreeRestorationReady = treeRestorationSettled || treeRestorationGraceExpired;
+  //
+  // A ref (not state) holds the expired flag: it gates triggerSync but is never
+  // rendered, so flipping it must not re-render. The grace timer (wired below,
+  // after triggerSyncFromEvent exists) re-runs the sync explicitly when it fires.
+  const treeRestorationGraceExpiredRef = useRef(false);
 
   const validateHostedProviderAccess = useCallback(
     async (embeddingSetId: string): Promise<void> => {
@@ -1562,6 +1511,10 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
+      // Read the grace flag from the ref at call time (never stale): the gate
+      // passes once the tree settles OR the grace timer has fired.
+      const isTreeRestorationReady =
+        treeRestorationSettled || treeRestorationGraceExpiredRef.current;
       if (!isTreeRestorationReady) {
         void service.cancel();
         setSyncStatus({
@@ -1650,7 +1603,6 @@ export function WorkspaceCollectionSyncProvider({
       hasHydrated,
       indexingPolicyPreset,
       isAccessLoading,
-      isTreeRestorationReady,
       managedCollectionId,
       reportAsyncError,
       resetSyncStatus,
@@ -1660,10 +1612,31 @@ export function WorkspaceCollectionSyncProvider({
       rootIdByPath,
       service,
       setSyncStatus,
+      treeRestorationSettled,
       triggerWorkspaceIndexBootstrap,
     ]
   );
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
+
+  // After the grace window, proceed even if file-tree restoration never settles.
+  // The ref-held flag gates triggerSync (never rendered), and the timer re-runs
+  // the sync explicitly so a freshly-added root indexes instead of waiting
+  // forever (a giant tree can keep restoration in flight for minutes). Once
+  // expired it stays expired for the session.
+  useEffect(() => {
+    if (treeRestorationSettled || treeRestorationGraceExpiredRef.current) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      treeRestorationGraceExpiredRef.current = true;
+      logger.warn(
+        'File explorer restoration did not settle within the grace window; starting background indexing anyway',
+        { graceMs: TREE_RESTORATION_GRACE_MS }
+      );
+      triggerSyncFromEvent();
+    }, TREE_RESTORATION_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [treeRestorationSettled]);
 
   // Re-run the sync when background-work state changes (pause -> cancel + paused
   // status; resume -> sync). This replaces the old backgroundWorkSnapshot

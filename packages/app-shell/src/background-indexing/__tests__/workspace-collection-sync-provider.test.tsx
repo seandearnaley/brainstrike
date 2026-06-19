@@ -34,10 +34,8 @@ import {
   __resetAssistantForegroundActivityForTests,
   acquireAssistantForegroundActivity,
 } from '../../assistant-foreground-activity';
-import {
-  boundBackgroundPermitWait,
-  WorkspaceCollectionSyncProvider,
-} from '../workspace-collection-sync-provider';
+import { boundBackgroundPermitWait } from '../background-permit-wait';
+import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
 import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
 
