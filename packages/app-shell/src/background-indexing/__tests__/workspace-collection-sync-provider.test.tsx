@@ -2570,6 +2570,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
         </WorkspaceCollectionSyncProvider>
       );
 
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
           state: 'idle',
@@ -2590,6 +2593,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
         });
       });
       expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain(rootB.path);
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      expect(syncSpy.mock.calls.map(([request]) => request.rootDirectoryHandle?.path)).toEqual([
+        rootA.path,
+        rootB.path,
+      ]);
+      expect(syncSpy.mock.calls.every(([request]) => request.scope?.mode === 'full')).toBe(true);
     } finally {
       syncSpy.mockRestore();
     }
