@@ -92,15 +92,23 @@ export type PermissionPolicies = Record<ToolRiskCategory, PermissionDecision>;
 export type PerToolPermissionOverrides = Record<string, PermissionDecision>;
 
 /**
- * Default per-category policy. Read is harmless, so it is allowed outright;
- * everything that can mutate, execute, or delegate to an opaque MCP server asks
- * first. This is the safe-by-default posture the permission engine ships with.
+ * Default per-category policy. Read is harmless, so it is allowed outright, and
+ * anything that can mutate (`edit`) or execute (`execute`) asks first.
+ *
+ * `mcp` defaults to `'allow'` (not `'ask'`): the runtime gate currently
+ * fail-safe-OMITS an `'ask'` tool because Mastra v1 has no per-tool suspend
+ * (see `permission-tool-gate.ts`). MCP tools are user-configured and trusted
+ * (the user explicitly added each MCP server), so defaulting them to `'ask'`
+ * would silently drop EVERY MCP tool the moment enforcement is enabled — a
+ * regression, not a safety win. Real per-tool `'ask'` (prompt-then-resume) is a
+ * Phase 2 concern; until it lands, `mcp` allows by default. This is the
+ * safe-by-default posture the permission engine ships with.
  */
 export const DEFAULT_PERMISSION_POLICIES: PermissionPolicies = {
   read: 'allow',
   edit: 'ask',
   execute: 'ask',
-  mcp: 'ask',
+  mcp: 'allow',
 };
 
 /**

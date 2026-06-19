@@ -1,4 +1,5 @@
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import { describe, expect, it, vi } from 'vitest';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {
@@ -248,6 +249,7 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: { maxOutputTokens: 512 },
+      permissionPolicyRequest: undefined,
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectedMemoryThreadId: 'thread-1',
       selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a' },
@@ -286,6 +288,45 @@ describe('assistant runtime helpers', () => {
       workspaceIndexLastError: 'failed',
       workspaceRootPath: '/workspace',
     });
+    // OPT-IN: no permission snapshot was passed → none is attached (passthrough).
+    expect(data).not.toHaveProperty('permissionPolicyRequest');
+  });
+
+  it('attaches permissionPolicyRequest only when an opt-in snapshot is provided', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    const withoutSnapshot = buildAssistantRequestData({
+      ...baseArgs,
+      permissionPolicyRequest: undefined,
+    });
+    expect(withoutSnapshot).not.toHaveProperty('permissionPolicyRequest');
+
+    const snapshot: PermissionToolGateSnapshotInput = {
+      enforce: true,
+      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
+      yolo: false,
+      sessionGrants: ['execute'],
+      perToolOverrides: {},
+    };
+    const withSnapshot = buildAssistantRequestData({
+      ...baseArgs,
+      permissionPolicyRequest: snapshot,
+    });
+    expect(withSnapshot['permissionPolicyRequest']).toEqual(snapshot);
   });
 
   it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
@@ -297,6 +338,7 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
+      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 3 },
@@ -315,6 +357,7 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
+      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 0 },

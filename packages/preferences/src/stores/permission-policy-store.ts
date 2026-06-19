@@ -39,6 +39,14 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createBrowserJsonStorage } from './browser-json-storage';
 
 interface PermissionPolicyData {
+  /**
+   * Master OPT-IN switch for permission enforcement. PERSISTED. Defaults to
+   * `false`: when off, the renderer sends NO permission snapshot to the
+   * assistant server, the runtime gets no `permissionPolicy`, and the tool map
+   * is unchanged (current production behavior). Only when `true` is the policy
+   * serialized + enforced. The settings UI that toggles this lands in PR-1.4b.
+   */
+  enforce: boolean;
   /** Per-tool-id override that beats the category policy. PERSISTED. */
   perToolOverrides: PerToolPermissionOverrides;
   /** Per-category permission decision. PERSISTED. */
@@ -52,6 +60,21 @@ interface PermissionPolicyData {
   yolo: boolean;
 }
 
+/**
+ * Serializable input to the runtime permission gate, read from the store and
+ * attached to the assistant request ONLY when `enforce` is true. `sessionGrants`
+ * is an ARRAY here (the live store holds a `Set`) so the snapshot crosses the
+ * runtime/IPC boundary as plain JSON, matching `PermissionToolGateSnapshot`.
+ */
+export interface PermissionToolGateSnapshotInput {
+  /** Master OPT-IN switch — the caller sends the snapshot only when this is true. */
+  enforce: boolean;
+  perToolOverrides: PerToolPermissionOverrides;
+  policies: PermissionPolicies;
+  sessionGrants: ToolRiskCategory[];
+  yolo: boolean;
+}
+
 interface PermissionPolicyActions {
   /** Clear every session grant (e.g. on a new session). */
   clearSessionGrants: () => void;
@@ -59,6 +82,8 @@ interface PermissionPolicyActions {
   grantSessionCategory: (category: ToolRiskCategory) => void;
   /** Set the decision for a single risk category. */
   setCategoryPolicy: (category: ToolRiskCategory, decision: PermissionDecision) => void;
+  /** Toggle the master OPT-IN enforcement switch. */
+  setEnforce: (enforce: boolean) => void;
   /**
    * Set or clear a per-tool override. Pass `null` to remove the override for
    * `toolId` and fall back to the category policy.
@@ -118,6 +143,7 @@ function defaultPolicies(): PermissionPolicies {
 
 function defaultData(): PermissionPolicyData {
   return {
+    enforce: false,
     policies: defaultPolicies(),
     yolo: false,
     perToolOverrides: {},
@@ -168,6 +194,7 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         set((state) => ({
           policies: { ...state.policies, [category]: decision },
         })),
+      setEnforce: (enforce) => set({ enforce }),
       setYolo: (yolo) => set({ yolo }),
       grantSessionCategory: (category) =>
         set((state) => {
@@ -200,6 +227,7 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
       // SESSION-ONLY `sessionGrants` is intentionally excluded — only the
       // persisted slice is written to storage.
       partialize: (state) => ({
+        enforce: state.enforce,
         policies: state.policies,
         yolo: state.yolo,
         perToolOverrides: state.perToolOverrides,
@@ -210,6 +238,8 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         }
         const candidate = persistedState as Partial<PermissionPolicyData>;
         return {
+          // Opt-in enforcement defaults OFF; only a persisted boolean enables it.
+          enforce: typeof candidate.enforce === 'boolean' ? candidate.enforce : false,
           policies: sanitizePolicies(candidate.policies),
           yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
           perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),
@@ -241,6 +271,7 @@ export function resetPermissionPolicyStoreToDefaults(): void {
 }
 
 export const permissionPolicySelectors = {
+  enforce: (store: PermissionPolicyStore): boolean => store.enforce,
   policies: (store: PermissionPolicyStore): PermissionPolicies => store.policies,
   yolo: (store: PermissionPolicyStore): boolean => store.yolo,
   sessionGrants: (store: PermissionPolicyStore): ReadonlySet<ToolRiskCategory> =>
@@ -248,6 +279,38 @@ export const permissionPolicySelectors = {
   perToolOverrides: (store: PermissionPolicyStore): PerToolPermissionOverrides =>
     store.perToolOverrides,
 };
+
+/**
+ * Build the SERIALIZABLE snapshot input for the runtime permission gate from a
+ * store snapshot. `sessionGrants` is materialized into a plain array so the
+ * result crosses the renderer → assistant-server → runtime boundary as JSON.
+ *
+ * The returned `enforce` flag is the caller's gate: the renderer attaches the
+ * rest of the snapshot to the assistant request ONLY when `enforce` is true (so
+ * `enforce:false` guarantees passthrough — the runtime receives no
+ * `permissionPolicy` and the tool map is unchanged). The pure mapping lives here
+ * so it can be unit-tested without zustand.
+ */
+export function buildPermissionToolGateSnapshotInput(
+  store: PermissionPolicyData
+): PermissionToolGateSnapshotInput {
+  return {
+    enforce: store.enforce,
+    policies: { ...store.policies },
+    yolo: store.yolo,
+    sessionGrants: Array.from(store.sessionGrants),
+    perToolOverrides: { ...store.perToolOverrides },
+  };
+}
+
+/**
+ * Read the current store state and build the serializable gate snapshot input.
+ * Convenience for non-React callers (e.g. request assembly) that need a
+ * point-in-time snapshot outside a React render.
+ */
+export function getPermissionToolGateSnapshotInput(): PermissionToolGateSnapshotInput {
+  return buildPermissionToolGateSnapshotInput(usePermissionPolicyStore.getState());
+}
 
 /** Test-only reset helper. */
 export function __resetPermissionPolicyStoreForTests(): void {

@@ -27,6 +27,7 @@ import {
   readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
+  resolveRequestPermissionPolicy,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
   toAiSdkStyleStream,
@@ -1071,7 +1072,23 @@ async function initializeAgentStream(
   // The signal is embedded in RuntimeData and flows through to:
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
-  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
+  //
+  // `permissionPolicyRequest` (renderer-supplied) is stripped here and resolved
+  // into the TRUSTED `permissionPolicy` below: only when the user opted in
+  // (`enforce: true`) is a snapshot built (with server-owned tool risk
+  // classification); otherwise `permissionPolicy` stays unset and the runtime
+  // gate is a no-op (passthrough — current production behavior). A malformed
+  // policy is NOT repaired here; it surfaces from the runtime resolver.
+  const {
+    mcpConfig: _ignoredMcpConfig,
+    // Strip any client-supplied `permissionPolicy`: the runtime gate TRUSTS this
+    // field, so it must only ever be the server-resolved snapshot below — a
+    // client must not be able to inject `riskByTool` or bypass the opt-in.
+    permissionPolicy: _ignoredClientPermissionPolicy,
+    permissionPolicyRequest,
+    ...runtimeWithoutMcpConfig
+  } = runtimeData ?? {};
+  const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
 
   try {
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
@@ -1083,6 +1100,7 @@ async function initializeAgentStream(
       ...(mcpConfig ? { mcpConfig } : {}),
       ...(apiKey ? { apiKey } : {}),
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
+      ...(permissionPolicy ? { permissionPolicy } : {}),
     };
     // Cold model loads (multi-GB download) exceed the generate request's hard
     // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
