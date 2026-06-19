@@ -327,4 +327,79 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
 
     await database.close();
   });
+
+  it('lets an ALLOWED read tool run FREE even while an ask tool is in the map (no global suspend)', async () => {
+    // The P1 regression this guards: forcing the run-wide requireToolApproval
+    // would suspend EVERY tool call. With the PER-TOOL requireApproval gate, a
+    // run that only calls an allowed read tool must NOT suspend — even though an
+    // ask-gated execute tool is also present in the map.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const readExecute = vi.fn((inputData: { path: string }) =>
+      Promise.resolve({ contents: `body of ${inputData.path}` })
+    );
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const readTool = createTool({
+      id: 'read_tool',
+      description: 'A read-only tool (allow).',
+      inputSchema: z.object({ path: z.string() }),
+      outputSchema: z.object({ contents: z.string() }),
+      execute: readExecute,
+    });
+    const askTool = makeAskTool(askExecute);
+    const thread = { threadId: 'thread-free-1', resourceId: 'resource-free-1' } as const;
+    // read=allow, execute=ask; both tools registered. The model calls ONLY read.
+    const policy = {
+      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
+      yolo: false,
+      riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      toolName: 'read_tool',
+      toolCallId: 'call-read-1',
+      input: JSON.stringify({ path: '/README.md' }),
+      finalText: 'Here is the file.',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-free-1', role: 'user', parts: [{ type: 'text', text: 'read the readme' }] }],
+      {
+        memory,
+        storage,
+        runtime: {
+          provider: 'openai',
+          apiKey: 'test-key',
+          permissionPolicy: policy,
+          memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+        },
+        tools: { read_tool: readTool, shell_tool: askTool },
+      }
+    );
+    const chunks = await drainYielding(iterator);
+
+    // The allowed read tool ran free: it executed, never suspended, and the ask
+    // tool was untouched.
+    expect(readExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute).not.toHaveBeenCalled();
+    expect(findApprovalChunk(chunks)).toBeUndefined();
+    const runEventKinds = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(runEventKinds).toContain('tool.completed');
+    const finalText = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+          chunk.type === 'text-delta'
+      )
+      .map((chunk) => chunk.value)
+      .join('');
+    expect(finalText).toContain('Here is the file.');
+
+    await database.close();
+  });
 });

@@ -182,16 +182,31 @@ describe('permission-policy-store', () => {
     expect(persisted.perToolOverrides).toEqual({});
   });
 
-  it('migrate preserves an explicit persisted enforce:false (no clobber of an opt-out)', () => {
+  it('migrate adopts the secure default (enforce:true) for a PRE-V2 enforce:false slice', () => {
     const options = storeWithPersist.persist?.getOptions?.();
     if (!options?.migrate) {
       throw new Error('persist migrate unavailable for test');
     }
+    // Under v1, `false` was the OLD DEFAULT (always written), indistinguishable
+    // from an opt-out — a security fix adopts the secure default for pre-v2.
     const migrated = options.migrate(
       { enforce: false, policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' } },
       1
     ) as { enforce: boolean };
-    // A user who deliberately turned enforcement OFF keeps it off across the bump.
+    expect(migrated.enforce).toBe(true);
+  });
+
+  it('migrate preserves an explicit V2+ persisted enforce:false (post-default-on opt-out)', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!options?.migrate) {
+      throw new Error('persist migrate unavailable for test');
+    }
+    // A v2 slice with enforce:false is a real opt-out made AFTER enforce went on
+    // by default, so it is honored verbatim.
+    const migrated = options.migrate(
+      { enforce: false, policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' } },
+      2
+    ) as { enforce: boolean };
     expect(migrated.enforce).toBe(false);
   });
 });

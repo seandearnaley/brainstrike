@@ -79,10 +79,11 @@ export interface MastraAgentRuntime {
   agent: Agent;
   /**
    * Sanitized id → risk metadata for every tool the permission gate resolved to
-   * `'ask'` and KEPT in the map. Non-empty iff the run must suspend for per-call
-   * approval: the runtime forces the GLOBAL `requireToolApproval: true` so Mastra
-   * pauses the step and the existing approval UI/resume chain prompts the user.
-   * Empty when no policy is enforced or every tool resolved to allow/deny.
+   * `'ask'` and KEPT in the map (each carrying the per-tool `requireApproval`
+   * flag). Non-empty when the run has approval-gated mutation tools; used for the
+   * approval-pause risk hint and observability. Empty when no policy is enforced,
+   * every tool resolved to allow/deny, or ask tools were fail-safe-omitted for
+   * lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   dispose: () => Promise<void>;
@@ -202,9 +203,11 @@ interface ResolvedAskTools {
  * Reconcile the gate result with whether the run can suspend-then-resume for
  * approval (i.e. whether Mastra workflow storage is configured).
  *
- * - With storage: KEEP every `'ask'` tool and carry `askTools` so the run forces
- *   the global `requireToolApproval` (Mastra suspends the step for per-call
- *   approval). Mastra-v1 coarseness (whole-step suspend) is logged.
+ * The gate already marked each `'ask'` tool with the PER-TOOL `requireApproval`
+ * flag (only the ask tool suspends; allowed tools run free). This function only
+ * decides whether those ask tools may STAY:
+ * - With storage: keep them (their per-tool flag suspends on call) and carry
+ *   `askTools` for the approval-pause risk hint. Logged so the gate is observable.
  * - Without storage: the resume path (`streamMastraToolApprovalAction`) throws,
  *   so a suspend could never resume. We must NOT run an approval-required tool
  *   unprompted (no-silent-fallbacks), so we fall back to the conservative
@@ -244,9 +247,9 @@ function resolveAskToolsForRun(
     return { tools: reducedTools as ToolsInput, askTools: new Map() };
   }
 
-  // Mastra-v1 coarseness: the global requireToolApproval suspends the WHOLE step,
-  // not just the ask tool. Logged so the trigger is observable.
-  logger.info('Permission policy requires per-call approval; run will suspend for ask tools', {
+  // Each ask tool carries the per-tool requireApproval flag and will suspend ONLY
+  // when actually called. Logged so the gated tools are observable.
+  logger.info('Permission policy requires per-call approval for ask tools', {
     code: 'permission_tool_gate_require_approval',
     askToolCount: gateResult.askToolIds.size,
     askTools: Array.from(gateResult.askTools.values()).map((meta) => ({
@@ -1459,36 +1462,6 @@ async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): P
   );
 }
 
-/**
- * Resolve the effective `requireToolApproval` for a fresh stream run, given the
- * caller's explicit option and the permission gate's `'ask'`-tool result.
- *
- * Precedence:
- * 1. An explicit `options.requireToolApproval` ALWAYS wins (passthrough). A
- *    caller that deliberately set it (e.g. the approval-resume path) is honored.
- * 2. Otherwise, if the gate KEPT any `'ask'` tool (`runtime.askTools` non-empty),
- *    force `true` so Mastra suspends the step for per-call approval. The gate
- *    only keeps ask tools when suspend-for-approval is possible (storage present
- *    — see `createMastraAgentRuntime`); without storage the ask tools were
- *    already omitted fail-safe and `askTools` is empty, so this never forces a
- *    suspend that cannot resume. Desktop local + hosted chat both run through the
- *    assistant server WITH storage; the web in-renderer LocalRuntimeChat never
- *    reaches this function, so web local chat is unaffected.
- * 3. Otherwise undefined (no approval; production-default passthrough).
- */
-function resolveRequireToolApprovalForRun(
-  options: MastraAgentRuntimeOptions,
-  runtime: MastraAgentRuntime
-): boolean | undefined {
-  if (options.requireToolApproval !== undefined) {
-    return options.requireToolApproval;
-  }
-  if (runtime.askTools.size === 0) {
-    return;
-  }
-  return true;
-}
-
 export async function streamMastraAgent(
   messages: AgentMessage[],
   options: MastraAgentRuntimeOptions = {}
@@ -1499,7 +1472,13 @@ export async function streamMastraAgent(
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
 
-  const requireToolApproval = resolveRequireToolApprovalForRun(options, runtime);
+  // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
+  // flag the permission gate set (see permission-tool-gate.ts), NOT from the
+  // run-wide `requireToolApproval` — the global flag would suspend EVERY tool
+  // call, including allowed read/mcp tools. We therefore only pass
+  // `requireToolApproval` when the caller explicitly set it (e.g. a deliberate
+  // approve-all run); an unset option leaves the run on the per-tool gate.
+  const requireToolApproval = options.requireToolApproval;
 
   return createStreamIteratorFromRuntime({
     runtime,

@@ -71,6 +71,22 @@ describe('filterToolsByPermissionWithMetadata', () => {
     });
     // 'allow' tool is NOT in askToolIds.
     expect(result.askToolIds.has('read_tool')).toBe(false);
+    // Each kept 'ask' tool is a CLONE carrying the PER-TOOL requireApproval flag
+    // (so only it suspends, not allowed tools in the same run); 'allow' is not.
+    expect((result.tools.edit_tool as { requireApproval?: unknown }).requireApproval).toBe(true);
+    expect((result.tools.execute_tool as { requireApproval?: unknown }).requireApproval).toBe(true);
+    expect(
+      (result.tools.read_tool as { requireApproval?: unknown }).requireApproval
+    ).toBeUndefined();
+  });
+
+  it('does NOT mutate the original ask tool when cloning (sets requireApproval on a copy)', () => {
+    const input = { ...TOOLS };
+    const result = filterToolsByPermissionWithMetadata(input, snapshot(), NAME_MAP, noopLogger());
+    // The clone carries the flag; the original input object is untouched.
+    expect((result.tools.edit_tool as { requireApproval?: unknown }).requireApproval).toBe(true);
+    expect((input.edit_tool as { requireApproval?: unknown }).requireApproval).toBeUndefined();
+    expect(result.tools.edit_tool).not.toBe(input.edit_tool);
   });
 
   it("omits a 'deny' tool and does NOT record it in askToolIds", () => {

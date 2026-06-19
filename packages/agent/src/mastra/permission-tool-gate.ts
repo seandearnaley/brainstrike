@@ -8,38 +8,36 @@
  * `@brainstrike/assistant-contract`.
  *
  * How each decision is enforced:
- *   - `'allow'` → keep the tool (normal path); NOT in `askToolIds`.
+ *   - `'allow'` → keep the tool unchanged (normal path); NOT in `askToolIds`.
  *   - `'deny'`  → omit the tool; the model never sees it.
- *   - `'ask'`   → KEEP the tool, but record its sanitized id in `askToolIds`.
- *                 The runtime (`createMastraAgentRuntime` →
- *                 `streamMastraAgent`) then forces the GLOBAL
- *                 `requireToolApproval: true` for the run when `askToolIds` is
- *                 non-empty, so Mastra SUSPENDS the step before executing the
- *                 tool and emits a `tool-call-approval` part. The existing
- *                 approval UI + `streamMastraToolApprovalAction` resume chain
- *                 turns that pause into a prompt-then-resume ("Apply this edit? /
- *                 Run this command?"): approve → execute, decline → skip.
+ *   - `'ask'`   → keep a CLONE of the tool with Mastra's PER-TOOL
+ *                 `requireApproval: true`, and record its sanitized id in
+ *                 `askToolIds`. Mastra SUSPENDS the step ONLY when that specific
+ *                 tool is actually called (not for unrelated allowed tools in
+ *                 the same run) and emits a `tool-call-approval` part. The
+ *                 existing approval UI + `streamMastraToolApprovalAction` resume
+ *                 chain turns that pause into a prompt-then-resume ("Apply this
+ *                 edit? / Run this command?"): approve → execute, decline → skip.
+ *
+ *                 PER-TOOL, not global: Mastra >=1.37 supports a per-tool
+ *                 `requireApproval` flag, so we DO NOT force the run-wide
+ *                 `requireToolApproval` (that suspends EVERY tool call in the
+ *                 run, including `read`/`mcp` tools the user configured to allow,
+ *                 breaking the read-only default flow). Marking only the ask
+ *                 tools keeps allowed tools running free while gating mutations.
  *
  *                 We must NEVER silently downgrade `'ask'` to `'allow'` and run
  *                 an approval-required tool without prompting (no-silent-
- *                 fallbacks). If an `'ask'` tool is ever left in the map WITHOUT
- *                 being recorded in `askToolIds`, the run would not suspend and
- *                 the tool would execute unprompted — that is a security bug, so
- *                 the two MUST move together.
- *
- * Mastra-v1 coarseness (documented, deliberate): Mastra exposes only a GLOBAL
- * `requireToolApproval`, not a per-tool `requireApproval`/`suspendSchema`. So a
- * single `'ask'` tool suspends the WHOLE step (every tool call in it) for
- * approval, not just the ask tool. With the default policy (read/mcp allow,
- * edit/execute ask) this is acceptable — read/mcp tools run free and only a
- * mutation in the step triggers the prompt. The runtime logs which tool(s)/risk
- * triggered the gate so the coarseness is observable.
+ *                 fallbacks). An `'ask'` tool kept in the map MUST carry
+ *                 `requireApproval: true` and be recorded in `askToolIds` — both
+ *                 move together; a kept ask tool without the flag would execute
+ *                 unprompted (a security bug).
  *
  * Risk classification is CALLER-PROVIDED (`riskByTool` / `defaultRisk`). We do
- * NOT introspect Mastra tool objects for brainstrike metadata: guard cloning
- * preserves a tool's own id/description/schema, but the brainstrike risk
- * taxonomy is registry-side metadata that never rides on the Mastra tool
- * instance. The registry that builds the tool map owns the mapping.
+ * NOT introspect Mastra tool objects for brainstrike metadata: cloning preserves
+ * a tool's own id/description/schema/prototype, but the brainstrike risk taxonomy
+ * is registry-side metadata that never rides on the Mastra tool instance. The
+ * registry that builds the tool map owns the mapping.
  */
 
 import {
@@ -67,6 +65,25 @@ export interface PermissionToolGateLogger {
  * discovered MCP tool) is never treated as harmless `'read'` by accident.
  */
 const FALLBACK_DEFAULT_RISK: ToolRiskCategory = 'mcp';
+
+/**
+ * Return a CLONE of a Mastra tool with `requireApproval: true` set, so Mastra
+ * suspends the step for per-call approval when (and only when) this specific
+ * tool is invoked. Mirrors `applyToolGuards`' clone pattern: preserve the tool's
+ * prototype (it may be a Mastra `Tool` class instance) and copy every own
+ * property descriptor, then override the one field. The input tool is never
+ * mutated. A non-object tool is returned unchanged (defensive; the gate only
+ * ever sees real tool objects).
+ */
+function withRequireApproval<T>(tool: T): T {
+  if (!tool || typeof tool !== 'object') {
+    return tool;
+  }
+  const cloned = Object.create(Object.getPrototypeOf(tool)) as Record<string, unknown>;
+  Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
+  cloned['requireApproval'] = true;
+  return cloned as T;
+}
 
 function riskForTool(
   snapshot: PermissionToolGateSnapshot,
@@ -120,10 +137,12 @@ export interface PermissionAskToolMetadata {
 }
 
 /**
- * The result of gating a tool map: the (possibly reduced) tool map plus the set
- * of sanitized tool ids whose decision was `'ask'`. A non-empty `askToolIds`
- * tells the runtime to force the GLOBAL `requireToolApproval: true` so Mastra
- * suspends the step for per-call approval (see module comment).
+ * The result of gating a tool map: the (possibly reduced) tool map — where each
+ * `'ask'` tool is a CLONE carrying `requireApproval: true` — plus the set of
+ * sanitized ids of those ask tools. `askToolIds`/`askTools` drive the runtime's
+ * storage fail-safe and the approval-pause risk hint; the per-tool
+ * `requireApproval` flag (not a global one) is what makes Mastra suspend (see
+ * module comment).
  */
 export interface FilterToolsByPermissionResult<TMap extends Record<string, unknown>> {
   /** Sanitized ids of every `'ask'`-gated tool kept in the map. */
@@ -200,22 +219,24 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
       continue;
     }
 
-    // 'allow' and 'ask' both KEEP the tool. For 'ask', additionally record it so
-    // the runtime forces the global requireToolApproval → Mastra suspends the
-    // step before executing it, and the existing approval UI + resume chain
-    // prompts the user ("Apply this edit? / Run this command?"). The id MUST be
-    // recorded whenever an 'ask' tool is kept — leaving it out would let an
-    // approval-required tool run unprompted (a security bug, not a fallback).
-    filtered[sanitizedId] = tool;
+    // 'allow' keeps the tool unchanged. 'ask' keeps a CLONE with the per-tool
+    // `requireApproval: true` flag so Mastra suspends ONLY when this tool is
+    // called (allowed tools in the same run still run free) — and records it for
+    // the storage fail-safe + risk hint. The clone + the askToolIds entry MUST
+    // move together: a kept ask tool without the flag would run unprompted (a
+    // security bug, not a fallback).
     if (decision === 'ask') {
+      filtered[sanitizedId] = withRequireApproval(tool);
       askToolIds.add(sanitizedId);
       askTools.set(sanitizedId, { originalName, riskCategory });
-      logger.info("Tool gated to 'ask' by permission policy (run will suspend for approval)", {
+      logger.info("Tool gated to 'ask' by permission policy (will suspend for per-call approval)", {
         code: 'permission_tool_gate_ask_suspend',
         tool: originalName,
         sanitizedId,
         riskCategory,
       });
+    } else {
+      filtered[sanitizedId] = tool;
     }
   }
 

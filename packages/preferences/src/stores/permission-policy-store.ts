@@ -241,19 +241,26 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         yolo: state.yolo,
         perToolOverrides: state.perToolOverrides,
       }),
-      migrate: (persistedState) => {
+      migrate: (persistedState, version) => {
         if (!(persistedState && typeof persistedState === 'object')) {
           return defaultData();
         }
         const candidate = persistedState as Partial<PermissionPolicyData>;
         return {
-          // enforce-on-by-default (P1 fix). A persisted boolean ALWAYS wins — a
-          // user's deliberate opt-out (false) or opt-in (true) is preserved
-          // verbatim. When `enforce` is ABSENT, adopt the new secure default
-          // (true). Older slices (version < 2) predate the toggle entirely; if
-          // one somehow lacks the field it adopts the secure default too. This
-          // never clobbers an explicit choice (no silent override).
-          enforce: typeof candidate.enforce === 'boolean' ? candidate.enforce : true,
+          // enforce-on-by-default (P1 SECURITY fix). Under v1, `enforce` defaulted
+          // to `false` AND `partialize` always wrote it, so a persisted `false`
+          // from a v1 slice is the OLD DEFAULT — indistinguishable from a
+          // deliberate opt-out. For a security fix we adopt the secure default
+          // (`true`) for ANY pre-v2 slice, accepting that a user who genuinely
+          // opted out under v1 gets re-prompted once (the safe direction). Only a
+          // v2+ persisted boolean is a real, post-default-on choice and is
+          // honored verbatim. Skipping this lets upgrading `enforce:false` users
+          // get the now-always-registered, ungated `executeCommand` — the exact
+          // regression this PR exists to prevent.
+          enforce:
+            version >= STORE_VERSION && typeof candidate.enforce === 'boolean'
+              ? candidate.enforce
+              : true,
           policies: sanitizePolicies(candidate.policies),
           yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
           perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),
