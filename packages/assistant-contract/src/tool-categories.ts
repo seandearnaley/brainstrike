@@ -7,6 +7,8 @@
  * - Consistent tool organization across native and MCP tools
  */
 
+import type { ToolRiskCategory } from './tool-risk.js';
+
 /**
  * Source of a tool - either built into the application or from an MCP server.
  */
@@ -117,6 +119,14 @@ export interface NativeToolDefaultMetadata {
   loadingTier: ToolLoadingTier;
   /** Whether this tool performs mutations requiring user approval */
   requiresApproval: boolean;
+  /**
+   * Explicit permission-engine risk bucket. Optional and backward compatible:
+   * when omitted, the risk category is derived by `resolveToolRiskCategory`
+   * (see tool-risk.ts). Declare it explicitly for any tool that is not
+   * unambiguously read-only. This is SEPARATE from `category` above, which is a
+   * load-ordering/UI taxonomy.
+   */
+  riskCategory?: ToolRiskCategory;
 }
 
 /**
@@ -160,12 +170,14 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: true,
     estimatedTokens: 150,
+    riskCategory: 'edit',
   },
   'brainstrike.updateWorkspaceTapestrySelections': {
     category: 'action',
     loadingTier: 'critical',
     requiresApproval: true,
     estimatedTokens: 190,
+    riskCategory: 'edit',
   },
   'brainstrike.listEmbeddingSpaces': {
     category: 'analysis',
