@@ -31,6 +31,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   type DimensionIndexStrategySelection,
   probeDimensionIndexRuntimeCapabilities,
@@ -708,6 +709,10 @@ function clearForcedProcessExitTimer(): void {
 }
 
 async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
+  // Mark shutdown before any host/DB teardown so background work torn down
+  // mid-flight (e.g. an in-flight embedding backfill) is logged as a benign
+  // stop, not a failure.
+  markDesktopShuttingDown();
   if (gracefulShutdownPromise) {
     await gracefulShutdownPromise;
     return;

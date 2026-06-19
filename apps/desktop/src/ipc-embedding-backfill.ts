@@ -14,6 +14,7 @@ import {
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
 import { getDatabase } from './db-main';
+import { isBenignBackfillShutdownError, isDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   type EnqueueEmbeddingBackfillOptions,
   enqueueEmbeddingBackfill,
@@ -460,6 +461,17 @@ export async function runDesktopEmbeddingBackfill(params: {
       if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
         logger.info('Desktop embedding backfill canceled', {
           embeddingSetId: normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+          source,
+        });
+      } else if (isDesktopShuttingDown() || isBenignBackfillShutdownError(error)) {
+        // Expected teardown: the app is shutting down (or a host/worker was
+        // disposed) mid-backfill. Not a failure — embed jobs persist in
+        // job_queue and resume next launch, and a suspended dimension index is
+        // rebuilt by scheduled maintenance. Logged at info, no UI error.
+        logger.info('Desktop embedding backfill stopped during shutdown', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          error: message,
           requestId: backfillRequestId,
           source,
         });

@@ -247,6 +247,28 @@ describe('desktop embedding backfill termination logging', () => {
     );
   });
 
+  it('logs a benign INFO (not an error) when the backfill is torn down at shutdown', async () => {
+    // pino thread-stream throws this when its logger worker ends during app
+    // shutdown — expected teardown, not a real failure.
+    enqueueEmbeddingBackfillMock.mockRejectedValue(new Error('the worker is ending'));
+
+    await expect(runDesktopEmbeddingBackfill(createRunParams('set-shutdown'))).rejects.toThrow(
+      'the worker is ending'
+    );
+
+    expect(
+      captured.filter((record) => record.message === 'Desktop embedding backfill failed')
+    ).toHaveLength(0);
+    const stopped = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill stopped during shutdown'
+    );
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.level).toBe('info');
+    expect(stopped[0]?.args).toContainEqual(
+      expect.objectContaining({ embeddingSetId: 'set-shutdown' })
+    );
+  });
+
   it('logs completion so a backfill that outlives its requester still leaves a trace', async () => {
     enqueueEmbeddingBackfillMock.mockResolvedValue(undefined);
 
