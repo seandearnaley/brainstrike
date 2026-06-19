@@ -56,7 +56,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
@@ -1047,11 +1046,12 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
-  const backgroundWorkSnapshot = useSyncExternalStore(
-    subscribeToBackgroundWorkArbiter,
-    getBackgroundWorkArbiterSnapshot,
-    getBackgroundWorkArbiterSnapshot
-  );
+  // Db root ids that have completed at least one successful sync pass this
+  // session. A newly added root (absent here) is synced FIRST so a loop that is
+  // restarted by churn (queue-drain events, QoS/pressure re-triggers) reaches it
+  // immediately instead of starving it behind a long re-scan of already-covered
+  // roots. This is the core fix for "a folder added mid-session never indexed".
+  const rootsSyncedThisSessionRef = useRef(new Set<string>());
 
   const reportAsyncError = useCallback(
     (operation: string, error: unknown): void => {
@@ -1377,7 +1377,14 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      if (backgroundWorkSnapshot.backgroundIndexingPaused) {
+      // Read the arbiter snapshot LIVE rather than as a hook dependency: its
+      // QoS/pressure/pause-reason churn must not change triggerSync's identity,
+      // because that re-runs the owning effect whose cleanup cancels the
+      // in-flight sync — which would abort a newly added root mid-import. The
+      // pause/resume EDGE is wired explicitly via subscribeToBackgroundWorkArbiter
+      // below (a non-cancelling re-trigger).
+      const currentBackgroundWork = getBackgroundWorkArbiterSnapshot();
+      if (currentBackgroundWork.backgroundIndexingPaused) {
         void service.cancel().catch((error) => {
           reportAsyncError('cancel', error);
         });
@@ -1389,8 +1396,8 @@ export function WorkspaceCollectionSyncProvider({
           currentFilePath: null,
           lastError: null,
           pauseReasons: [
-            ...(backgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
-            ...getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
+            ...(currentBackgroundWork.manualPause ? ['Paused manually'] : []),
+            ...getBackgroundWorkPauseReasonLabels(currentBackgroundWork.automaticPauseReasons),
           ],
         });
         return;
@@ -1466,16 +1473,28 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
+        // Sync roots NOT yet synced this session first (stable within each group).
+        // A folder added mid-session has no entry here, so it is processed before
+        // the long re-scan of already-covered roots — guaranteeing it is reached
+        // even when churn keeps restarting the loop from the top.
+        const orderedTargets = [
+          ...syncableTargets.filter(
+            (target) => !rootsSyncedThisSessionRef.current.has(target.dbRootId)
+          ),
+          ...syncableTargets.filter((target) =>
+            rootsSyncedThisSessionRef.current.has(target.dbRootId)
+          ),
+        ];
 
-        for (const [targetIndex, target] of syncableTargets.entries()) {
+        for (const [targetIndex, target] of orderedTargets.entries()) {
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
             return;
           }
-          // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
-          await service
-            .sync({
-              backfillMode: targetIndex === syncableTargets.length - 1 ? 'enqueue' : 'defer',
+          try {
+            // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
+            await service.sync({
+              backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,
               indexingPolicyPreset,
@@ -1485,15 +1504,17 @@ export function WorkspaceCollectionSyncProvider({
                 target.scope.mode === 'paths'
                   ? { mode: 'paths', changes: target.scope.changes ?? [] }
                   : { mode: 'full' },
-            })
-            .catch((error) => {
-              reportAsyncError('sync', error);
             });
+            // Mark covered only on success so a failed/aborted pass keeps its
+            // first-claim priority on the next loop.
+            rootsSyncedThisSessionRef.current.add(target.dbRootId);
+          } catch (error) {
+            reportAsyncError('sync', error);
+          }
         }
       })();
     },
     [
-      backgroundWorkSnapshot,
       enabled,
       hasHydrated,
       indexingPolicyPreset,
@@ -1512,6 +1533,20 @@ export function WorkspaceCollectionSyncProvider({
     ]
   );
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
+
+  // Re-run the sync when background-work state changes (pause -> cancel + paused
+  // status; resume -> sync). This replaces the old backgroundWorkSnapshot
+  // triggerSync dependency: re-triggering via triggerSyncFromEvent does NOT run
+  // the owning effect's service.cancel() cleanup, so benign churn no longer
+  // aborts an in-flight sync (only the in-handler pause guard cancels, which is
+  // correct). Subscribed once; triggerSyncFromEvent is identity-stable.
+  useEffect(
+    () =>
+      subscribeToBackgroundWorkArbiter(() => {
+        triggerSyncFromEvent();
+      }),
+    []
+  );
 
   useEffect(() => {
     let disposed = false;

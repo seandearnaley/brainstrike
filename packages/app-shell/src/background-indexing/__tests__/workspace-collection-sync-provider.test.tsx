@@ -2507,6 +2507,114 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('syncs a newly added (never-synced) root before already-synced roots so churn cannot starve it', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'root1',
+      path: '/workspace/root-1',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'root2',
+      path: '/workspace/root-2',
+      platform: 'electron',
+    };
+    // Distinct db root ids per path: the synced-this-session set keys by db root
+    // id, so a shared id would mis-mark root2 as already synced.
+    resolveDbRootIdMock.mockImplementation(async (rootPath: string) =>
+      rootPath === root2.path ? 'db-root-2' : 'db-root-1'
+    );
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1];
+
+    const callOrder: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        callOrder.push(path);
+      });
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // root1 is synced first and recorded as synced-this-session.
+      await waitFor(() => expect(callOrder).toContain(root1.path));
+      const callsBeforeAdd = callOrder.length;
+
+      // Add root2 mid-session (Add Folder). It has NEVER been synced this session.
+      fileSystemState.rootDirectoryHandles = [root1, root2];
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // The newly added root MUST be synced before the already-synced root in the
+      // post-add loop. Otherwise any re-trigger (queue-drain / QoS churn) restarts
+      // the loop from the top and the new (last) root is perpetually starved —
+      // the real-world failure where a large folder added mid-session never indexed.
+      await waitFor(() => expect(callOrder.slice(callsBeforeAdd)).toContain(root2.path));
+      const postAdd = callOrder.slice(callsBeforeAdd);
+      const root2Index = postAdd.indexOf(root2.path);
+      const root1Index = postAdd.indexOf(root1.path);
+      expect(root2Index).toBeGreaterThanOrEqual(0);
+      expect(root2Index).toBeLessThan(root1Index === -1 ? Number.POSITIVE_INFINITY : root1Index);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('re-runs the sync when background work resumes after a pause (resume edge is wired without the dep)', async () => {
+    const root = {
+      kind: 'directory',
+      name: 'root',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root;
+    fileSystemState.rootDirectoryHandles = [root];
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+    let release: () => void = () => undefined;
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(syncSpy).toHaveBeenCalled());
+
+      // Pause: the arbiter emission must reach the provider even though
+      // backgroundWorkSnapshot is no longer a triggerSync dependency.
+      await act(async () => {
+        release = await acquireBackgroundWorkPauseReason('local-llm');
+      });
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('paused')
+      );
+      const callsWhilePaused = syncSpy.mock.calls.length;
+
+      // Resume: the explicit arbiter subscription must re-trigger a sync pass.
+      await act(async () => {
+        release();
+        release = () => undefined;
+      });
+      await waitFor(() => expect(syncSpy.mock.calls.length).toBeGreaterThan(callsWhilePaused));
+    } finally {
+      syncSpy.mockRestore();
+      release();
+    }
+  });
+
   it('does not allow idle status when an active root is missing expected indexed files', async () => {
     const rootA = {
       kind: 'directory',
