@@ -12,7 +12,7 @@ import {
 } from '@brainstrike/db';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import { isBenignBackfillShutdownError } from './desktop-shutdown-state';
+import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from './embedding-host-shared';
 
 export interface EmbeddingBackfillQueueCounts {
@@ -318,9 +318,9 @@ function logSuspendedDimensionIndexAfterBackfillError(
   error: unknown,
   payload: { dimension: number; embeddingSetId: string; error: string }
 ): void {
-  if (isBenignBackfillShutdownError(error)) {
+  if (isExpectedBackfillTeardown(error)) {
     logger.debug(
-      'Embedding backfill stopped during shutdown; dimension HNSW index will be rebuilt by scheduled maintenance',
+      'Embedding backfill stopped (benign teardown); dimension HNSW index will be rebuilt by scheduled maintenance',
       payload
     );
     return;

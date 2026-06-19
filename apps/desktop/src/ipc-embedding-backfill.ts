@@ -14,7 +14,7 @@ import {
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
 import { getDatabase } from './db-main';
-import { isBenignBackfillShutdownError, isDesktopShuttingDown } from './desktop-shutdown-state';
+import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import {
   type EnqueueEmbeddingBackfillOptions,
   enqueueEmbeddingBackfill,
@@ -464,15 +464,19 @@ export async function runDesktopEmbeddingBackfill(params: {
           requestId: backfillRequestId,
           source,
         });
-      } else if (isDesktopShuttingDown() || isBenignBackfillShutdownError(error)) {
-        // Expected teardown: the app is shutting down (or a host/worker was
-        // disposed) mid-backfill. Not a failure — embed jobs persist in
+      } else if (isExpectedBackfillTeardown(error)) {
+        // Expected teardown: the app is shutting down, or the logger thread-stream
+        // was disposed mid-backfill. Not a failure — embed jobs persist in
         // job_queue and resume next launch, and a suspended dimension index is
-        // rebuilt by scheduled maintenance. Logged at info, no UI error.
-        logger.info('Desktop embedding backfill stopped during shutdown', {
+        // rebuilt by scheduled maintenance. Logged at info, no UI error. Neutral
+        // wording (not "during shutdown") because a logger teardown can fire when
+        // the app is not quitting — provenance must not lie. The shuttingDown
+        // field records which case it actually was.
+        logger.info('Desktop embedding backfill stopped (benign teardown)', {
           embeddingSetId: normalizedEmbeddingSetId,
           error: message,
           requestId: backfillRequestId,
+          shuttingDown: isDesktopShuttingDown(),
           source,
         });
       } else {

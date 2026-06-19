@@ -247,9 +247,9 @@ describe('desktop embedding backfill termination logging', () => {
     );
   });
 
-  it('logs a benign INFO (not an error) when the backfill is torn down at shutdown', async () => {
-    // pino thread-stream throws this when its logger worker ends during app
-    // shutdown — expected teardown, not a real failure.
+  it('logs a benign INFO (not an error) when the logger thread-stream is torn down', async () => {
+    // pino thread-stream throws this when its logger worker ends (e.g. during app
+    // shutdown) — a logging-infra artifact, expected teardown, not a real failure.
     enqueueEmbeddingBackfillMock.mockRejectedValue(new Error('the worker is ending'));
 
     await expect(runDesktopEmbeddingBackfill(createRunParams('set-shutdown'))).rejects.toThrow(
@@ -260,12 +260,43 @@ describe('desktop embedding backfill termination logging', () => {
       captured.filter((record) => record.message === 'Desktop embedding backfill failed')
     ).toHaveLength(0);
     const stopped = captured.filter(
-      (record) => record.message === 'Desktop embedding backfill stopped during shutdown'
+      (record) => record.message === 'Desktop embedding backfill stopped (benign teardown)'
     );
     expect(stopped).toHaveLength(1);
     expect(stopped[0]?.level).toBe('info');
     expect(stopped[0]?.args).toContainEqual(
       expect.objectContaining({ embeddingSetId: 'set-shutdown' })
+    );
+  });
+
+  it('logs a real ERROR (not a benign stop) for a mid-session worker crash that is NOT a shutdown', async () => {
+    // A genuine embedding-worker crash during normal operation surfaces as
+    // "worker terminated" — the broad teardown signature. Outside shutdown this
+    // must take the failure branch (logged error + the UI error progress event),
+    // not be silenced as a benign stop. (The app is not shutting down here.)
+    enqueueEmbeddingBackfillMock.mockRejectedValue(
+      new Error('Embedding worker terminated during an active stream')
+    );
+
+    await expect(runDesktopEmbeddingBackfill(createRunParams('set-crash'))).rejects.toThrow(
+      'Embedding worker terminated during an active stream'
+    );
+
+    expect(
+      captured.filter(
+        (record) => record.message === 'Desktop embedding backfill stopped (benign teardown)'
+      )
+    ).toHaveLength(0);
+    const failed = captured.filter(
+      (record) => record.message === 'Desktop embedding backfill failed'
+    );
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.level).toBe('error');
+    expect(failed[0]?.args).toContainEqual(
+      expect.objectContaining({
+        embeddingSetId: 'set-crash',
+        error: 'Embedding worker terminated during an active stream',
+      })
     );
   });
 
