@@ -38,6 +38,7 @@ import { boundBackgroundPermitWait } from '../background-permit-wait';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
 import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
+import { shouldExposeWorkspaceIndexDebugApi } from '../workspace-index-debug-harness';
 
 function createTestQosPolicy(
   policy: Omit<
@@ -574,6 +575,46 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
+  it('coalesces refresh events while a background sync is already importing', async () => {
+    const resolveImportRef: { current: (() => void) | null } = { current: null };
+    const importStarted = new Promise<void>((resolve) => {
+      runEnhancedImportMock.mockImplementationOnce(async (params) => {
+        await params.baseImportRunner({
+          selectedFilePaths: params.request.selectedFilePaths,
+          fileTree: params.request.fileTree,
+          fileContents: params.request.fileContents,
+          onProgress: () => {},
+        });
+        resolve();
+        await new Promise<void>((finish) => {
+          resolveImportRef.current = finish;
+        });
+        return [];
+      });
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await importStarted;
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new CustomEvent('brainstrike:file-explorer-refreshed'));
+    await waitFor(() => expect(resolveImportRef.current).not.toBeNull());
+    const resolveImport = resolveImportRef.current;
+    if (!resolveImport) {
+      throw new Error('Import resolver was not captured.');
+    }
+
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+
+    resolveImport();
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(2));
+  });
+
   it('uses the desktop power snapshot for QoS policy inputs when available', async () => {
     Object.assign(window, {
       power: {
@@ -819,6 +860,111 @@ describe('WorkspaceCollectionSyncProvider', () => {
         managedCollectionName: 'Workspace Index',
       })
     );
+  });
+
+  it('bootstraps when persist hydration completed but the store marker is stale', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000252',
+      name: 'Workspace Index',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: false,
+      paused: false,
+    });
+    const persistApi = (
+      useBackgroundIndexingPreferencesStore as typeof useBackgroundIndexingPreferencesStore & {
+        persist?: { hasHydrated?: () => boolean };
+      }
+    ).persist;
+    if (!persistApi?.hasHydrated) {
+      throw new Error('background indexing preferences persist API unavailable');
+    }
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(true);
+    getOrCreateWorkspaceIndexSetMock.mockResolvedValueOnce(workspaceIndex);
+    getByIdMock.mockResolvedValue(workspaceIndex);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
+        hasHydrated: true,
+        managedCollectionId: workspaceIndex.id,
+      })
+    );
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('rehydrates its own background preferences before bootstrapping', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000253',
+      name: 'Workspace Index',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: false,
+      paused: false,
+    });
+    const persistApi = (
+      useBackgroundIndexingPreferencesStore as typeof useBackgroundIndexingPreferencesStore & {
+        persist?: {
+          hasHydrated?: () => boolean;
+          rehydrate?: () => Promise<void>;
+        };
+      }
+    ).persist;
+    if (!(persistApi?.hasHydrated && persistApi.rehydrate)) {
+      throw new Error('background indexing preferences persist API unavailable');
+    }
+    let persistHydrated = false;
+    vi.spyOn(persistApi, 'hasHydrated').mockImplementation(() => persistHydrated);
+    vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
+      persistHydrated = true;
+      useBackgroundIndexingPreferencesStore.setState({
+        hasHydrated: true,
+      });
+    });
+    getOrCreateWorkspaceIndexSetMock.mockResolvedValueOnce(workspaceIndex);
+    getByIdMock.mockResolvedValue(workspaceIndex);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(persistApi.rehydrate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
+        hasHydrated: true,
+        managedCollectionId: workspaceIndex.id,
+      })
+    );
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
   });
 
   it('dedupes workspace index bootstrap while collection creation is in flight', async () => {
@@ -2335,7 +2481,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
           await firstSyncReleasePromise;
         }
       });
-
     try {
       const { unmount } = render(
         <WorkspaceCollectionSyncProvider>
@@ -2355,6 +2500,79 @@ describe('WorkspaceCollectionSyncProvider', () => {
       releasePause();
       unmount();
     } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('stops the active root loop when background indexing is disabled mid-loop', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'workspace2',
+      path: '/workspace/root2',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    let firstSyncStarted!: () => void;
+    const firstSyncStartedPromise = new Promise<void>((resolve) => {
+      firstSyncStarted = resolve;
+    });
+    let releaseFirstSync!: () => void;
+    const firstSyncReleasePromise = new Promise<void>((resolve) => {
+      releaseFirstSync = resolve;
+    });
+
+    const enabledSyncCallHandles: string[] = [];
+    const disabledSyncCalls: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        const path = (req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null';
+        if (!req.enabled) {
+          disabledSyncCalls.push(path);
+          return;
+        }
+        enabledSyncCallHandles.push(path);
+        if (path === root1.path) {
+          firstSyncStarted();
+          await firstSyncReleasePromise;
+        }
+      });
+    const cancelSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await firstSyncStartedPromise;
+
+      act(() => {
+        useBackgroundIndexingPreferencesStore.setState({ enabled: false });
+      });
+
+      await waitFor(() => expect(disabledSyncCalls.length).toBeGreaterThan(0));
+      expect(cancelSpy).toHaveBeenCalled();
+      releaseFirstSync();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+
+      expect(enabledSyncCallHandles).toEqual([root1.path]);
+    } finally {
+      cancelSpy.mockRestore();
       syncSpy.mockRestore();
     }
   });
@@ -3335,6 +3553,49 @@ describe('WorkspaceCollectionSyncProvider', () => {
     ).toBeDefined();
 
     rendered.unmount();
+    Reflect.deleteProperty(window, 'desktopLifecycle');
+    vi.unstubAllEnvs();
+  });
+
+  it('exposes the workspace index debug API in web Playwright E2E mode', () => {
+    const previousDescriptor = Object.getOwnPropertyDescriptor(window.navigator, 'webdriver');
+    vi.stubEnv('NODE_ENV', 'production');
+    Object.defineProperty(window.navigator, 'webdriver', {
+      configurable: true,
+      value: true,
+    });
+
+    try {
+      expect(shouldExposeWorkspaceIndexDebugApi({ MODE: 'production' })).toBe(true);
+    } finally {
+      if (previousDescriptor) {
+        Object.defineProperty(window.navigator, 'webdriver', previousDescriptor);
+      } else {
+        Reflect.deleteProperty(window.navigator, 'webdriver');
+      }
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does not expose the workspace index debug API in ordinary production web mode', () => {
+    const previousDescriptor = Object.getOwnPropertyDescriptor(window.navigator, 'webdriver');
+    vi.stubEnv('NODE_ENV', 'production');
+    Reflect.deleteProperty(window, 'desktopLifecycle');
+    Object.defineProperty(window.navigator, 'webdriver', {
+      configurable: true,
+      value: false,
+    });
+
+    try {
+      expect(shouldExposeWorkspaceIndexDebugApi({ MODE: 'production' })).toBe(false);
+    } finally {
+      if (previousDescriptor) {
+        Object.defineProperty(window.navigator, 'webdriver', previousDescriptor);
+      } else {
+        Reflect.deleteProperty(window.navigator, 'webdriver');
+      }
+      vi.unstubAllEnvs();
+    }
   });
 });
 

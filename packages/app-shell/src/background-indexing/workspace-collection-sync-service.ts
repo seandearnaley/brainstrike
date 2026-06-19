@@ -115,6 +115,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
     args: ApplyManagedCacheInvalidationsArgs
   ) => Promise<ManagedCacheInvalidationResult>;
   log?: typeof logger;
+  onDebugStage?: (stage: string, details?: Record<string, unknown>) => void;
   onManagedCollectionMissing?: (managedCollectionId: string) => void;
   /**
    * Maps a root directory path to the canonical DB root id from the `roots`
@@ -424,11 +425,27 @@ export class WorkspaceCollectionSyncService {
     const yieldDeadline = Date.now() + FOREGROUND_DB_PRESSURE_STARVATION_MS;
     let starvationBypassed = false;
     let qosPolicy = await this.deps.resolveQosPolicy();
+    this.deps.onDebugStage?.(`qos:${args.phase}:resolved`, {
+      allowNewWork: qosPolicy.allowNewWork,
+      interBatchDelayMs: qosPolicy.interBatchDelayMs,
+      qosReason: qosPolicy.reason,
+      qosState: qosPolicy.state,
+    });
     while (!qosPolicy.allowNewWork && qosPolicy.state === 'foreground-yielding') {
       throwIfAborted(args.abortSignal);
+      this.deps.onDebugStage?.(`qos:${args.phase}:waiting`, {
+        interBatchDelayMs: qosPolicy.interBatchDelayMs,
+        qosReason: qosPolicy.reason,
+        qosState: qosPolicy.state,
+      });
       this.setQosWaitingStatus(args.context);
       await this.deps.waitForBackgroundPermit({
         label: QOS_RETRY_LABELS[args.phase],
+      });
+      this.deps.onDebugStage?.(`qos:${args.phase}:permit`, {
+        interBatchDelayMs: qosPolicy.interBatchDelayMs,
+        qosReason: qosPolicy.reason,
+        qosState: qosPolicy.state,
       });
       throwIfAborted(args.abortSignal);
       await waitForAbortableDelay(Math.max(1, qosPolicy.interBatchDelayMs), args.abortSignal);
@@ -450,6 +467,12 @@ export class WorkspaceCollectionSyncService {
         );
       }
       qosPolicy = await this.deps.resolveQosPolicy({ foregroundDbPressureStarvationBypass });
+      this.deps.onDebugStage?.(`qos:${args.phase}:resolved`, {
+        allowNewWork: qosPolicy.allowNewWork,
+        interBatchDelayMs: qosPolicy.interBatchDelayMs,
+        qosReason: qosPolicy.reason,
+        qosState: qosPolicy.state,
+      });
     }
     if (!qosPolicy.allowNewWork && qosPolicy.state === 'paused') {
       throw createAbortError('Workspace Index sync paused.');
@@ -966,6 +989,7 @@ export class WorkspaceCollectionSyncService {
 
   async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
     const currentRunId = ++this.runId;
+    this.deps.onDebugStage?.('sync:start', { runId: currentRunId });
     const previousTrackedBackfill = this.activeBackfill;
     this.currentAbortController?.abort();
     this.currentAbortController = null;
@@ -976,6 +1000,11 @@ export class WorkspaceCollectionSyncService {
       currentRunId,
       previousTrackedBackfill,
       request,
+    });
+    this.deps.onDebugStage?.('sync:context', {
+      contextResolved: Boolean(context),
+      isCancelled: this.isCancelled(currentRunId),
+      runId: currentRunId,
     });
     if (!context) {
       return;
@@ -996,10 +1025,16 @@ export class WorkspaceCollectionSyncService {
       return;
     }
     if (this.isCancelled(currentRunId)) {
+      this.deps.onDebugStage?.('sync:cancelled-after-access', { runId: currentRunId });
       return;
     }
 
     const inFlightBackfills = await this.deps.getBackfillsInFlight();
+    this.deps.onDebugStage?.('sync:in-flight-backfills', {
+      count: inFlightBackfills.length,
+      isCancelled: this.isCancelled(currentRunId),
+      runId: currentRunId,
+    });
     const recoveredBackfill = selectRecoverableBackgroundBackfill({
       embeddingSetId: context.collection.id,
       inFlightBackfills,
@@ -1020,11 +1055,13 @@ export class WorkspaceCollectionSyncService {
       ...(recoveredBackfill ? { exceptEmbeddingSetId: context.collection.id } : {}),
     });
     if (this.isCancelled(currentRunId)) {
+      this.deps.onDebugStage?.('sync:cancelled-before-scanning', { runId: currentRunId });
       return;
     }
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
+    this.deps.onDebugStage?.('sync:set-scanning-status', { runId: currentRunId });
     this.setScanningStatus(context, null, { resetProgress: true });
 
     try {

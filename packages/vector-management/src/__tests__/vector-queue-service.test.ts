@@ -1,5 +1,6 @@
 import type { Job } from '@brainstrike/db';
 import { checkApiKeyAvailability } from '@brainstrike/embeddings';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateLatency,
@@ -232,6 +233,12 @@ describe('vector-queue-service', () => {
   });
 
   it('loads candidate diagnostics when backfill has no eligible chunks', async () => {
+    const capturedLogs: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => {
+      if (record.scope === 'VectorQueueService') {
+        capturedLogs.push(record);
+      }
+    });
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
@@ -294,12 +301,30 @@ describe('vector-queue-service', () => {
       chunkRepository,
     });
 
-    await service.backfill('set-1', {
-      onProgress: vi.fn(),
-    });
+    try {
+      await service.backfill('set-1', {
+        onProgress: vi.fn(),
+      });
+    } finally {
+      removeLogListener();
+    }
 
     expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
     expect(queries.some((sql) => sql.includes('backfill_candidate_diagnostics'))).toBe(true);
+    expect(
+      capturedLogs.filter(
+        (record) =>
+          record.level === LogLevel.WARN && record.message === 'Backfill found no eligible chunks'
+      )
+    ).toEqual([]);
+    expect(capturedLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.INFO,
+          message: 'Backfill found no eligible chunks',
+        }),
+      ])
+    );
   });
 
   it('recovers active-set failed and unclaimable queued jobs before waiting for drain', async () => {

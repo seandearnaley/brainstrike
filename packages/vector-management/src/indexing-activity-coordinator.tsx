@@ -1,4 +1,8 @@
-import { getDatabaseWorkScheduler, usePGliteDatabase } from '@brainstrike/db';
+import {
+  createPriorityDbHandle,
+  getDatabaseWorkScheduler,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import {
   type IndexingBackfillSnapshot,
   type IndexingDatabaseWorkSnapshot,
@@ -114,6 +118,10 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
 
 export function IndexingActivityCoordinator(): null {
   const db = usePGliteDatabase();
+  const backgroundDb = useMemo(
+    () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
+    [db]
+  );
   const { controller } = useSharedEmbeddingRuntime();
   const setQueueSnapshot = useIndexingActivityStore((state) => state.setQueueSnapshot);
   const setBackfills = useIndexingActivityStore((state) => state.setBackfills);
@@ -200,7 +208,7 @@ export function IndexingActivityCoordinator(): null {
 
     const refresh = async (): Promise<void> => {
       try {
-        const queue = await readQueueSnapshot(db);
+        const queue = await readQueueSnapshot(backgroundDb);
         if (disposed) {
           return;
         }
@@ -217,7 +225,7 @@ export function IndexingActivityCoordinator(): null {
     };
 
     void refresh();
-    if (!db || typeof db.query !== 'function') {
+    if (!backgroundDb || typeof backgroundDb.query !== 'function') {
       return () => {
         disposed = true;
       };
@@ -231,7 +239,13 @@ export function IndexingActivityCoordinator(): null {
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [db, setDurableQueueStats, setIndexingActivityError, setIsJobQueueActive, setQueueSnapshot]);
+  }, [
+    backgroundDb,
+    setDurableQueueStats,
+    setIndexingActivityError,
+    setIsJobQueueActive,
+    setQueueSnapshot,
+  ]);
 
   useEffect(() => {
     let disposed = false;

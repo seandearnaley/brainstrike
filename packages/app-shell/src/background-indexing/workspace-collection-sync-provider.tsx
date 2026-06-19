@@ -20,7 +20,10 @@ import {
 } from '@brainstrike/file-explorer-ui/shell';
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import {
+  ensureBackgroundIndexingPreferencesHydrated,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import {
   useWorkspaceCollectionSyncStatusStore,
@@ -56,15 +59,13 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { boundBackgroundPermitWait } from './background-permit-wait';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
-import {
-  type WorkspaceCollectionSyncRequest,
-  WorkspaceCollectionSyncService,
-} from './workspace-collection-sync-service';
+import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
   isWorkspaceIndexBlockedError,
   WorkspaceIndexBlockedError,
@@ -116,6 +117,37 @@ const TREE_RESTORATION_GRACE_MS = 5000;
 const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
 const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
+
+interface BackgroundIndexingPreferencesPersistApi {
+  readonly hasHydrated?: () => boolean;
+  readonly onFinishHydration?: (
+    listener: (state: ReturnType<typeof useBackgroundIndexingPreferencesStore.getState>) => void
+  ) => () => void;
+}
+
+function getBackgroundIndexingPreferencesPersistApi():
+  | BackgroundIndexingPreferencesPersistApi
+  | undefined {
+  return (
+    useBackgroundIndexingPreferencesStore as typeof useBackgroundIndexingPreferencesStore & {
+      persist?: BackgroundIndexingPreferencesPersistApi;
+    }
+  ).persist;
+}
+
+function readBackgroundIndexingPreferencesPersistHydrated(): boolean {
+  return getBackgroundIndexingPreferencesPersistApi()?.hasHydrated?.() === true;
+}
+
+function subscribeToBackgroundIndexingPreferencesPersistHydration(
+  callback: () => void
+): () => void {
+  return (
+    getBackgroundIndexingPreferencesPersistApi()?.onFinishHydration?.(() => {
+      callback();
+    }) ?? (() => undefined)
+  );
+}
 
 function createRuntimeUnavailableMessage(missingDependencies: string[]): string {
   if (missingDependencies.length === 0) {
@@ -544,6 +576,91 @@ type TriggerSyncScope =
       }>;
     };
 
+interface TriggerSyncOptions {
+  restartActive?: boolean;
+}
+
+function mergeTriggerSyncScopes(
+  current: TriggerSyncScope | null,
+  incoming: TriggerSyncScope
+): TriggerSyncScope {
+  if (current === null) {
+    return incoming;
+  }
+  if (current.mode === 'full' || incoming.mode === 'full') {
+    return { mode: 'full' };
+  }
+
+  const rootsById = new Map<string, { changes: FileSystemChange[]; rootId: string }>();
+  for (const root of current.roots) {
+    rootsById.set(root.rootId, {
+      rootId: root.rootId,
+      changes: [...root.changes],
+    });
+  }
+  for (const root of incoming.roots) {
+    const existing = rootsById.get(root.rootId);
+    rootsById.set(root.rootId, {
+      rootId: root.rootId,
+      changes: [...(existing?.changes ?? []), ...root.changes],
+    });
+  }
+  return {
+    mode: 'paths',
+    roots: [...rootsById.values()],
+  };
+}
+
+function handleActiveSyncLoopRequest(args: {
+  options: TriggerSyncOptions;
+  pendingSyncScopeRef: { current: TriggerSyncScope | null };
+  reportCancelError: (error: unknown) => void;
+  scope: TriggerSyncScope;
+  service: WorkspaceCollectionSyncService;
+  syncLoopActiveRef: { current: boolean };
+  syncLoopDebugRef: { current: Record<string, unknown> };
+  syncLoopGenerationRef: { current: number };
+}): boolean {
+  if (!args.syncLoopActiveRef.current) {
+    return false;
+  }
+  if (args.options.restartActive === true) {
+    args.syncLoopGenerationRef.current += 1;
+    args.syncLoopActiveRef.current = false;
+    args.pendingSyncScopeRef.current = null;
+    void args.service.cancel().catch(args.reportCancelError);
+    return false;
+  }
+
+  args.pendingSyncScopeRef.current = mergeTriggerSyncScopes(
+    args.pendingSyncScopeRef.current,
+    args.scope
+  );
+  args.syncLoopDebugRef.current = {
+    ...args.syncLoopDebugRef.current,
+    pendingScope: args.pendingSyncScopeRef.current.mode,
+    state: 'queued-while-active',
+    updatedAt: new Date().toISOString(),
+  };
+  return true;
+}
+
+function invalidateActiveSyncLoop(args: {
+  pendingSyncScopeRef: { current: TriggerSyncScope | null };
+  reportCancelError: (error: unknown) => void;
+  service: WorkspaceCollectionSyncService;
+  syncLoopActiveRef: { current: boolean };
+  syncLoopGenerationRef: { current: number };
+}): void {
+  if (!(args.syncLoopActiveRef.current || args.pendingSyncScopeRef.current)) {
+    return;
+  }
+  args.syncLoopGenerationRef.current += 1;
+  args.syncLoopActiveRef.current = false;
+  args.pendingSyncScopeRef.current = null;
+  void args.service.cancel().catch(args.reportCancelError);
+}
+
 interface SyncLoopTarget {
   handle: DirectoryHandle;
   scope: {
@@ -606,18 +723,6 @@ async function loadOrderedSyncTargets(args: {
     return new Map<string, number>();
   });
   return orderTargetsByIndexedCoverage(syncableTargets, indexedCounts);
-}
-
-async function runRootSyncPass(args: {
-  reportAsyncError: (operation: string, error: unknown) => void;
-  request: WorkspaceCollectionSyncRequest;
-  service: Pick<WorkspaceCollectionSyncService, 'sync'>;
-}): Promise<void> {
-  try {
-    await args.service.sync(args.request);
-  } catch (error) {
-    args.reportAsyncError('sync', error);
-  }
 }
 
 export interface WorkspaceCollectionSyncProviderProps {
@@ -1077,7 +1182,13 @@ export function WorkspaceCollectionSyncProvider({
   }, [backgroundDb]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
-  const hasHydrated = useBackgroundIndexingPreferencesStore((state) => state.hasHydrated);
+  const storeHasHydrated = useBackgroundIndexingPreferencesStore((state) => state.hasHydrated);
+  const persistHasHydrated = useSyncExternalStore(
+    subscribeToBackgroundIndexingPreferencesPersistHydration,
+    readBackgroundIndexingPreferencesPersistHydrated,
+    () => false
+  );
+  const hasHydrated = storeHasHydrated || persistHasHydrated;
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
@@ -1111,7 +1222,15 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
-
+  const syncLoopDebugRef = useRef<Record<string, unknown>>({ state: 'not-started' });
+  const syncLoopActiveRef = useRef(false);
+  const pendingSyncScopeRef = useRef<TriggerSyncScope | null>(null);
+  const replayPendingSyncRef = useRef<(scope: TriggerSyncScope) => void>(() => {});
+  const backgroundWorkSnapshot = useSyncExternalStore(
+    subscribeToBackgroundWorkArbiter,
+    getBackgroundWorkArbiterSnapshot,
+    getBackgroundWorkArbiterSnapshot
+  );
   const reportAsyncError = useCallback(
     (operation: string, error: unknown): void => {
       logger.error(`Workspace collection sync ${operation} failed`, { error });
@@ -1141,6 +1260,21 @@ export function WorkspaceCollectionSyncProvider({
     },
     [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
   );
+  useEffect(() => {
+    if (storeHasHydrated) {
+      return;
+    }
+    let disposed = false;
+    void ensureBackgroundIndexingPreferencesHydrated().catch((error) => {
+      if (!disposed) {
+        reportAsyncError('preferences hydration', error);
+      }
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [reportAsyncError, storeHasHydrated]);
+
   const treeRestorationSettled =
     fileTreeContext === null ||
     (!(fileTreeContext.isLoading || fileTreeContext.isRestoringExpandedPaths) &&
@@ -1274,6 +1408,43 @@ export function WorkspaceCollectionSyncProvider({
     ) {
       return null;
     }
+    const recordSyncDependencyStage = (stage: string, extra?: Record<string, unknown>): void => {
+      syncLoopDebugRef.current = {
+        ...syncLoopDebugRef.current,
+        ...(extra ?? {}),
+        dependencyStage: stage,
+        dependencyUpdatedAt: new Date().toISOString(),
+      };
+    };
+    // Always-on, ref-only diagnostics keep production failures explainable.
+    // The data is exposed only when the Workspace Index debug API is enabled.
+    const embeddingSetsRepository = new Proxy(backgroundRepositories.embeddingSetsRepository, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (property !== 'getById' || typeof value !== 'function') {
+          return value;
+        }
+        return async (...args: unknown[]) => {
+          recordSyncDependencyStage('embeddingSetsRepository.getById:start', {
+            embeddingSetId: args[0],
+          });
+          try {
+            const result = await value.apply(target, args);
+            recordSyncDependencyStage('embeddingSetsRepository.getById:done', {
+              embeddingSetFound: Boolean(result),
+              embeddingSetId: args[0],
+            });
+            return result;
+          } catch (error) {
+            recordSyncDependencyStage('embeddingSetsRepository.getById:error', {
+              embeddingSetId: args[0],
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+        };
+      },
+    }) as typeof backgroundRepositories.embeddingSetsRepository;
     return new WorkspaceCollectionSyncService({
       applyManagedCacheBatch: async (args) => {
         const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
@@ -1295,19 +1466,51 @@ export function WorkspaceCollectionSyncProvider({
         return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
       },
       cancelBackfill: async (embeddingSetId) => {
-        await runtimeController.cancelBackfill(embeddingSetId);
+        recordSyncDependencyStage('cancelBackfill:start', { embeddingSetId });
+        try {
+          await runtimeController.cancelBackfill(embeddingSetId);
+          recordSyncDependencyStage('cancelBackfill:done', { embeddingSetId });
+        } catch (error) {
+          recordSyncDependencyStage('cancelBackfill:error', {
+            embeddingSetId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       },
       chunkRepository: backgroundRepositories.chunkRepository,
       db: backgroundDb,
-      embeddingSetsRepository: backgroundRepositories.embeddingSetsRepository,
+      embeddingSetsRepository,
       enqueueBackfill: async (embeddingSetId, options) =>
         await runtimeController.enqueueBackfill(embeddingSetId, options),
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
       fileSystemAdapter,
       fileRecordRepository: backgroundRepositories.fileRecordRepository,
-      getBackfillsInFlight: async () => await runtimeController.getBackfillsInFlight(),
+      getBackfillsInFlight: async () => {
+        recordSyncDependencyStage('getBackfillsInFlight:start');
+        try {
+          const result = await runtimeController.getBackfillsInFlight();
+          recordSyncDependencyStage('getBackfillsInFlight:done', {
+            inFlightBackfillCount: result.length,
+          });
+          return result;
+        } catch (error) {
+          recordSyncDependencyStage('getBackfillsInFlight:error', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      },
       log: logger,
+      onDebugStage: (stage, details) => {
+        syncLoopDebugRef.current = {
+          ...syncLoopDebugRef.current,
+          ...(details ?? {}),
+          serviceStage: stage,
+          serviceStageUpdatedAt: new Date().toISOString(),
+        };
+      },
       onManagedCollectionMissing: (missingCollectionId) => {
         if (
           useBackgroundIndexingPreferencesStore.getState().managedCollectionId ===
@@ -1395,7 +1598,7 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         setSyncStatus({
-          state: 'idle',
+          state: 'waiting',
           managedCollectionId: collection.id,
           managedCollectionName: collection.name ?? null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
@@ -1424,14 +1627,10 @@ export function WorkspaceCollectionSyncProvider({
   ]);
 
   const triggerSync = useCallback(
-    (scope: TriggerSyncScope = { mode: 'full' }) => {
+    (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
       if (!hasHydrated) {
         return;
       }
-
-      // Bump the generation so any in-flight loop from a previous triggerSync
-      // call can detect that it is now stale and stop iterating.
-      syncLoopGenerationRef.current += 1;
 
       if (!service) {
         if (enabled) {
@@ -1461,8 +1660,11 @@ export function WorkspaceCollectionSyncProvider({
       // in-flight sync — which would abort a newly added root mid-import. The
       // pause/resume EDGE is wired explicitly via subscribeToBackgroundWorkArbiter
       // below (a non-cancelling re-trigger).
-      const currentBackgroundWork = getBackgroundWorkArbiterSnapshot();
-      if (currentBackgroundWork.backgroundIndexingPaused) {
+      const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
+      if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
+        syncLoopGenerationRef.current += 1;
+        syncLoopActiveRef.current = false;
+        pendingSyncScopeRef.current = null;
         void service.cancel().catch((error) => {
           reportAsyncError('cancel', error);
         });
@@ -1474,14 +1676,25 @@ export function WorkspaceCollectionSyncProvider({
           currentFilePath: null,
           lastError: null,
           pauseReasons: [
-            ...(currentBackgroundWork.manualPause ? ['Paused manually'] : []),
-            ...getBackgroundWorkPauseReasonLabels(currentBackgroundWork.automaticPauseReasons),
+            ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
+            ...getBackgroundWorkPauseReasonLabels(
+              latestBackgroundWorkSnapshot.automaticPauseReasons
+            ),
           ],
         });
         return;
       }
 
       if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
+        invalidateActiveSyncLoop({
+          pendingSyncScopeRef,
+          reportCancelError: (error) => {
+            reportAsyncError('cancel', error);
+          },
+          service,
+          syncLoopActiveRef,
+          syncLoopGenerationRef,
+        });
         void service
           .sync({
             enabled,
@@ -1497,6 +1710,9 @@ export function WorkspaceCollectionSyncProvider({
       }
 
       if (isAccessLoading) {
+        syncLoopGenerationRef.current += 1;
+        syncLoopActiveRef.current = false;
+        pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
           state: 'waiting',
@@ -1516,6 +1732,9 @@ export function WorkspaceCollectionSyncProvider({
       const isTreeRestorationReady =
         treeRestorationSettled || treeRestorationGraceExpiredRef.current;
       if (!isTreeRestorationReady) {
+        syncLoopGenerationRef.current += 1;
+        syncLoopActiveRef.current = false;
+        pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
           state: 'waiting',
@@ -1536,10 +1755,46 @@ export function WorkspaceCollectionSyncProvider({
         rootIdByPath,
         scope,
       });
+      if (
+        handleActiveSyncLoopRequest({
+          options,
+          pendingSyncScopeRef,
+          reportCancelError: (error) => {
+            reportAsyncError('cancel', error);
+          },
+          scope,
+          service,
+          syncLoopActiveRef,
+          syncLoopDebugRef,
+          syncLoopGenerationRef,
+        })
+      ) {
+        return;
+      }
+
+      // Bump the generation only when starting a real loop. Requests that arrive
+      // while a loop is active are serialized through pendingSyncScopeRef so the
+      // active import is not cancelled and overlapped by the follow-up pass.
+      syncLoopGenerationRef.current += 1;
       const myGeneration = syncLoopGenerationRef.current;
+      syncLoopActiveRef.current = true;
+      syncLoopDebugRef.current = {
+        generation: myGeneration,
+        scope: scope.mode,
+        state: 'resolving-targets',
+        targetCount: targets.length,
+        targetPaths: targets.map((target) => target.handle.path),
+        updatedAt: new Date().toISOString(),
+      };
 
       void (async () => {
         if (syncLoopGenerationRef.current !== myGeneration) {
+          syncLoopDebugRef.current = {
+            ...syncLoopDebugRef.current,
+            generation: myGeneration,
+            state: 'cancelled-before-resolve',
+            updatedAt: new Date().toISOString(),
+          };
           return;
         }
         // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
@@ -1551,6 +1806,17 @@ export function WorkspaceCollectionSyncProvider({
           })
         );
         if (syncLoopGenerationRef.current !== myGeneration) {
+          syncLoopDebugRef.current = {
+            ...syncLoopDebugRef.current,
+            generation: myGeneration,
+            resolvedTargetCount: resolvedTargets.length,
+            resolvedTargets: resolvedTargets.map((target) => ({
+              dbRootId: target.dbRootId,
+              path: target.handle.path,
+            })),
+            state: 'cancelled-after-resolve',
+            updatedAt: new Date().toISOString(),
+          };
           return;
         }
 
@@ -1570,32 +1836,97 @@ export function WorkspaceCollectionSyncProvider({
         if (syncLoopGenerationRef.current !== myGeneration) {
           return;
         }
+        syncLoopDebugRef.current = {
+          ...syncLoopDebugRef.current,
+          generation: myGeneration,
+          resolvedTargetCount: resolvedTargets.length,
+          resolvedTargets: resolvedTargets.map((target) => ({
+            dbRootId: target.dbRootId,
+            path: target.handle.path,
+          })),
+          state: orderedTargets.length > 0 ? 'syncing' : 'no-syncable-targets',
+          syncableTargetCount: orderedTargets.length,
+          syncableTargetPaths: orderedTargets.map((target) => target.handle.path),
+          updatedAt: new Date().toISOString(),
+        };
 
         for (const [targetIndex, target] of orderedTargets.entries()) {
+          const targetPath = target.handle.path;
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
+            syncLoopDebugRef.current = {
+              ...syncLoopDebugRef.current,
+              generation: myGeneration,
+              state: 'cancelled-before-service-sync',
+              updatedAt: new Date().toISOString(),
+            };
             return;
           }
-          const scope =
-            target.scope.mode === 'paths'
-              ? { mode: 'paths' as const, changes: target.scope.changes ?? [] }
-              : { mode: 'full' as const };
+          syncLoopDebugRef.current = {
+            ...syncLoopDebugRef.current,
+            activeTargetPath: targetPath,
+            generation: myGeneration,
+            state: 'service-sync-started',
+            updatedAt: new Date().toISOString(),
+          };
+          // backfillMode: only the LAST (most-covered) root enqueues the embedding
+          // backfill; earlier roots defer so a freshly added root's import is not
+          // stuck behind a giant repo's backfill enqueue.
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
-          await runRootSyncPass({
-            reportAsyncError,
-            request: {
+          await service
+            .sync({
               backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,
               indexingPolicyPreset,
               managedCollectionId,
               rootDirectoryHandle: target.handle,
-              scope,
-            },
-            service,
-          });
+              scope:
+                target.scope.mode === 'paths'
+                  ? { mode: 'paths', changes: target.scope.changes ?? [] }
+                  : { mode: 'full' },
+            })
+            .catch((error) => {
+              syncLoopDebugRef.current = {
+                ...syncLoopDebugRef.current,
+                activeTargetPath: targetPath,
+                error: error instanceof Error ? error.message : String(error),
+                generation: myGeneration,
+                state: 'service-sync-error',
+                updatedAt: new Date().toISOString(),
+              };
+              reportAsyncError('sync', error);
+            });
+          syncLoopDebugRef.current = {
+            ...syncLoopDebugRef.current,
+            activeTargetPath: targetPath,
+            completedTargetPath: targetPath,
+            generation: myGeneration,
+            state: 'service-sync-completed',
+            updatedAt: new Date().toISOString(),
+          };
         }
-      })();
+      })()
+        .catch((error) => {
+          syncLoopDebugRef.current = {
+            ...syncLoopDebugRef.current,
+            error: error instanceof Error ? error.message : String(error),
+            generation: myGeneration,
+            state: 'sync-loop-error',
+            updatedAt: new Date().toISOString(),
+          };
+          reportAsyncError('sync loop', error);
+        })
+        .finally(() => {
+          if (syncLoopGenerationRef.current === myGeneration) {
+            syncLoopActiveRef.current = false;
+          }
+          const pendingScope = pendingSyncScopeRef.current;
+          pendingSyncScopeRef.current = null;
+          if (pendingScope) {
+            replayPendingSyncRef.current(pendingScope);
+          }
+        });
     },
     [
       backgroundDb,
@@ -1616,6 +1947,14 @@ export function WorkspaceCollectionSyncProvider({
       triggerWorkspaceIndexBootstrap,
     ]
   );
+  useEffect(() => {
+    replayPendingSyncRef.current = (scope: TriggerSyncScope) => {
+      triggerSync(scope);
+    };
+    return () => {
+      replayPendingSyncRef.current = () => {};
+    };
+  }, [triggerSync]);
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
 
   // After the grace window, proceed even if file-tree restoration never settles.
@@ -1962,9 +2301,25 @@ export function WorkspaceCollectionSyncProvider({
       readDebugHostStatus('chunkingHost'),
       readDebugHostStatus('embeddingHost'),
     ]);
+    const debugSyncHandles = getActiveRootHandles({ rootDirectoryHandle, rootDirectoryHandles });
+    const syncTargets = await Promise.all(
+      debugSyncHandles.map(async (handle) => {
+        const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path) ?? null;
+        const dbRootId = await resolveDbRootId(handle.path, adapterRootId);
+        return {
+          adapterRootId,
+          dbRootId,
+          name: handle.name,
+          path: handle.path,
+        };
+      })
+    );
 
     return {
       ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      backgroundEffectiveHasHydrated: hasHydrated,
+      backgroundPersistHasHydrated: readBackgroundIndexingPreferencesPersistHydrated(),
+      backgroundPreferences: useBackgroundIndexingPreferencesStore.getState(),
       chunkingHostStatus,
       chunkStatsByRoot,
       chunkStatsByRootAndSet,
@@ -1990,15 +2345,39 @@ export function WorkspaceCollectionSyncProvider({
         serviceAvailable: Boolean(service),
       },
       selectedDevicePreference,
+      syncLoop: syncLoopDebugRef.current,
+      syncReadiness: {
+        enabled,
+        hasHydrated,
+        hasManagedCollectionId: Boolean(managedCollectionId),
+        hasRootDirectoryHandle: Boolean(rootDirectoryHandle),
+        isAccessLoading,
+        isTreeRestorationReady: treeRestorationSettled,
+        rootDirectoryHandlePath: rootDirectoryHandle?.path ?? null,
+        rootDirectoryHandles: rootDirectoryHandles.map((handle) => ({
+          path: handle.path,
+          rootId: handle.rootId ?? rootIdByPath.get(handle.path) ?? null,
+        })),
+        serviceAvailable: Boolean(service),
+      },
+      syncTargets,
       syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
     };
   }, [
     backgroundDb,
     countExpectedDebugRoots,
+    enabled,
+    hasHydrated,
+    isAccessLoading,
     managedCollectionId,
     missingRuntimeDependencies,
     readDatabaseSchedulerSnapshot,
+    treeRestorationSettled,
     readDebugHostStatus,
+    resolveDbRootId,
+    rootDirectoryHandle,
+    rootDirectoryHandles,
+    rootIdByPath,
     selectedDevicePreference,
     service,
   ]);
@@ -2118,6 +2497,7 @@ export function WorkspaceCollectionSyncProvider({
 
     return {
       ...(accessIssues.length > 0 ? { accessIssues } : {}),
+      backgroundPreferences: useBackgroundIndexingPreferencesStore.getState(),
       chunkStatsByRootAndSet,
       databaseScheduler,
       embeddingHostStatus,
@@ -2294,14 +2674,18 @@ export function WorkspaceCollectionSyncProvider({
   }, [service]);
 
   useEffect(() => {
-    triggerSync();
-    return () => {
+    triggerSync({ mode: 'full' }, { restartActive: true });
+  }, [backgroundWorkSnapshot, triggerSync]);
+
+  useEffect(
+    () => () => {
       invalidateActiveSyncLoopFromEffect();
       void service?.cancel().catch((error) => {
         reportAsyncError('cancel', error);
       });
-    };
-  }, [reportAsyncError, service, triggerSync]);
+    },
+    [reportAsyncError, service]
+  );
 
   useEffect(() => {
     const handleRefresh = (event: Event): void => {

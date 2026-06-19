@@ -13,6 +13,7 @@ interface VectorPreferencesData {
 }
 
 interface VectorPreferencesActions {
+  markHydrated: () => void;
   setDetectedDevicePref: (v: DevicePref) => void;
   setDevicePref: (v: DevicePref) => void;
   setReinitEveryN: (n: number) => void;
@@ -80,6 +81,32 @@ function normalizePersistedVectorPreferences(
   };
 }
 
+interface VectorPreferencesPersistApi {
+  readonly hasHydrated?: () => boolean;
+  readonly onFinishHydration?: (listener: (state: VectorPreferencesStore) => void) => () => void;
+  readonly rehydrate?: () => Promise<void>;
+}
+
+type BoundVectorPreferencesStore = ReturnType<ReturnType<typeof create<VectorPreferencesStore>>>;
+
+function installVectorPreferencesHydrationMarker(store: BoundVectorPreferencesStore): void {
+  const persistApi = (
+    store as BoundVectorPreferencesStore & {
+      persist?: VectorPreferencesPersistApi;
+    }
+  ).persist;
+
+  persistApi?.onFinishHydration?.((state) => {
+    if (!state.hasHydrated) {
+      store.setState({ hasHydrated: true });
+    }
+  });
+
+  if (persistApi?.hasHydrated?.() && !store.getState().hasHydrated) {
+    store.setState({ hasHydrated: true });
+  }
+}
+
 /**
  * Desktop renderers must share preferences through the Electron storage bridge so
  * hidden hosts observe the same canonical settings as the visible UI.
@@ -95,6 +122,7 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
       devicePref: 'webgpu',
       reinitEveryN: 200,
       verboseOrtLogs: false,
+      markHydrated: () => set({ hasHydrated: true }),
       setDetectedDevicePref: (v) => {
         if (v === 'wasm') {
           throw new Error(AUTOMATIC_WASM_DETECTION_ERROR);
@@ -116,8 +144,8 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         verboseOrtLogs: s.verboseOrtLogs,
       }),
       onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
-          useVectorPreferencesStore.setState({ hasHydrated: true });
+        if (error) {
+          return;
         }
       },
       migrate: (persistedState) => {
@@ -142,10 +170,7 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   )
 );
 
-interface VectorPreferencesPersistApi {
-  readonly hasHydrated?: () => boolean;
-  readonly rehydrate?: () => Promise<void>;
-}
+installVectorPreferencesHydrationMarker(useVectorPreferencesStore);
 
 export async function ensureVectorPreferencesHydrated(options?: {
   forceReload?: boolean;
@@ -167,6 +192,10 @@ export async function ensureVectorPreferencesHydrated(options?: {
 
   if (forceReload || !hasHydrated() || !useVectorPreferencesStore.getState().hasHydrated) {
     await rehydrate();
+  }
+
+  if (hasHydrated() && !useVectorPreferencesStore.getState().hasHydrated) {
+    useVectorPreferencesStore.setState({ hasHydrated: true });
   }
 
   if (!(hasHydrated() || useVectorPreferencesStore.getState().hasHydrated)) {
