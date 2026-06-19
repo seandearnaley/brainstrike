@@ -31,21 +31,22 @@ describe('permission-policy-store', () => {
     __resetPermissionPolicyStoreForTests();
   });
 
-  it('defaults to enforce off, read:allow, edit/execute:ask, mcp:allow, yolo off, no grants or overrides', () => {
+  it('defaults to enforce ON, read:allow, edit/execute:ask, mcp:allow, yolo off, no grants or overrides', () => {
     const state = usePermissionPolicyStore.getState();
-    expect(state.enforce).toBe(false);
+    // enforce-on-by-default (P1 fix): read/mcp run free; edit/execute prompt.
+    expect(state.enforce).toBe(true);
     expect(state.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
     expect(state.yolo).toBe(false);
     expect(state.sessionGrants.size).toBe(0);
     expect(state.perToolOverrides).toEqual({});
   });
 
-  it('setEnforce toggles the opt-in enforcement switch', () => {
-    expect(usePermissionPolicyStore.getState().enforce).toBe(false);
-    usePermissionPolicyStore.getState().setEnforce(true);
+  it('setEnforce toggles the enforcement switch (users can opt out)', () => {
     expect(usePermissionPolicyStore.getState().enforce).toBe(true);
     usePermissionPolicyStore.getState().setEnforce(false);
     expect(usePermissionPolicyStore.getState().enforce).toBe(false);
+    usePermissionPolicyStore.getState().setEnforce(true);
+    expect(usePermissionPolicyStore.getState().enforce).toBe(true);
   });
 
   it('setCategoryPolicy updates one category only', () => {
@@ -143,8 +144,8 @@ describe('permission-policy-store', () => {
 
     // edit:'prompt' is invalid -> default 'ask'; bogus dropped; mcp/execute defaulted.
     expect(migrated.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
-    // enforce absent from the legacy slice -> defaults OFF (opt-in).
-    expect(migrated.enforce).toBe(false);
+    // enforce absent from the legacy slice -> adopts the new secure default (ON).
+    expect(migrated.enforce).toBe(true);
     // yolo:'yes' is not a boolean -> false.
     expect(migrated.yolo).toBe(false);
     // invalid override dropped, valid kept.
@@ -154,7 +155,7 @@ describe('permission-policy-store', () => {
   });
 
   it('reset clears both in-memory state and persisted storage', () => {
-    usePermissionPolicyStore.getState().setEnforce(true);
+    usePermissionPolicyStore.getState().setEnforce(false);
     usePermissionPolicyStore.getState().setYolo(true);
     usePermissionPolicyStore.getState().grantSessionCategory('edit');
     expect(window.localStorage.getItem(STORE_KEY)).not.toBeNull();
@@ -162,14 +163,15 @@ describe('permission-policy-store', () => {
     __resetPermissionPolicyStoreForTests();
 
     const state = usePermissionPolicyStore.getState();
-    expect(state.enforce).toBe(false);
+    // Reset re-applies defaultData() → enforce ON (the secure default).
+    expect(state.enforce).toBe(true);
     expect(state.yolo).toBe(false);
     expect(state.sessionGrants.size).toBe(0);
     expect(state.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
     // clearStorage() wipes the prior slice; the subsequent default setState
     // re-persists the DEFAULT posture (not the customized one).
     const persisted = readPersistedState();
-    expect(persisted.enforce).toBe(false);
+    expect(persisted.enforce).toBe(true);
     expect(persisted.yolo).toBe(false);
     expect(persisted.policies).toEqual({
       read: 'allow',
@@ -178,6 +180,19 @@ describe('permission-policy-store', () => {
       mcp: 'allow',
     });
     expect(persisted.perToolOverrides).toEqual({});
+  });
+
+  it('migrate preserves an explicit persisted enforce:false (no clobber of an opt-out)', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!options?.migrate) {
+      throw new Error('persist migrate unavailable for test');
+    }
+    const migrated = options.migrate(
+      { enforce: false, policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' } },
+      1
+    ) as { enforce: boolean };
+    // A user who deliberately turned enforcement OFF keeps it off across the bump.
+    expect(migrated.enforce).toBe(false);
   });
 });
 
@@ -208,9 +223,9 @@ describe('buildPermissionToolGateSnapshotInput / getPermissionToolGateSnapshotIn
     expect(input.perToolOverrides).toEqual({ 'brainstrike.tool': 'allow' });
   });
 
-  it('defaults to enforce:false with empty grants (the passthrough posture)', () => {
+  it('defaults to enforce:true with empty grants (the enforce-on-by-default posture)', () => {
     const input = getPermissionToolGateSnapshotInput();
-    expect(input.enforce).toBe(false);
+    expect(input.enforce).toBe(true);
     expect(input.sessionGrants).toEqual([]);
     expect(input.perToolOverrides).toEqual({});
   });

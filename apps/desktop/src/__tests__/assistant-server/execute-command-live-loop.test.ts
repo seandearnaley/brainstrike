@@ -99,18 +99,14 @@ afterEach(async () => {
   }
 });
 
-describe('executeCommand registration gate', () => {
-  it('is ABSENT from the tool map when permission enforcement is off (default)', async () => {
+describe('executeCommand registration', () => {
+  // The interim "register only when enforcement is on" gate was removed: the tool
+  // is now ALWAYS registered like every other native tool, and the permission
+  // engine (enforce-on-by-default → execute:ask) suspends the run for per-call
+  // approval before it executes.
+  it('is ALWAYS present in the tool map (gated by the permission engine, not registration)', async () => {
     const root = await makeWorkspace();
     const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData);
-    expect(tools['brainstrike.executeCommand']).toBeUndefined();
-  });
-
-  it('is PRESENT only when permission enforcement is enabled', async () => {
-    const root = await makeWorkspace();
-    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData, {
-      permissionEnforcementEnabled: true,
-    });
     expect(tools['brainstrike.executeCommand']).toBeDefined();
   });
 });
@@ -120,9 +116,7 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     const root = await makeWorkspace();
     // Side-effect marker: the real shell command writes a file we can assert on.
     const marker = path.join(root, 'ran.marker');
-    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData, {
-      permissionEnforcementEnabled: true,
-    });
+    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData);
     const executeTool = tools['brainstrike.executeCommand'];
     expect(executeTool).toBeDefined();
 

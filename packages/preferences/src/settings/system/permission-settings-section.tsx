@@ -1,17 +1,17 @@
 /**
  * Permissions settings section (permission engine, step 4b / PR-1.4b).
  *
- * A real product surface for configuring the opt-in permission engine that lives
- * in `permission-policy-store.ts`. It CONSUMES the store only — no engine/store
+ * A real product surface for configuring the permission engine that lives in
+ * `permission-policy-store.ts`. It CONSUMES the store only — no engine/store
  * logic lives here:
- * - the master `enforce` toggle (OPT-IN; default off),
+ * - the master `enforce` toggle (ON by default; users can opt out),
  * - a per-`ToolRiskCategory` policy control (allow | ask | deny),
  * - the master `yolo` "allow everything this session" toggle.
  *
  * Honest-surface caveats (no over-claiming): enforcement currently applies to
- * the desktop assistant runtime, and `'ask'` currently fails safe by withholding
- * the tool until per-tool approval lands (there is no approval dialog yet). Those
- * caveats are stated inline rather than implied away.
+ * the desktop assistant runtime, where an `'ask'` policy now PROMPTS for per-call
+ * approval (approve runs the tool, decline skips it). Those caveats are stated
+ * inline rather than implied away.
  */
 
 import {
@@ -131,9 +131,9 @@ export function PermissionSettingsSection() {
       <CardHeader>
         <CardTitle>Permissions</CardTitle>
         <CardDescription>
-          Control whether the assistant must check a policy before using its tools. When enforcement
-          is off, the assistant uses all tools normally. When on, each tool is gated by the
-          per-category policy below.
+          Control whether the assistant must check a policy before using its tools. Enforcement is
+          on by default: read and MCP tools run normally, while edits and commands prompt you for
+          approval first. Turn enforcement off to let the assistant use all tools without prompting.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -143,8 +143,8 @@ export function PermissionSettingsSection() {
               Enforce tool permissions
             </Label>
             <p className="text-muted-foreground text-sm">
-              Off by default. When enabled, tool calls are evaluated against the policy below before
-              they run.
+              On by default. Tool calls are evaluated against the policy below before they run;
+              edits and commands prompt for approval. Turn off to opt out.
             </p>
           </div>
           <Switch
@@ -213,9 +213,9 @@ export function PermissionSettingsSection() {
         </div>
 
         <p className="text-muted-foreground text-xs">
-          Enforcement currently applies to the desktop assistant runtime. While per-tool approval is
-          still in progress, an <span className="font-medium">Ask</span> policy fails safe by
-          withholding the tool from the assistant (there is no approval prompt yet).
+          Enforcement currently applies to the desktop assistant runtime. An{' '}
+          <span className="font-medium">Ask</span> policy prompts you before the tool runs — approve
+          to run it, decline to skip it.
         </p>
       </CardContent>
     </Card>

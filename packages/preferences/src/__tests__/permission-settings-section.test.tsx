@@ -25,11 +25,12 @@ describe('PermissionSettingsSection', () => {
     }
   });
 
-  it('renders defaults (enforce off, read=allow, edit/execute=ask, mcp=allow)', () => {
+  it('renders defaults (enforce ON, read=allow, edit/execute=ask, mcp=allow)', () => {
     render(<PermissionSettingsSection />);
 
+    // enforce-on-by-default (P1 fix).
     expect(screen.getByTestId('permission-enforce-toggle').getAttribute('aria-checked')).toBe(
-      'false'
+      'true'
     );
     expect(screen.getByTestId('permission-yolo-toggle').getAttribute('aria-checked')).toBe('false');
 
@@ -41,29 +42,27 @@ describe('PermissionSettingsSection', () => {
     expect((screen.getByTestId('permission-policy-mcp') as HTMLSelectElement).value).toBe('allow');
   });
 
-  it('toggling enforce updates the store', async () => {
+  it('toggling enforce updates the store (off then back on)', async () => {
     render(<PermissionSettingsSection />);
 
-    expect(usePermissionPolicyStore.getState().enforce).toBe(false);
+    // Starts ON by default; the first click opts the user OUT.
+    expect(usePermissionPolicyStore.getState().enforce).toBe(true);
 
     fireEvent.click(screen.getByTestId('permission-enforce-toggle'));
 
     await waitFor(() => {
-      expect(usePermissionPolicyStore.getState().enforce).toBe(true);
+      expect(usePermissionPolicyStore.getState().enforce).toBe(false);
     });
     expect(screen.getByTestId('permission-enforce-toggle').getAttribute('aria-checked')).toBe(
-      'true'
+      'false'
     );
   });
 
   it('changing a category control calls setCategoryPolicy and reflects store state', async () => {
     render(<PermissionSettingsSection />);
 
-    // Enforce must be on for the (disabled-while-off) category selects to be interactive.
-    fireEvent.click(screen.getByTestId('permission-enforce-toggle'));
-    await waitFor(() => {
-      expect(usePermissionPolicyStore.getState().enforce).toBe(true);
-    });
+    // Enforce is ON by default, so the category selects are already interactive.
+    expect(usePermissionPolicyStore.getState().enforce).toBe(true);
 
     fireEvent.change(screen.getByTestId('permission-policy-edit'), {
       target: { value: 'deny' },
@@ -85,10 +84,23 @@ describe('PermissionSettingsSection', () => {
     });
   });
 
-  it('disables category controls while enforcement is off', () => {
+  it('disables category controls while enforcement is off', async () => {
     render(<PermissionSettingsSection />);
+
+    // Enforcement is ON by default; opt out so the category controls disable.
+    fireEvent.click(screen.getByTestId('permission-enforce-toggle'));
+    await waitFor(() => {
+      expect(usePermissionPolicyStore.getState().enforce).toBe(false);
+    });
 
     const editSelect = screen.getByTestId('permission-policy-edit') as HTMLSelectElement;
     expect(editSelect.disabled).toBe(true);
+  });
+
+  it('enables category controls by default (enforcement on)', () => {
+    render(<PermissionSettingsSection />);
+
+    const editSelect = screen.getByTestId('permission-policy-edit') as HTMLSelectElement;
+    expect(editSelect.disabled).toBe(false);
   });
 });

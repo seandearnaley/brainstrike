@@ -111,9 +111,11 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
   /**
    * Serializable permission posture + caller-provided tool risk classification.
    * When present, the runtime gates the agent's tool map by the policy BEFORE
-   * the immutable Mastra `Agent` is built (`filterToolsByPermission`): `'allow'`
-   * keeps a tool, `'deny'`/`'ask'` omit it (`'ask'` is fail-safe-omitted, never
-   * silently run). OPTIONAL — when absent, the tool map is unchanged
+   * the immutable Mastra `Agent` is built (`filterToolsByPermissionWithMetadata`):
+   * `'allow'` keeps a tool, `'deny'` omits it, and `'ask'` keeps it but forces the
+   * global `requireToolApproval` so the run SUSPENDS for per-call approval (never
+   * silently run; when no storage exists to resume, `'ask'` falls back to a
+   * fail-safe omit). OPTIONAL — when absent, the tool map is unchanged
    * (production-default). Agent-only. See `mastra/permission-tool-gate.ts`.
    *
    * This is the TRUSTED, server-built snapshot (risk classification is

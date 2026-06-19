@@ -814,7 +814,7 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
     expect(allowRunEventKinds).toContain('tool.completed');
   });
 
-  it("omits an 'ask' tool fail-safe (execute never called, not silently allowed)", async () => {
+  it("omits an 'ask' tool fail-safe when NO storage is configured (cannot suspend → never silently run)", async () => {
     const askExecute = vi.fn((inputData: { command: string }) =>
       Promise.resolve({ ran: inputData.command })
     );
@@ -826,8 +826,9 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
       execute: askExecute,
     });
 
-    // execute policy is 'ask'. With no per-tool suspend available, the tool must
-    // be omitted (fail-safe) — NEVER silently run.
+    // execute policy is 'ask', but this run has NO Mastra storage, so the run
+    // cannot suspend-then-resume for approval. The safe action is to OMIT the
+    // tool (fail-safe) — NEVER silently run an approval-required tool.
     const permissionPolicy = {
       policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'ask' },
       yolo: false,
@@ -853,8 +854,8 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
       chunks.push(chunk);
     }
 
-    // FAIL-SAFE: the 'ask' tool was omitted, so its execute is never invoked and
-    // it never produces a successful tool-event or a `tool.completed` run-event.
+    // FAIL-SAFE: the 'ask' tool was omitted (no storage), so its execute is never
+    // invoked and it never produces a successful tool-event or a `tool.completed`.
     expect(askExecute).not.toHaveBeenCalled();
     const askToolEvents = chunks.filter(
       (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> => chunk.type === 'tool-event'

@@ -38,7 +38,11 @@ import {
 } from './default-instructions';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
-import { filterToolsByPermission, type PermissionToolGateSnapshot } from './permission-tool-gate';
+import {
+  filterToolsByPermissionWithMetadata,
+  type PermissionAskToolMetadata,
+  type PermissionToolGateSnapshot,
+} from './permission-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
@@ -73,6 +77,14 @@ export interface MastraAgentRuntimeOptions {
 
 export interface MastraAgentRuntime {
   agent: Agent;
+  /**
+   * Sanitized id → risk metadata for every tool the permission gate resolved to
+   * `'ask'` and KEPT in the map. Non-empty iff the run must suspend for per-call
+   * approval: the runtime forces the GLOBAL `requireToolApproval: true` so Mastra
+   * pauses the step and the existing approval UI/resume chain prompts the user.
+   * Empty when no policy is enforced or every tool resolved to allow/deny.
+   */
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
   dispose: () => Promise<void>;
   mcpClient?: MCPClient;
   resilienceConfig: AssistantResilienceConfig;
@@ -181,6 +193,70 @@ export function convertMessagesToMastra(
   return result;
 }
 
+interface ResolvedAskTools {
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  tools: ToolsInput;
+}
+
+/**
+ * Reconcile the gate result with whether the run can suspend-then-resume for
+ * approval (i.e. whether Mastra workflow storage is configured).
+ *
+ * - With storage: KEEP every `'ask'` tool and carry `askTools` so the run forces
+ *   the global `requireToolApproval` (Mastra suspends the step for per-call
+ *   approval). Mastra-v1 coarseness (whole-step suspend) is logged.
+ * - Without storage: the resume path (`streamMastraToolApprovalAction`) throws,
+ *   so a suspend could never resume. We must NOT run an approval-required tool
+ *   unprompted (no-silent-fallbacks), so we fall back to the conservative
+ *   FAIL-SAFE — OMIT the `'ask'` tools from the map (logged) and return an empty
+ *   `askTools`, exactly as the engine did before per-call approval landed.
+ */
+function resolveAskToolsForRun(
+  gateResult: {
+    tools: ToolsInput;
+    askToolIds: ReadonlySet<string>;
+    askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  },
+  canSuspendForApproval: boolean
+): ResolvedAskTools {
+  if (gateResult.askToolIds.size === 0) {
+    return { tools: gateResult.tools, askTools: gateResult.askTools };
+  }
+
+  if (!canSuspendForApproval) {
+    const reducedTools: Record<string, unknown> = {};
+    for (const [sanitizedId, tool] of Object.entries(gateResult.tools)) {
+      if (gateResult.askToolIds.has(sanitizedId)) {
+        const meta = gateResult.askTools.get(sanitizedId);
+        logger.warn(
+          "Tool gated to 'ask' but no storage to suspend for approval; omitting (fail-safe)",
+          {
+            code: 'permission_tool_gate_ask_omitted_no_storage',
+            sanitizedId,
+            tool: meta?.originalName ?? sanitizedId,
+            riskCategory: meta?.riskCategory,
+          }
+        );
+        continue;
+      }
+      reducedTools[sanitizedId] = tool;
+    }
+    return { tools: reducedTools as ToolsInput, askTools: new Map() };
+  }
+
+  // Mastra-v1 coarseness: the global requireToolApproval suspends the WHOLE step,
+  // not just the ask tool. Logged so the trigger is observable.
+  logger.info('Permission policy requires per-call approval; run will suspend for ask tools', {
+    code: 'permission_tool_gate_require_approval',
+    askToolCount: gateResult.askToolIds.size,
+    askTools: Array.from(gateResult.askTools.values()).map((meta) => ({
+      tool: meta.originalName,
+      riskCategory: meta.riskCategory,
+    })),
+  });
+  return { tools: gateResult.tools, askTools: gateResult.askTools };
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -234,15 +310,21 @@ export async function createMastraAgentRuntime(
   });
 
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
-  // is constructed (the Agent is immutable after `new Agent`). 'deny'/'ask'
-  // omit the tool from the map the model sees; 'ask' is fail-safe-omitted (never
-  // silently run — Mastra v1 has no per-tool suspend). When no policy is threaded
-  // the map is returned unchanged (production-default). An explicit
-  // `options.permissionPolicy` wins over one carried on the runtime data.
-  // NOTE: this is wholly independent of the global `requireToolApproval` /
-  // suspend-resume path below, which is left untouched.
+  // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
+  // tool from the map the model sees; 'ask' KEEPS the tool but records its id in
+  // `askTools` so the run forces the global requireToolApproval and Mastra
+  // suspends for per-call approval (see permission-tool-gate.ts + streamMastraAgent).
+  // When no policy is threaded the map is returned unchanged (production-default)
+  // with an empty askTools. An explicit `options.permissionPolicy` wins over one
+  // carried on the runtime data.
   const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
-  const gatedTools = filterToolsByPermission(guardedTools, permissionSnapshot, toolNameMap, logger);
+  const gateResult = filterToolsByPermissionWithMetadata(
+    guardedTools,
+    permissionSnapshot,
+    toolNameMap,
+    logger
+  );
+  const { tools: gatedTools, askTools } = resolveAskToolsForRun(gateResult, Boolean(storage));
 
   // Create provider-specific model instance
   const modelName = model ?? getDefaultModel(normalizedProvider);
@@ -282,6 +364,7 @@ export async function createMastraAgentRuntime(
 
   return {
     agent,
+    askTools,
     dispose: async () => {
       await mastra?.shutdown();
       await mcpClient?.disconnect();
@@ -695,7 +778,8 @@ function makeUnsupportedApprovalChunks(
 function makeApprovalRequiredChunks(
   part: unknown,
   toolNames: Map<string, string>,
-  sanitizedNameMap: Map<string, string> | undefined
+  sanitizedNameMap: Map<string, string> | undefined,
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata> | undefined
 ): StreamChunk[] {
   const toolCallId =
     readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
@@ -712,12 +796,17 @@ function makeApprovalRequiredChunks(
   const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
   const args = readMastraStreamPartValue(part, 'args');
   const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
+  // The Mastra approval part names the tool by its registered (sanitized) id,
+  // which is how `askTools` is keyed by the permission gate. When the pause was
+  // driven by a permission 'ask', surface the risk reason so the UI can say WHY.
+  const askMetadata = askTools?.get(rawToolName);
 
   logger.info('mastra tool approval pause surfaced for client approval', {
     code: 'mastra_agent_tool_approval_required',
     runId,
     toolCallId,
     toolName,
+    ...(askMetadata ? { riskCategory: askMetadata.riskCategory } : {}),
   });
 
   return [
@@ -726,6 +815,7 @@ function makeApprovalRequiredChunks(
       runId,
       toolCallId,
       toolName,
+      ...(askMetadata ? { riskCategory: askMetadata.riskCategory, policyDecision: 'ask' } : {}),
       ...(args === undefined ? {} : { args }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
     },
@@ -742,7 +832,8 @@ function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
-  sanitizedNameMap?: Map<string, string>
+  sanitizedNameMap?: Map<string, string>,
+  askTools?: ReadonlyMap<string, PermissionAskToolMetadata>
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
 
@@ -833,7 +924,7 @@ function processMastraStreamPart(
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
-          ...makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap),
+          ...makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap, askTools),
         ],
         finished: true,
       };
@@ -1187,7 +1278,8 @@ async function* streamChunksFromMastra({
         part,
         toolNames,
         lifecycleState,
-        sanitizedNameMap
+        sanitizedNameMap,
+        runtime.askTools
       );
       for (const chunk of chunks) {
         yield chunk;
@@ -1367,6 +1459,36 @@ async function handleStreamFailure(err: unknown, runtime: MastraAgentRuntime): P
   );
 }
 
+/**
+ * Resolve the effective `requireToolApproval` for a fresh stream run, given the
+ * caller's explicit option and the permission gate's `'ask'`-tool result.
+ *
+ * Precedence:
+ * 1. An explicit `options.requireToolApproval` ALWAYS wins (passthrough). A
+ *    caller that deliberately set it (e.g. the approval-resume path) is honored.
+ * 2. Otherwise, if the gate KEPT any `'ask'` tool (`runtime.askTools` non-empty),
+ *    force `true` so Mastra suspends the step for per-call approval. The gate
+ *    only keeps ask tools when suspend-for-approval is possible (storage present
+ *    — see `createMastraAgentRuntime`); without storage the ask tools were
+ *    already omitted fail-safe and `askTools` is empty, so this never forces a
+ *    suspend that cannot resume. Desktop local + hosted chat both run through the
+ *    assistant server WITH storage; the web in-renderer LocalRuntimeChat never
+ *    reaches this function, so web local chat is unaffected.
+ * 3. Otherwise undefined (no approval; production-default passthrough).
+ */
+function resolveRequireToolApprovalForRun(
+  options: MastraAgentRuntimeOptions,
+  runtime: MastraAgentRuntime
+): boolean | undefined {
+  if (options.requireToolApproval !== undefined) {
+    return options.requireToolApproval;
+  }
+  if (runtime.askTools.size === 0) {
+    return;
+  }
+  return true;
+}
+
 export async function streamMastraAgent(
   messages: AgentMessage[],
   options: MastraAgentRuntimeOptions = {}
@@ -1377,13 +1499,13 @@ export async function streamMastraAgent(
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
 
+  const requireToolApproval = resolveRequireToolApprovalForRun(options, runtime);
+
   return createStreamIteratorFromRuntime({
     runtime,
     messages,
     ...(options.memory ? { memory: options.memory } : {}),
-    ...(options.requireToolApproval === undefined
-      ? {}
-      : { requireToolApproval: options.requireToolApproval }),
+    ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });

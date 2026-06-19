@@ -11,8 +11,9 @@
  *
  * This module turns the request-carried snapshot into the trusted
  * {@link PermissionToolGateSnapshot} the runtime gate consumes
- * (`filterToolsByPermission`), or returns `undefined` when enforcement is off so
- * the runtime keeps its production-default passthrough (no tools omitted).
+ * (`filterToolsByPermissionWithMetadata`), or returns `undefined` when
+ * enforcement is off so the runtime keeps its production-default passthrough (no
+ * tools omitted).
  *
  * STRICT (no-silent-fallbacks): a malformed policy value is NOT validated or
  * coerced here — it rides through to the runtime resolver, which throws

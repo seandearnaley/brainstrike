@@ -1095,15 +1095,11 @@ async function initializeAgentStream(
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       mcpEnabled: true,
-      // `permissionEnforcementEnabled` is true iff the server resolved a trusted
-      // permission snapshot (the user opted into `enforce`). It gates whether the
-      // execute-risk shell tool is even registered — see DesktopAssistantTool-
-      // Dependencies. Without enforcement the permission filter is a no-op, so
-      // arbitrary shell execution must not be exposed.
-      mastraTools: buildDesktopAssistantTools(runtimeData, {
-        ...toolDependencies,
-        permissionEnforcementEnabled: permissionPolicy !== undefined,
-      }),
+      // The execute-risk shell tool is registered like every other native tool;
+      // the permission gate (enforce-on-by-default → execute:ask) suspends the
+      // run for per-call approval before it executes, so it is no longer gated at
+      // registration time.
+      mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
       signal, // ← AbortSignal passed here, used by stream iterator
       ...(mcpConfig ? { mcpConfig } : {}),
       ...(apiKey ? { apiKey } : {}),

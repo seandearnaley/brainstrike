@@ -7,20 +7,33 @@
  * (`resolvePermissionDecision`) and the risk taxonomy (`ToolRiskCategory`) from
  * `@brainstrike/assistant-contract`.
  *
- * Why filter (omit), not suspend:
- * Mastra v1 exposes only a GLOBAL `requireToolApproval` that forces the whole
- * step sequential — there is NO per-tool `requireApproval`/`suspendSchema`. So a
- * per-tool `'ask'` SUSPEND cannot be wired yet. Until that capability lands
- * (PR-1.4 + the first real `'edit'` tool + a Mastra per-tool gate), the only
- * safe runtime action for a non-`'allow'` decision is to OMIT the tool from the
- * map the model sees:
- *   - `'allow'` → keep the tool (normal path).
+ * How each decision is enforced:
+ *   - `'allow'` → keep the tool (normal path); NOT in `askToolIds`.
  *   - `'deny'`  → omit the tool; the model never sees it.
- *   - `'ask'`   → omit the tool, FAIL-SAFE. We must NEVER silently downgrade
- *                 `'ask'` to `'allow'` and run an approval-required tool without
- *                 approval (no-silent-fallbacks). Real per-tool `'ask'` SUSPEND
- *                 (prompt-then-resume) lands later; this is a deliberate,
- *                 logged, conservative omission, not a downgrade.
+ *   - `'ask'`   → KEEP the tool, but record its sanitized id in `askToolIds`.
+ *                 The runtime (`createMastraAgentRuntime` →
+ *                 `streamMastraAgent`) then forces the GLOBAL
+ *                 `requireToolApproval: true` for the run when `askToolIds` is
+ *                 non-empty, so Mastra SUSPENDS the step before executing the
+ *                 tool and emits a `tool-call-approval` part. The existing
+ *                 approval UI + `streamMastraToolApprovalAction` resume chain
+ *                 turns that pause into a prompt-then-resume ("Apply this edit? /
+ *                 Run this command?"): approve → execute, decline → skip.
+ *
+ *                 We must NEVER silently downgrade `'ask'` to `'allow'` and run
+ *                 an approval-required tool without prompting (no-silent-
+ *                 fallbacks). If an `'ask'` tool is ever left in the map WITHOUT
+ *                 being recorded in `askToolIds`, the run would not suspend and
+ *                 the tool would execute unprompted — that is a security bug, so
+ *                 the two MUST move together.
+ *
+ * Mastra-v1 coarseness (documented, deliberate): Mastra exposes only a GLOBAL
+ * `requireToolApproval`, not a per-tool `requireApproval`/`suspendSchema`. So a
+ * single `'ask'` tool suspends the WHOLE step (every tool call in it) for
+ * approval, not just the ask tool. With the default policy (read/mcp allow,
+ * edit/execute ask) this is acceptable — read/mcp tools run free and only a
+ * mutation in the step triggers the prompt. The runtime logs which tool(s)/risk
+ * triggered the gate so the coarseness is observable.
  *
  * Risk classification is CALLER-PROVIDED (`riskByTool` / `defaultRisk`). We do
  * NOT introspect Mastra tool objects for brainstrike metadata: guard cloning
@@ -68,66 +81,114 @@ function riskForTool(
   );
 }
 
+interface ResolvedToolGateDecision {
+  decision: 'allow' | 'ask' | 'deny';
+  originalName: string;
+  riskCategory: ToolRiskCategory;
+}
+
 /**
- * Filter a guarded Mastra tool map by the permission policy snapshot.
+ * Resolve a single tool's permission decision + risk metadata. Extracted from
+ * {@link filterToolsByPermissionWithMetadata} so the main loop stays simple.
+ * Propagates {@link InvalidPermissionPolicyError} on a malformed policy/override.
+ */
+function resolveToolGateDecision(
+  sanitizedId: string,
+  snapshot: PermissionToolGateSnapshot,
+  toolNameMap: ReadonlyMap<string, string>,
+  sessionGrantSet: ReadonlySet<ToolRiskCategory>
+): ResolvedToolGateDecision {
+  const originalName = toolNameMap.get(sanitizedId) ?? sanitizedId;
+  const riskCategory = riskForTool(snapshot, originalName, sanitizedId);
+  const decision = resolvePermissionDecision({
+    riskCategory,
+    toolId: originalName,
+    policies: snapshot.policies,
+    yolo: snapshot.yolo,
+    sessionGrants: sessionGrantSet,
+    ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
+  });
+  return { decision, originalName, riskCategory };
+}
+
+/** Per-tool risk metadata recorded for an `'ask'`-gated tool. */
+export interface PermissionAskToolMetadata {
+  /** The original (pre-sanitization) tool name, for logging/diagnostics. */
+  originalName: string;
+  /** The risk bucket that resolved to `'ask'`. */
+  riskCategory: ToolRiskCategory;
+}
+
+/**
+ * The result of gating a tool map: the (possibly reduced) tool map plus the set
+ * of sanitized tool ids whose decision was `'ask'`. A non-empty `askToolIds`
+ * tells the runtime to force the GLOBAL `requireToolApproval: true` so Mastra
+ * suspends the step for per-call approval (see module comment).
+ */
+export interface FilterToolsByPermissionResult<TMap extends Record<string, unknown>> {
+  /** Sanitized ids of every `'ask'`-gated tool kept in the map. */
+  askToolIds: ReadonlySet<string>;
+  /** Sanitized id → risk metadata for each `'ask'`-gated tool kept in the map. */
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  /** The gated tool map (deny tools omitted; allow + ask tools kept). */
+  tools: TMap;
+}
+
+/**
+ * Filter a guarded Mastra tool map by the permission policy snapshot, returning
+ * BOTH the filtered map and the `'ask'`-gated tool ids.
  *
- * PURE: it reads the inputs, builds a new map, and never mutates `guardedTools`,
- * the snapshot, or `toolNameMap`. Insertion order of kept tools is preserved.
+ * PURE: it reads the inputs, builds a new map + set, and never mutates
+ * `guardedTools`, the snapshot, or `toolNameMap`. Insertion order of kept tools
+ * is preserved.
  *
  * For each tool (keyed by its sanitized id in `guardedTools`):
  * 1. `originalName = toolNameMap.get(sanitizedId) ?? sanitizedId`.
  * 2. `risk = riskByTool[originalName] ?? riskByTool[sanitizedId] ?? defaultRisk ?? 'mcp'`.
  * 3. `decision = resolvePermissionDecision({ riskCategory: risk, toolId: originalName, ... })`.
- *    - `'allow'` → keep.
+ *    - `'allow'` → keep; not in `askToolIds`.
  *    - `'deny'`  → omit + `logger.info`.
- *    - `'ask'`   → omit + `logger.warn` (FAIL-SAFE; see module comment).
+ *    - `'ask'`   → KEEP + record in `askToolIds` + `logger.info` (the runtime
+ *                  forces requireToolApproval so Mastra suspends for approval).
  *
- * When `snapshot` is `undefined`, the map is returned UNCHANGED — this preserves
- * the current production behavior (no policy threaded → no filtering), so the
- * gate is fully backward compatible and opt-in.
+ * When `snapshot` is `undefined`, the map is returned UNCHANGED with an empty
+ * `askToolIds` — this preserves the current production behavior (no policy
+ * threaded → no filtering, no forced approval), so the gate is fully backward
+ * compatible and opt-in.
  *
  * STRICT: a malformed policy/override surfaces as {@link InvalidPermissionPolicyError}
  * from the resolver and is propagated, never swallowed (no-silent-fallbacks).
  *
  * @throws {InvalidPermissionPolicyError} when a policy/override value is invalid.
  */
-export function filterToolsByPermission<TMap extends Record<string, unknown>>(
+export function filterToolsByPermissionWithMetadata<TMap extends Record<string, unknown>>(
   guardedTools: TMap,
   snapshot: PermissionToolGateSnapshot | undefined,
   toolNameMap: ReadonlyMap<string, string>,
   logger: PermissionToolGateLogger
-): TMap {
-  // Production-unchanged path: no policy threaded → no filtering.
+): FilterToolsByPermissionResult<TMap> {
+  // Production-unchanged path: no policy threaded → no filtering, no approval.
   if (!snapshot) {
-    return guardedTools;
+    return { tools: guardedTools, askToolIds: new Set<string>(), askTools: new Map() };
   }
 
-  const { policies, yolo, sessionGrants, perToolOverrides } = snapshot;
   // The resolver expects a ReadonlySet; the serializable snapshot carries an
   // array. Adapt once, not per-tool.
   const sessionGrantSet: ReadonlySet<ToolRiskCategory> = new Set<ToolRiskCategory>(
-    sessionGrants ?? []
+    snapshot.sessionGrants ?? []
   );
 
   const filtered: Record<string, unknown> = {};
+  const askToolIds = new Set<string>();
+  const askTools = new Map<string, PermissionAskToolMetadata>();
   for (const [sanitizedId, tool] of Object.entries(guardedTools)) {
-    const originalName = toolNameMap.get(sanitizedId) ?? sanitizedId;
-    const riskCategory = riskForTool(snapshot, originalName, sanitizedId);
-
     // Propagates InvalidPermissionPolicyError on a malformed policy/override.
-    const decision = resolvePermissionDecision({
-      riskCategory,
-      toolId: originalName,
-      policies,
-      yolo,
-      sessionGrants: sessionGrantSet,
-      ...(perToolOverrides ? { perToolOverrides } : {}),
-    });
-
-    if (decision === 'allow') {
-      filtered[sanitizedId] = tool;
-      continue;
-    }
+    const { decision, originalName, riskCategory } = resolveToolGateDecision(
+      sanitizedId,
+      snapshot,
+      toolNameMap,
+      sessionGrantSet
+    );
 
     if (decision === 'deny') {
       logger.info('Tool omitted by permission policy (deny)', {
@@ -139,21 +200,24 @@ export function filterToolsByPermission<TMap extends Record<string, unknown>>(
       continue;
     }
 
-    // decision === 'ask': FAIL-SAFE omission. Mastra v1 has no per-tool suspend,
-    // so we cannot prompt-then-resume for a single tool. Omitting is the only
-    // safe action — NEVER silently run an approval-required tool. Real per-tool
-    // 'ask' SUSPEND lands later (PR-1.4 + first real 'edit' tool + a Mastra
-    // per-tool gate); until then this is a deliberate, logged omission.
-    logger.warn(
-      "Tool omitted by permission policy ('ask' is fail-safe-omitted; per-tool approval not yet supported by Mastra)",
-      {
-        code: 'permission_tool_gate_ask_omitted',
+    // 'allow' and 'ask' both KEEP the tool. For 'ask', additionally record it so
+    // the runtime forces the global requireToolApproval → Mastra suspends the
+    // step before executing it, and the existing approval UI + resume chain
+    // prompts the user ("Apply this edit? / Run this command?"). The id MUST be
+    // recorded whenever an 'ask' tool is kept — leaving it out would let an
+    // approval-required tool run unprompted (a security bug, not a fallback).
+    filtered[sanitizedId] = tool;
+    if (decision === 'ask') {
+      askToolIds.add(sanitizedId);
+      askTools.set(sanitizedId, { originalName, riskCategory });
+      logger.info("Tool gated to 'ask' by permission policy (run will suspend for approval)", {
+        code: 'permission_tool_gate_ask_suspend',
         tool: originalName,
         sanitizedId,
         riskCategory,
-      }
-    );
+      });
+    }
   }
 
-  return filtered as TMap;
+  return { tools: filtered as TMap, askToolIds, askTools };
 }
