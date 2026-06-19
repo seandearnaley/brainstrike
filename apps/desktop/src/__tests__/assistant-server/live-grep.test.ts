@@ -107,7 +107,7 @@ describe('runLiveGrep — basics', () => {
     expect(result.matches).toEqual([]);
   });
 
-  it('finds on-disk matches with the ripgrep engine and labels their root', async () => {
+  it('finds on-disk matches with a live engine and labels their root', async () => {
     const dir = await makeWorkspace({
       'src/a.ts': 'alpha\nLIVE_MARKER here\nbeta\n',
       'src/b.ts': 'no match here\n',
@@ -122,7 +122,12 @@ describe('runLiveGrep — basics', () => {
       },
       literalMatcher('LIVE_MARKER')
     );
-    expect(result.engine).toBe('ripgrep');
+    // The live pass RAN on disk (not 'skipped'). Which engine resolved the
+    // candidates — ripgrep when `rg` is installed, the JS walk otherwise — is an
+    // environment detail (CI runners lack rg), and both produce identical matches
+    // by design. The rg-specific and js-walk-specific paths are pinned in their
+    // own dedicated tests; here we only assert liveness.
+    expect(result.engine).not.toBe('skipped');
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0]?.path).toBe('src/a.ts');
     expect(result.matches[0]?.line).toBe(2);
@@ -130,7 +135,14 @@ describe('runLiveGrep — basics', () => {
     expect(result.matches[0]?.after).toEqual(['beta']);
     expect(result.matches[0]?.rootId).toBe('id-a');
     expect(result.matches[0]?.rootName).toBe('alpha-root');
-    expect(result.note).toBeUndefined();
+    // The clean ripgrep path emits no note; the js-walk fallback (rg absent, as
+    // on CI) emits the non-silent degradation note. Tie the expectation to the
+    // engine that actually ran rather than the host's rg availability.
+    if (result.engine === 'ripgrep') {
+      expect(result.note).toBeUndefined();
+    } else {
+      expect(result.note).toMatch(/ripgrep is unavailable/i);
+    }
   });
 
   it('respects the ignore policy (skips node_modules and build output)', async () => {

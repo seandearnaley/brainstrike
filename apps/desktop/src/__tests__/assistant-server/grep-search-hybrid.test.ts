@@ -93,7 +93,11 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     expect(result.matches[0]?.path).toBe('src/fresh.ts');
     expect(result.matches[0]?.lineText).toContain('FRESHLY_EDITED_TOKEN');
     expect(result.matches[0]?.source).toBe('live');
-    expect(result.liveEngine).toBe('ripgrep');
+    // The live pass RAN (not 'skipped'). The exact engine — ripgrep when `rg` is
+    // installed, the JS walk otherwise — is an environment detail (CI runners
+    // lack rg) and both yield identical matches. The js-walk fallback is pinned
+    // in its own dedicated test below; here we only assert the live pass ran.
+    expect(result.liveEngine).not.toBe('skipped');
   });
 
   it('files mode: a fresh-only file is surveyed and labelled live', async () => {
