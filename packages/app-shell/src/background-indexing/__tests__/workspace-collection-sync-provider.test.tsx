@@ -2443,7 +2443,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
           await firstSyncReleasePromise;
         }
       });
-
     try {
       const { unmount } = render(
         <WorkspaceCollectionSyncProvider>
@@ -2508,6 +2507,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
           await firstSyncReleasePromise;
         }
       });
+    const cancelSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
+      .mockResolvedValue(undefined);
 
     try {
       render(
@@ -2523,6 +2525,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
 
       await waitFor(() => expect(disabledSyncCalls.length).toBeGreaterThan(0));
+      expect(cancelSpy).toHaveBeenCalled();
       releaseFirstSync();
 
       await act(async () => {
@@ -2531,6 +2534,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       expect(enabledSyncCallHandles).toEqual([root1.path]);
     } finally {
+      cancelSpy.mockRestore();
       syncSpy.mockRestore();
     }
   });

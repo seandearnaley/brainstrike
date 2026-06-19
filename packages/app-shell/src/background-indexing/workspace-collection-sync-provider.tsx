@@ -640,6 +640,22 @@ function handleActiveSyncLoopRequest(args: {
   return true;
 }
 
+function invalidateActiveSyncLoop(args: {
+  pendingSyncScopeRef: { current: TriggerSyncScope | null };
+  reportCancelError: (error: unknown) => void;
+  service: WorkspaceCollectionSyncService;
+  syncLoopActiveRef: { current: boolean };
+  syncLoopGenerationRef: { current: number };
+}): void {
+  if (!(args.syncLoopActiveRef.current || args.pendingSyncScopeRef.current)) {
+    return;
+  }
+  args.syncLoopGenerationRef.current += 1;
+  args.syncLoopActiveRef.current = false;
+  args.pendingSyncScopeRef.current = null;
+  void args.service.cancel().catch(args.reportCancelError);
+}
+
 interface SyncLoopTarget {
   handle: DirectoryHandle;
   scope: {
@@ -1596,6 +1612,15 @@ export function WorkspaceCollectionSyncProvider({
       }
 
       if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
+        invalidateActiveSyncLoop({
+          pendingSyncScopeRef,
+          reportCancelError: (error) => {
+            reportAsyncError('cancel', error);
+          },
+          service,
+          syncLoopActiveRef,
+          syncLoopGenerationRef,
+        });
         void service
           .sync({
             enabled,
