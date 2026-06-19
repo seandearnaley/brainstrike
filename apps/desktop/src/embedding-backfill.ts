@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/db';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from './embedding-host-shared';
 
 export interface EmbeddingBackfillQueueCounts {
@@ -307,6 +308,24 @@ function finalizeBackfillCounts(
 
 function isEmbeddingBackfillCancellationError(error: unknown): boolean {
   return error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE;
+}
+
+// A backfill that fails AFTER suspending the dimension index leaves the
+// suspension row in place; scheduled maintenance reconciles + rebuilds it on the
+// next idle tick. Distinguish an expected shutdown teardown (quiet) from a real
+// failure (warn) so a graceful quit does not surface a scary error.
+function logSuspendedDimensionIndexAfterBackfillError(
+  error: unknown,
+  payload: { dimension: number; embeddingSetId: string; error: string }
+): void {
+  if (isExpectedBackfillTeardown(error)) {
+    logger.debug(
+      'Embedding backfill stopped (benign teardown); dimension HNSW index will be rebuilt by scheduled maintenance',
+      payload
+    );
+    return;
+  }
+  logger.warn('Dimension HNSW index remains suspended after failed embedding backfill', payload);
 }
 
 async function countPendingEmbeddingSetJobs(
@@ -1222,7 +1241,7 @@ export async function enqueueEmbeddingBackfill(
         ));
         throw error;
       }
-      logger.warn('Dimension HNSW index remains suspended after failed embedding backfill', {
+      logSuspendedDimensionIndexAfterBackfillError(error, {
         dimension: metadata.expectedDimension,
         embeddingSetId,
         error: error instanceof Error ? error.message : String(error),
