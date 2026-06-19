@@ -6,6 +6,8 @@ import {
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
+  type GlobWorkspaceInput,
+  GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
   type ListEmbeddingSetsInput,
@@ -55,6 +57,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
 import { findSymbolMatches } from './find-workspace-symbol';
+import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
@@ -1900,6 +1903,21 @@ export function buildDesktopAssistantTools(
           return await runGrepSearch(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('grepSearch failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [GLOB_WORKSPACE_TOOL_ID]: {
+      id: GLOB_WORKSPACE_TOOL_ID,
+      description:
+        'Enumerate workspace files by glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Use this to find files by NAME/PATH shape when you do not know their content — complementary to grepSearch (content) and readWorkspaceDirectory (one level). Skips .git/node_modules/build output by default (includeIgnored to override). Results are truncated to a fixed budget — follow the returned hint (offset, narrower pattern) to continue.',
+      inputSchema: GlobWorkspaceInputSchema,
+      execute: async (input: ToolExecuteInput<GlobWorkspaceInput>) => {
+        const resolvedInput = parseToolExecuteInput(GlobWorkspaceInputSchema, input);
+        try {
+          return await runGlobWorkspace(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('globWorkspace failed', { error, input: resolvedInput });
           throw error;
         }
       },

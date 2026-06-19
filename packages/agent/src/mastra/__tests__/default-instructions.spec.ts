@@ -35,6 +35,24 @@ describe('default assistant instructions', () => {
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
 
+  it('advertises globWorkspace guidance only when the tool is registered', () => {
+    const withGlob = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_globWorkspace', 'brainstrike.globWorkspace']])
+    );
+    expect(withGlob).toContain('brainstrike_globWorkspace');
+    expect(withGlob).toContain('NAME or PATH shape');
+
+    const withoutGlob = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(withoutGlob).not.toContain('globWorkspace');
+
+    const localWithGlob = buildLocalDefaultInstructions(
+      new Map<string, string>([['brainstrike_globWorkspace', 'brainstrike.globWorkspace']])
+    );
+    expect(localWithGlob).toContain('brainstrike_globWorkspace');
+  });
+
   it('keeps the built-in local instruction set compact and tool-name-aware', () => {
     const toolNameMap = new Map<string, string>([
       ['brainstrike_grepSearch', 'brainstrike.grepSearch'],

@@ -625,6 +625,58 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       "'files' mode: matching file paths with per-file match counts. 'content' mode: path, 1-based line, line text, and context lines. Both self-bound to the tool output budget with totals, truncation flags, and a continuation hint",
   },
+
+  'brainstrike.globWorkspace': {
+    toolId: 'brainstrike.globWorkspace',
+    description:
+      'Enumerate workspace files whose workspace-relative path matches a glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Walks the open folder(s) on disk, applying the same exclusions the workspace indexer uses (.git, node_modules, dist/build output, lockfiles, generated/minified artifacts). Read-only.',
+    parameters: [
+      {
+        name: 'pattern',
+        type: 'string',
+        description:
+          'Glob matched against workspace-relative paths. A bare pattern with no leading "**/" or "/" matches at any depth.',
+        required: true,
+        minLength: 1,
+        maxLength: 500,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional folder name or id to scope the walk to one open folder (omit to enumerate all; results are labelled with their root)',
+        required: false,
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Maximum matching paths to return',
+        required: false,
+        default: 200,
+        min: 1,
+        max: 1000,
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        description: 'Skip this many matches to continue a truncated result',
+        required: false,
+        default: 0,
+        min: 0,
+        max: 100_000,
+      },
+      {
+        name: 'includeIgnored',
+        type: 'boolean',
+        description:
+          'Include files normally excluded (.git, node_modules, build output, lockfiles, generated/minified artifacts)',
+        required: false,
+        default: false,
+      },
+    ],
+    returns:
+      'Matching workspace-relative paths (each labelled with its root), self-bound to the tool output budget, with totals, a truncation flag, and a continuation hint',
+  },
 };
 
 /**

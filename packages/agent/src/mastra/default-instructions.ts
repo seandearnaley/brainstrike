@@ -12,6 +12,7 @@ const HARNESS_FRAMING =
 
 const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
+  globWorkspace: 'brainstrike.globWorkspace',
   grepSearch: 'brainstrike.grepSearch',
   listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
@@ -26,6 +27,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
 
 interface ModelFacingToolNames {
   findWorkspaceSymbol: string | null;
+  globWorkspace: string | null;
   grepSearch: string | null;
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
@@ -61,6 +63,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     findWorkspaceSymbol: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.findWorkspaceSymbol
+    ),
+    globWorkspace: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.globWorkspace
     ),
     grepSearch: resolveModelFacingToolName(
       originalToModelFacing,
@@ -125,6 +131,9 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
     names.grepSearch && names.queryEmbeddingSpace
       ? `To look up project code: use ${names.grepSearch} for exact strings or identifiers, and ${names.queryEmbeddingSpace} for conceptual questions.`
       : '';
+  const globLine = names.globWorkspace
+    ? `To find files by name/path pattern (e.g. **/*.test.ts), use ${names.globWorkspace}.`
+    : '';
   const readLine = names.readWorkspaceFile
     ? `Use ${names.readWorkspaceFile} to read a specific file when needed.`
     : '';
@@ -134,6 +143,7 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
     'Answer the user directly and concisely.',
     'Project files are NOT preloaded; only use a tool when the answer needs project context you do not already have.',
     searchLine,
+    globLine,
     readLine,
     'If a tool fails, say so plainly. Only run state-changing tools after the user confirms.',
   ]
@@ -150,6 +160,7 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
 function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const rootQualifiedToolNames = [
     names.grepSearch,
+    names.globWorkspace,
     names.queryEmbeddingSpace,
     names.readWorkspaceFile,
     names.readWorkspaceContext,
@@ -200,15 +211,29 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
   return clauses.join(' ');
 }
 
+/**
+ * Guidance for the file-search tools (grepSearch for content + globWorkspace for
+ * name/path shape). Each clause is emitted only when its tool is registered, so
+ * an unavailable verb is never advertised; combined here to keep the assembler's
+ * complexity low.
+ */
+function buildSearchInstruction(names: ModelFacingToolNames): string {
+  const grepClause = names.grepSearch
+    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
+    : 'Exact-text grep search is unavailable in this run.';
+  const globClause = names.globWorkspace
+    ? `To find files by NAME or PATH shape (e.g. every test file, all package.json, a component's tsx), call ${names.globWorkspace} with a glob like **/*.test.ts or src/**/*.tsx — use this instead of ${names.grepSearch ?? 'content search'} (which searches file CONTENT) and instead of paging readWorkspaceDirectory (which lists ONE level). It skips .git/node_modules/build output by default.`
+    : '';
+  return [grepClause, globClause].filter(Boolean).join(' ');
+}
+
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
     ? `First inspect available selected context, token budgets, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}; pass detail: true only when you need per-file Tapestry ranges.`
     : 'Workspace-selection inspection is unavailable in this run.';
   const multiRootInstruction = buildMultiRootInstruction(names);
-  const grepSearchInstruction = names.grepSearch
-    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
-    : 'Exact-text grep search is unavailable in this run.';
+  const searchInstruction = buildSearchInstruction(names);
   const semanticSearchInstruction =
     names.listEmbeddingSpaces && names.queryEmbeddingSpace
       ? `When you do NOT know the exact wording (concept or behavior questions), call ${names.queryEmbeddingSpace} without embeddingSetId so it uses the Workspace Index. Use ${names.listEmbeddingSpaces} first only when you need coverage details or a specific non-default embedding space.`
@@ -265,7 +290,7 @@ ${HARNESS_FRAMING}
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${grepSearchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction}
+When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction}
 ${multiRootInstruction}
 ${curationInstruction}
 ${selectionLine}
