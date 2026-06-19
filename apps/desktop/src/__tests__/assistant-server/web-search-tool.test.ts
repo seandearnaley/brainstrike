@@ -59,6 +59,25 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('short-circuits a whitespace-only query: no key resolution, no network, non-fatal empty-query result', async () => {
+    const fetchImpl = vi.fn();
+    const resolveApiKey = vi.fn(() => Promise.resolve(SECRET_TAVILY_KEY));
+    const deps: WebSearchToolDependencies = {
+      resolveApiKey,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    };
+
+    // The schema `.min(2)` passes on the raw "   " (length 3), but it trims to "".
+    const result = await runWebSearch({ query: '   ' }, deps);
+
+    expect(result.available).toBe(true);
+    expect(result.error).toBe('Empty search query.');
+    expect(result.results).toEqual([]);
+    // Crucially: NO Tavily credit burned — neither the key nor the network was touched.
+    expect(resolveApiKey).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('resolves the key server-side, sends it as a Bearer header, and never leaks it into the result', async () => {
     const fetchImpl = vi.fn((_, init?: RequestInit) => {
       // The key reaches Tavily via the auth header (server-side only).

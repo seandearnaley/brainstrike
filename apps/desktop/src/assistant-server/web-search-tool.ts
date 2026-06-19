@@ -185,6 +185,24 @@ export async function runWebSearch(
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const timeoutMs = dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // The schema `.min(2)` validates the RAW length, but we trim — so a
+  // whitespace-only query (e.g. "   ") passes validation yet becomes empty
+  // here. Short-circuit BEFORE resolving the key or touching the network so a
+  // no-op query never burns a Tavily quota credit. Non-fatal (the run
+  // continues): the model just gets told to issue a real query.
+  if (query.length === 0) {
+    logger.info('webSearch requested with an empty query; skipping network call');
+    return {
+      available: true,
+      query,
+      error: 'Empty search query.',
+      results: [],
+      count: 0,
+      totalResults: 0,
+      truncated: false,
+    };
+  }
+
   const apiKey = await resolveApiKey();
   if (!apiKey) {
     logger.info('webSearch requested without a configured Tavily key', { query });
