@@ -137,7 +137,57 @@ function tryExactMatch(
   return { newContent, matchType: 'exact', startLine };
 }
 
-/** Phase 2: whitespace-normalized match (only difference is whitespace). */
+interface NormalizedWindow {
+  end: number;
+  start: number;
+}
+
+/**
+ * Locate every DISTINCT, non-overlapping line window whose whitespace-normalized
+ * form equals `normalizedOldStr`. Used both to apply the single-match edit AND
+ * to detect ambiguity: the exact guard counts EXACT occurrences, so when a block
+ * matches only AFTER whitespace normalization it sees 0 — without this the
+ * normalized branch would silently edit the FIRST of several matching locations
+ * (a wrong-location edit). Matches advance past their window so the same span is
+ * never counted twice.
+ */
+function findNormalizedWindows(
+  lines: readonly string[],
+  normalizedOldStr: string,
+  normalizeWhitespace: (str: string) => string,
+  maxWindow: number
+): NormalizedWindow[] {
+  const windows: NormalizedWindow[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    let matched: NormalizedWindow | undefined;
+    for (let j = i; j <= Math.min(i + maxWindow, lines.length - 1); j += 1) {
+      const candidate = lines.slice(i, j + 1).join('\n');
+      if (normalizeWhitespace(candidate) === normalizedOldStr) {
+        matched = { start: i, end: j };
+        break;
+      }
+    }
+    if (matched) {
+      windows.push(matched);
+      // Advance past the matched window so overlapping spans of the SAME match
+      // are never double-counted as distinct locations.
+      i = matched.end + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return windows;
+}
+
+/**
+ * Phase 2: whitespace-normalized match (only difference is whitespace).
+ *
+ * AMBIGUITY GUARD: if the normalized old_str matches MORE THAN ONE location, the
+ * edit is ambiguous and silently editing the first would corrupt code — THROW
+ * 'ambiguous' (consistent with the exact and single-line fuzzy guards), demanding
+ * surrounding context. Applies the edit only when exactly one window matches.
+ */
 function tryWhitespaceNormalizedMatch(
   fileContent: string,
   oldStr: string,
@@ -151,24 +201,21 @@ function tryWhitespaceNormalizedMatch(
   }
 
   const lines = fileContent.split('\n');
-  let bestMatch = { start: -1, end: -1 };
   const originalOldLineCount = oldStr.split('\n').length;
   const maxWindow = originalOldLineCount + 5;
-  for (let i = 0; i < lines.length; i += 1) {
-    for (let j = i; j <= Math.min(i + maxWindow, lines.length - 1); j += 1) {
-      const candidate = lines.slice(i, j + 1).join('\n');
-      if (normalizeWhitespace(candidate) === normalizedOldStr) {
-        bestMatch = { start: i, end: j };
-        break;
-      }
-    }
-    if (bestMatch.start !== -1) {
-      break;
-    }
-  }
-  if (bestMatch.start === -1) {
+  const windows = findNormalizedWindows(lines, normalizedOldStr, normalizeWhitespace, maxWindow);
+  const bestMatch = windows[0];
+  if (!bestMatch) {
     return;
   }
+  if (windows.length > 1) {
+    const matchLines = windows.map((window) => window.start + 1).join(', ');
+    throw new StringReplaceError(
+      'ambiguous',
+      `old_str matches ${windows.length} locations after whitespace normalization (near lines ${matchLines}), but only one block can be edited. Add surrounding lines to old_str so it uniquely identifies one location, then retry.`
+    );
+  }
+
   const beforeLines = lines.slice(0, bestMatch.start);
   const afterLines = lines.slice(bestMatch.end + 1);
   const newContent = [...beforeLines, newStr, ...afterLines].join('\n');

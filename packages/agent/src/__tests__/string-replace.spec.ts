@@ -53,6 +53,51 @@ describe('applyStringReplace — whitespace-normalized match', () => {
   });
 });
 
+describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-location-edit fix)', () => {
+  // Regression: the exact guard counts EXACT occurrences, so an old_str that
+  // matches only AFTER whitespace normalization sees 0 and the guard never
+  // fires. The whitespace-normalized branch then picked the FIRST window
+  // silently — a wrong-location edit when the normalized block occurs more than
+  // once. The branch now counts normalize-matching windows and refuses >1,
+  // consistent with the exact and single-line fuzzy guards.
+
+  it('THROWS ambiguous when old_str matches >1 location ONLY after whitespace normalization (writes nothing)', () => {
+    // Two identical statements, one tab-indented and one space-indented; old_str
+    // uses a DOUBLE space so it is not an exact substring of either line (the
+    // exact guard sees 0), yet normalizes equal to BOTH.
+    const fileContent = ['function f() {', '\treturn x;', '    return x;', '}'].join('\n');
+    let thrown: unknown;
+    try {
+      applyStringReplace({ fileContent, oldStr: 'return  x;', newStr: 'return y;' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(StringReplaceError);
+    const typed = thrown as StringReplaceError;
+    expect(typed.reason).toBe('ambiguous');
+    expect(typed.message).toMatch(/normaliz/i);
+    expect(typed.message).toContain('surrounding');
+    // The message reports the colliding line numbers (lines 2 and 3).
+    expect(typed.message).toMatch(/2, 3/);
+  });
+
+  it('applies the edit when exactly ONE location matches after whitespace normalization', () => {
+    // Only the tab-indented statement matches the double-spaced old_str's
+    // normalized form; the other line is genuinely different.
+    const fileContent = ['function f() {', '\treturn x;', '    return other;', '}'].join('\n');
+    const result = applyStringReplace({
+      fileContent,
+      oldStr: 'return  x;',
+      newStr: 'return y;',
+    });
+    expect(result.matchType).toBe('whitespace-normalized');
+    expect(result.newContent).toContain('return y;');
+    expect(result.newContent).toContain('return other;');
+    // The unique match was edited; the distinct line is untouched.
+    expect(result.newContent).not.toContain('return x;');
+  });
+});
+
 describe('applyStringReplace — Levenshtein-fuzzy match', () => {
   it('applies a close (non-exact) multi-line match within tolerance', () => {
     // old_str has a tiny typo on the second line ("return" vs "return") that

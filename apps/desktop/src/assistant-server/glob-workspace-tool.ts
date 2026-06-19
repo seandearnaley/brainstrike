@@ -43,9 +43,24 @@ export interface GlobWorkspaceToolResult {
  * leading `**​/` or `/`) is treated as recursive so `*.test.ts` matches at any
  * depth (via `processFilter`). Matches against workspace-relative paths WITHOUT
  * a leading slash (e.g. `src/main.ts`).
+ *
+ * A leading `/` is a workspace-root anchor, not a filesystem-absolute path:
+ * other workspace tools surface rooted paths like `/src/main.ts`, so a rooted
+ * glob such as `/src/**​/*.ts` is natural. We strip that leading slash (a
+ * negation prefix `!` is preserved) BEFORE `processFilter` so the rooted form
+ * compiles to the SAME matcher as the unrooted `src/**​/*.ts` — matching against
+ * the slash-less relative paths the walk produces. Without this, rooted
+ * patterns match nothing.
  */
+function stripRootAnchor(pattern: string): string {
+  if (pattern.startsWith('!')) {
+    return `!${stripRootAnchor(pattern.slice(1))}`;
+  }
+  return pattern.startsWith('/') ? pattern.slice(1) : pattern;
+}
+
 function compilePatternMatcher(pattern: string): Minimatch {
-  return new Minimatch(processFilter(pattern), { dot: true });
+  return new Minimatch(processFilter(stripRootAnchor(pattern)), { dot: true });
 }
 
 interface RootWalkState {
@@ -80,17 +95,29 @@ async function walkRoot(args: {
   return { matches, scanLimited };
 }
 
-function buildResult(
-  allMatches: readonly GlobWorkspaceMatch[],
-  offset: number,
-  scanLimited: boolean
-): GlobWorkspaceToolResult {
-  const pagedMatches = allMatches.slice(offset);
+function buildResult(args: {
+  /** The match window to page over (already capped to `offset + limit`). */
+  windowMatches: readonly GlobWorkspaceMatch[];
+  /**
+   * The TRUE pre-limit total across all walked roots. Distinct from
+   * `windowMatches.length` (which the user-facing `limit` may have capped), so
+   * the hint's "of N" count and `totalMatches` always report the real total —
+   * never the window size — and the model never under-pages.
+   */
+  totalMatches: number;
+  offset: number;
+  scanLimited: boolean;
+}): GlobWorkspaceToolResult {
+  const { windowMatches, totalMatches, offset, scanLimited } = args;
+  const pagedMatches = windowMatches.slice(offset);
   // The hint is built INSIDE the fitted candidate so it can never push the
   // serialized result back over the budget.
   const { result } = fitItemsToCharBudget(pagedMatches, (matches): GlobWorkspaceToolResult => {
-    const droppedByBudget = offset + matches.length < allMatches.length;
-    const truncated = droppedByBudget || scanLimited;
+    // More matches exist than this page surfaced — either the budget trimmed
+    // the window, or the `limit` capped it below the true total. Either way the
+    // model can page forward, so this gates the "Continue with offset" hint.
+    const moreThanPaged = offset + matches.length < totalMatches;
+    const truncated = moreThanPaged || scanLimited;
     // A continuation hint must always ADVANCE: if even one match cannot fit the
     // budget, skip past it rather than re-suggesting the same offset.
     const nextOffset =
@@ -99,14 +126,14 @@ function buildResult(
       ? ' The walk hit its file-visit cap, so more matches may exist; narrow the pattern (e.g. a specific subdirectory) to reach them.'
       : '';
     const hint = truncated
-      ? `Showing matches ${offset + 1}-${offset + matches.length} of ${allMatches.length}${scanLimited ? '+' : ''}.` +
+      ? `Showing matches ${offset + 1}-${offset + matches.length} of ${totalMatches}${scanLimited ? '+' : ''}.` +
         `${scanNote}` +
-        (droppedByBudget ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
+        (moreThanPaged ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
       : undefined;
     return {
       matches,
       count: matches.length,
-      totalMatches: allMatches.length,
+      totalMatches,
       offset,
       truncated,
       scanLimited,
@@ -151,18 +178,14 @@ export async function runGlobWorkspace(
 
   // Apply the user-facing `limit` (number of matches to surface) before the
   // token-budget fit, so offset+limit paging is meaningful and the budget fit
-  // only trims further when even `limit` rows would overflow.
+  // only trims further when even `limit` rows would overflow. The TRUE pre-limit
+  // total is threaded through so the hint/`totalMatches` report the real total,
+  // not the capped window size.
   const limited = allMatches.slice(0, offset + limit);
-  const limitTruncated = allMatches.length > offset + limit;
-  const result = buildResult(limited, offset, scanLimited);
-  if (limitTruncated && !result.truncated) {
-    const nextOffset = result.offset + result.count;
-    return {
-      ...result,
-      totalMatches: allMatches.length,
-      truncated: true,
-      hint: `Showing matches ${offset + 1}-${offset + result.count} of ${allMatches.length}. Continue with offset: ${nextOffset}, or narrow the pattern.`,
-    };
-  }
-  return { ...result, totalMatches: allMatches.length };
+  return buildResult({
+    windowMatches: limited,
+    totalMatches: allMatches.length,
+    offset,
+    scanLimited,
+  });
 }

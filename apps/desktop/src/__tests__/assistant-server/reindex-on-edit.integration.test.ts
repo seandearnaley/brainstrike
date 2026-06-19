@@ -274,6 +274,102 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     expect(onDisk).toBe(expected);
   });
 
+  it('serializes the write AND the re-index of two concurrent same-file edits (no interleave)', async () => {
+    await fsPromises.mkdir(path.join(rootPath, 'src'), { recursive: true });
+    // Two non-overlapping anchors so each edit matches a UNIQUE location.
+    const original = 'export const alpha = 1;\nexport const beta = 2;\n';
+    await fsPromises.writeFile(path.join(rootPath, 'src', 'indexed.ts'), original, 'utf8');
+    await seedIndexedFile(original);
+
+    // Gate the FIRST re-index transaction open. While it is held, the OTHER
+    // edit's WRITE must NOT land on disk — proving the write+reindex run as one
+    // critical section under the per-file lock. If the re-index ran OUTSIDE the
+    // lock, the first edit would release the lock after its write and the second
+    // edit's write would flush while this transaction is still gated.
+    //
+    // The two edits race through `resolveWorkspaceWritePath` before requesting
+    // the lock, so WHICH edit acquires the lock first is non-deterministic — the
+    // assertions below are therefore order-agnostic (exactly ONE of the two
+    // edits is applied mid-flight, never both).
+    let releaseFirstTxn: (() => void) | undefined;
+    const firstTxnGate = new Promise<void>((resolve) => {
+      releaseFirstTxn = resolve;
+    });
+    let firstTxnEnteredResolve: (() => void) | undefined;
+    const firstTxnEntered = new Promise<void>((resolve) => {
+      firstTxnEnteredResolve = resolve;
+    });
+    let txnCount = 0;
+    const gatedDb = {
+      query: db.query.bind(db),
+      transaction: async <TResult>(fn: (tx: unknown) => Promise<TResult>): Promise<TResult> => {
+        txnCount += 1;
+        if (txnCount === 1) {
+          firstTxnEnteredResolve?.();
+          await firstTxnGate;
+        }
+        return db.transaction(fn as never) as Promise<TResult>;
+      },
+    };
+    dbHolder.db = gatedDb;
+
+    const tools = buildDesktopAssistantTools(runtime());
+    const replaceTool = tools['brainstrike.stringReplaceWorkspaceFile'];
+
+    const editAlpha = replaceTool?.execute?.({
+      path: `/${INDEXED_REL_PATH}`,
+      oldStr: 'export const alpha = 1;',
+      newStr: 'export const alpha = 111;',
+    }) as Promise<{ replaced: boolean }>;
+    const editBeta = replaceTool?.execute?.({
+      path: `/${INDEXED_REL_PATH}`,
+      oldStr: 'export const beta = 2;',
+      newStr: 'export const beta = 222;',
+    }) as Promise<{ replaced: boolean }>;
+
+    // Wait until the FIRST edit's re-index transaction is in flight (so its write
+    // already landed), then give the OTHER edit a generous window to acquire the
+    // lock and write IF it could. With the re-index INSIDE the lock, the first
+    // edit still holds the lock through its (gated) re-index, so the second stays
+    // blocked and its write never lands here. With the re-index OUTSIDE the lock
+    // (the bug), the second edit's write flushes within this window.
+    await firstTxnEntered;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const midFlight = await fsPromises.readFile(path.join(rootPath, 'src', 'indexed.ts'), 'utf8');
+
+    const alphaEdited = midFlight.includes('export const alpha = 111;');
+    const betaEdited = midFlight.includes('export const beta = 222;');
+    // EXACTLY ONE edit is applied mid-flight; the second is blocked on the lock.
+    expect(alphaEdited !== betaEdited).toBe(true);
+    if (alphaEdited) {
+      // Alpha's edit acquired the lock first; beta's write must NOT have landed.
+      expect(midFlight).toContain('export const beta = 2;');
+    } else {
+      // Beta's edit acquired the lock first; alpha's write must NOT have landed.
+      expect(midFlight).toContain('export const alpha = 1;');
+    }
+
+    // Release the gated re-index; both edits now drain.
+    releaseFirstTxn?.();
+    const [resultAlpha, resultBeta] = await Promise.all([editAlpha, editBeta]);
+    expect(resultAlpha?.replaced).toBe(true);
+    expect(resultBeta?.replaced).toBe(true);
+
+    // Both writes applied, with no lost update (independent of which ran first).
+    const expected = 'export const alpha = 111;\nexport const beta = 222;\n';
+    const onDisk = await fsPromises.readFile(path.join(rootPath, 'src', 'indexed.ts'), 'utf8');
+    expect(onDisk).toBe(expected);
+
+    // The indexed row is coherent with the final on-disk bytes (no stale row).
+    const record = await readFileRecord(FILE_RECORD_ID);
+    expect(record?.content).toBe(expected);
+    expect(record?.content_hash).not.toBe('stale-content-hash');
+    expect(record?.chunks_processed_at).toBeNull();
+
+    // Restore the un-gated handle for afterEach cleanup.
+    dbHolder.db = db;
+  });
+
   it('no-ops when indexing is disabled (no workspace index embedding set)', async () => {
     await fsPromises.mkdir(path.join(rootPath, 'src'), { recursive: true });
     const original = 'const a = 1;\n';
