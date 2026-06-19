@@ -38,6 +38,7 @@ import {
 } from './default-instructions';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
+import { filterToolsByPermission, type PermissionToolGateSnapshot } from './permission-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
@@ -56,6 +57,13 @@ export interface MastraAgentRuntimeOptions {
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
   model?: string;
+  /**
+   * Serializable permission posture + tool risk classification used to gate the
+   * tool map before the Agent is built. Overrides `runtime.permissionPolicy`
+   * when both are present. OPTIONAL — when neither is set the tool map is
+   * unchanged (production-default).
+   */
+  permissionPolicy?: PermissionToolGateSnapshot;
   requireToolApproval?: boolean;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
@@ -183,6 +191,7 @@ export async function createMastraAgentRuntime(
     mcpConfig,
     tools: localTools,
     mcpTimeoutMs,
+    permissionPolicy,
     resolved,
     memory,
     storage,
@@ -224,6 +233,17 @@ export async function createMastraAgentRuntime(
     timeoutMs: resilienceConfig.toolTimeoutMs,
   });
 
+  // Permission gate: filter the tool map by the user's policy BEFORE the Agent
+  // is constructed (the Agent is immutable after `new Agent`). 'deny'/'ask'
+  // omit the tool from the map the model sees; 'ask' is fail-safe-omitted (never
+  // silently run — Mastra v1 has no per-tool suspend). When no policy is threaded
+  // the map is returned unchanged (production-default). An explicit
+  // `options.permissionPolicy` wins over one carried on the runtime data.
+  // NOTE: this is wholly independent of the global `requireToolApproval` /
+  // suspend-resume path below, which is left untouched.
+  const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
+  const gatedTools = filterToolsByPermission(guardedTools, permissionSnapshot, toolNameMap, logger);
+
   // Create provider-specific model instance
   const modelName = model ?? getDefaultModel(normalizedProvider);
   const languageModel = instantiateLanguageModel(
@@ -248,7 +268,7 @@ export async function createMastraAgentRuntime(
     name: 'Brainstrike Assistant',
     instructions: budgetNote ? `${resolvedInstructions}\n${budgetNote}` : resolvedInstructions,
     model: languageModel,
-    tools: guardedTools,
+    tools: gatedTools,
     ...(memory ? { memory } : {}),
   });
 
