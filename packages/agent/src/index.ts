@@ -365,6 +365,8 @@ export {
   type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type ExecuteCommandInput,
+  ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   type GlobWorkspaceInput,

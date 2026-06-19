@@ -11,6 +11,7 @@ const HARNESS_FRAMING =
   'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
 
 const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
+  executeCommand: 'brainstrike.executeCommand',
   findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
   globWorkspace: 'brainstrike.globWorkspace',
   grepSearch: 'brainstrike.grepSearch',
@@ -26,6 +27,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
 } as const;
 
 interface ModelFacingToolNames {
+  executeCommand: string | null;
   findWorkspaceSymbol: string | null;
   globWorkspace: string | null;
   grepSearch: string | null;
@@ -60,6 +62,10 @@ function resolveModelFacingToolName(
 function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): ModelFacingToolNames {
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
+    executeCommand: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.executeCommand
+    ),
     findWorkspaceSymbol: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.findWorkspaceSymbol
@@ -167,6 +173,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.findWorkspaceSymbol,
     names.writeWorkspaceFile,
     names.stringReplaceWorkspaceFile,
+    names.executeCommand,
   ].filter((name): name is string => Boolean(name));
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
     return '';
@@ -227,6 +234,19 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
   return [grepClause, globClause].filter(Boolean).join(' ');
 }
 
+/**
+ * Guidance for the shell execution tool. Emitted only when the tool is
+ * registered (which happens only when the user has enabled permission
+ * enforcement), so an unavailable verb is never advertised. The wording is
+ * honest: there is NO sandbox and no interactive approval prompt yet.
+ */
+function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
+  if (!names.executeCommand) {
+    return '';
+  }
+  return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox: it can read or change anything the user can, and it runs immediately when you call it (there is no approval prompt). The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asked for that exact action.`;
+}
+
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
@@ -245,6 +265,7 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
         ? `Use ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond retrieved source line ranges.`
         : 'Workspace file reading is unavailable in this run.';
   const writeInstruction = buildWriteInstruction(names);
+  const executeCommandInstruction = buildExecuteCommandInstruction(names);
   const curationInstruction =
     names.queryEmbeddingSpace &&
     names.updateWorkspaceContextSelection &&
@@ -290,7 +311,7 @@ ${HARNESS_FRAMING}
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction}
+When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction}
 ${multiRootInstruction}
 ${curationInstruction}
 ${selectionLine}
