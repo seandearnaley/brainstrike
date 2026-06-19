@@ -10,6 +10,7 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
+import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -43,27 +44,28 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  */
 export default function RootLayoutContent() {
   const navigationConfig = navigationItems as NavigationItem[];
-  const loadEmbeddingQueue = useCallback(
-    () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
-    []
-  );
+  const loadEmbeddingQueue = useCallback(async () => getEmbeddingQueue(), []);
   const loadLocalLlmBackend = useCallback(async () => {
     const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
     return new LocalLlmBackend();
   }, []);
 
   useEffect(() => {
+    let errorTimer: ReturnType<typeof setTimeout> | null = null;
     void Promise.all([
-      import('../create-embedding-queue').then((module) => {
-        module.registerWebEmbeddingRuntimeConfig();
-      }),
+      Promise.resolve(registerWebEmbeddingRuntimeConfig()),
       ensureBackgroundIndexingPreferencesHydrated(),
       ensureVectorPreferencesHydrated(),
     ]).catch((error: unknown) => {
-      setTimeout(() => {
+      errorTimer = setTimeout(() => {
         throw error;
       }, 0);
     });
+    return () => {
+      if (errorTimer) {
+        clearTimeout(errorTimer);
+      }
+    };
   }, []);
 
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through

@@ -1159,6 +1159,7 @@ export function WorkspaceCollectionSyncProvider({
   const syncLoopDebugRef = useRef<Record<string, unknown>>({ state: 'not-started' });
   const syncLoopActiveRef = useRef(false);
   const pendingSyncScopeRef = useRef<TriggerSyncScope | null>(null);
+  const replayPendingSyncRef = useRef<(scope: TriggerSyncScope) => void>(() => {});
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -1730,6 +1731,7 @@ export function WorkspaceCollectionSyncProvider({
         };
 
         for (const [targetIndex, target] of syncableTargets.entries()) {
+          const targetPath = target.handle.path;
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
           if (syncLoopGenerationRef.current !== myGeneration) {
             syncLoopDebugRef.current = {
@@ -1742,7 +1744,7 @@ export function WorkspaceCollectionSyncProvider({
           }
           syncLoopDebugRef.current = {
             ...syncLoopDebugRef.current,
-            activeTargetPath: target.handle.path,
+            activeTargetPath: targetPath,
             generation: myGeneration,
             state: 'service-sync-started',
             updatedAt: new Date().toISOString(),
@@ -1764,7 +1766,7 @@ export function WorkspaceCollectionSyncProvider({
             .catch((error) => {
               syncLoopDebugRef.current = {
                 ...syncLoopDebugRef.current,
-                activeTargetPath: target.handle.path,
+                activeTargetPath: targetPath,
                 error: error instanceof Error ? error.message : String(error),
                 generation: myGeneration,
                 state: 'service-sync-error',
@@ -1774,8 +1776,8 @@ export function WorkspaceCollectionSyncProvider({
             });
           syncLoopDebugRef.current = {
             ...syncLoopDebugRef.current,
-            activeTargetPath: target.handle.path,
-            completedTargetPath: target.handle.path,
+            activeTargetPath: targetPath,
+            completedTargetPath: targetPath,
             generation: myGeneration,
             state: 'service-sync-completed',
             updatedAt: new Date().toISOString(),
@@ -1799,7 +1801,7 @@ export function WorkspaceCollectionSyncProvider({
           const pendingScope = pendingSyncScopeRef.current;
           pendingSyncScopeRef.current = null;
           if (pendingScope) {
-            triggerSync(pendingScope);
+            replayPendingSyncRef.current(pendingScope);
           }
         });
     },
@@ -1821,6 +1823,14 @@ export function WorkspaceCollectionSyncProvider({
       triggerWorkspaceIndexBootstrap,
     ]
   );
+  useEffect(() => {
+    replayPendingSyncRef.current = (scope: TriggerSyncScope) => {
+      triggerSync(scope);
+    };
+    return () => {
+      replayPendingSyncRef.current = () => {};
+    };
+  }, [triggerSync]);
   const triggerSyncFromEvent = useEffectEvent(triggerSync);
 
   useEffect(() => {
