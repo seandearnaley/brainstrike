@@ -16,6 +16,12 @@ export {
 } from './tool-categories.js';
 export { TOOL_DESCRIPTIONS } from './tool-descriptions.js';
 export {
+  resolveToolRiskCategory,
+  type ToolRiskCategory,
+  type ToolRiskMetadata,
+  UndeterminableToolRiskError,
+} from './tool-risk.js';
+export {
   generateExampleInput,
   getToolSchemaDisplay,
   NATIVE_TOOL_SCHEMAS,
