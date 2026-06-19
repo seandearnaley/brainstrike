@@ -281,6 +281,44 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
     });
   });
 
+  it('downgrades foreground database pressure to gentle constrained work under the starvation bypass', () => {
+    const policy = resolve({
+      dbPressure: {
+        available: true,
+        foregroundPressure: true,
+        normalPressure: false,
+      },
+      foregroundDbPressureStarvationBypass: true,
+    });
+
+    // A sync pass starved beyond the bound must make progress, but gently.
+    expect(policy).toMatchObject({
+      allowNewWork: true,
+      reason: 'foreground-db-pressure',
+      state: 'system-constrained',
+    });
+  });
+
+  it('still fully yields to an active foreground query even when the starvation bypass is set', () => {
+    const policy = resolve({
+      dbPressure: {
+        available: true,
+        foregroundPressure: true,
+        normalPressure: false,
+      },
+      foregroundDbPressureStarvationBypass: true,
+      foregroundQueryActive: true,
+    });
+
+    // The bypass only relaxes DB pressure; genuine foreground-query activity
+    // (the user is waiting on the assistant) must keep blocking new work.
+    expect(policy).toMatchObject({
+      allowNewWork: false,
+      reason: 'foreground-query',
+      state: 'foreground-yielding',
+    });
+  });
+
   it('throws when the required DB pressure snapshot is missing', () => {
     expect(() =>
       resolve({
