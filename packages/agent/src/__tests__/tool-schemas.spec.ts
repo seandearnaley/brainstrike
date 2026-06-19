@@ -90,6 +90,34 @@ describe('tool schemas', () => {
     expect(workspaceIndexOnly?.type).toBe('boolean');
   });
 
+  it('validates globWorkspace input and rejects unknown fields (strict)', () => {
+    expect(validateToolInput('brainstrike.globWorkspace', { pattern: '**/*.ts' }).ok).toBe(true);
+    expect(
+      validateToolInput('brainstrike.globWorkspace', {
+        pattern: 'src/**',
+        root: 'app',
+        limit: 50,
+        offset: 0,
+        includeIgnored: true,
+      }).ok
+    ).toBe(true);
+    // Missing required pattern → invalid.
+    expect(validateToolInput('brainstrike.globWorkspace', {}).ok).toBe(false);
+    // Unknown field → rejected by .strict().
+    expect(
+      validateToolInput('brainstrike.globWorkspace', { pattern: '*.ts', bogus: true }).ok
+    ).toBe(false);
+  });
+
+  it('documents globWorkspace in schema display metadata', () => {
+    const display = getToolSchemaDisplay('brainstrike.globWorkspace');
+    expect(display).toBeDefined();
+    expect(display?.parameters.find((param) => param.name === 'pattern')?.required).toBe(true);
+    expect(display?.parameters.find((param) => param.name === 'includeIgnored')?.type).toBe(
+      'boolean'
+    );
+  });
+
   it('documents context curation tools in schema display metadata', () => {
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();

@@ -519,6 +519,46 @@ export const GrepSearchInputSchema = z
 
 export type GrepSearchInput = z.infer<typeof GrepSearchInputSchema>;
 
+export const GlobWorkspaceInputSchema = z
+  .object({
+    pattern: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe(
+        'Glob pattern matched against workspace-relative paths, e.g. "**/*.test.ts", "src/**/*.tsx", "**/package.json". A bare pattern with no leading "**/" or "/" matches at any depth (so "*.ts" behaves like "**/*.ts").'
+      ),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: scope the walk to one open folder by its name or id (from listWorkspaceContext or a result). Omit to enumerate every open folder; results are always labelled with their root.'
+      ),
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(1000)
+      .optional()
+      .describe('Maximum matching paths to return (default 200)'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(100_000)
+      .optional()
+      .describe('Skip this many matches to continue a truncated result instead of re-querying'),
+    includeIgnored: z
+      .boolean()
+      .optional()
+      .describe(
+        'Include files normally excluded (.git, node_modules, dist/build output, lockfiles, minified/generated artifacts). Default false: the same exclusions the workspace indexer applies.'
+      ),
+  })
+  .strict();
+
+export type GlobWorkspaceInput = z.infer<typeof GlobWorkspaceInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
   'web.echo': EchoInput,
@@ -535,6 +575,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.grepSearch': GrepSearchInputSchema,
+  'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

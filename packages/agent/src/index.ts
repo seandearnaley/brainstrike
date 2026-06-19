@@ -367,6 +367,8 @@ export {
 export {
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
+  type GlobWorkspaceInput,
+  GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
   type ListEmbeddingSetsInput,
