@@ -1,26 +1,13 @@
-import fsPromises from 'node:fs/promises';
-import path from 'node:path';
 import type { GlobWorkspaceInput, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { fitItemsToCharBudget } from '@brainstrike/agent';
-import { createBackgroundIndexingEntryPolicy, processFilter } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
+import { processFilter } from '@brainstrike/utils';
 import { Minimatch } from 'minimatch';
-import { isWithinRoot } from './workspace-path';
+import { walkWorkspaceRoot } from './workspace-file-walk';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
-
-const logger = createLogger('AssistantGlobWorkspaceTool');
 
 export const GLOB_WORKSPACE_TOOL_ID = 'brainstrike.globWorkspace' as const;
 
 const DEFAULT_LIMIT = 200;
-/**
- * Hard ceiling on files visited per root, independent of `limit`. A glob with no
- * literal prefix (e.g. `**`) would otherwise enumerate an entire (large) root;
- * this bounds the walk so the tool stays responsive on the main process and
- * surfaces `scanLimited` instead of blocking. Generous enough to find every
- * real match in normal source trees.
- */
-const MAX_FILES_SCANNED_PER_ROOT = 50_000;
 
 /** A single matched file, labelled with its owning workspace root. */
 export interface GlobWorkspaceMatch {
@@ -62,181 +49,35 @@ function compilePatternMatcher(pattern: string): Minimatch {
 }
 
 interface RootWalkState {
-  filesScanned: number;
   matches: GlobWorkspaceMatch[];
   scanLimited: boolean;
 }
 
-type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
-
-interface RootWalkContext {
-  canonicalRootPath: string;
-  includeIgnored: boolean;
-  matcher: Minimatch;
-  policy: IndexingEntryPolicy;
-  root: RuntimeWorkspaceRoot;
-  state: RootWalkState;
-}
-
 /**
- * Record a regular file as a match when its workspace-relative path matches the
- * glob and (unless `includeIgnored`) the indexer ignore policy keeps it. Counts
- * every visited file against the per-root scan cap so an unbounded pattern can
- * never enumerate a giant root indefinitely.
- */
-function recordFileIfMatch(ctx: RootWalkContext, name: string, childRelative: string): void {
-  if (ctx.state.filesScanned >= MAX_FILES_SCANNED_PER_ROOT) {
-    ctx.state.scanLimited = true;
-    return;
-  }
-  ctx.state.filesScanned += 1;
-  if (
-    !(
-      ctx.includeIgnored ||
-      ctx.policy.shouldIncludeFile({
-        fileName: name,
-        fileSize: undefined,
-        relativePath: childRelative,
-      })
-    )
-  ) {
-    return;
-  }
-  if (!ctx.matcher.match(childRelative)) {
-    return;
-  }
-  ctx.state.matches.push({
-    path: `/${childRelative}`,
-    rootId: ctx.root.rootId,
-    rootName: ctx.root.displayName,
-  });
-}
-
-/**
- * Resolve a symlink entry: accept it only when its realpath target is a regular
- * file inside the canonical root. A symlink whose target escapes the root, or
- * resolves to a directory, is dropped — never traversed — so the walk can never
- * leave the workspace (mirrors the read/write tools' symlink discipline).
- */
-async function processSymlinkEntry(
-  ctx: RootWalkContext,
-  name: string,
-  childAbsolute: string,
-  childRelative: string
-): Promise<void> {
-  let canonicalTarget: string;
-  let targetStat: import('node:fs').Stats;
-  try {
-    canonicalTarget = await fsPromises.realpath(childAbsolute);
-    targetStat = await fsPromises.stat(childAbsolute);
-  } catch {
-    return;
-  }
-  if (!(isWithinRoot(ctx.canonicalRootPath, canonicalTarget) && targetStat.isFile())) {
-    return;
-  }
-  recordFileIfMatch(ctx, name, childRelative);
-}
-
-async function visitDirectory(
-  ctx: RootWalkContext,
-  currentAbsolutePath: string,
-  relativePosix: string
-): Promise<void> {
-  if (ctx.state.scanLimited) {
-    return;
-  }
-
-  let dirEntries: import('node:fs').Dirent[];
-  try {
-    dirEntries = await fsPromises.readdir(currentAbsolutePath, { withFileTypes: true });
-  } catch (error) {
-    logger.debug('globWorkspace: unreadable directory skipped', { path: relativePosix, error });
-    return;
-  }
-
-  for (const dirent of dirEntries) {
-    if (ctx.state.scanLimited) {
-      return;
-    }
-    const childRelative =
-      relativePosix.length === 0 ? dirent.name : `${relativePosix}/${dirent.name}`;
-    const childAbsolute = path.join(currentAbsolutePath, dirent.name);
-
-    if (dirent.isDirectory()) {
-      // .git is never descended into even with includeIgnored (huge, opaque,
-      // never useful as source); other exclusions defer to the indexer policy.
-      if (dirent.name === '.git') {
-        continue;
-      }
-      if (
-        !(
-          ctx.includeIgnored ||
-          ctx.policy.shouldTraverseDirectory({
-            directoryName: dirent.name,
-            relativePath: childRelative,
-          })
-        )
-      ) {
-        continue;
-      }
-      await visitDirectory(ctx, childAbsolute, childRelative);
-      continue;
-    }
-
-    if (dirent.isSymbolicLink()) {
-      await processSymlinkEntry(ctx, dirent.name, childAbsolute, childRelative);
-      continue;
-    }
-
-    if (dirent.isFile()) {
-      recordFileIfMatch(ctx, dirent.name, childRelative);
-    }
-  }
-}
-
-/**
- * Walk one workspace root, collecting files whose workspace-relative path
- * matches `matcher`. Reuses the canonical workspace-indexer ignore policy
- * (`createBackgroundIndexingEntryPolicy`) for directory/file exclusions so glob
- * skips exactly what the indexer skips (.git, node_modules, dist/build output,
- * lockfiles, generated/minified artifacts) unless `includeIgnored` is set.
- *
- * Symlink discipline mirrors the read/write tools: symlinked directories are
- * never traversed (so the walk can never escape the root), and every matched
- * regular file is realpath-containment-checked before it is returned — a
- * symlink whose target lives outside the canonical root is dropped.
+ * Walk one workspace root via the shared {@link walkWorkspaceRoot} (canonical
+ * indexer ignore policy + symlink/containment discipline + the per-root scan
+ * cap), keeping files whose workspace-relative path matches the glob.
  */
 async function walkRoot(args: {
   root: RuntimeWorkspaceRoot;
   matcher: Minimatch;
   includeIgnored: boolean;
 }): Promise<RootWalkState> {
-  const state: RootWalkState = { matches: [], filesScanned: 0, scanLimited: false };
-
-  let canonicalRootPath: string;
-  try {
-    canonicalRootPath = await fsPromises.realpath(args.root.path);
-  } catch (error) {
-    // A root that no longer exists on disk yields zero matches for that root,
-    // logged rather than failing the whole multi-root walk.
-    logger.warn('globWorkspace: workspace root is not accessible', {
-      rootId: args.root.rootId,
-      error,
-    });
-    return state;
-  }
-
-  const ctx: RootWalkContext = {
+  const matches: GlobWorkspaceMatch[] = [];
+  const { scanLimited } = await walkWorkspaceRoot({
     root: args.root,
-    matcher: args.matcher,
     includeIgnored: args.includeIgnored,
-    policy: createBackgroundIndexingEntryPolicy({ preset: 'balanced' }),
-    canonicalRootPath,
-    state,
-  };
-  await visitDirectory(ctx, canonicalRootPath, '');
-  return state;
+    onFile: ({ relativePath }) => {
+      if (args.matcher.match(relativePath)) {
+        matches.push({
+          path: `/${relativePath}`,
+          rootId: args.root.rootId,
+          rootName: args.root.displayName,
+        });
+      }
+    },
+  });
+  return { matches, scanLimited };
 }
 
 function buildResult(

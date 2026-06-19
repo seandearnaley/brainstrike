@@ -219,7 +219,7 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
  */
 function buildSearchInstruction(names: ModelFacingToolNames): string {
   const grepClause = names.grepSearch
-    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps indexed file content. Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
+    ? `For exact strings, identifiers, and error messages, call ${names.grepSearch} FIRST — it greps file content across BOTH the index AND the live on-disk files, so a file you just edited is matched fresh even before re-indexing (each match is labelled source: index/live/both — re-grep after an edit to confirm your change landed). Its default 'files' outputMode cheaply surveys WHICH files match; follow up with outputMode 'content' scoped via filePaths to see the matching lines. Prefer several narrow searches over one broad one. Prefer it over semantic search whenever you know the exact wording.`
     : 'Exact-text grep search is unavailable in this run.';
   const globClause = names.globWorkspace
     ? `To find files by NAME or PATH shape (e.g. every test file, all package.json, a component's tsx), call ${names.globWorkspace} with a glob like **/*.test.ts or src/**/*.tsx — use this instead of ${names.grepSearch ?? 'content search'} (which searches file CONTENT) and instead of paging readWorkspaceDirectory (which lists ONE level). It skips .git/node_modules/build output by default.`

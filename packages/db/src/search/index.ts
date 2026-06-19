@@ -10,6 +10,8 @@ export {
 } from './grep-pattern.js';
 // Grep Search Service
 export {
+  collectGrepMatchesInContent,
+  createGrepLineMatcher,
   createGrepSearchService,
   GREP_DEFAULT_CANDIDATE_LIMIT,
   GREP_DEFAULT_CONTEXT_LINES,
@@ -19,6 +21,7 @@ export {
   type GrepSearchRepository,
   type GrepSearchResult,
   GrepSearchService,
+  type LineMatcher,
 } from './grep-search-service.js';
 // Hybrid Search Service
 export {

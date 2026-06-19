@@ -71,7 +71,13 @@ export const GREP_DEFAULT_CONTEXT_LINES = 1;
 export const GREP_DEFAULT_CANDIDATE_LIMIT = 500;
 const MIN_PATTERN_LENGTH = 2;
 
-interface LineMatcher {
+/**
+ * Per-line match predicate. Shared between the indexed grep path (this service)
+ * and the desktop live (ripgrep/JS-walk) pass so both produce IDENTICAL matches
+ * for the same pattern — there is exactly one definition of "does this line
+ * match", never a forked weaker copy.
+ */
+export interface LineMatcher {
   matches(line: string): boolean;
 }
 
@@ -93,6 +99,62 @@ function buildRegexMatcher(pattern: string, caseSensitive: boolean): LineMatcher
     throw new Error(`Invalid regular expression pattern: ${message}`);
   }
   return { matches: (line) => regex.test(line) };
+}
+
+/**
+ * Build the authoritative per-line matcher for a grep pattern. Literal patterns
+ * use a (case-folded) substring test; regex patterns compile to a real JS
+ * `RegExp` (an invalid pattern throws `Invalid regular expression pattern: …`).
+ *
+ * Exported so non-DB callers (the desktop live grep pass) match lines with the
+ * exact same semantics as the indexed path.
+ */
+export function createGrepLineMatcher(
+  pattern: string,
+  isRegex: boolean,
+  caseSensitive: boolean
+): LineMatcher {
+  return isRegex
+    ? buildRegexMatcher(pattern, caseSensitive)
+    : buildLiteralMatcher(pattern, caseSensitive);
+}
+
+/**
+ * Run `matcher` over the lines of one file's content and return the matching
+ * lines as `GrepMatch`es with absolute line numbers and ±`contextLines` of
+ * surrounding text. Pure (no DB) and shared with the live pass so live and
+ * indexed matches are shaped identically (and thus mergeable / dedupable).
+ *
+ * `startLine` is the 1-based line number of the file's first line (always 1 for
+ * a whole on-disk file; chunk-relative for the indexed path).
+ */
+export function collectGrepMatchesInContent(args: {
+  content: string;
+  matcher: LineMatcher;
+  contextLines: number;
+  path: string;
+  startLine: number;
+  rootId?: string | null;
+  rootName?: string | null;
+}): GrepMatch[] {
+  const lines = args.content.split('\n');
+  const matches: GrepMatch[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const lineText = lines[index] ?? '';
+    if (!args.matcher.matches(lineText)) {
+      continue;
+    }
+    matches.push({
+      path: args.path,
+      line: args.startLine + index,
+      lineText,
+      before: lines.slice(Math.max(0, index - args.contextLines), index),
+      after: lines.slice(index + 1, index + 1 + args.contextLines),
+      ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
+      ...(args.rootName === undefined ? {} : { rootName: args.rootName }),
+    });
+  }
+  return matches;
 }
 
 function resolveLikePattern(pattern: string, isRegex: boolean): string | null {
@@ -166,9 +228,7 @@ export class GrepSearchService {
     const candidateLimit = options.candidateLimit ?? GREP_DEFAULT_CANDIDATE_LIMIT;
 
     // Build the matcher FIRST so an invalid regex fails before any DB work.
-    const matcher = isRegex
-      ? buildRegexMatcher(pattern, caseSensitive)
-      : buildLiteralMatcher(pattern, caseSensitive);
+    const matcher = createGrepLineMatcher(pattern, isRegex, caseSensitive);
     const likePattern = resolveLikePattern(pattern, isRegex);
 
     const candidateOptions: GrepCandidateOptions = {
