@@ -40,11 +40,14 @@ import { createBrowserJsonStorage } from './browser-json-storage';
 
 interface PermissionPolicyData {
   /**
-   * Master OPT-IN switch for permission enforcement. PERSISTED. Defaults to
-   * `false`: when off, the renderer sends NO permission snapshot to the
-   * assistant server, the runtime gets no `permissionPolicy`, and the tool map
-   * is unchanged (current production behavior). Only when `true` is the policy
-   * serialized + enforced. The settings UI that toggles this lands in PR-1.4b.
+   * Master switch for permission enforcement. PERSISTED. Defaults to `true`
+   * (enforce-on-by-default, the P1 security fix): with the default policy
+   * (`{read:allow, mcp:allow, edit:ask, execute:ask}`) the assistant runs
+   * read/MCP tools freely but PROMPTS for per-call approval before any mutation
+   * (edit) or command (execute). When the user turns this OFF (their explicit
+   * opt-out) the renderer sends NO permission snapshot to the assistant server,
+   * the runtime gets no `permissionPolicy`, and the tool map is unchanged. Only
+   * when `true` is the policy serialized + enforced.
    */
   enforce: boolean;
   /** Per-tool-id override that beats the category policy. PERSISTED. */
@@ -96,7 +99,11 @@ interface PermissionPolicyActions {
 export type PermissionPolicyStore = PermissionPolicyData & PermissionPolicyActions;
 
 const STORE_NAME = 'permission-policy.v1' as const;
-const STORE_VERSION = 1 as const;
+// v2: enforce-on-by-default (P1 security fix). The persistence KEY stays
+// `permission-policy.v1` (renaming it would orphan every persisted slice and
+// silently reset users); only the in-payload `version` field bumps so the
+// migrate below can adopt the new secure default for slices that predate it.
+const STORE_VERSION = 2 as const;
 
 const ALL_RISK_CATEGORIES: readonly ToolRiskCategory[] = ['read', 'edit', 'execute', 'mcp'];
 
@@ -143,7 +150,9 @@ function defaultPolicies(): PermissionPolicies {
 
 function defaultData(): PermissionPolicyData {
   return {
-    enforce: false,
+    // enforce-on-by-default (P1 fix): with the default policies below, read/mcp
+    // run free and edit/execute PROMPT for per-call approval.
+    enforce: true,
     policies: defaultPolicies(),
     yolo: false,
     perToolOverrides: {},
@@ -232,14 +241,26 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         yolo: state.yolo,
         perToolOverrides: state.perToolOverrides,
       }),
-      migrate: (persistedState) => {
+      migrate: (persistedState, version) => {
         if (!(persistedState && typeof persistedState === 'object')) {
           return defaultData();
         }
         const candidate = persistedState as Partial<PermissionPolicyData>;
         return {
-          // Opt-in enforcement defaults OFF; only a persisted boolean enables it.
-          enforce: typeof candidate.enforce === 'boolean' ? candidate.enforce : false,
+          // enforce-on-by-default (P1 SECURITY fix). Under v1, `enforce` defaulted
+          // to `false` AND `partialize` always wrote it, so a persisted `false`
+          // from a v1 slice is the OLD DEFAULT — indistinguishable from a
+          // deliberate opt-out. For a security fix we adopt the secure default
+          // (`true`) for ANY pre-v2 slice, accepting that a user who genuinely
+          // opted out under v1 gets re-prompted once (the safe direction). Only a
+          // v2+ persisted boolean is a real, post-default-on choice and is
+          // honored verbatim. Skipping this lets upgrading `enforce:false` users
+          // get the now-always-registered, ungated `executeCommand` — the exact
+          // regression this PR exists to prevent.
+          enforce:
+            version >= STORE_VERSION && typeof candidate.enforce === 'boolean'
+              ? candidate.enforce
+              : true,
           policies: sanitizePolicies(candidate.policies),
           yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
           perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),

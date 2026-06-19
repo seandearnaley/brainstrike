@@ -38,7 +38,8 @@ describe('factory reset wires the permission policy store', () => {
 
   it('resets in-memory policy state and session grants during clearPersistentUiState', async () => {
     const store = usePermissionPolicyStore.getState();
-    store.setEnforce(true);
+    // Customize AWAY from defaults (enforce now defaults ON, so flip it off).
+    store.setEnforce(false);
     store.setYolo(true);
     store.setCategoryPolicy('edit', 'deny');
     store.grantSessionCategory('execute');
@@ -47,7 +48,8 @@ describe('factory reset wires the permission policy store', () => {
     await clearPersistentUiState({ skipIndexedDb: true });
 
     const state = usePermissionPolicyStore.getState();
-    expect(state.enforce).toBe(false);
+    // Reset restores defaultData() → enforce ON (the secure default).
+    expect(state.enforce).toBe(true);
     expect(state.yolo).toBe(false);
     expect(state.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
     expect(state.sessionGrants.size).toBe(0);
