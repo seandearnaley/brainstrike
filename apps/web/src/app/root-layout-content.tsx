@@ -10,7 +10,6 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
-import { registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -54,8 +53,10 @@ export default function RootLayoutContent() {
   }, []);
 
   useEffect(() => {
-    registerWebEmbeddingRuntimeConfig();
     void Promise.all([
+      import('../create-embedding-queue').then((module) => {
+        module.registerWebEmbeddingRuntimeConfig();
+      }),
       ensureBackgroundIndexingPreferencesHydrated(),
       ensureVectorPreferencesHydrated(),
     ]).catch((error: unknown) => {

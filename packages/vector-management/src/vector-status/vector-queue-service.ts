@@ -414,7 +414,7 @@ export function createVectorQueueService(
       });
       if (total === 0) {
         const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
-        logger.warn('Backfill found no eligible chunks', {
+        logger.info('Backfill found no eligible chunks', {
           embeddingSetId: activeSetId,
           diagnostics,
         });

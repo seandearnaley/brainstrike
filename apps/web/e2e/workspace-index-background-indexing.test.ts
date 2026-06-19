@@ -68,6 +68,13 @@ interface WorkspaceIndexStartupSummary {
   readonly statusLastError: string | null;
 }
 
+const INDEXING_WARNING_PATTERNS = [
+  'FixtureAdapter',
+  'FileImport:Chunking',
+  'VectorQueueService',
+  'WorkspaceCollectionSyncImport',
+] as const;
+
 declare global {
   interface Window {
     __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: WorkspaceIndexDebugApi;
@@ -131,6 +138,16 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
     page,
   }) => {
     test.setTimeout(180_000);
+    const indexingConsoleIssues: string[] = [];
+    page.on('console', (message) => {
+      if (!(message.type() === 'warning' || message.type() === 'error')) {
+        return;
+      }
+      const text = message.text();
+      if (INDEXING_WARNING_PATTERNS.some((pattern) => text.includes(pattern))) {
+        indexingConsoleIssues.push(`[${message.type()}] ${text}`);
+      }
+    });
 
     await mockBrowserApis(page, 'web-workspace-index-root', WORKSPACE_INDEX_TREE);
     await page.goto('/');
@@ -161,6 +178,7 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
 
     const finalSummary = await readWorkspaceIndexStartupSummary(page);
     expect(finalSummary?.state).not.toBe('disabled');
+    expect(indexingConsoleIssues).toEqual([]);
     await expect(page.getByTestId('collection-sync-status-item')).toBeVisible({
       timeout: 15_000,
     });
