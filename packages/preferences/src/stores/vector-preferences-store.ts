@@ -1,6 +1,6 @@
+import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 type DevicePref = 'webgpu' | 'wasm';
 
@@ -13,6 +13,7 @@ interface VectorPreferencesData {
 }
 
 interface VectorPreferencesActions {
+  markHydrated: () => void;
   setDetectedDevicePref: (v: DevicePref) => void;
   setDevicePref: (v: DevicePref) => void;
   setReinitEveryN: (n: number) => void;
@@ -61,7 +62,69 @@ function createVectorPreferencesStorage() {
     };
   }
 
-  return createBrowserJsonStorage();
+  return createLocalBrowserJsonStorage();
+}
+
+function readBrowserLocalStorage(): Storage | undefined {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage;
+  } catch {
+    return;
+  }
+}
+
+function removeBrowserStoredValue(storage: Storage | undefined, key: string): void {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // A failed cleanup must not make the preference store non-persistent.
+  }
+}
+
+function createLocalBrowserJsonStorage(): StateStorage {
+  const memory = new Map<string, string>();
+
+  return {
+    getItem: (key) => {
+      const storage = readBrowserLocalStorage();
+      let storedValue: string | null | undefined;
+      try {
+        storedValue = storage?.getItem(key);
+      } catch {
+        storedValue = undefined;
+      }
+
+      const raw = storedValue ?? memory.get(key) ?? null;
+      if (raw === null) {
+        return null;
+      }
+
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch {
+        removeBrowserStoredValue(storage, key);
+        memory.delete(key);
+        return null;
+      }
+    },
+    removeItem: (key) => {
+      removeBrowserStoredValue(readBrowserLocalStorage(), key);
+      memory.delete(key);
+    },
+    setItem: (key, value) => {
+      const storage = readBrowserLocalStorage();
+      if (storage) {
+        try {
+          storage.setItem(key, value);
+          return;
+        } catch {
+          // Fall through to memory for browsers that deny localStorage writes.
+        }
+      }
+      memory.set(key, value);
+    },
+  };
 }
 
 function normalizePersistedVectorPreferences(
@@ -80,6 +143,32 @@ function normalizePersistedVectorPreferences(
   };
 }
 
+interface VectorPreferencesPersistApi {
+  readonly hasHydrated?: () => boolean;
+  readonly onFinishHydration?: (listener: (state: VectorPreferencesStore) => void) => () => void;
+  readonly rehydrate?: () => Promise<void>;
+}
+
+type BoundVectorPreferencesStore = ReturnType<ReturnType<typeof create<VectorPreferencesStore>>>;
+
+function installVectorPreferencesHydrationMarker(store: BoundVectorPreferencesStore): void {
+  const persistApi = (
+    store as BoundVectorPreferencesStore & {
+      persist?: VectorPreferencesPersistApi;
+    }
+  ).persist;
+
+  persistApi?.onFinishHydration?.((state) => {
+    if (!state.hasHydrated) {
+      store.setState({ hasHydrated: true });
+    }
+  });
+
+  if (persistApi?.hasHydrated?.() && !store.getState().hasHydrated) {
+    store.setState({ hasHydrated: true });
+  }
+}
+
 /**
  * Desktop renderers must share preferences through the Electron storage bridge so
  * hidden hosts observe the same canonical settings as the visible UI.
@@ -95,6 +184,7 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
       devicePref: 'webgpu',
       reinitEveryN: 200,
       verboseOrtLogs: false,
+      markHydrated: () => set({ hasHydrated: true }),
       setDetectedDevicePref: (v) => {
         if (v === 'wasm') {
           throw new Error(AUTOMATIC_WASM_DETECTION_ERROR);
@@ -116,8 +206,8 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         verboseOrtLogs: s.verboseOrtLogs,
       }),
       onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
-          useVectorPreferencesStore.setState({ hasHydrated: true });
+        if (error) {
+          return;
         }
       },
       migrate: (persistedState) => {
@@ -142,10 +232,7 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   )
 );
 
-interface VectorPreferencesPersistApi {
-  readonly hasHydrated?: () => boolean;
-  readonly rehydrate?: () => Promise<void>;
-}
+installVectorPreferencesHydrationMarker(useVectorPreferencesStore);
 
 export async function ensureVectorPreferencesHydrated(options?: {
   forceReload?: boolean;
@@ -167,6 +254,10 @@ export async function ensureVectorPreferencesHydrated(options?: {
 
   if (forceReload || !hasHydrated() || !useVectorPreferencesStore.getState().hasHydrated) {
     await rehydrate();
+  }
+
+  if (hasHydrated() && !useVectorPreferencesStore.getState().hasHydrated) {
+    useVectorPreferencesStore.setState({ hasHydrated: true });
   }
 
   if (!(hasHydrated() || useVectorPreferencesStore.getState().hasHydrated)) {

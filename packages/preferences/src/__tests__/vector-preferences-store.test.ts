@@ -273,4 +273,36 @@ describe('vector-preferences-store', () => {
       hasHydrated: true,
     });
   });
+
+  it('repairs the store hydration marker when persist has completed', async () => {
+    const persistApi = storeWithPersist.persist;
+
+    useVectorPreferencesStore.setState({
+      hasHydrated: false,
+      devicePrefConfigured: false,
+      devicePref: 'webgpu',
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+    });
+
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(true);
+    vi.spyOn(persistApi, 'rehydrate').mockResolvedValue(undefined);
+
+    await expect(ensureVectorPreferencesHydrated()).resolves.toMatchObject({
+      devicePref: 'webgpu',
+      hasHydrated: true,
+    });
+  });
+
+  it('auto-hydrates on first module evaluation without manual rehydrate', async () => {
+    vi.resetModules();
+
+    const module = await import('../stores/vector-preferences-store');
+    const freshStore = module.useVectorPreferencesStore as PersistApi<
+      typeof module.useVectorPreferencesStore
+    >;
+
+    expect(freshStore.getState().hasHydrated).toBe(true);
+    expect(freshStore.persist?.hasHydrated?.()).toBe(true);
+  });
 });

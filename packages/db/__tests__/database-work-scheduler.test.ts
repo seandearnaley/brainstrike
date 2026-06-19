@@ -552,7 +552,7 @@ describe('DatabaseWorkScheduler', () => {
     expect(txDb.query).toHaveBeenCalledWith('SELECT 1');
   });
 
-  it('schedules direct live query creation and refresh on the handle default lane', async () => {
+  it('schedules foreground-handle live query creation on normal and refresh on background', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const seenPriorities: DatabaseWorkPriority[] = [];
     scheduler.subscribe((snapshot) => {
@@ -583,7 +583,55 @@ describe('DatabaseWorkScheduler', () => {
 
     expect(rawDb.live.query).toHaveBeenCalledTimes(1);
     expect(liveHandle.refresh).toHaveBeenCalledTimes(1);
-    expect(seenPriorities).toEqual(['foreground', 'foreground']);
+    expect(seenPriorities).toEqual(['normal', 'background']);
+  });
+
+  it('does not let foreground-handle live query refreshes extend the background quiet window', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 50 });
+      const events: string[] = [];
+      const liveHandle = {
+        initialResults: { rows: [] },
+        refresh: vi.fn(async () => {
+          events.push('live-refresh');
+        }),
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(async () => undefined),
+      };
+      const rawDb = {
+        query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+          rows: [] as T[],
+        })),
+        live: {
+          query: vi.fn(async () => liveHandle),
+          incrementalQuery: vi.fn(async () => liveHandle),
+        },
+      };
+
+      await scheduler.run(
+        async () => {
+          events.push('foreground');
+        },
+        { priority: 'foreground', label: 'user query' }
+      );
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { priority: 'background', label: 'workspace index' }
+      );
+      const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+      const handle = await scheduled.live.query({ query: 'SELECT 1' });
+      const refresh = handle.refresh();
+
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.all([background, refresh]);
+
+      expect(events).toEqual(['foreground', 'background', 'live-refresh']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('binds worker leader-change methods to the raw database target', () => {

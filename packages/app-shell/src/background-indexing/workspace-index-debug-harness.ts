@@ -30,6 +30,9 @@ export interface WorkspaceIndexDebugAccessIssue {
 
 export interface WorkspaceIndexDebugSnapshot {
   accessIssues?: WorkspaceIndexDebugAccessIssue[];
+  backgroundEffectiveHasHydrated?: boolean;
+  backgroundPersistHasHydrated?: boolean;
+  backgroundPreferences: unknown;
   chunkedRecordsByRoot: unknown[];
   chunkingHostStatus: unknown;
   chunkStatsByRoot: unknown[];
@@ -46,11 +49,15 @@ export interface WorkspaceIndexDebugSnapshot {
   roots: unknown[];
   runtimeReadiness: unknown;
   selectedDevicePreference: unknown;
+  syncLoop?: unknown;
+  syncReadiness?: unknown;
   syncStatus: unknown;
+  syncTargets?: unknown;
 }
 
 export interface WorkspaceIndexDebugSummary {
   accessIssues?: WorkspaceIndexDebugAccessIssue[];
+  backgroundPreferences: unknown;
   chunkStatsByRootAndSet: unknown[];
   databaseScheduler: unknown;
   embeddingHostStatus: unknown;
@@ -195,6 +202,9 @@ export function shouldExposeWorkspaceIndexDebugApi(
           }
         ).desktopLifecycle;
   if (desktopLifecycle?.isTestMode === true) {
+    return true;
+  }
+  if (typeof window !== 'undefined' && window.navigator.webdriver === true) {
     return true;
   }
   if (globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true') {

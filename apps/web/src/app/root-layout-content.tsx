@@ -7,7 +7,10 @@ import {
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
-import { type ReactElement, type ReactNode, useCallback } from 'react';
+import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
+import { registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -48,6 +51,18 @@ export default function RootLayoutContent() {
   const loadLocalLlmBackend = useCallback(async () => {
     const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
     return new LocalLlmBackend();
+  }, []);
+
+  useEffect(() => {
+    registerWebEmbeddingRuntimeConfig();
+    void Promise.all([
+      ensureBackgroundIndexingPreferencesHydrated(),
+      ensureVectorPreferencesHydrated(),
+    ]).catch((error: unknown) => {
+      setTimeout(() => {
+        throw error;
+      }, 0);
+    });
   }, []);
 
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through

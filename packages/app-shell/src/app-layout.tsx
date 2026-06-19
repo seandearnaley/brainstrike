@@ -10,7 +10,7 @@ import {
   Toaster,
   TooltipProvider,
 } from '@brainstrike/ui';
-import { DatabaseStatusItem, IndexingStatusItem } from './status-items';
+import { CollectionSyncStatusItem, DatabaseStatusItem, IndexingStatusItem } from './status-items';
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
@@ -45,6 +45,7 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
               <StatusBar
                 centerContent={
                   <div className="flex items-center gap-3">
+                    <CollectionSyncStatusItem />
                     <IndexingStatusItem />
                   </div>
                 }

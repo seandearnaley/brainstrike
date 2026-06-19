@@ -3,6 +3,11 @@ import React from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
+const startupMocks = vi.hoisted(() => ({
+  ensureBackgroundIndexingPreferencesHydrated: vi.fn(async () => ({})),
+  ensureVectorPreferencesHydrated: vi.fn(async () => ({})),
+  registerWebEmbeddingRuntimeConfig: vi.fn(),
+}));
 const mockEmbeddingQueue = {
   add: vi.fn(),
   addBulk: vi.fn(),
@@ -97,7 +102,17 @@ vi.mock('@brainstrike/queue/browser', async () => {
 // Mock create-embedding-queue to prevent module-level worker pool creation
 vi.mock('../../create-embedding-queue', () => ({
   getEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
+  registerWebEmbeddingRuntimeConfig: startupMocks.registerWebEmbeddingRuntimeConfig,
   createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
+}));
+
+vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', () => ({
+  ensureBackgroundIndexingPreferencesHydrated:
+    startupMocks.ensureBackgroundIndexingPreferencesHydrated,
+}));
+
+vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+  ensureVectorPreferencesHydrated: startupMocks.ensureVectorPreferencesHydrated,
 }));
 
 // Mock the indexing barrel to prevent token worker startup in unit tests.
@@ -222,6 +237,16 @@ describe('RootLayoutContent', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
     expect(screen.getByText('Home Page Content')).toBeInTheDocument();
+  });
+
+  it('hydrates web indexing preferences and registers the embedding runtime on startup', async () => {
+    render(<RootLayoutContent />);
+
+    await waitFor(() => {
+      expect(startupMocks.ensureBackgroundIndexingPreferencesHydrated).toHaveBeenCalledOnce();
+      expect(startupMocks.ensureVectorPreferencesHydrated).toHaveBeenCalledOnce();
+      expect(startupMocks.registerWebEmbeddingRuntimeConfig).toHaveBeenCalledOnce();
+    });
   });
 
   it('uses the correct app configuration', () => {
