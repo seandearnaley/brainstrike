@@ -56,6 +56,7 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
+import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
   isHiddenPath,
@@ -498,6 +499,58 @@ async function writeContainedFileBytes(args: {
   return { created };
 }
 
+/**
+ * Convert the normalized (leading-slash, forward-slash) workspace path the write
+ * tools produce into the root-relative form stored in `file_records.path`
+ * (no leading slash). Both edit tools share this so the re-index lookup keys the
+ * same way the importer wrote the row.
+ */
+function toFileRecordRelativePath(workspacePath: string): string {
+  return workspacePath.replace(/^\/+/, '');
+}
+
+/**
+ * Post-write hook (PR-2.3): keep the RAG index coherent after the agent edits a
+ * file. The file is ALREADY written when this runs, so it runs AFTER the write
+ * and is non-fatal — a re-index failure is LOGGED but never propagated, because
+ * the edit already succeeded and the model is owed its write result regardless.
+ *
+ * It reuses the SAME entry point the background indexer uses for a changed file
+ * (`applyManagedCacheBatch` in replace mode via {@link reindexEditedFile}):
+ * stale chunks are cleared, in-flight embed jobs canceled, the row marked
+ * un-chunked, and indexing stats refreshed. When the path is not part of the
+ * Workspace Index (no embedding set, or no file_records row), it no-ops.
+ */
+async function triggerEditedFileReindex(args: {
+  runtimeData: RuntimeData | undefined;
+  rootId: string;
+  workspacePath: string;
+  absolutePath: string;
+  content: string;
+  size: number;
+}): Promise<void> {
+  try {
+    const db = (await getDatabase()) as unknown as ReindexDatabaseHandle;
+    const relativePath = toFileRecordRelativePath(args.workspacePath);
+    await reindexEditedFile(db, {
+      rootId: args.rootId,
+      relativePath,
+      name: path.basename(relativePath) || relativePath,
+      content: args.content,
+      size: args.size,
+      mtimeMs: await statMtimeMs(args.absolutePath),
+      workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
+    });
+  } catch (error) {
+    // Non-fatal: the edit already succeeded. Surface the failure (no silent
+    // swallow) so a broken re-index path is debuggable, but never fail the edit.
+    logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
+      error,
+      path: args.workspacePath,
+    });
+  }
+}
+
 async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined
@@ -523,7 +576,17 @@ async function runWriteWorkspaceFile(
   const { created } = await withFileLock(resolved.absolutePath, () =>
     writeContainedFileBytes({ resolved, buffer, requestedPath: input.path })
   );
-  // TODO(PR-2.3): enqueue re-chunk/re-embed via job_queue so RAG stays coherent after edits
+
+  // Keep the RAG index coherent: re-index the just-written file (no-ops when it
+  // isn't part of the Workspace Index). Runs after the write and is non-fatal.
+  await triggerEditedFileReindex({
+    runtimeData,
+    rootId: root.rootId,
+    workspacePath: resolved.workspacePath,
+    absolutePath: resolved.absolutePath,
+    content: input.content,
+    size: buffer.byteLength,
+  });
 
   return {
     rootName: root.displayName,
@@ -578,8 +641,23 @@ async function runStringReplaceWorkspaceFile(
     }
 
     await writeContainedFileBytes({ resolved, buffer, requestedPath: input.path });
-    // TODO(PR-2.3): enqueue re-chunk/re-embed via job_queue so RAG stays coherent after edits
-    return { bytesWritten: buffer.byteLength, matchType: replacement.matchType };
+    return {
+      bytesWritten: buffer.byteLength,
+      matchType: replacement.matchType,
+      newContent: replacement.newContent,
+    };
+  });
+
+  // Keep the RAG index coherent: re-index the edited file after the write (and
+  // after the lock releases). No-ops when the file isn't part of the Workspace
+  // Index; non-fatal so a re-index failure can never undo a successful edit.
+  await triggerEditedFileReindex({
+    runtimeData,
+    rootId: root.rootId,
+    workspacePath: resolved.workspacePath,
+    absolutePath: resolved.absolutePath,
+    content: result.newContent,
+    size: result.bytesWritten,
   });
 
   return {
