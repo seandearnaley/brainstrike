@@ -319,6 +319,7 @@ export {
   type QueryFileTreeToolResult,
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
+export { withFileLock } from './tools/file-write-lock';
 // Hybrid search tool factory
 export {
   buildToolsWithHybridSearch,
@@ -384,6 +385,8 @@ export {
   RetrievalContextInputSchema,
   type SelectRootTreeFilesInput,
   SelectRootTreeFilesInputSchema,
+  type StringReplaceWorkspaceFileInput,
+  StringReplaceWorkspaceFileInputSchema,
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
   type UpdateWorkspaceContextSelectionInput,
@@ -394,6 +397,13 @@ export {
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
 } from './tools/schemas';
+export {
+  applyStringReplace,
+  StringReplaceError,
+  type StringReplaceFailureReason,
+  type StringReplaceMatchType,
+  type StringReplaceResult,
+} from './tools/string-replace';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,

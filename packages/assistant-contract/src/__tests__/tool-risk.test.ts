@@ -77,6 +77,7 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.updateWorkspaceContextSelection',
         'brainstrike.updateWorkspaceTapestrySelections',
         'brainstrike.writeWorkspaceFile',
+        'brainstrike.stringReplaceWorkspaceFile',
       ];
       for (const id of editTools) {
         const metadata = NATIVE_TOOL_DEFAULTS[id];
@@ -92,6 +93,7 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.updateWorkspaceContextSelection',
         'brainstrike.updateWorkspaceTapestrySelections',
         'brainstrike.writeWorkspaceFile',
+        'brainstrike.stringReplaceWorkspaceFile',
       ]);
       const readTools = entries.filter(([id]) => !explicitlyEdited.has(id));
 
@@ -111,6 +113,7 @@ describe('buildNativeToolRiskMap', () => {
     'brainstrike.updateWorkspaceContextSelection',
     'brainstrike.updateWorkspaceTapestrySelections',
     'brainstrike.writeWorkspaceFile',
+    'brainstrike.stringReplaceWorkspaceFile',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {
