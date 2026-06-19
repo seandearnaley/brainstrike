@@ -38,13 +38,15 @@ describe('grep search tool', () => {
       throw new Error('expected files mode result');
     }
     expect(result.files).toEqual([
-      { path: 'src/x.ts', matchCount: 2, firstLine: 1 },
-      { path: 'src/y.ts', matchCount: 1, firstLine: 40 },
+      { path: 'src/x.ts', matchCount: 2, firstLine: 1, source: 'index' },
+      { path: 'src/y.ts', matchCount: 1, firstLine: 40, source: 'index' },
     ]);
     expect(result.totalFiles).toBe(2);
     expect(result.totalMatches).toBe(3);
     expect(result.truncated).toBe(false);
     expect(result.hint).toBeUndefined();
+    // With no open root on disk, the live pass is skipped; results are index-only.
+    expect(result.liveEngine).toBe('skipped');
   });
 
   it('returns path:line matches with context in content mode', async () => {
@@ -62,6 +64,7 @@ describe('grep search tool', () => {
         lineText: 'needle line',
         before: ['alpha'],
         after: ['omega'],
+        source: 'index',
       },
     ]);
     expect(result.truncated).toBe(false);
