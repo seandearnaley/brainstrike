@@ -374,9 +374,11 @@ describe('DatabaseWorkScheduler', () => {
     await background.exec?.('UPDATE background');
 
     expect(rawDb.query).toHaveBeenCalledWith('SELECT background', undefined, {
+      label: 'query: SELECT background',
       priority: 'background',
     });
     expect(rawDb.exec).toHaveBeenCalledWith('UPDATE background', undefined, {
+      label: 'exec: UPDATE background',
       priority: 'background',
     });
   });
