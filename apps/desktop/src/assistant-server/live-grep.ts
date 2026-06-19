@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import process from 'node:process';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch, LineMatcher } from '@brainstrike/db';
 import { collectGrepMatchesInContent } from '@brainstrike/db';
@@ -12,11 +14,27 @@ import { isWithinRoot } from './workspace-path';
 const logger = createLogger('AssistantLiveGrep');
 
 /**
- * Absolute path to ripgrep. Pinned to the Homebrew location used across the
- * project; resolved lazily and probed once so an absent binary degrades to the
- * JS-walk fallback instead of throwing.
+ * ripgrep executable name(s) to look for. On Windows the binary is `rg.exe`; on
+ * every other platform it is `rg`. We probe BOTH so a misconfigured PATHEXT or a
+ * `.exe` on a POSIX-ish shell still resolves.
  */
-const RIPGREP_PATH = '/opt/homebrew/bin/rg';
+const RIPGREP_BINARY_NAMES =
+  process.platform === 'win32' ? (['rg.exe', 'rg'] as const) : (['rg'] as const);
+
+/**
+ * Fallback install locations probed ONLY when ripgrep is not on `PATH`. Covers
+ * Homebrew (Apple-silicon + Intel), the common `/usr/local` install, the distro
+ * package location, and the Windows winget/scoop/choco shim dir. Order is
+ * preference; the first executable hit wins.
+ */
+const RIPGREP_FALLBACK_DIRS: readonly string[] =
+  process.platform === 'win32'
+    ? [
+        path.join(process.env['LOCALAPPDATA'] ?? '', 'Microsoft', 'WinGet', 'Links'),
+        path.join(process.env['USERPROFILE'] ?? '', 'scoop', 'shims'),
+        path.join(process.env['ProgramData'] ?? '', 'chocolatey', 'bin'),
+      ]
+    : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
 
 /** Wall-clock bound for one ripgrep prefilter invocation (per root). */
 const RIPGREP_TIMEOUT_MS = 4000;
@@ -26,10 +44,21 @@ const RIPGREP_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
 const RIPGREP_MAX_FILESIZE = '2M';
 /** Per-file match cap in the prefilter — we only need candidacy, not every hit. */
 const RIPGREP_MAX_COUNT_PER_FILE = 200;
-/** Hard cap on candidate files materialized from the live pass (per call, all roots). */
-const MAX_LIVE_CANDIDATE_FILES = 1500;
+/** Default hard cap on candidate files materialized from the live pass (per call, all roots). */
+const DEFAULT_MAX_LIVE_CANDIDATE_FILES = 1500;
+/** Active candidate cap; overridable in tests so the cap path is exercised without 1500+ files. */
+let maxLiveCandidateFiles = DEFAULT_MAX_LIVE_CANDIDATE_FILES;
 /** Skip on-disk files larger than this when reading them for the authoritative match. */
 const MAX_READ_FILE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Test-only: override the live candidate cap (pass nothing to restore the
+ * default). Lets a unit test prove the resolve loop stops at the cap and
+ * surfaces `truncated` without materializing thousands of real files.
+ */
+export function setMaxLiveCandidateFilesForTests(value?: number): void {
+  maxLiveCandidateFiles = value ?? DEFAULT_MAX_LIVE_CANDIDATE_FILES;
+}
 
 /** Outcome of the live pass: matches plus how the prefilter ran (never silent). */
 export interface LiveGrepResult {
@@ -60,29 +89,76 @@ interface LiveCandidate {
   rootName: string;
 }
 
-let ripgrepAvailable: boolean | null = null;
-
 /**
- * Probe (once, memoized) whether the pinned ripgrep binary is runnable. A missing
- * or non-executable binary flips the live pass to the JS-walk fallback rather
- * than failing the grep.
+ * Memoized ripgrep resolution. `undefined` = not probed yet; `null` = probed,
+ * absent; a string = the resolved absolute path. Memoized so the (cheap) PATH
+ * scan runs once per process, like the prior probe.
  */
-async function isRipgrepAvailable(): Promise<boolean> {
-  if (ripgrepAvailable !== null) {
-    return ripgrepAvailable;
-  }
+let resolvedRipgrepPath: string | null | undefined;
+
+/** True when `candidate` is an existing, executable regular file. */
+async function isExecutableFile(candidate: string): Promise<boolean> {
   try {
-    const stat = await fsPromises.stat(RIPGREP_PATH);
-    ripgrepAvailable = stat.isFile();
+    const stat = await fsPromises.stat(candidate);
+    if (!stat.isFile()) {
+      return false;
+    }
+    // X_OK is advisory on Windows (always passes), which is fine: there the
+    // extension (.exe) is what makes it runnable, and we only probe rg.exe.
+    await fsPromises.access(candidate, fsConstants.X_OK);
+    return true;
   } catch {
-    ripgrepAvailable = false;
+    return false;
   }
-  return ripgrepAvailable;
 }
 
-/** Test-only: reset the memoized ripgrep probe between cases. */
+/**
+ * Discover ripgrep on disk WITHOUT a hardcoded install path: scan every `PATH`
+ * directory for an executable `rg` (`rg.exe` on Windows), then fall back to a
+ * small list of common install dirs only if PATH has none. Returns the resolved
+ * absolute path, or null when ripgrep is genuinely unavailable (→ JS-walk).
+ */
+async function discoverRipgrepPath(): Promise<string | null> {
+  const pathDirs = (process.env['PATH'] ?? '')
+    .split(path.delimiter)
+    .filter((dir) => dir.length > 0);
+  // PATH first (respects the user's environment), then the fallback dirs.
+  for (const dir of [...pathDirs, ...RIPGREP_FALLBACK_DIRS]) {
+    for (const name of RIPGREP_BINARY_NAMES) {
+      const candidate = path.join(dir, name);
+      if (await isExecutableFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve (once, memoized) the absolute path to a runnable ripgrep, or null when
+ * it is unavailable. A null result flips the live pass to the JS-walk fallback
+ * rather than failing the grep.
+ */
+async function resolveRipgrepPath(): Promise<string | null> {
+  if (resolvedRipgrepPath !== undefined) {
+    return resolvedRipgrepPath;
+  }
+  resolvedRipgrepPath = await discoverRipgrepPath();
+  return resolvedRipgrepPath;
+}
+
+/**
+ * Test-only: run the (un-memoized) ripgrep discovery and return the resolved
+ * absolute path (or null). Lets a test assert rg was resolved from a PATH entry
+ * rather than a hardcoded location.
+ */
+export function discoverRipgrepPathForTests(): Promise<string | null> {
+  return discoverRipgrepPath();
+}
+
+/** Test-only: reset the memoized ripgrep resolution between cases. */
 export function resetRipgrepAvailabilityForTests(): void {
-  ripgrepAvailable = null;
+  resolvedRipgrepPath = undefined;
 }
 
 /** Build the ripgrep argument list for a literal-or-regex prefilter. */
@@ -129,6 +205,7 @@ interface RipgrepRun {
  * caller can fall back to the JS walk.
  */
 function runRipgrep(args: {
+  ripgrepPath: string;
   canonicalRootPath: string;
   pattern: string;
   isRegex: boolean;
@@ -136,7 +213,7 @@ function runRipgrep(args: {
 }): Promise<RipgrepRun> {
   return new Promise<RipgrepRun>((resolve, reject) => {
     execFile(
-      RIPGREP_PATH,
+      args.ripgrepPath,
       buildRipgrepArgs(args),
       {
         cwd: args.canonicalRootPath,
@@ -321,13 +398,17 @@ async function collectJsWalkCandidates(
 
 /** Collect candidate paths for one root via ripgrep, filtered by the ignore policy. */
 async function collectRipgrepCandidates(args: {
+  ripgrepPath: string;
   root: RuntimeWorkspaceRoot;
   canonicalRootPath: string;
   pattern: string;
   isRegex: boolean;
   caseSensitive: boolean;
-}): Promise<{ candidates: LiveCandidate[]; truncated: boolean }> {
+  /** Remaining global candidate budget — STOP resolving once this is reached. */
+  maxCandidates: number;
+}): Promise<{ candidates: LiveCandidate[]; prefilterTruncated: boolean; capHit: boolean }> {
   const run = await runRipgrep({
+    ripgrepPath: args.ripgrepPath,
     canonicalRootPath: args.canonicalRootPath,
     pattern: args.pattern,
     isRegex: args.isRegex,
@@ -335,7 +416,17 @@ async function collectRipgrepCandidates(args: {
   });
   const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
   const candidates: LiveCandidate[] = [];
+  let capHit = false;
   for (const relativePath of run.candidatePaths) {
+    // Bound the realpath+stat syscall burst by the SAME cap as the reads: a very
+    // common literal in a huge repo can make rg emit tens of thousands of
+    // candidate paths, so stop resolving once the budget is spent (surfaced via
+    // capHit → the candidate-cap note) instead of statting them all before the
+    // final slice trims them.
+    if (candidates.length >= args.maxCandidates) {
+      capHit = true;
+      break;
+    }
     const candidate = await resolveCandidate({
       relativePath,
       canonicalRootPath: args.canonicalRootPath,
@@ -346,7 +437,7 @@ async function collectRipgrepCandidates(args: {
       candidates.push(candidate);
     }
   }
-  return { candidates, truncated: run.truncated };
+  return { candidates, prefilterTruncated: run.truncated, capHit };
 }
 
 export interface LiveGrepOptions {
@@ -379,6 +470,8 @@ export interface LiveGrepOptions {
 /** Running state while gathering candidate files across the workspace roots. */
 interface CandidateGatherState {
   anyRootAccessible: boolean;
+  /** The per-root resolve loop stopped at the global candidate cap (more on disk). */
+  candidateCapHit: boolean;
   candidates: LiveCandidate[];
   degradedToWalk: boolean;
   degradeReason: string | null;
@@ -390,7 +483,7 @@ interface CandidateGatherState {
 async function gatherRootCandidates(
   options: LiveGrepOptions,
   root: RuntimeWorkspaceRoot,
-  rgPresent: boolean,
+  ripgrepPath: string | null,
   state: CandidateGatherState
 ): Promise<void> {
   let canonicalRootPath: string;
@@ -402,17 +495,21 @@ async function gatherRootCandidates(
   }
   state.anyRootAccessible = true;
 
-  if (rgPresent && !state.degradedToWalk) {
+  if (ripgrepPath !== null && !state.degradedToWalk) {
     try {
-      const { candidates, truncated } = await collectRipgrepCandidates({
+      const { candidates, prefilterTruncated, capHit } = await collectRipgrepCandidates({
+        ripgrepPath,
         root,
         canonicalRootPath,
         pattern: options.pattern,
         isRegex: options.isRegex,
         caseSensitive: options.caseSensitive,
+        // Remaining global budget so per-root resolve never overshoots the cap.
+        maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
       });
       state.candidates.push(...candidates);
-      state.prefilterTruncated = state.prefilterTruncated || truncated;
+      state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
+      state.candidateCapHit = state.candidateCapHit || capHit;
       return;
     } catch (error) {
       // rg ran but failed/timed out — fall back to the JS walk for THIS and
@@ -441,10 +538,12 @@ export async function runLiveGrep(
       ? new Set(options.filePaths.map((p) => p.replace(/^\/+/, '')))
       : null;
 
-  const rgPresent = await isRipgrepAvailable();
+  const ripgrepPath = await resolveRipgrepPath();
+  const rgPresent = ripgrepPath !== null;
   const state: CandidateGatherState = {
     anyRootAccessible: false,
     candidates: [],
+    candidateCapHit: false,
     degradeReason: null,
     degradedToWalk: false,
     prefilterTruncated: false,
@@ -452,7 +551,7 @@ export async function runLiveGrep(
   };
 
   for (const root of options.roots) {
-    await gatherRootCandidates(options, root, rgPresent, state);
+    await gatherRootCandidates(options, root, ripgrepPath, state);
   }
 
   if (!state.anyRootAccessible) {
@@ -467,12 +566,17 @@ export async function runLiveGrep(
   const engine: LiveGrepResult['engine'] =
     state.degradedToWalk || !rgPresent ? 'js-walk' : 'ripgrep';
 
-  // Apply the optional exact-path allowlist and the global candidate cap.
+  // Apply the optional exact-path allowlist and the global candidate cap. The
+  // per-root resolve loop already STOPS at the cap (so the realpath+stat burst
+  // is bounded); this slice is the authoritative backstop and also bounds the
+  // JS-walk path + the allowlist filter. `candidateCapHit` (resolve stopped
+  // early) and a post-filter overflow both mean "more on disk, unreached".
   const filtered = filePathAllow
     ? state.candidates.filter((candidate) => filePathAllow.has(candidate.relativePath))
     : state.candidates;
-  const candidateTruncated = filtered.length > MAX_LIVE_CANDIDATE_FILES;
-  const capped = candidateTruncated ? filtered.slice(0, MAX_LIVE_CANDIDATE_FILES) : filtered;
+  const candidateTruncated = state.candidateCapHit || filtered.length > maxLiveCandidateFiles;
+  const capped =
+    filtered.length > maxLiveCandidateFiles ? filtered.slice(0, maxLiveCandidateFiles) : filtered;
 
   const matches: GrepMatch[] = [];
   for (const candidate of capped) {

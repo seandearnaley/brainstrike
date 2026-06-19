@@ -10,7 +10,12 @@ import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetRipgrepAvailabilityForTests, runLiveGrep } from '../../assistant-server/live-grep';
+import {
+  discoverRipgrepPathForTests,
+  resetRipgrepAvailabilityForTests,
+  runLiveGrep,
+  setMaxLiveCandidateFilesForTests,
+} from '../../assistant-server/live-grep';
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
@@ -49,12 +54,16 @@ function literalMatcher(pattern: string): ReturnType<typeof createGrepLineMatche
   return createGrepLineMatcher(pattern, false, false);
 }
 
+const originalPath = process.env['PATH'];
+
 beforeEach(() => {
   resetRipgrepAvailabilityForTests();
 });
 
 afterEach(async () => {
   resetRipgrepAvailabilityForTests();
+  setMaxLiveCandidateFilesForTests();
+  process.env['PATH'] = originalPath;
   while (createdRoots.length > 0) {
     const dir = createdRoots.pop();
     if (dir) {
@@ -62,6 +71,25 @@ afterEach(async () => {
     }
   }
 });
+
+/** Absolute path to the real `rg` binary if it is on PATH (else null), for the PATH-discovery test. */
+async function findRealRipgrep(): Promise<string | null> {
+  for (const dir of (originalPath ?? '').split(path.delimiter)) {
+    if (dir.length === 0) {
+      continue;
+    }
+    const candidate = path.join(dir, 'rg');
+    try {
+      const stat = await fsPromises.stat(candidate);
+      if (stat.isFile()) {
+        return candidate;
+      }
+    } catch {
+      // not here; keep looking
+    }
+  }
+  return null;
+}
 
 describe('runLiveGrep — basics', () => {
   it('skips (engine: skipped) when no roots are supplied', async () => {
@@ -236,5 +264,119 @@ describe('runLiveGrep — regex + filePaths scoping', () => {
       literalMatcher('ALLOW_PROBE')
     );
     expect(result.matches.map((m) => m.path)).toEqual(['src/keep.ts']);
+  });
+});
+
+describe('runLiveGrep — ripgrep discovery (PATH, not a hardcoded location)', () => {
+  it('finds rg via a PATH entry that is NOT a hardcoded fallback dir', async () => {
+    const realRg = await findRealRipgrep();
+    if (realRg === null) {
+      // No rg on the machine running this suite — discovery-via-PATH can't be
+      // exercised; the rg-absent fallback is covered separately. Skip cleanly.
+      return;
+    }
+    // A temp bin dir holding ONLY a symlink to the real rg. Pointing PATH at it
+    // (and nothing else) proves rg is resolved from PATH, since this dir is not
+    // in the hardcoded fallback list (/opt/homebrew/bin, /usr/local/bin, ...).
+    const binDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-livegrep-bin-'));
+    createdRoots.push(binDir);
+    const pathRg = path.join(binDir, 'rg');
+    await fsPromises.symlink(realRg, pathRg);
+    process.env['PATH'] = binDir;
+    resetRipgrepAvailabilityForTests();
+
+    // Discovery resolved rg from the PATH entry — the resolved path is INSIDE the
+    // temp bin dir, NOT a hardcoded fallback like /opt/homebrew/bin. This is the
+    // discriminating assertion: a hardcoded resolver would return the fallback.
+    expect(await discoverRipgrepPathForTests()).toBe(pathRg);
+
+    const dir = await makeWorkspace({ 'src/p.ts': 'PATH_DISCOVERY_TOKEN here\n' });
+    const result = await runLiveGrep(
+      {
+        pattern: 'PATH_DISCOVERY_TOKEN',
+        isRegex: false,
+        caseSensitive: false,
+        contextLines: 0,
+        roots: [root(dir)],
+      },
+      literalMatcher('PATH_DISCOVERY_TOKEN')
+    );
+
+    // Resolved rg via the PATH entry → ripgrep engine (not the JS-walk fallback).
+    expect(result.engine).toBe('ripgrep');
+    expect(result.matches.map((m) => m.path)).toEqual(['src/p.ts']);
+    expect(result.note).toBeUndefined();
+  });
+
+  it('falls back to the JS file-walk (with a note) when rg is on NO PATH entry', async () => {
+    // An empty bin dir on PATH and the fallback-dir probes forced to miss: rg is
+    // genuinely unreachable, so the live pass must degrade to the JS walk.
+    const binDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-livegrep-norg-'));
+    createdRoots.push(binDir);
+    process.env['PATH'] = binDir;
+
+    // The discovery probe stats every candidate `.../rg`; make those misses while
+    // leaving workspace stats intact, so neither PATH nor the fallback dirs hit.
+    const realStat = fsPromises.stat.bind(fsPromises);
+    const statSpy = vi
+      .spyOn(fsPromises, 'stat')
+      .mockImplementation(async (target: Parameters<typeof realStat>[0]) => {
+        if (typeof target === 'string' && (target.endsWith('/rg') || target.endsWith('\\rg.exe'))) {
+          throw new Error('ENOENT: ripgrep not found');
+        }
+        return realStat(target);
+      });
+    resetRipgrepAvailabilityForTests();
+
+    try {
+      const dir = await makeWorkspace({ 'src/w.ts': 'NOPATH_TOKEN here\n' });
+      const result = await runLiveGrep(
+        {
+          pattern: 'NOPATH_TOKEN',
+          isRegex: false,
+          caseSensitive: false,
+          contextLines: 0,
+          roots: [root(dir)],
+        },
+        literalMatcher('NOPATH_TOKEN')
+      );
+      expect(result.engine).toBe('js-walk');
+      expect(result.matches.map((m) => m.path)).toEqual(['src/w.ts']);
+      expect(result.note).toMatch(/ripgrep is unavailable/i);
+    } finally {
+      statSpy.mockRestore();
+    }
+  });
+});
+
+describe('runLiveGrep — candidate cap bounds the resolve (truncated)', () => {
+  it('stops resolving at the cap and surfaces truncated when more candidates exist', async () => {
+    // Six files all match; cap the live pass at 2 so resolve MUST stop early.
+    const dir = await makeWorkspace({
+      'src/c1.ts': 'CAP_TOKEN one\n',
+      'src/c2.ts': 'CAP_TOKEN two\n',
+      'src/c3.ts': 'CAP_TOKEN three\n',
+      'src/c4.ts': 'CAP_TOKEN four\n',
+      'src/c5.ts': 'CAP_TOKEN five\n',
+      'src/c6.ts': 'CAP_TOKEN six\n',
+    });
+    setMaxLiveCandidateFilesForTests(2);
+
+    const result = await runLiveGrep(
+      {
+        pattern: 'CAP_TOKEN',
+        isRegex: false,
+        caseSensitive: false,
+        contextLines: 0,
+        roots: [root(dir)],
+      },
+      literalMatcher('CAP_TOKEN')
+    );
+
+    // Resolution stopped at the cap (2 candidate files), so at most 2 matches.
+    expect(result.matches.length).toBeLessThanOrEqual(2);
+    // …and the cap is surfaced (never silent) so the model knows more exist.
+    expect(result.truncated).toBe(true);
+    expect(result.note).toMatch(/candidate-file cap/i);
   });
 });
