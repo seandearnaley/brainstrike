@@ -314,9 +314,11 @@ export async function createMastraAgentRuntime(
 
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
-  // tool from the map the model sees; 'ask' KEEPS the tool but records its id in
-  // `askTools` so the run forces the global requireToolApproval and Mastra
-  // suspends for per-call approval (see permission-tool-gate.ts + streamMastraAgent).
+  // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
+  // Mastra's PER-TOOL `requireApproval: true` (and records its id in `askTools`)
+  // so Mastra suspends for approval ONLY when that tool is actually called —
+  // allowed read/mcp tools in the same run still run free. We do NOT force the
+  // run-wide requireToolApproval (see permission-tool-gate.ts + streamMastraAgent).
   // When no policy is threaded the map is returned unchanged (production-default)
   // with an empty askTools. An explicit `options.permissionPolicy` wins over one
   // carried on the runtime data.
