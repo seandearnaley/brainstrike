@@ -365,11 +365,12 @@ async function runWorkspaceCoverageAudit(args: {
     return null;
   }
   const targets = await buildCoverageAuditTargets(args);
-  if (!args.isCurrent()) {
+  if (args.isCurrent()) {
+    if (isCoverageAuditOutcome(targets)) {
+      return targets;
+    }
+  } else {
     return null;
-  }
-  if (isCoverageAuditOutcome(targets)) {
-    return targets;
   }
   if (!args.isCurrent()) {
     return null;
@@ -379,33 +380,33 @@ async function runWorkspaceCoverageAudit(args: {
     db: args.db,
     rootIds: targets.map((target) => target.dbRootId),
   });
-  if (!args.isCurrent()) {
-    return null;
+  if (args.isCurrent()) {
+    const missingTargets = targets.filter(
+      (target) => (indexedCounts.get(target.dbRootId) ?? 0) < target.expectedFileCount
+    );
+    if (missingTargets.length === 0) {
+      return { kind: 'complete' };
+    }
+    return {
+      kind: 'incomplete',
+      indexedCounts,
+      message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
+      missingTargets,
+    };
   }
-  const missingTargets = targets.filter(
-    (target) => (indexedCounts.get(target.dbRootId) ?? 0) < target.expectedFileCount
-  );
-  if (missingTargets.length === 0) {
-    return { kind: 'complete' };
-  }
-  return {
-    kind: 'incomplete',
-    indexedCounts,
-    message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
-    missingTargets,
-  };
+  return null;
 }
 
 function applyWorkspaceCoverageAuditOutcome(args: {
   activeRootPath: string | null;
   auditKey: string;
   collectionId: string;
+  markAuditVerified: (auditKey: string) => void;
   outcome: WorkspaceCoverageAuditOutcome;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-  verifiedKeyRef: { current: string | null };
 }): void {
   if (args.outcome.kind === 'complete') {
-    args.verifiedKeyRef.current = args.auditKey;
+    args.markAuditVerified(args.auditKey);
     args.setStatus(
       createCoverageStatusPatch({
         activeRootPath: args.activeRootPath,
@@ -461,25 +462,24 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
 function startWorkspaceCoverageAudit(args: {
   activeRootPath: string | null;
   auditKey: string;
-  auditToken: symbol;
+  clearInFlightAudit: (auditKey: string) => void;
   collectionId: string;
   db: DbHandle;
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   handles: readonly DirectoryHandle[];
-  inFlightKeyRef: { current: string | null };
+  isCurrent: () => boolean;
+  markAuditVerified: (auditKey: string) => void;
   policyPreset: BackgroundIndexingPolicyPreset;
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-  tokenRef: { current: symbol | null };
-  verifiedKeyRef: { current: string | null };
 }): void {
   void runWorkspaceCoverageAudit({
     collectionId: args.collectionId,
     db: args.db,
     fileSystemAdapter: args.fileSystemAdapter,
     handles: args.handles,
-    isCurrent: () => args.tokenRef.current === args.auditToken,
+    isCurrent: args.isCurrent,
     policyPreset: args.policyPreset,
     resolveDbRootId: args.resolveDbRootId,
     rootIdByPath: args.rootIdByPath,
@@ -492,13 +492,13 @@ function startWorkspaceCoverageAudit(args: {
         activeRootPath: args.activeRootPath,
         auditKey: args.auditKey,
         collectionId: args.collectionId,
+        markAuditVerified: args.markAuditVerified,
         outcome,
         setStatus: args.setStatus,
-        verifiedKeyRef: args.verifiedKeyRef,
       });
     })
     .catch((error: unknown) => {
-      if (args.tokenRef.current !== args.auditToken) {
+      if (!args.isCurrent()) {
         return;
       }
       const message = `Workspace Index coverage audit failed: ${
@@ -515,9 +515,7 @@ function startWorkspaceCoverageAudit(args: {
       );
     })
     .finally(() => {
-      if (args.inFlightKeyRef.current === args.auditKey) {
-        args.inFlightKeyRef.current = null;
-      }
+      args.clearInFlightAudit(args.auditKey);
     });
 }
 
@@ -1047,9 +1045,6 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
-  const coverageAuditTokenRef = useRef<symbol | null>(null);
-  const coverageAuditInFlightKeyRef = useRef<string | null>(null);
-  const coverageAuditVerifiedKeyRef = useRef<string | null>(null);
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -1516,14 +1511,19 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   useEffect(() => {
+    let disposed = false;
+    let activeAuditToken: symbol | null = null;
+    let inFlightAuditKey: string | null = null;
+    let verifiedAuditKey: string | null = null;
+
     const maybeAuditIdleCoverage = (
       status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
     ): void => {
       if (status.state !== 'idle') {
         if (status.state !== 'waiting') {
-          coverageAuditTokenRef.current = null;
-          coverageAuditInFlightKeyRef.current = null;
-          coverageAuditVerifiedKeyRef.current = null;
+          activeAuditToken = null;
+          inFlightAuditKey = null;
+          verifiedAuditKey = null;
         }
         return;
       }
@@ -1542,16 +1542,13 @@ export function WorkspaceCollectionSyncProvider({
         policyPreset: indexingPolicyPreset,
         rootIdByPath,
       });
-      if (
-        coverageAuditVerifiedKeyRef.current === auditKey ||
-        coverageAuditInFlightKeyRef.current === auditKey
-      ) {
+      if (verifiedAuditKey === auditKey || inFlightAuditKey === auditKey) {
         return;
       }
 
       const auditToken = Symbol('workspace-coverage-audit');
-      coverageAuditTokenRef.current = auditToken;
-      coverageAuditInFlightKeyRef.current = auditKey;
+      activeAuditToken = auditToken;
+      inFlightAuditKey = auditKey;
       const activeRootPath = rootDirectoryHandle?.path ?? handles[0]?.path ?? null;
       setSyncStatus(
         createCoverageStatusPatch({
@@ -1565,27 +1562,33 @@ export function WorkspaceCollectionSyncProvider({
       startWorkspaceCoverageAudit({
         activeRootPath,
         auditKey,
-        auditToken,
+        clearInFlightAudit: (completedAuditKey) => {
+          if (!(disposed || inFlightAuditKey !== completedAuditKey)) {
+            inFlightAuditKey = null;
+          }
+        },
         collectionId,
         db: backgroundDb,
         fileSystemAdapter,
         handles,
-        inFlightKeyRef: coverageAuditInFlightKeyRef,
+        isCurrent: () => !disposed && activeAuditToken === auditToken,
+        markAuditVerified: (verifiedKey) => {
+          if (!disposed) {
+            verifiedAuditKey = verifiedKey;
+          }
+        },
         policyPreset: indexingPolicyPreset,
         resolveDbRootId,
         rootIdByPath,
         setStatus: setSyncStatus,
-        tokenRef: coverageAuditTokenRef,
-        verifiedKeyRef: coverageAuditVerifiedKeyRef,
       });
     };
 
     maybeAuditIdleCoverage(useWorkspaceCollectionSyncStatusStore.getState());
     const unsubscribe = useWorkspaceCollectionSyncStatusStore.subscribe(maybeAuditIdleCoverage);
     return () => {
+      disposed = true;
       unsubscribe();
-      coverageAuditTokenRef.current = null;
-      coverageAuditInFlightKeyRef.current = null;
     };
   }, [
     backgroundDb,
