@@ -281,6 +281,71 @@ describe('WorkspaceCollectionSyncService', () => {
     }
   });
 
+  it('requests the foreground-db-pressure bypass and proceeds once a sync phase is starved past the bound', async () => {
+    vi.useFakeTimers();
+    const foregroundYieldPolicy = createTestQosPolicy({
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 250,
+      progressThrottleMs: 500,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    });
+    // The resolver downgrades foreground-db-pressure to workable, constrained
+    // work ONLY when the starvation bypass is requested — mirroring the real
+    // resolveWorkspaceIndexingQosPolicy behaviour.
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 7;',
+        })),
+      },
+      resolveQosPolicy: vi.fn(
+        async (options?: { foregroundDbPressureStarvationBypass?: boolean }) =>
+          options?.foregroundDbPressureStarvationBypass
+            ? BALANCED_QOS_POLICY
+            : foregroundYieldPolicy
+      ),
+      waitForBackgroundPermit: vi.fn(async () => undefined),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    try {
+      let settled = false;
+      const syncPromise = service
+        .sync({
+          enabled: true,
+          indexingPolicyPreset: 'balanced',
+          managedCollectionId: 'set-1',
+          rootDirectoryHandle: createRootHandle(ROOT_PATH),
+        })
+        .finally(() => {
+          settled = true;
+        });
+      // Step fake time forward (the loop re-resolves every interBatchDelayMs)
+      // until the starved phases cross the 5s bound and the sync completes.
+      for (let step = 0; step < 400 && !settled; step += 1) {
+        await vi.advanceTimersByTimeAsync(250);
+      }
+      await syncPromise;
+
+      // The starved pass must have requested the bypass and then completed the
+      // import instead of yielding forever.
+      expect(deps.resolveQosPolicy).toHaveBeenCalledWith({
+        foregroundDbPressureStarvationBypass: true,
+      });
+      expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 20_000);
+
   it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
     const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,

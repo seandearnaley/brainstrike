@@ -34,6 +34,7 @@ import {
   __resetAssistantForegroundActivityForTests,
   acquireAssistantForegroundActivity,
 } from '../../assistant-foreground-activity';
+import { boundBackgroundPermitWait } from '../background-permit-wait';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
 import { WorkspaceIndexBlockedError } from '../workspace-index-blocked-error';
@@ -1581,6 +1582,43 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
   });
 
+  it('starts background indexing after the grace window even if file explorer restoration never settles', async () => {
+    // A very large root (e.g. a 27k-file repo) can keep the file tree loading
+    // for minutes. Tree restoration is only a convenience gate, so the indexer
+    // must not stay wedged in "waiting" forever — after TREE_RESTORATION_GRACE_MS
+    // it proceeds regardless of tree state. This is the real-world "added a
+    // folder, nothing happened" failure that the grace timeout fixes.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fileTreeContextState.current = {
+        isLoading: false,
+        isRestorationSettled: false,
+        isRestoringExpandedPaths: true,
+        restorationProgress: null,
+      };
+
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
+      );
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+
+      // Tree never settles; only the 5s grace timer elapses.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('pauses background indexing when the shared background-work arbiter is paused', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
@@ -2725,6 +2763,179 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  function mockIndexedCoverage(countsByDbRootId: Record<string, number>): void {
+    dbState.current = {
+      query: vi.fn(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('FROM file_records')) {
+          return {
+            rows: Object.entries(countsByDbRootId).map(([root_id, file_count]) => ({
+              file_count: String(file_count),
+              root_id,
+            })),
+          };
+        }
+        return { rows: [] };
+      }),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+  }
+
+  it('syncs the least-indexed root first so a newly added root beats a fully-indexed one', async () => {
+    const root1 = {
+      kind: 'directory',
+      name: 'root1',
+      path: '/workspace/root-1',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'root2',
+      path: '/workspace/root-2',
+      platform: 'electron',
+    };
+    resolveDbRootIdMock.mockImplementation(async (rootPath: string) =>
+      rootPath === root2.path ? 'db-root-2' : 'db-root-1'
+    );
+    // root1 is already indexed (100 files); root2 (newly added) has none.
+    mockIndexedCoverage({ 'db-root-1': 100 });
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    const callOrder: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        callOrder.push((req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null');
+      });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // The 0-coverage root MUST sync before the fully-indexed one — otherwise a
+      // folder you just added waits in line behind a giant in-progress import,
+      // the real-world "added a folder, nothing happened" failure.
+      await waitFor(() => expect(callOrder).toContain(root2.path));
+      const root2Index = callOrder.indexOf(root2.path);
+      const root1Index = callOrder.indexOf(root1.path);
+      expect(root2Index).toBeGreaterThanOrEqual(0);
+      expect(root2Index).toBeLessThan(root1Index === -1 ? Number.POSITIVE_INFINITY : root1Index);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('re-reads coverage each loop, so a root that imported nothing keeps first-claim priority', async () => {
+    // Coverage is read fresh from file_records (not a session flag): a root whose
+    // pass imported nothing — e.g. it was superseded mid-import — stays at 0 and
+    // is still synced first on the next loop. It can never be wrongly deprioritized
+    // under churn (the supersession-marking hazard raised in review).
+    const root1 = {
+      kind: 'directory',
+      name: 'root1',
+      path: '/workspace/root-1',
+      platform: 'electron',
+    };
+    const root2 = {
+      kind: 'directory',
+      name: 'root2',
+      path: '/workspace/root-2',
+      platform: 'electron',
+    };
+    resolveDbRootIdMock.mockImplementation(async (rootPath: string) =>
+      rootPath === root2.path ? 'db-root-2' : 'db-root-1'
+    );
+    // root2 stays at 0 coverage across loops (its sync is a no-op here).
+    mockIndexedCoverage({ 'db-root-1': 100 });
+    fileSystemState.rootDirectoryHandle = root1;
+    fileSystemState.rootDirectoryHandles = [root1, root2];
+
+    const callOrder: string[] = [];
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockImplementation(async (req) => {
+        callOrder.push((req.rootDirectoryHandle as { path: string } | null)?.path ?? 'null');
+      });
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(callOrder).toContain(root2.path));
+      expect(callOrder.indexOf(root2.path)).toBeLessThan(
+        callOrder.indexOf(root1.path) === -1
+          ? Number.POSITIVE_INFINITY
+          : callOrder.indexOf(root1.path)
+      );
+
+      // Re-trigger the loop. root2 still has 0 coverage → still synced first.
+      callOrder.length = 0;
+      fileSystemState.rootDirectoryHandles = [root1, root2];
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(callOrder).toContain(root2.path));
+      const root2Index = callOrder.indexOf(root2.path);
+      const root1Index = callOrder.indexOf(root1.path);
+      expect(root2Index).toBeLessThan(root1Index === -1 ? Number.POSITIVE_INFINITY : root1Index);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('re-runs the sync when background work resumes after a pause (resume edge is wired without the dep)', async () => {
+    const root = {
+      kind: 'directory',
+      name: 'root',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = root;
+    fileSystemState.rootDirectoryHandles = [root];
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+    let release: () => void = () => undefined;
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(syncSpy).toHaveBeenCalled());
+
+      // Pause: the arbiter emission must reach the provider even though
+      // backgroundWorkSnapshot is no longer a triggerSync dependency.
+      await act(async () => {
+        release = await acquireBackgroundWorkPauseReason('local-llm');
+      });
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('paused')
+      );
+      const callsWhilePaused = syncSpy.mock.calls.length;
+
+      // Resume: the explicit arbiter subscription must re-trigger a sync pass.
+      await act(async () => {
+        release();
+        release = () => undefined;
+      });
+      await waitFor(() => expect(syncSpy.mock.calls.length).toBeGreaterThan(callsWhilePaused));
+    } finally {
+      syncSpy.mockRestore();
+      release();
+    }
+  });
+
   it('does not allow idle status when an active root is missing expected indexed files', async () => {
     const rootA = {
       kind: 'directory',
@@ -2812,9 +3023,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
       expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain(rootB.path);
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      // Coverage-based ordering: root-b (0 indexed files) syncs before root-a
+      // (1 indexed file) — least-covered first.
       expect(syncSpy.mock.calls.map(([request]) => request.rootDirectoryHandle?.path)).toEqual([
-        rootA.path,
         rootB.path,
+        rootA.path,
       ]);
       expect(syncSpy.mock.calls.every(([request]) => request.scope?.mode === 'full')).toBe(true);
     } finally {
@@ -3383,5 +3596,64 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('boundBackgroundPermitWait', () => {
+  it('resolves immediately when the underlying permit grants without delay', async () => {
+    const basePermit = vi.fn(
+      async (_options: { readonly label: string; readonly signal?: AbortSignal }) => undefined
+    );
+    const wrapped = boundBackgroundPermitWait(basePermit);
+
+    await expect(wrapped({ label: 'test' })).resolves.toBeUndefined();
+    expect(basePermit).toHaveBeenCalledWith(
+      expect.objectContaining({ label: 'test', signal: expect.any(AbortSignal) })
+    );
+    // Granted permit must NOT have been aborted.
+    const passedSignal = basePermit.mock.calls[0]?.[0]?.signal;
+    expect(passedSignal?.aborted).toBe(false);
+  });
+
+  it('proceeds (resolves) after the max wait when the underlying permit blocks indefinitely', async () => {
+    vi.useFakeTimers();
+    try {
+      // A permit that never grants on its own — it only settles when aborted,
+      // mirroring the real controller polling under sustained foreground pressure.
+      const basePermit = vi.fn(
+        (options: { readonly label: string; readonly signal?: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            options.signal?.addEventListener('abort', () => {
+              reject(new Error('Background database permit aborted'));
+            });
+          })
+      );
+      const wrapped = boundBackgroundPermitWait(basePermit);
+
+      const permitPromise = wrapped({ label: 'Workspace Index import' });
+      // Before the bound elapses, the wrapper is still waiting.
+      let settled = false;
+      void permitPromise.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(settled).toBe(false);
+
+      // Once the max wait elapses, the wrapper aborts the underlying permit and
+      // proceeds so background work can't be starved indefinitely.
+      await vi.advanceTimersByTimeAsync(2);
+      await expect(permitPromise).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rethrows a non-timeout rejection from the underlying permit', async () => {
+    const basePermit = vi.fn(async () => {
+      throw new Error('scheduler exploded');
+    });
+    const wrapped = boundBackgroundPermitWait(basePermit);
+
+    await expect(wrapped({ label: 'test' })).rejects.toThrow('scheduler exploded');
   });
 });

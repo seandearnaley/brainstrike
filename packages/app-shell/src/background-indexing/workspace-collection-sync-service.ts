@@ -65,6 +65,13 @@ const QOS_RETRY_LABELS = {
 
 type WorkspaceIndexingQosPhase = keyof typeof QOS_RETRY_LABELS;
 
+// Max time a single sync phase yields to `foreground-db-pressure` before it
+// proceeds with gentle, constrained batches. Bounds the starvation of a
+// newly-added root caused by a lagging/self-inflicted foreground-latency signal
+// (the indexer's own writes refire foreground `live` queries). Genuine
+// `foreground-query` activity is NOT bypassed — it keeps yielding fully.
+const FOREGROUND_DB_PRESSURE_STARVATION_MS = 5000;
+
 interface RootDirectoryHandle {
   _internal?: unknown;
   kind: 'directory';
@@ -116,7 +123,9 @@ export interface WorkspaceCollectionSyncServiceDependencies {
    * not mapped (logs once per path). ALWAYS settles — never hangs.
    */
   resolveDbRootId: (rootPath: string, adapterRootId?: string | null) => Promise<string | null>;
-  resolveQosPolicy: () => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
+  resolveQosPolicy: (options?: {
+    foregroundDbPressureStarvationBypass?: boolean;
+  }) => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
   subscribeToBackfillProgress: (
@@ -413,6 +422,8 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext;
     phase: WorkspaceIndexingQosPhase;
   }): Promise<WorkspaceIndexingQosPolicy> {
+    const yieldDeadline = Date.now() + FOREGROUND_DB_PRESSURE_STARVATION_MS;
+    let starvationBypassed = false;
     let qosPolicy = await this.deps.resolveQosPolicy();
     this.deps.onDebugStage?.(`qos:${args.phase}:resolved`, {
       allowNewWork: qosPolicy.allowNewWork,
@@ -439,7 +450,23 @@ export class WorkspaceCollectionSyncService {
       throwIfAborted(args.abortSignal);
       await waitForAbortableDelay(Math.max(1, qosPolicy.interBatchDelayMs), args.abortSignal);
       throwIfAborted(args.abortSignal);
-      qosPolicy = await this.deps.resolveQosPolicy();
+      // After the starvation bound, request the foreground-db-pressure bypass so
+      // a starved pass downgrades to gentle constrained work instead of yielding
+      // forever. The resolver ignores the bypass for genuine foreground-query
+      // activity, which keeps yielding fully.
+      const foregroundDbPressureStarvationBypass = Date.now() >= yieldDeadline;
+      if (foregroundDbPressureStarvationBypass && !starvationBypassed) {
+        starvationBypassed = true;
+        this.deps.log?.warn(
+          'Workspace Index sync exceeded the foreground-db-pressure starvation bound; proceeding with constrained work',
+          {
+            phase: args.phase,
+            rootPath: args.context.rootPath,
+            starvationMs: FOREGROUND_DB_PRESSURE_STARVATION_MS,
+          }
+        );
+      }
+      qosPolicy = await this.deps.resolveQosPolicy({ foregroundDbPressureStarvationBypass });
       this.deps.onDebugStage?.(`qos:${args.phase}:resolved`, {
         allowNewWork: qosPolicy.allowNewWork,
         interBatchDelayMs: qosPolicy.interBatchDelayMs,
