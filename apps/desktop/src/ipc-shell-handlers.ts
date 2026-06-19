@@ -12,8 +12,15 @@ interface ShellLike {
 }
 
 interface ShellIpcDependencies {
+  lstatPath?: (target: string) => Promise<ShellTargetStats>;
   shell: ShellLike;
-  statPath?: (target: string) => Promise<{ isDirectory: () => boolean; isFile: () => boolean }>;
+  statPath?: (target: string) => Promise<ShellTargetStats>;
+}
+
+interface ShellTargetStats {
+  isDirectory: () => boolean;
+  isFile: () => boolean;
+  isSymbolicLink?: () => boolean;
 }
 
 function validateAbsolutePath(value: unknown): string | null {
@@ -33,12 +40,17 @@ function toErrorMessage(error: unknown): string {
 
 async function validateShellTarget(
   absolutePath: string,
-  statPath: NonNullable<ShellIpcDependencies['statPath']>
+  statPath: NonNullable<ShellIpcDependencies['statPath']>,
+  options: { allowSymlink: boolean }
 ): Promise<ShellIpcResult | null> {
   try {
     // Best-effort guard: Electron shell re-resolves the path, so this is not a confinement boundary.
     const stats = await statPath(absolutePath);
-    if (stats.isFile() || stats.isDirectory()) {
+    if (
+      stats.isFile() ||
+      stats.isDirectory() ||
+      (options.allowSymlink && stats.isSymbolicLink?.())
+    ) {
       return null;
     }
     return { ok: false, error: 'Shell target path must be a file or directory' };
@@ -58,6 +70,7 @@ async function validateShellTarget(
 }
 
 export function createShellIpcHandlers({
+  lstatPath = fsPromises.lstat,
   shell,
   statPath = fsPromises.stat,
 }: ShellIpcDependencies) {
@@ -67,7 +80,9 @@ export function createShellIpcHandlers({
       if (!absolutePath) {
         return { ok: false, error: 'openPath requires a non-empty absolute path string' };
       }
-      const targetError = await validateShellTarget(absolutePath, statPath);
+      const targetError = await validateShellTarget(absolutePath, statPath, {
+        allowSymlink: false,
+      });
       if (targetError) {
         return targetError;
       }
@@ -86,7 +101,9 @@ export function createShellIpcHandlers({
           error: 'showItemInFolder requires a non-empty absolute path string',
         };
       }
-      const targetError = await validateShellTarget(absolutePath, statPath);
+      const targetError = await validateShellTarget(absolutePath, lstatPath, {
+        allowSymlink: true,
+      });
       if (targetError) {
         return targetError;
       }
