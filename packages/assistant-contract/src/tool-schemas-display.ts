@@ -89,6 +89,36 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       'File content payload with metadata, including truncation status and approximate token count',
   },
 
+  'brainstrike.writeWorkspaceFile': {
+    toolId: 'brainstrike.writeWorkspaceFile',
+    description:
+      'Write or create a file in the selected workspace root. Overwrites any existing content and creates missing parent directories. Workspace-scoped: the path can never escape the open folder. Requires approval (edit-risk).',
+    parameters: [
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Workspace-relative file path to write (parent directories are created)',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'content',
+        type: 'string',
+        description: 'Full UTF-8 file content to write, up to ~2 MB (overwrites any existing file)',
+        required: true,
+        maxLength: 8_000_000,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description: 'Folder name or id to write to when multiple folders are open (omit when one)',
+        required: false,
+      },
+    ],
+    returns:
+      'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
+  },
+
   'brainstrike.findWorkspaceSymbol': {
     toolId: 'brainstrike.findWorkspaceSymbol',
     description:

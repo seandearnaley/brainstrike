@@ -391,6 +391,8 @@ export {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
+  type WriteWorkspaceFileInput,
+  WriteWorkspaceFileInputSchema,
 } from './tools/schemas';
 export {
   createWorkspaceIndexUnavailableResult,
