@@ -36,6 +36,7 @@ async function validateShellTarget(
   statPath: NonNullable<ShellIpcDependencies['statPath']>
 ): Promise<ShellIpcResult | null> {
   try {
+    // Best-effort guard: Electron shell re-resolves the path, so this is not a confinement boundary.
     const stats = await statPath(absolutePath);
     if (stats.isFile() || stats.isDirectory()) {
       return null;
