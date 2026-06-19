@@ -12,8 +12,15 @@ function makeStatPath() {
   return vi.fn().mockResolvedValue({ isDirectory: () => false, isFile: () => true });
 }
 
-function makeHandlers(shell = makeShell(), statPath = makeStatPath()) {
-  return createShellIpcHandlers({ shell, statPath });
+function makeHandlers(
+  shell = makeShell(),
+  paths: { lstatPath?: ReturnType<typeof vi.fn>; statPath?: ReturnType<typeof vi.fn> } = {}
+) {
+  return createShellIpcHandlers({
+    shell,
+    lstatPath: paths.lstatPath ?? makeStatPath(),
+    statPath: paths.statPath ?? makeStatPath(),
+  });
 }
 
 describe('shell IPC handlers', () => {
@@ -30,7 +37,7 @@ describe('shell IPC handlers', () => {
     const statPath = vi
       .fn()
       .mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
-    const handlers = makeHandlers(shell, statPath);
+    const handlers = makeHandlers(shell, { lstatPath: statPath, statPath });
 
     const openResult = await handlers.openPath('/Users/dev/missing.pdf');
     const revealResult = await handlers.showItemInFolder('/Users/dev/missing.pdf');
@@ -39,6 +46,25 @@ describe('shell IPC handlers', () => {
     expect(revealResult).toEqual({ ok: false, error: 'Shell target path does not exist' });
     expect(shell.openPath).not.toHaveBeenCalled();
     expect(shell.showItemInFolder).not.toHaveBeenCalled();
+  });
+
+  it('reveals a dangling symlink entry without requiring its target to exist', async () => {
+    const shell = makeShell();
+    const statPath = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('dangling'), { code: 'ENOENT' }));
+    const lstatPath = vi.fn().mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    });
+    const handlers = makeHandlers(shell, { lstatPath, statPath });
+
+    const result = await handlers.showItemInFolder('/Users/dev/project/broken-link');
+
+    expect(result).toEqual({ ok: true });
+    expect(shell.showItemInFolder).toHaveBeenCalledWith('/Users/dev/project/broken-link');
+    expect(statPath).not.toHaveBeenCalled();
   });
 
   it.each([
