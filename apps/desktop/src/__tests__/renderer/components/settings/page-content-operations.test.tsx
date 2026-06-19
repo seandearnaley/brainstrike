@@ -119,6 +119,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'local-runtime',
     title: 'Local Runtime',
   }),
+  createPermissionSettingsCategory: () => ({
+    content: <div data-testid="permissions-category" />,
+    id: 'permissions',
+    title: 'Permissions',
+  }),
   createSearchIndexingSettingsCategory: () => ({
     content: <div data-testid="search-indexing-category" />,
     id: 'search-indexing',

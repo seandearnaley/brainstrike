@@ -23,6 +23,7 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createLocalRuntimeSettingsCategory,
+  createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
@@ -199,6 +200,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
         mcpAvailable: false,
       }),
+      createPermissionSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         isWebPlatform: true,
