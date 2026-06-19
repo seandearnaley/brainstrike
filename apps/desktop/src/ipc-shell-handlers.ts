@@ -1,3 +1,4 @@
+import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 
 export interface ShellIpcResult {
@@ -12,6 +13,7 @@ interface ShellLike {
 
 interface ShellIpcDependencies {
   shell: ShellLike;
+  statPath?: (target: string) => Promise<{ isDirectory: () => boolean; isFile: () => boolean }>;
 }
 
 function validateAbsolutePath(value: unknown): string | null {
@@ -29,12 +31,44 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createShellIpcHandlers({ shell }: ShellIpcDependencies) {
+async function validateShellTarget(
+  absolutePath: string,
+  statPath: NonNullable<ShellIpcDependencies['statPath']>
+): Promise<ShellIpcResult | null> {
+  try {
+    const stats = await statPath(absolutePath);
+    if (stats.isFile() || stats.isDirectory()) {
+      return null;
+    }
+    return { ok: false, error: 'Shell target path must be a file or directory' };
+  } catch (error) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : '';
+    return {
+      ok: false,
+      error:
+        code === 'ENOENT' || code === 'ENOTDIR'
+          ? 'Shell target path does not exist'
+          : 'Shell target path is not accessible',
+    };
+  }
+}
+
+export function createShellIpcHandlers({
+  shell,
+  statPath = fsPromises.stat,
+}: ShellIpcDependencies) {
   return {
     openPath: async (rawPath: unknown): Promise<ShellIpcResult> => {
       const absolutePath = validateAbsolutePath(rawPath);
       if (!absolutePath) {
         return { ok: false, error: 'openPath requires a non-empty absolute path string' };
+      }
+      const targetError = await validateShellTarget(absolutePath, statPath);
+      if (targetError) {
+        return targetError;
       }
       try {
         const errorMessage = await shell.openPath(absolutePath);
@@ -43,19 +77,23 @@ export function createShellIpcHandlers({ shell }: ShellIpcDependencies) {
         return { ok: false, error: toErrorMessage(error) };
       }
     },
-    showItemInFolder: (rawPath: unknown): Promise<ShellIpcResult> => {
+    showItemInFolder: async (rawPath: unknown): Promise<ShellIpcResult> => {
       const absolutePath = validateAbsolutePath(rawPath);
       if (!absolutePath) {
-        return Promise.resolve({
+        return {
           ok: false,
           error: 'showItemInFolder requires a non-empty absolute path string',
-        });
+        };
+      }
+      const targetError = await validateShellTarget(absolutePath, statPath);
+      if (targetError) {
+        return targetError;
       }
       try {
         shell.showItemInFolder(absolutePath);
-        return Promise.resolve({ ok: true });
+        return { ok: true };
       } catch (error) {
-        return Promise.resolve({ ok: false, error: toErrorMessage(error) });
+        return { ok: false, error: toErrorMessage(error) };
       }
     },
   };
