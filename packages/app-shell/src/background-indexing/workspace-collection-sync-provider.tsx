@@ -571,6 +571,75 @@ type TriggerSyncScope =
       }>;
     };
 
+interface TriggerSyncOptions {
+  restartActive?: boolean;
+}
+
+function mergeTriggerSyncScopes(
+  current: TriggerSyncScope | null,
+  incoming: TriggerSyncScope
+): TriggerSyncScope {
+  if (current === null) {
+    return incoming;
+  }
+  if (current.mode === 'full' || incoming.mode === 'full') {
+    return { mode: 'full' };
+  }
+
+  const rootsById = new Map<string, { changes: FileSystemChange[]; rootId: string }>();
+  for (const root of current.roots) {
+    rootsById.set(root.rootId, {
+      rootId: root.rootId,
+      changes: [...root.changes],
+    });
+  }
+  for (const root of incoming.roots) {
+    const existing = rootsById.get(root.rootId);
+    rootsById.set(root.rootId, {
+      rootId: root.rootId,
+      changes: [...(existing?.changes ?? []), ...root.changes],
+    });
+  }
+  return {
+    mode: 'paths',
+    roots: [...rootsById.values()],
+  };
+}
+
+function handleActiveSyncLoopRequest(args: {
+  options: TriggerSyncOptions;
+  pendingSyncScopeRef: { current: TriggerSyncScope | null };
+  reportCancelError: (error: unknown) => void;
+  scope: TriggerSyncScope;
+  service: WorkspaceCollectionSyncService;
+  syncLoopActiveRef: { current: boolean };
+  syncLoopDebugRef: { current: Record<string, unknown> };
+  syncLoopGenerationRef: { current: number };
+}): boolean {
+  if (!args.syncLoopActiveRef.current) {
+    return false;
+  }
+  if (args.options.restartActive === true) {
+    args.syncLoopGenerationRef.current += 1;
+    args.syncLoopActiveRef.current = false;
+    args.pendingSyncScopeRef.current = null;
+    void args.service.cancel().catch(args.reportCancelError);
+    return false;
+  }
+
+  args.pendingSyncScopeRef.current = mergeTriggerSyncScopes(
+    args.pendingSyncScopeRef.current,
+    args.scope
+  );
+  args.syncLoopDebugRef.current = {
+    ...args.syncLoopDebugRef.current,
+    pendingScope: args.pendingSyncScopeRef.current.mode,
+    state: 'queued-while-active',
+    updatedAt: new Date().toISOString(),
+  };
+  return true;
+}
+
 interface SyncLoopTarget {
   handle: DirectoryHandle;
   scope: {
@@ -1088,6 +1157,8 @@ export function WorkspaceCollectionSyncProvider({
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
   const syncLoopDebugRef = useRef<Record<string, unknown>>({ state: 'not-started' });
+  const syncLoopActiveRef = useRef(false);
+  const pendingSyncScopeRef = useRef<TriggerSyncScope | null>(null);
   const backgroundWorkSnapshot = useSyncExternalStore(
     subscribeToBackgroundWorkArbiter,
     getBackgroundWorkArbiterSnapshot,
@@ -1124,7 +1195,7 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   useEffect(() => {
-    if (hasHydrated) {
+    if (storeHasHydrated) {
       return;
     }
     let disposed = false;
@@ -1136,7 +1207,7 @@ export function WorkspaceCollectionSyncProvider({
     return () => {
       disposed = true;
     };
-  }, [hasHydrated, reportAsyncError]);
+  }, [reportAsyncError, storeHasHydrated]);
 
   const isTreeRestorationReady =
     fileTreeContext === null ||
@@ -1440,7 +1511,7 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         setSyncStatus({
-          state: 'idle',
+          state: 'waiting',
           managedCollectionId: collection.id,
           managedCollectionName: collection.name ?? null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
@@ -1469,14 +1540,10 @@ export function WorkspaceCollectionSyncProvider({
   ]);
 
   const triggerSync = useCallback(
-    (scope: TriggerSyncScope = { mode: 'full' }) => {
+    (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
       if (!hasHydrated) {
         return;
       }
-
-      // Bump the generation so any in-flight loop from a previous triggerSync
-      // call can detect that it is now stale and stop iterating.
-      syncLoopGenerationRef.current += 1;
 
       if (!service) {
         if (enabled) {
@@ -1502,6 +1569,9 @@ export function WorkspaceCollectionSyncProvider({
 
       const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
       if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
+        syncLoopGenerationRef.current += 1;
+        syncLoopActiveRef.current = false;
+        pendingSyncScopeRef.current = null;
         void service.cancel().catch((error) => {
           reportAsyncError('cancel', error);
         });
@@ -1538,6 +1608,9 @@ export function WorkspaceCollectionSyncProvider({
       }
 
       if (isAccessLoading) {
+        syncLoopGenerationRef.current += 1;
+        syncLoopActiveRef.current = false;
+        pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
           state: 'waiting',
@@ -1553,6 +1626,9 @@ export function WorkspaceCollectionSyncProvider({
       }
 
       if (!isTreeRestorationReady) {
+        syncLoopGenerationRef.current += 1;
+        syncLoopActiveRef.current = false;
+        pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
           state: 'waiting',
@@ -1573,7 +1649,29 @@ export function WorkspaceCollectionSyncProvider({
         rootIdByPath,
         scope,
       });
+      if (
+        handleActiveSyncLoopRequest({
+          options,
+          pendingSyncScopeRef,
+          reportCancelError: (error) => {
+            reportAsyncError('cancel', error);
+          },
+          scope,
+          service,
+          syncLoopActiveRef,
+          syncLoopDebugRef,
+          syncLoopGenerationRef,
+        })
+      ) {
+        return;
+      }
+
+      // Bump the generation only when starting a real loop. Requests that arrive
+      // while a loop is active are serialized through pendingSyncScopeRef so the
+      // active import is not cancelled and overlapped by the follow-up pass.
+      syncLoopGenerationRef.current += 1;
       const myGeneration = syncLoopGenerationRef.current;
+      syncLoopActiveRef.current = true;
       syncLoopDebugRef.current = {
         generation: myGeneration,
         scope: scope.mode,
@@ -1683,7 +1781,27 @@ export function WorkspaceCollectionSyncProvider({
             updatedAt: new Date().toISOString(),
           };
         }
-      })();
+      })()
+        .catch((error) => {
+          syncLoopDebugRef.current = {
+            ...syncLoopDebugRef.current,
+            error: error instanceof Error ? error.message : String(error),
+            generation: myGeneration,
+            state: 'sync-loop-error',
+            updatedAt: new Date().toISOString(),
+          };
+          reportAsyncError('sync loop', error);
+        })
+        .finally(() => {
+          if (syncLoopGenerationRef.current === myGeneration) {
+            syncLoopActiveRef.current = false;
+          }
+          const pendingScope = pendingSyncScopeRef.current;
+          pendingSyncScopeRef.current = null;
+          if (pendingScope) {
+            triggerSync(pendingScope);
+          }
+        });
     },
     [
       enabled,
@@ -2388,7 +2506,7 @@ export function WorkspaceCollectionSyncProvider({
   }, [service]);
 
   useEffect(() => {
-    triggerSync();
+    triggerSync({ mode: 'full' }, { restartActive: true });
   }, [backgroundWorkSnapshot, triggerSync]);
 
   useEffect(
