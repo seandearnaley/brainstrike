@@ -559,6 +559,41 @@ export const GlobWorkspaceInputSchema = z
 
 export type GlobWorkspaceInput = z.infer<typeof GlobWorkspaceInputSchema>;
 
+export const ExecuteCommandInputSchema = z
+  .object({
+    command: z
+      .string()
+      .min(1)
+      .max(10_000)
+      .describe(
+        'The shell command line to run, passed verbatim to the shell as `-c command`. Arbitrary execution — there is NO sandbox.'
+      ),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: which open folder to start in, by name or id (from listWorkspaceContext). Omit when only one folder is open; required to disambiguate when several are.'
+      ),
+    cwd: z
+      .string()
+      .optional()
+      .describe(
+        'Optional start directory. Absolute, or relative to the chosen root. MUST resolve inside an open workspace folder (the command itself is unrestricted; only the start dir is pinned). Defaults to the workspace root.'
+      ),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(600_000)
+      .optional()
+      .describe(
+        'Kill the whole process tree after this many milliseconds (default 120000, max 600000). On timeout the result reports timedOut: true.'
+      ),
+  })
+  .strict();
+
+export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
   'web.echo': EchoInput,
@@ -576,6 +611,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.grepSearch': GrepSearchInputSchema,
   'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
+  'brainstrike.executeCommand': ExecuteCommandInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {
