@@ -17,6 +17,47 @@
 import type { ToolRiskCategory } from './tool-risk.js';
 
 /**
+ * A SERIALIZABLE snapshot of the permission posture plus the caller-provided
+ * tool risk classification, threaded into the agent runtime so it can gate the
+ * tool map BEFORE the (immutable) Mastra `Agent` is constructed (permission
+ * engine, step 3/4).
+ *
+ * Serializable by design: it crosses the runtime/IPC boundary, so `sessionGrants`
+ * is an ARRAY (not the resolver's `ReadonlySet`) and every field is a plain JSON
+ * value. The runtime gate adapts the array to a `Set` internally before calling
+ * {@link resolvePermissionDecision}.
+ *
+ * Risk classification is CALLER-PROVIDED: the registry that assembles the tool
+ * map owns `riskByTool` (keyed by tool id). The runtime gate must NOT introspect
+ * Mastra tool objects for brainstrike risk metadata — that metadata is
+ * registry-side and never rides on the Mastra tool instance.
+ */
+export interface PermissionToolGateSnapshot {
+  /**
+   * Risk for a tool absent from {@link riskByTool} (e.g. a discovered MCP tool).
+   * Defaults to `'mcp'` (most restrictive sensible) in the runtime gate when
+   * omitted, so an unclassified tool is never treated as harmless `'read'`.
+   */
+  defaultRisk?: ToolRiskCategory;
+  /** Optional per-tool-id override map; an entry beats the category policy. */
+  perToolOverrides?: PerToolPermissionOverrides;
+  /** Per-risk-category decision policy. */
+  policies: PermissionPolicies;
+  /**
+   * Caller-provided tool-id → risk classification. Looked up by original tool
+   * name first, then by sanitized id, before falling back to {@link defaultRisk}.
+   */
+  riskByTool?: Record<string, ToolRiskCategory>;
+  /**
+   * Categories granted "always allow for this session". Array (serializable);
+   * the gate adapts it to a `ReadonlySet` for the resolver.
+   */
+  sessionGrants?: ToolRiskCategory[];
+  /** Master "allow everything" toggle. */
+  yolo: boolean;
+}
+
+/**
  * The outcome of evaluating a tool call against the permission policy.
  * - `allow`: run the tool without prompting.
  * - `ask`: prompt the user for approval before running.

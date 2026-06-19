@@ -574,3 +574,300 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(loggedDetail?.detail).toContain(longDetail);
   });
 });
+
+/**
+ * Permission tool gating — REAL Agent runs that prove the policy filter omits
+ * 'deny'/'ask' tools from the map the model sees BEFORE the Agent is built,
+ * while 'allow' tools (and the no-policy default) keep executing. These drive
+ * the same real `streamMastraAgent` → real `Agent` → real tool `execute` path as
+ * the suite above (no agent mock).
+ */
+describe('permission tool gating (real @mastra/core/agent)', () => {
+  beforeEach(() => {
+    modelHolder.current = undefined;
+  });
+
+  /**
+   * A scripted model that emits a tool call for `toolName` on turn 1, then emits
+   * the final text on EVERY later turn. Turn-counting (not prompt inspection)
+   * makes the run terminate even when the requested tool was omitted from the
+   * map — Mastra surfaces an unknown-tool result, and the next turn still ends.
+   */
+  function createTurnCountedToolCallModel(args: {
+    toolName: string;
+    toolCallId: string;
+    input: string;
+    finalText: string;
+  }): LanguageModelV2 {
+    let turn = 0;
+    const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+      new ReadableStream<LanguageModelV2StreamPart>({
+        start(controller) {
+          for (const part of parts) {
+            controller.enqueue(part);
+          }
+          controller.close();
+        },
+      });
+
+    return {
+      specificationVersion: 'v2',
+      provider: 'fake',
+      modelId: 'fake-model',
+      supportedUrls: {},
+      doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+      doStream: () => {
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve({
+            stream: enqueue([
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: args.toolCallId,
+                toolName: args.toolName,
+                input: args.input,
+              },
+              { type: 'finish', finishReason: 'tool-calls', usage: USAGE },
+            ]),
+          });
+        }
+        const id = 'text-final';
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            { type: 'text-start', id },
+            { type: 'text-delta', id, delta: args.finalText },
+            { type: 'text-end', id },
+            { type: 'finish', finishReason: 'stop', usage: USAGE },
+          ]),
+        });
+      },
+    };
+  }
+
+  it("omits a 'deny' tool from the map (execute never called) yet keeps an 'allow' tool callable", async () => {
+    const allowedExecute = vi.fn((inputData: { value: string }) =>
+      Promise.resolve({ echoed: inputData.value })
+    );
+    const deniedExecute = vi.fn((inputData: { value: string }) =>
+      Promise.resolve({ mutated: inputData.value })
+    );
+    const allowedTool = createTool({
+      id: 'allowed_tool',
+      description: 'A read-only tool that is allowed.',
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ echoed: z.string() }),
+      execute: allowedExecute,
+    });
+    const deniedTool = createTool({
+      id: 'denied_tool',
+      description: 'An edit tool that is denied.',
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ mutated: z.string() }),
+      execute: deniedExecute,
+    });
+
+    const permissionPolicy = {
+      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'ask' },
+      yolo: false,
+      riskByTool: { allowed_tool: 'read', denied_tool: 'edit' },
+    } as const;
+
+    // Run 1: the model tries to call the DENIED tool. It must be omitted from the
+    // map, so its execute is never invoked, no tool-event surfaces for it, and
+    // the run still completes with the model's final answer.
+    modelHolder.current = createTurnCountedToolCallModel({
+      toolName: 'denied_tool',
+      toolCallId: 'call-denied-1',
+      input: JSON.stringify({ value: 'secret' }),
+      finalText: 'I could not use that tool.',
+    });
+
+    const denyChunks: StreamChunk[] = [];
+    const denyIterator = await streamMastraAgent(
+      [{ id: 'u-deny', role: 'user', parts: [{ type: 'text', text: 'mutate it' }] }],
+      {
+        runtime: { provider: 'openai', apiKey: 'test-key', permissionPolicy },
+        tools: { allowed_tool: allowedTool, denied_tool: deniedTool },
+      }
+    );
+    for await (const chunk of denyIterator) {
+      denyChunks.push(chunk);
+    }
+
+    // The denied tool's execute is NEVER called: it was omitted from the map.
+    expect(deniedExecute).not.toHaveBeenCalled();
+    // The omitted tool produces NO successful tool-event and NO `tool.completed`
+    // run-event. (The model's tool-call request still yields a 'start' event and
+    // a Mastra unknown-tool 'error' event — that proves the tool was absent from
+    // the registry, not silently executed.)
+    const denyToolEvents = denyChunks.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> => chunk.type === 'tool-event'
+    );
+    expect(
+      denyToolEvents.some((event) => event.name === 'denied_tool' && event.status === 'success')
+    ).toBe(false);
+    const denyRunEventKinds = denyChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(denyRunEventKinds).not.toContain('tool.completed');
+    // The run still completes with the model's final answer.
+    const denyText = denyChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+          chunk.type === 'text-delta'
+      )
+      .map((chunk) => chunk.value)
+      .join('');
+    expect(denyText).toContain('could not use that tool');
+
+    // Run 2: with the SAME policy, the model calls the ALLOWED tool — it must
+    // remain in the map and actually execute.
+    modelHolder.current = createTurnCountedToolCallModel({
+      toolName: 'allowed_tool',
+      toolCallId: 'call-allowed-1',
+      input: JSON.stringify({ value: 'ping' }),
+      finalText: 'Echoed ping.',
+    });
+
+    const allowChunks: StreamChunk[] = [];
+    const allowIterator = await streamMastraAgent(
+      [{ id: 'u-allow', role: 'user', parts: [{ type: 'text', text: 'echo it' }] }],
+      {
+        runtime: { provider: 'openai', apiKey: 'test-key', permissionPolicy },
+        tools: { allowed_tool: allowedTool, denied_tool: deniedTool },
+      }
+    );
+    for await (const chunk of allowIterator) {
+      allowChunks.push(chunk);
+    }
+
+    expect(allowedExecute).toHaveBeenCalledTimes(1);
+    expect(allowedExecute.mock.calls[0]?.[0]).toMatchObject({ value: 'ping' });
+    const allowRunEventKinds = allowChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(allowRunEventKinds).toContain('tool.completed');
+  });
+
+  it("omits an 'ask' tool fail-safe (execute never called, not silently allowed)", async () => {
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = createTool({
+      id: 'shell_tool',
+      description: 'An execute-risk tool gated to ask.',
+      inputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({ ran: z.string() }),
+      execute: askExecute,
+    });
+
+    // execute policy is 'ask'. With no per-tool suspend available, the tool must
+    // be omitted (fail-safe) — NEVER silently run.
+    const permissionPolicy = {
+      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'ask' },
+      yolo: false,
+      riskByTool: { shell_tool: 'execute' },
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      toolName: 'shell_tool',
+      toolCallId: 'call-ask-1',
+      input: JSON.stringify({ command: 'rm -rf /' }),
+      finalText: 'That tool requires approval.',
+    });
+
+    const chunks: StreamChunk[] = [];
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-ask', role: 'user', parts: [{ type: 'text', text: 'run it' }] }],
+      {
+        runtime: { provider: 'openai', apiKey: 'test-key', permissionPolicy },
+        tools: { shell_tool: askTool },
+      }
+    );
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    // FAIL-SAFE: the 'ask' tool was omitted, so its execute is never invoked and
+    // it never produces a successful tool-event or a `tool.completed` run-event.
+    expect(askExecute).not.toHaveBeenCalled();
+    const askToolEvents = chunks.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> => chunk.type === 'tool-event'
+    );
+    expect(
+      askToolEvents.some((event) => event.name === 'shell_tool' && event.status === 'success')
+    ).toBe(false);
+    const askRunEventKinds = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(askRunEventKinds).not.toContain('tool.completed');
+    // The run still terminates with the final answer.
+    const text = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+          chunk.type === 'text-delta'
+      )
+      .map((chunk) => chunk.value)
+      .join('');
+    expect(text).toContain('requires approval');
+  });
+
+  it('leaves the tool map unchanged when no permissionPolicy is provided (production default)', async () => {
+    const allowedExecute = vi.fn((inputData: { value: string }) =>
+      Promise.resolve({ echoed: inputData.value })
+    );
+    const deniedExecute = vi.fn((inputData: { value: string }) =>
+      Promise.resolve({ mutated: inputData.value })
+    );
+    const allowedTool = createTool({
+      id: 'allowed_tool',
+      description: 'A tool that would be allowed under policy.',
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ echoed: z.string() }),
+      execute: allowedExecute,
+    });
+    const deniedTool = createTool({
+      id: 'denied_tool',
+      description: 'A tool that would be denied under policy.',
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ mutated: z.string() }),
+      execute: deniedExecute,
+    });
+
+    // No permissionPolicy on the runtime → the gate is a no-op, so BOTH tools
+    // stay callable exactly as before this feature existed.
+    modelHolder.current = createTurnCountedToolCallModel({
+      toolName: 'denied_tool',
+      toolCallId: 'call-default-1',
+      input: JSON.stringify({ value: 'unfiltered' }),
+      finalText: 'Ran the tool.',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-default', role: 'user', parts: [{ type: 'text', text: 'run it' }] }],
+      {
+        runtime: { provider: 'openai', apiKey: 'test-key' },
+        tools: { allowed_tool: allowedTool, denied_tool: deniedTool },
+      }
+    );
+    const runEventKinds: string[] = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      }
+    }
+
+    // With no policy, the would-be-denied tool still executes.
+    expect(deniedExecute).toHaveBeenCalledTimes(1);
+    expect(deniedExecute.mock.calls[0]?.[0]).toMatchObject({ value: 'unfiltered' });
+    expect(runEventKinds).toContain('tool.completed');
+  });
+});
