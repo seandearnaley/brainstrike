@@ -74,12 +74,24 @@ vi.mock('@brainstrike/ui', () => ({
   },
 }));
 
-// Mock the status items
+// Mock the status items. AppLayout imports the direct modules so React Doctor
+// can verify there is no status-items barrel import in the production path.
 vi.mock('../status-items', () => ({
   CollectionSyncStatusItem: () => (
     <div data-testid="collection-sync-status-item">Workspace Index Cache Status</div>
   ),
   DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
+  IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
+}));
+vi.mock('../status-items/collection-sync-status-item', () => ({
+  CollectionSyncStatusItem: () => (
+    <div data-testid="collection-sync-status-item">Workspace Index Cache Status</div>
+  ),
+}));
+vi.mock('../status-items/database-status-item', () => ({
+  DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
+}));
+vi.mock('../status-items/indexing-status-item', () => ({
   IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
 }));
 
