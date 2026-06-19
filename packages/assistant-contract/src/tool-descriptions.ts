@@ -23,4 +23,6 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
   'brainstrike.grepSearch':
     "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
+  'brainstrike.globWorkspace':
+    'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). Excludes .git/node_modules/build output by default; read-only',
 };

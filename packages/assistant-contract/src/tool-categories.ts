@@ -215,6 +215,16 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: false,
     estimatedTokens: 160,
   },
+  // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
+  // risk bucket (it is also derivable from retrieval + no-approval) so the
+  // permission engine allows it by default, like the other workspace readers.
+  'brainstrike.globWorkspace': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 130,
+    riskCategory: 'read',
+  },
 };
 
 /**
