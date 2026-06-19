@@ -22,12 +22,15 @@ function makeInput(overrides: Partial<PermissionDecisionInput> = {}): Permission
 }
 
 describe('DEFAULT_PERMISSION_POLICIES', () => {
-  it('allows read and asks for edit/execute/mcp (safe-by-default)', () => {
+  it('allows read + mcp and asks for edit/execute (safe-by-default)', () => {
+    // `mcp` defaults to 'allow': the runtime gate fail-safe-OMITS 'ask' tools
+    // (Mastra v1 has no per-tool suspend), so an 'ask' mcp default would drop
+    // every user-configured MCP tool the moment enforcement is enabled.
     expect(DEFAULT_PERMISSION_POLICIES).toEqual({
       read: 'allow',
       edit: 'ask',
       execute: 'ask',
-      mcp: 'ask',
+      mcp: 'allow',
     });
   });
 
@@ -53,11 +56,11 @@ describe('isPermissionDecision', () => {
 });
 
 describe('resolvePermissionDecision', () => {
-  it('returns the category policy by default (defaults: read allow, edit ask)', () => {
+  it('returns the category policy by default (defaults: read allow, edit ask, mcp allow)', () => {
     expect(resolvePermissionDecision(makeInput({ riskCategory: 'read' }))).toBe('allow');
     expect(resolvePermissionDecision(makeInput({ riskCategory: 'edit' }))).toBe('ask');
     expect(resolvePermissionDecision(makeInput({ riskCategory: 'execute' }))).toBe('ask');
-    expect(resolvePermissionDecision(makeInput({ riskCategory: 'mcp' }))).toBe('ask');
+    expect(resolvePermissionDecision(makeInput({ riskCategory: 'mcp' }))).toBe('allow');
   });
 
   it('YOLO resolves every category to allow, overriding deny/ask/override/grant', () => {

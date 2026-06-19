@@ -4,6 +4,7 @@ import type {
   RuntimeAssistantObservationalMemorySettings,
   RuntimeAssistantSemanticRecallSettings,
 } from '@brainstrike/assistant-contract/memory-settings';
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useMemo } from 'react';
 import {
   buildAssistantRequestData,
@@ -18,6 +19,12 @@ interface UseAssistantThreadRequestDataArgs {
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   readonly observationalMemorySettings: RuntimeAssistantObservationalMemorySettings;
+  /**
+   * Opt-in permission snapshot; only set (non-undefined) when the user enabled
+   * enforcement AND this is the desktop data-stream transport. Passthrough
+   * otherwise.
+   */
+  readonly permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
   readonly providerOptions: Record<string, unknown> | undefined;
   readonly runtimeWorkspaceContext: RuntimeData['workspaceContext'] | null;
   readonly selectedMemoryThreadId: string | undefined;
@@ -52,6 +59,7 @@ export function useAssistantThreadRequestData({
   memoryResourceId,
   modelSettings,
   observationalMemorySettings,
+  permissionPolicyRequest,
   providerOptions,
   runtimeWorkspaceContext,
   selectedMemoryThreadId,
@@ -78,6 +86,7 @@ export function useAssistantThreadRequestData({
         memoryResourceId,
         memorySettings: runtimeMemorySettings,
         modelSettings,
+        permissionPolicyRequest,
         providerOptions,
         selectedMemoryThreadId,
         selectionData,
@@ -92,6 +101,7 @@ export function useAssistantThreadRequestData({
       memoryOptions,
       memoryResourceId,
       modelSettings,
+      permissionPolicyRequest,
       providerOptions,
       runtimeMemorySettings,
       selectedMemoryThreadId,

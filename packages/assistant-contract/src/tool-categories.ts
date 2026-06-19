@@ -7,7 +7,7 @@
  * - Consistent tool organization across native and MCP tools
  */
 
-import type { ToolRiskCategory } from './tool-risk.js';
+import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
 
 /**
  * Source of a tool - either built into the application or from an MCP server.
@@ -198,6 +198,27 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 160,
   },
 };
+
+/**
+ * Build the native-tool risk classification map for the permission gate.
+ *
+ * Maps every {@link NATIVE_TOOL_DEFAULTS} tool id → its {@link ToolRiskCategory}
+ * via {@link resolveToolRiskCategory}. This is the caller-provided `riskByTool`
+ * the runtime permission gate consumes (the gate never introspects Mastra tool
+ * objects for brainstrike risk metadata — that classification is registry-side).
+ *
+ * STRICT: if a native tool's risk cannot be derived and is not explicitly
+ * declared, {@link resolveToolRiskCategory} throws {@link UndeterminableToolRiskError}.
+ * That surfaces a misconfigured catalog entry rather than silently bucketing a
+ * potentially dangerous tool into a permissive category (no-silent-fallbacks).
+ */
+export function buildNativeToolRiskMap(): Record<string, ToolRiskCategory> {
+  const riskByTool: Record<string, ToolRiskCategory> = {};
+  for (const [toolId, metadata] of Object.entries(NATIVE_TOOL_DEFAULTS)) {
+    riskByTool[toolId] = resolveToolRiskCategory(metadata);
+  }
+  return riskByTool;
+}
 
 /**
  * Get default metadata for a native tool by ID.

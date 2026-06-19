@@ -20,6 +20,10 @@ import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import {
+  buildPermissionToolGateSnapshotInput,
+  usePermissionPolicyStore,
+} from '@brainstrike/preferences/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type {
@@ -802,6 +806,37 @@ export function AssistantUiPanelWrapper({
       ? 'data-stream'
       : 'local-runtime';
 
+  // Permission enforcement (OPT-IN). Subscribe to the persisted posture so the
+  // request snapshot stays in sync; the serializable input is only attached to
+  // the request when the user enabled `enforce`. Scoped to the desktop
+  // data-stream transport — only it POSTs to the assistant server that runs the
+  // runtime permission gate (web's in-renderer local runtime has no server, so
+  // there is nothing to enforce against; tracked as a follow-up).
+  const permissionEnforce = usePermissionPolicyStore((state) => state.enforce);
+  const permissionPolicies = usePermissionPolicyStore((state) => state.policies);
+  const permissionYolo = usePermissionPolicyStore((state) => state.yolo);
+  const permissionSessionGrants = usePermissionPolicyStore((state) => state.sessionGrants);
+  const permissionPerToolOverrides = usePermissionPolicyStore((state) => state.perToolOverrides);
+  const permissionPolicyRequest = useMemo(() => {
+    if (!(permissionEnforce && localChatTransport === 'data-stream')) {
+      return;
+    }
+    return buildPermissionToolGateSnapshotInput({
+      enforce: permissionEnforce,
+      policies: permissionPolicies,
+      yolo: permissionYolo,
+      sessionGrants: permissionSessionGrants,
+      perToolOverrides: permissionPerToolOverrides,
+    });
+  }, [
+    localChatTransport,
+    permissionEnforce,
+    permissionPolicies,
+    permissionYolo,
+    permissionSessionGrants,
+    permissionPerToolOverrides,
+  ]);
+
   useEffect(() => {
     if (!assistantThreadRepository) {
       return;
@@ -830,6 +865,7 @@ export function AssistantUiPanelWrapper({
     memoryResourceId,
     modelSettings,
     observationalMemorySettings,
+    permissionPolicyRequest,
     providerOptions,
     runtimeWorkspaceContext,
     selectedMemoryThreadId,

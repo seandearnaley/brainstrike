@@ -11,6 +11,7 @@ export {
   resolvePermissionDecision,
 } from './permission-policy.js';
 export {
+  buildNativeToolRiskMap,
   compareByLoadPriority,
   getCategoryInfo,
   getNativeToolDefaults,

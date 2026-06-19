@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { NATIVE_TOOL_DEFAULTS, type NativeToolDefaultMetadata } from '../tool-categories';
+import {
+  buildNativeToolRiskMap,
+  NATIVE_TOOL_DEFAULTS,
+  type NativeToolDefaultMetadata,
+} from '../tool-categories';
 import {
   resolveToolRiskCategory,
   type ToolRiskCategory,
@@ -97,5 +101,49 @@ describe('resolveToolRiskCategory', () => {
         expect(resolved, `${id} should resolve to 'read'`).toBe('read');
       }
     });
+  });
+});
+
+describe('buildNativeToolRiskMap', () => {
+  const EDIT_TOOLS: readonly string[] = [
+    'brainstrike.updateWorkspaceContextSelection',
+    'brainstrike.updateWorkspaceTapestrySelections',
+  ];
+
+  it('maps every native tool id to its resolved risk category', () => {
+    const riskByTool = buildNativeToolRiskMap();
+    const ids = Object.keys(NATIVE_TOOL_DEFAULTS);
+
+    // Every tool is present and classified...
+    expect(Object.keys(riskByTool).sort()).toEqual(ids.sort());
+    for (const id of ids) {
+      const metadata = NATIVE_TOOL_DEFAULTS[id];
+      if (!metadata) {
+        expect.unreachable(`${id} should exist in NATIVE_TOOL_DEFAULTS`);
+      }
+      // ...with the SAME category the pure resolver derives for it.
+      expect(riskByTool[id]).toBe(resolveToolRiskCategory(metadata));
+    }
+  });
+
+  it("classifies the two approval-gated mutators as 'edit' and the rest as 'read'", () => {
+    const riskByTool = buildNativeToolRiskMap();
+
+    for (const id of EDIT_TOOLS) {
+      expect(riskByTool[id]).toBe('edit');
+    }
+
+    const readTools = Object.keys(riskByTool).filter((id) => !EDIT_TOOLS.includes(id));
+    expect(readTools.length).toBeGreaterThan(0);
+    for (const id of readTools) {
+      expect(riskByTool[id], `${id} should be 'read'`).toBe('read');
+    }
+  });
+
+  it('returns a fresh object each call (no shared mutable state)', () => {
+    const first = buildNativeToolRiskMap();
+    const second = buildNativeToolRiskMap();
+    expect(first).not.toBe(second);
+    expect(first).toEqual(second);
   });
 });
