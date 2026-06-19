@@ -29,6 +29,27 @@ function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolA
   );
 }
 
+/**
+ * Human-readable reason for the approval, derived from the permission risk
+ * bucket that resolved to `'ask'`. Returns `null` when the pause carried no
+ * risk hint (e.g. a non-policy approval), so the notice omits the reason rather
+ * than inventing one.
+ */
+const RISK_CATEGORY_REASON: Record<string, string> = {
+  edit: 'edit (modifies files or state)',
+  execute: 'execute (runs a command)',
+  read: 'read',
+  mcp: 'external MCP tool',
+};
+
+function resolveApprovalReason(approval: AssistantToolApprovalRequest): string | null {
+  const risk = approval.riskCategory;
+  if (typeof risk !== 'string') {
+    return null;
+  }
+  return RISK_CATEGORY_REASON[risk] ?? risk;
+}
+
 function formatJsonValue(value: unknown): string {
   if (typeof value === 'string') {
     return value;
@@ -158,6 +179,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   );
   const detailsId = useId();
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
+  const approvalReason = approval ? resolveApprovalReason(approval) : null;
   const approvalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
   );
@@ -270,6 +292,11 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
             </span>
           </p>
           <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
+          {approvalReason ? (
+            <p className="mt-0.5 truncate text-amber-700 text-xs dark:text-amber-400">
+              Requires approval: {approvalReason}
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               aria-label={`Approve ${approval.toolName}`}

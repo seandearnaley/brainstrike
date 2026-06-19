@@ -1,9 +1,24 @@
+import type { ToolRiskCategory } from './tool-risk.js';
+
 export const TOOL_APPROVAL_DATA_NAME = 'brainstrike.tool-approval';
 export const TOOL_APPROVAL_RUN_CONFIG_KEY = 'brainstrikeToolApproval';
 
 export interface AssistantToolApprovalRequest {
   args?: unknown;
+  /**
+   * The permission decision that caused the pause. Only `'ask'` is meaningful
+   * here (an approval pause is, by definition, an `'ask'`); present so the UI can
+   * say WHY the tool needs approval. Absent for a pause not driven by the
+   * permission policy (e.g. an explicit global `requireToolApproval`).
+   */
+  policyDecision?: 'ask';
   resumeSchema?: unknown;
+  /**
+   * The risk bucket that resolved to `'ask'` for this tool (edit | execute | …),
+   * surfaced so the approval notice can name the reason ("requires approval:
+   * edit"). Absent when the pause was not driven by a permission policy.
+   */
+  riskCategory?: ToolRiskCategory;
   runId: string;
   toolCallId: string;
   toolName: string;

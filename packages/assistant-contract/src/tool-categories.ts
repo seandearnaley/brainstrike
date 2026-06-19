@@ -227,8 +227,11 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   },
   // Arbitrary shell execution — THE highest-risk native tool. There is NO
   // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
-  // When the permission engine enforces a policy, 'execute' that is not 'allow'
-  // omits this tool from the map the model sees.
+  // When the permission engine enforces a policy and `execute` is `'ask'` (the
+  // default), this tool SUSPENDS for per-call approval before it runs (Mastra's
+  // per-tool requireApproval); it is omitted from the map only as a fail-safe
+  // when there is no workflow storage to resume the suspend, or when `execute`
+  // is `'deny'`. `'allow'`/YOLO runs it unprompted.
   'brainstrike.executeCommand': {
     category: 'action',
     loadingTier: 'critical',
