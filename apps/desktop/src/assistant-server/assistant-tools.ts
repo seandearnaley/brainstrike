@@ -1895,7 +1895,7 @@ export function buildDesktopAssistantTools(
     [GREP_SEARCH_TOOL_ID]: {
       id: GREP_SEARCH_TOOL_ID,
       description:
-        "Grep indexed file content for an exact string (default) or JavaScript regex. Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
+        "Grep file content for an exact string (default) or JavaScript regex. HYBRID: searches BOTH the index AND the live on-disk files and merges, so just-edited / not-yet-reindexed files are found fresh (each match is labelled source: 'index' | 'live' | 'both'; re-grep after an edit to confirm your change is on disk). Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
       inputSchema: GrepSearchInputSchema,
       execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
         const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);

@@ -311,6 +311,9 @@ describe('assistant-tools', () => {
         lineText: 'needle line',
         before: ['alpha'],
         after: ['omega'],
+        // The root '/tmp/workspace' is not on disk, so the live pass is skipped
+        // and the hybrid result is index-only.
+        source: 'index',
       },
     ]);
   });
@@ -330,7 +333,9 @@ describe('assistant-tools', () => {
     });
 
     expect(result.outputMode).toBe('files');
-    expect(result.files).toEqual([{ path: 'src/x.ts', matchCount: 1, firstLine: 11 }]);
+    expect(result.files).toEqual([
+      { path: 'src/x.ts', matchCount: 1, firstLine: 11, source: 'index' },
+    ]);
   });
 
   it('rethrows sanitized grepSearch errors from the execute wrapper', async () => {
