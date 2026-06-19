@@ -168,6 +168,33 @@ export const WriteWorkspaceFileInputSchema = z
 
 export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSchema>;
 
+export const StringReplaceWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to edit (same path convention as readWorkspaceFile). The file must already exist.'
+      ),
+    oldStr: z
+      // Outer DoS guard only; the desktop tool reads the file under the same
+      // ~2 MB BYTE cap as readWorkspaceFile (this counts UTF-16 code units).
+      .string()
+      .min(1)
+      .max(8_000_000)
+      .describe(
+        'The exact block of existing text to replace. Pass WHOLE LINES with enough surrounding context that the block uniquely identifies ONE location: a block that matches more than once is REFUSED (re-call with more context), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings.'
+      ),
+    newStr: z
+      .string()
+      .max(8_000_000)
+      .describe('The replacement text. Use an empty string to delete the matched block.'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorkspaceFileInputSchema>;
+
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
     path: z.string().optional().describe('Directory path (defaults to root)'),
@@ -499,6 +526,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
   'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
+  'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,

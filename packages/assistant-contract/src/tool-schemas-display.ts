@@ -119,6 +119,45 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
   },
 
+  'brainstrike.stringReplaceWorkspaceFile': {
+    toolId: 'brainstrike.stringReplaceWorkspaceFile',
+    description:
+      'Surgically edit an existing workspace file: find one old_str block and replace it with new_str. Matching is fuzzy (exact, then whitespace-tolerant, then close-match) but a single line that matches multiple locations, or no sufficiently close match, is REFUSED rather than guessed. Use an empty new_str to delete the block. Workspace-scoped and edit-risk (requires approval).',
+    parameters: [
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Workspace-relative file path to edit (the file must already exist)',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'oldStr',
+        type: 'string',
+        description:
+          'Exact existing block to replace, with enough surrounding context to identify ONE location',
+        required: true,
+        minLength: 1,
+        maxLength: 8_000_000,
+      },
+      {
+        name: 'newStr',
+        type: 'string',
+        description: 'Replacement text (empty string deletes the matched block)',
+        required: true,
+        maxLength: 8_000_000,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description: 'Folder name or id to edit in when multiple folders are open (omit when one)',
+        required: false,
+      },
+    ],
+    returns:
+      'Edit result: the normalized workspace path, bytesWritten, matchType (which cascade branch matched), and replaced: true',
+  },
+
   'brainstrike.findWorkspaceSymbol': {
     toolId: 'brainstrike.findWorkspaceSymbol',
     description:
