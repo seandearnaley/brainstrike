@@ -173,6 +173,9 @@ type WorkspaceCoverageIncompleteOutcome = Extract<
   WorkspaceCoverageAuditOutcome,
   { readonly kind: 'incomplete' }
 >;
+type WorkspaceCoverageAuditTargetResult =
+  | WorkspaceCoverageAuditTarget
+  | Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }>;
 
 function parseDatabaseCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -203,6 +206,18 @@ function readFileCountFromCountRow(row: unknown): number {
   }
   const record = row as Record<string, unknown>;
   return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
+}
+
+function isUnresolvedRootAuditOutcome(
+  value: WorkspaceCoverageAuditTargetResult
+): value is Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }> {
+  return 'kind' in value && value.kind === 'unresolved-root';
+}
+
+function isWorkspaceCoverageAuditTarget(
+  value: WorkspaceCoverageAuditTargetResult
+): value is WorkspaceCoverageAuditTarget {
+  return !isUnresolvedRootAuditOutcome(value);
 }
 
 async function readIndexedFileCountsByRoot(args: {
@@ -299,30 +314,35 @@ async function buildCoverageAuditTargets(args: {
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
 }): Promise<readonly WorkspaceCoverageAuditTarget[] | WorkspaceCoverageAuditOutcome> {
-  const auditTargets: WorkspaceCoverageAuditTarget[] = [];
-  for (const handle of args.handles) {
-    const adapterRootId = handle.rootId ?? args.rootIdByPath.get(handle.path);
-    const dbRootId = await args.resolveDbRootId(handle.path, adapterRootId);
-    if (!dbRootId) {
+  const targetResults: WorkspaceCoverageAuditTargetResult[] = await Promise.all(
+    args.handles.map(async (handle) => {
+      const adapterRootId = handle.rootId ?? args.rootIdByPath.get(handle.path);
+      const dbRootId = await args.resolveDbRootId(handle.path, adapterRootId);
+      if (!dbRootId) {
+        return {
+          kind: 'unresolved-root',
+          message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+          rootPath: handle.path,
+        };
+      }
+      const expected = await countExpectedWorkspaceIndexFiles({
+        fileSystemAdapter: args.fileSystemAdapter,
+        includeFiles: false,
+        policyPreset: args.policyPreset,
+        rootHandle: handle,
+      });
       return {
-        kind: 'unresolved-root',
-        message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+        dbRootId,
+        expectedFileCount: expected.expectedFileCount,
         rootPath: handle.path,
       };
-    }
-    const expected = await countExpectedWorkspaceIndexFiles({
-      fileSystemAdapter: args.fileSystemAdapter,
-      includeFiles: false,
-      policyPreset: args.policyPreset,
-      rootHandle: handle,
-    });
-    auditTargets.push({
-      dbRootId,
-      expectedFileCount: expected.expectedFileCount,
-      rootPath: handle.path,
-    });
+    })
+  );
+  const unresolvedRoot = targetResults.find(isUnresolvedRootAuditOutcome);
+  if (unresolvedRoot) {
+    return unresolvedRoot;
   }
-  return auditTargets;
+  return targetResults.filter(isWorkspaceCoverageAuditTarget);
 }
 
 function isCoverageAuditOutcome(
@@ -341,12 +361,18 @@ async function runWorkspaceCoverageAudit(args: {
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
 }): Promise<WorkspaceCoverageAuditOutcome | null> {
+  if (!args.isCurrent()) {
+    return null;
+  }
   const targets = await buildCoverageAuditTargets(args);
   if (!args.isCurrent()) {
     return null;
   }
   if (isCoverageAuditOutcome(targets)) {
     return targets;
+  }
+  if (!args.isCurrent()) {
+    return null;
   }
   const indexedCounts = await readIndexedFileCountsByRoot({
     collectionId: args.collectionId,
@@ -434,18 +460,18 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
 
 function startWorkspaceCoverageAudit(args: {
   activeRootPath: string | null;
-  auditGeneration: number;
   auditKey: string;
+  auditToken: symbol;
   collectionId: string;
   db: DbHandle;
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
-  generationRef: { current: number };
   handles: readonly DirectoryHandle[];
   inFlightKeyRef: { current: string | null };
   policyPreset: BackgroundIndexingPolicyPreset;
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+  tokenRef: { current: symbol | null };
   verifiedKeyRef: { current: string | null };
 }): void {
   void runWorkspaceCoverageAudit({
@@ -453,7 +479,7 @@ function startWorkspaceCoverageAudit(args: {
     db: args.db,
     fileSystemAdapter: args.fileSystemAdapter,
     handles: args.handles,
-    isCurrent: () => args.generationRef.current === args.auditGeneration,
+    isCurrent: () => args.tokenRef.current === args.auditToken,
     policyPreset: args.policyPreset,
     resolveDbRootId: args.resolveDbRootId,
     rootIdByPath: args.rootIdByPath,
@@ -472,7 +498,7 @@ function startWorkspaceCoverageAudit(args: {
       });
     })
     .catch((error: unknown) => {
-      if (args.generationRef.current !== args.auditGeneration) {
+      if (args.tokenRef.current !== args.auditToken) {
         return;
       }
       const message = `Workspace Index coverage audit failed: ${
@@ -1021,7 +1047,7 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
-  const coverageAuditGenerationRef = useRef(0);
+  const coverageAuditTokenRef = useRef<symbol | null>(null);
   const coverageAuditInFlightKeyRef = useRef<string | null>(null);
   const coverageAuditVerifiedKeyRef = useRef<string | null>(null);
   const backgroundWorkSnapshot = useSyncExternalStore(
@@ -1495,7 +1521,7 @@ export function WorkspaceCollectionSyncProvider({
     ): void => {
       if (status.state !== 'idle') {
         if (status.state !== 'waiting') {
-          coverageAuditGenerationRef.current += 1;
+          coverageAuditTokenRef.current = null;
           coverageAuditInFlightKeyRef.current = null;
           coverageAuditVerifiedKeyRef.current = null;
         }
@@ -1523,8 +1549,8 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      const auditGeneration = coverageAuditGenerationRef.current + 1;
-      coverageAuditGenerationRef.current = auditGeneration;
+      const auditToken = Symbol('workspace-coverage-audit');
+      coverageAuditTokenRef.current = auditToken;
       coverageAuditInFlightKeyRef.current = auditKey;
       const activeRootPath = rootDirectoryHandle?.path ?? handles[0]?.path ?? null;
       setSyncStatus(
@@ -1538,18 +1564,18 @@ export function WorkspaceCollectionSyncProvider({
 
       startWorkspaceCoverageAudit({
         activeRootPath,
-        auditGeneration,
         auditKey,
+        auditToken,
         collectionId,
         db: backgroundDb,
         fileSystemAdapter,
-        generationRef: coverageAuditGenerationRef,
         handles,
         inFlightKeyRef: coverageAuditInFlightKeyRef,
         policyPreset: indexingPolicyPreset,
         resolveDbRootId,
         rootIdByPath,
         setStatus: setSyncStatus,
+        tokenRef: coverageAuditTokenRef,
         verifiedKeyRef: coverageAuditVerifiedKeyRef,
       });
     };
@@ -1558,7 +1584,7 @@ export function WorkspaceCollectionSyncProvider({
     const unsubscribe = useWorkspaceCollectionSyncStatusStore.subscribe(maybeAuditIdleCoverage);
     return () => {
       unsubscribe();
-      coverageAuditGenerationRef.current += 1;
+      coverageAuditTokenRef.current = null;
       coverageAuditInFlightKeyRef.current = null;
     };
   }, [
