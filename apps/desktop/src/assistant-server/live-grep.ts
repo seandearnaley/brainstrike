@@ -199,6 +199,16 @@ function buildRipgrepArgs(args: { prefilterLiteral: string; caseSensitive: boole
     // hard-excluded and realpath-containment-checked in resolveCandidate.)
     '--no-ignore',
     '--hidden',
+    // Treat EVERY file as text. By default rg's content heuristic skips any file
+    // with a NUL byte before the first match (no `begin` event → never a
+    // candidate), but brainstrike's exclusion authority (`isBinaryFile`, the
+    // indexer policy) is EXTENSION-based: a `.ts`/`.md`/`.json` file with a NUL
+    // byte (UTF-16 content, an embedded blob, a partial save) is INCLUDED by the
+    // policy and read as utf8 by the JS-walk + the authoritative matcher. Without
+    // `--text` rg would drop exactly those files, so its candidate set would not
+    // be a SUPERSET of the JS walk's and the live pass would silently miss them.
+    // Extension/size exclusions remain the single authority via resolveCandidate.
+    '--text',
     `--max-filesize=${RIPGREP_MAX_FILESIZE}`,
     `--max-count=${RIPGREP_MAX_COUNT_PER_FILE}`,
     // Always fixed-strings: rg is a literal SUPERSET prefilter only; the
@@ -490,6 +500,11 @@ export interface LiveGrepOptions {
  *   the indexer policy (`createBackgroundIndexingEntryPolicy`) + the `.git`
  *   re-assertion + realpath containment in resolveCandidate are the SINGLE
  *   authority on what is excluded — matching the JS-walk fallback exactly.
+ * - Binary detection: ripgrep treats every file as text (`--text`), because the
+ *   exclusion authority (`isBinaryFile`, the indexer policy) is EXTENSION-based.
+ *   Otherwise rg's content heuristic would drop a policy-INCLUDED source file
+ *   that happens to contain a NUL byte — a file the JS walk reads as utf8 and
+ *   matches — breaking the superset.
  * - Matching: ripgrep ONLY ever prefilters on a FIXED-STRING literal, never a
  *   raw regex. For a regex grep that literal is the longest guaranteed-present
  *   substring (`extractTrigramLiteral`, the SAME extraction the indexed path

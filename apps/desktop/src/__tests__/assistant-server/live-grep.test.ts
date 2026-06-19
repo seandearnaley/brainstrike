@@ -95,6 +95,36 @@ async function findRealRipgrep(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Run `fn` with ripgrep forced UNAVAILABLE: an empty PATH bin dir plus a stat
+ * shim that misses every `.../rg(.exe)` probe (PATH and the hardcoded fallback
+ * dirs alike), so `runLiveGrep` takes the JS-walk path. Restores PATH + the stat
+ * spy afterwards. Lets a test compare the js-walk candidate set against the rg
+ * one on the SAME workspace (the rg-vs-walk parity assertion).
+ */
+async function withRipgrepHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const binDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-livegrep-hide-'));
+  createdRoots.push(binDir);
+  process.env['PATH'] = binDir;
+  const realStat = fsPromises.stat.bind(fsPromises);
+  const statSpy = vi
+    .spyOn(fsPromises, 'stat')
+    .mockImplementation(async (target: Parameters<typeof realStat>[0]) => {
+      if (typeof target === 'string' && (target.endsWith('/rg') || target.endsWith('\\rg.exe'))) {
+        throw new Error('ENOENT: ripgrep hidden for test');
+      }
+      return realStat(target);
+    });
+  resetRipgrepAvailabilityForTests();
+  try {
+    return await fn();
+  } finally {
+    statSpy.mockRestore();
+    process.env['PATH'] = originalPath;
+    resetRipgrepAvailabilityForTests();
+  }
+}
+
 describe('runLiveGrep — basics', () => {
   it('skips (engine: skipped) when no roots are supplied', async () => {
     const result = await runLiveGrep(
@@ -461,6 +491,96 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
     } finally {
       statSpy.mockRestore();
     }
+  });
+});
+
+describe('runLiveGrep — binary-detection superset (--text; NUL-containing source files)', () => {
+  it('rg FINDS a policy-included .ts file that contains a NUL byte before the match', async () => {
+    const realRg = await findRealRipgrep();
+    if (realRg === null) {
+      // rg-specific: it proves rg no longer drops a NUL-containing source file via
+      // its content heuristic. The JS-walk reads everything as utf8 regardless, so
+      // there is nothing rg-specific to prove without rg installed. Skip cleanly.
+      return;
+    }
+    // `src/a.ts` has a NUL byte BEFORE the match: default rg's binary heuristic
+    // skips it (no `begin` event → never a candidate), but the extension-based
+    // policy INCLUDES it and the js-walk reads it as utf8 and matches. With
+    // `--text`, rg surfaces it too — restoring the superset.
+    const dir = await makeWorkspace({
+      'src/a.ts': 'line one   some bytes\nBINTOKEN appears here\n',
+      'src/clean.ts': 'BINTOKEN clean\n',
+    });
+    const result = await runLiveGrep(
+      {
+        pattern: 'BINTOKEN',
+        isRegex: false,
+        caseSensitive: false,
+        contextLines: 0,
+        roots: [root(dir)],
+      },
+      literalMatcher('BINTOKEN')
+    );
+    expect(result.engine).toBe('ripgrep');
+    // BOTH files surface — the NUL-containing one is no longer silently dropped.
+    expect(result.matches.map((m) => m.path).sort()).toEqual(['src/a.ts', 'src/clean.ts']);
+  });
+
+  it('rg-vs-walk parity: the rg pass and the js-walk pass AGREE on a mixed workspace', async () => {
+    const realRg = await findRealRipgrep();
+    if (realRg === null) {
+      // Parity is asserted by running BOTH engines on the SAME workspace; without
+      // a real rg there is no rg side to compare against. Skip cleanly.
+      return;
+    }
+    // A deliberately adversarial mix: a plain match, a NUL-containing match (the
+    // binary-heuristic trap), a gitignored-but-present match (the vcs-ignore
+    // trap), a dotfile match (the hidden trap), and policy-excluded files
+    // (node_modules, a .min.js, .git) that NEITHER engine should surface.
+    const dir = await makeWorkspace({
+      '.gitignore': 'node_modules/\nsrc/ignored.ts\n',
+      'src/plain.ts': 'PARITY_TOKEN plain\n',
+      'src/withnul.ts': 'before   nul\nPARITY_TOKEN after a nul\n',
+      'src/ignored.ts': 'PARITY_TOKEN gitignored\n',
+      '.config-probe.ts': 'PARITY_TOKEN dotfile\n',
+      'node_modules/dep/index.ts': 'PARITY_TOKEN dep\n',
+      'vendor/lib.min.js': 'PARITY_TOKEN minified\n',
+    });
+    await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });
+    await fsPromises.writeFile(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+    await fsPromises.writeFile(path.join(dir, '.git', 'config'), 'PARITY_TOKEN gitdir\n', 'utf8');
+
+    const options = {
+      pattern: 'PARITY_TOKEN',
+      isRegex: false,
+      caseSensitive: false,
+      contextLines: 0,
+      roots: [root(dir)],
+    };
+
+    // rg engine (rg present on this host) …
+    const rgResult = await runLiveGrep(options, literalMatcher('PARITY_TOKEN'));
+    expect(rgResult.engine).toBe('ripgrep');
+    // … and the js-walk engine on the IDENTICAL workspace (rg forced absent).
+    const walkResult = await withRipgrepHidden(() =>
+      runLiveGrep(options, literalMatcher('PARITY_TOKEN'))
+    );
+    expect(walkResult.engine).toBe('js-walk');
+
+    const rgPaths = rgResult.matches.map((m) => m.path).sort();
+    const walkPaths = walkResult.matches.map((m) => m.path).sort();
+    // The two candidate/match sets are IDENTICAL — rg is a true superset and the
+    // policy (the sole authority) trims both to the same set. This is the direct
+    // assertion the earlier coverage gap was missing.
+    expect(rgPaths).toEqual(walkPaths);
+    // Concretely: the fresh source files are present (incl. NUL/gitignored/dotfile)
+    // and the policy-excluded artifacts are absent from BOTH.
+    expect(rgPaths).toEqual([
+      '.config-probe.ts',
+      'src/ignored.ts',
+      'src/plain.ts',
+      'src/withnul.ts',
+    ]);
   });
 });
 
