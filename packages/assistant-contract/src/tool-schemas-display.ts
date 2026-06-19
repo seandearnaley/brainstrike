@@ -678,6 +678,33 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       'Matching workspace-relative paths (each labelled with its root), self-bound to the tool output budget, with totals, a truncation flag, and a continuation hint',
   },
 
+  'brainstrike.webSearch': {
+    toolId: 'brainstrike.webSearch',
+    description:
+      'Search the web via Tavily for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily): never include secrets or private workspace contents. Requires a Tavily API key configured in Settings; when no key is set the tool returns a clear "unavailable, add a key" message instead of failing the run.',
+    parameters: [
+      {
+        name: 'query',
+        type: 'string',
+        description: 'The web search query (sent to Tavily, an external service)',
+        required: true,
+        minLength: 2,
+        maxLength: 400,
+      },
+      {
+        name: 'maxResults',
+        type: 'number',
+        description: 'Maximum number of results to return',
+        required: false,
+        default: 5,
+        min: 1,
+        max: 10,
+      },
+    ],
+    returns:
+      'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+  },
+
   'brainstrike.executeCommand': {
     toolId: 'brainstrike.executeCommand',
     description:

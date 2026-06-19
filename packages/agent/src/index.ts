@@ -398,6 +398,8 @@ export {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
+  type WebSearchInput,
+  WebSearchInputSchema,
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
 } from './tools/schemas';

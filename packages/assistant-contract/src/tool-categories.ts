@@ -225,6 +225,17 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 130,
     riskCategory: 'read',
   },
+  // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
+  // false: it does NOT mutate workspace state, so the permission engine allows
+  // it by default like the other readers. NOTE the privacy caveat documented on
+  // the tool description: it sends the query to an EXTERNAL service (Tavily).
+  'brainstrike.webSearch': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 130,
+    riskCategory: 'read',
+  },
   // Arbitrary shell execution — THE highest-risk native tool. There is NO
   // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
   // When the permission engine enforces a policy and `execute` is `'ask'` (the

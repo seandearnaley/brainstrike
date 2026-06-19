@@ -25,19 +25,29 @@ interface ProviderOption {
   name: string;
 }
 
+/**
+ * Secrets-store id for the Tavily web-search key. NOT an LLM `ProviderId`
+ * (Tavily is a search service, not a model provider), so it is stored directly
+ * by this id and kept out of the provider dropdown/registry.
+ */
+const TAVILY_SECRET_PROVIDER = 'tavily';
+
 interface ApiKeysState {
   apiKey: string;
   busy: boolean;
   providersWithSecrets: string[];
   rawProvider: string;
+  tavilyKey: string;
 }
 
 type ApiKeysAction =
   | { type: 'SET_PROVIDER'; provider: string }
   | { type: 'SET_API_KEY'; key: string }
+  | { type: 'SET_TAVILY_KEY'; key: string }
   | { type: 'SET_PROVIDERS_WITH_SECRETS'; providers: string[] }
   | { type: 'SET_BUSY'; busy: boolean }
-  | { type: 'SAVE_SUCCESS' };
+  | { type: 'SAVE_SUCCESS' }
+  | { type: 'SAVE_TAVILY_SUCCESS' };
 
 function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysState {
   switch (action.type) {
@@ -45,12 +55,16 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
       return { ...state, rawProvider: action.provider };
     case 'SET_API_KEY':
       return { ...state, apiKey: action.key };
+    case 'SET_TAVILY_KEY':
+      return { ...state, tavilyKey: action.key };
     case 'SET_PROVIDERS_WITH_SECRETS':
       return { ...state, providersWithSecrets: action.providers };
     case 'SET_BUSY':
       return { ...state, busy: action.busy };
     case 'SAVE_SUCCESS':
       return { ...state, apiKey: '', busy: false };
+    case 'SAVE_TAVILY_SUCCESS':
+      return { ...state, tavilyKey: '', busy: false };
     default:
       return state;
   }
@@ -78,10 +92,15 @@ export function ApiKeysSettings() {
   const [state, dispatch] = useReducer(apiKeysReducer, {
     rawProvider: providerOptions[0]?.id ?? 'openai',
     apiKey: '',
+    tavilyKey: '',
     providersWithSecrets: [],
     busy: false,
   });
-  const { rawProvider, apiKey, providersWithSecrets, busy } = state;
+  const { rawProvider, apiKey, tavilyKey, providersWithSecrets, busy } = state;
+  const tavilyKeyConfigured = useMemo(
+    () => providersWithSecrets.includes(TAVILY_SECRET_PROVIDER),
+    [providersWithSecrets]
+  );
 
   // Derive effective provider - always valid even if options change
   const provider = useMemo(() => {
@@ -183,8 +202,60 @@ export function ApiKeysSettings() {
     dispatch({ type: 'SET_BUSY', busy: false });
   }, [provider, refreshProviders, notifySecretsChanged]);
 
+  const handleSaveTavily = useCallback(async () => {
+    const trimmedKey = tavilyKey.trim();
+    if (!trimmedKey) {
+      return;
+    }
+    const saveKey = window.secrets?.saveKey;
+    dispatch({ type: 'SET_BUSY', busy: true });
+    if (!saveKey) {
+      dispatch({ type: 'SET_BUSY', busy: false });
+      return;
+    }
+    let saveResult: unknown;
+    try {
+      saveResult = await saveKey(TAVILY_SECRET_PROVIDER, trimmedKey);
+    } catch {
+      dispatch({ type: 'SET_BUSY', busy: false });
+      return;
+    }
+    if (saveResult !== null && saveResult !== undefined && typeof saveResult === 'object') {
+      const resultObj = saveResult as { ok?: boolean; error?: string };
+      if (resultObj.ok === false) {
+        toast({
+          title: 'Failed to save key',
+          description:
+            resultObj.error === 'encryption_unavailable'
+              ? 'OS keychain encryption is unavailable on this system.'
+              : 'Unknown error occurred while saving the key.',
+          variant: 'destructive',
+        });
+      }
+    }
+    dispatch({ type: 'SAVE_TAVILY_SUCCESS' });
+    await refreshProviders();
+    notifySecretsChanged();
+  }, [tavilyKey, refreshProviders, toast, notifySecretsChanged]);
+
+  const handleDeleteTavily = useCallback(async () => {
+    const deleteKey = window.secrets?.deleteKey;
+    dispatch({ type: 'SET_BUSY', busy: true });
+    if (deleteKey) {
+      try {
+        await deleteKey(TAVILY_SECRET_PROVIDER);
+      } catch {
+        // Errors are handled at OS level, ignore
+      }
+    }
+    await refreshProviders();
+    notifySecretsChanged();
+    dispatch({ type: 'SET_BUSY', busy: false });
+  }, [refreshProviders, notifySecretsChanged]);
+
   const providerId = useId();
   const apiKeyId = useId();
+  const tavilyKeyId = useId();
 
   return (
     <div className="space-y-4">
@@ -255,6 +326,56 @@ export function ApiKeysSettings() {
             <Label>Saved Providers</Label>
             <div className="text-muted-foreground text-xs" data-testid="saved-llm-providers">
               {providersWithSecrets.length === 0 ? 'None' : providersWithSecrets.join(', ')}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Web Search (Tavily)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-muted-foreground text-xs">
+            The assistant's web search tool sends your query to Tavily, an external service. Add a
+            Tavily API key to enable it. Without a key, web search reports that it is unavailable.
+          </p>
+          <div className="space-y-1">
+            <Label htmlFor={tavilyKeyId}>Tavily API Key</Label>
+            <Input
+              data-testid="tavily-api-key"
+              id={tavilyKeyId}
+              onChange={(event) =>
+                dispatch({ type: 'SET_TAVILY_KEY', key: event.currentTarget.value })
+              }
+              placeholder="Enter Tavily API key"
+              type="password"
+              value={tavilyKey}
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              data-testid="save-tavily-key"
+              disabled={busy || !tavilyKey.trim()}
+              onClick={handleSaveTavily}
+            >
+              Save
+            </Button>
+            <Button
+              data-testid="delete-tavily-key"
+              disabled={busy}
+              onClick={handleDeleteTavily}
+              variant="secondary"
+            >
+              Delete
+            </Button>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Status</Label>
+            <div className="text-muted-foreground text-xs" data-testid="tavily-key-status">
+              {tavilyKeyConfigured ? 'Configured' : 'Not configured'}
             </div>
           </div>
         </CardContent>

@@ -25,6 +25,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Grep indexed file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns path:line matches with context",
   'brainstrike.globWorkspace':
     'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). Excludes .git/node_modules/build output by default; read-only',
+  'brainstrike.webSearch':
+    'Search the web via Tavily for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily). Requires a Tavily API key in Settings; returns a clear "unavailable" message (not an error) when no key is configured',
   'brainstrike.executeCommand':
     'Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. Permission gating is available but OFF unless the user has enabled enforcement. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs',
 };

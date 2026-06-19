@@ -23,6 +23,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
+  webSearch: 'brainstrike.webSearch',
   writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
 } as const;
 
@@ -39,6 +40,7 @@ interface ModelFacingToolNames {
   stringReplaceWorkspaceFile: string | null;
   updateWorkspaceContextSelection: string | null;
   updateWorkspaceTapestrySelections: string | null;
+  webSearch: string | null;
   writeWorkspaceFile: string | null;
 }
 
@@ -110,6 +112,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
     ),
+    webSearch: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.webSearch
+    ),
     writeWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.writeWorkspaceFile
@@ -143,6 +149,9 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
   const readLine = names.readWorkspaceFile
     ? `Use ${names.readWorkspaceFile} to read a specific file when needed.`
     : '';
+  const webSearchLine = names.webSearch
+    ? `For public web info you do not know (library docs, errors), use ${names.webSearch} (it sends the query to an external service; needs a Tavily key).`
+    : '';
 
   return [
     'You are the Brainstrike IDE assistant, running fully on this device.',
@@ -151,6 +160,7 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
     searchLine,
     globLine,
     readLine,
+    webSearchLine,
     'If a tool fails, say so plainly. Only run state-changing tools after the user confirms.',
   ]
     .filter(Boolean)
@@ -247,6 +257,25 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox: it can read or change anything the user can, and it runs immediately when you call it (there is no approval prompt). The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asked for that exact action.`;
 }
 
+/**
+ * Guidance for the web-search tool. Emitted only when the tool is registered.
+ * Honest about the external-service privacy caveat and about when to web-search
+ * vs grep/read THIS project's code.
+ */
+function buildWebSearchInstruction(names: ModelFacingToolNames): string {
+  if (!names.webSearch) {
+    return '';
+  }
+  const localSearchAlternatives = [names.grepSearch, names.queryEmbeddingSpace].filter(
+    (name): name is string => Boolean(name)
+  );
+  const alternativesClause =
+    localSearchAlternatives.length > 0
+      ? ` Do NOT use ${names.webSearch} for THIS project's own code or files — use ${localSearchAlternatives.join(' / ')} for that.`
+      : '';
+  return `To look up CURRENT public information you do not already know — library/framework docs, external APIs, error messages, recent releases — use ${names.webSearch}. It SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily), so never include secrets or private workspace contents in the query.${alternativesClause} It needs a Tavily API key in Settings: when none is configured it returns a non-fatal "unavailable" result (available: false) — relay that to the user rather than retrying. On a search error it returns a non-fatal error result; report it and continue.`;
+}
+
 export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
   const names = getModelFacingToolNames(toolNameMap);
   const workspaceInspectionInstruction = names.listWorkspaceContext
@@ -266,6 +295,7 @@ export function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string
         : 'Workspace file reading is unavailable in this run.';
   const writeInstruction = buildWriteInstruction(names);
   const executeCommandInstruction = buildExecuteCommandInstruction(names);
+  const webSearchInstruction = buildWebSearchInstruction(names);
   const curationInstruction =
     names.queryEmbeddingSpace &&
     names.updateWorkspaceContextSelection &&
@@ -311,7 +341,7 @@ ${HARNESS_FRAMING}
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
 Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction}
+When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}
 ${multiRootInstruction}
 ${curationInstruction}
 ${selectionLine}
