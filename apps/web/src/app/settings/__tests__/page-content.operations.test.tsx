@@ -353,6 +353,7 @@ describe('SettingsPageContent tool operations', () => {
       'models',
       'logging',
       'ai-tools',
+      'permissions',
       'diagnostics',
       'factory-reset',
     ]);
