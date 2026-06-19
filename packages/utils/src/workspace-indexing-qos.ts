@@ -89,6 +89,16 @@ export type WorkspaceIndexingDatabasePressure =
 
 export interface WorkspaceIndexingQosInputs {
   dbPressure: WorkspaceIndexingDatabasePressure;
+  /**
+   * Set by a sync pass that has been yielding to `foreground-db-pressure` for
+   * longer than the starvation bound. When true, foreground DB pressure
+   * downgrades new work to a gentle `system-constrained` policy instead of
+   * blocking it entirely. This prevents a newly-added root from being starved
+   * indefinitely by a lagging/self-inflicted foreground-latency signal (the
+   * indexer's own writes refire foreground `live` queries). Genuine
+   * `foreground-query` activity still fully yields — only DB pressure is bypassed.
+   */
+  foregroundDbPressureStarvationBypass?: boolean;
   foregroundQueryActive: boolean;
   idleState: WorkspaceIndexingIdleState;
   idleTimeMs: number | null;
@@ -161,6 +171,7 @@ function createSystemConstrainedPolicy(
   reason: Extract<
     WorkspaceIndexingQosReason,
     | 'battery'
+    | 'foreground-db-pressure'
     | 'memory-pressure'
     | 'progress-stalled'
     | 'provider-rate-limited'
@@ -360,7 +371,13 @@ export function resolveWorkspaceIndexingQosPolicy(
     return createForegroundYieldingPolicy('foreground-query');
   }
   if (inputs.dbPressure.foregroundPressure) {
-    return createForegroundYieldingPolicy('foreground-db-pressure');
+    // A sync pass starved by foreground DB pressure beyond the bound proceeds
+    // with gentle, constrained batches instead of yielding forever — so a
+    // newly-added root still indexes even while a lagging/self-inflicted
+    // foreground-latency signal persists.
+    return inputs.foregroundDbPressureStarvationBypass
+      ? createSystemConstrainedPolicy('foreground-db-pressure')
+      : createForegroundYieldingPolicy('foreground-db-pressure');
   }
   if (hasHighMemoryPressure(inputs)) {
     return createSystemConstrainedPolicy('memory-pressure');

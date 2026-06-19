@@ -106,8 +106,19 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
   priority: 'background',
 } as const;
 const BACKGROUND_PRESSURE_POLL_MS = 50;
+// Longest a single background DB permit waits for foreground pressure to clear
+// before proceeding anyway. Bounds the indefinite block that otherwise starves
+// a newly-added root: the indexer's own writes refire foreground `live` queries,
+// producing a lagging/self-inflicted foreground-latency signal that never clears
+// while background work is pending. Paired with the QoS starvation bypass so a
+// starved sync phase downgrades to gentle, constrained batches.
+const BACKGROUND_PERMIT_MAX_WAIT_MS = 5000;
 const BACKGROUND_POWER_SNAPSHOT_CACHE_MS = 1000;
 const RECENT_USER_INPUT_WINDOW_MS = 30_000;
+// Longest the background indexer will defer to an unsettled file-tree UI
+// restoration before indexing anyway (a giant root can keep the tree loading for
+// minutes; indexing must not block on it indefinitely).
+const TREE_RESTORATION_GRACE_MS = 5000;
 const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
 const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
@@ -562,34 +573,54 @@ function hasResolvedDbRootId(
   return target.dbRootId !== null;
 }
 
-// Roots not yet synced this session come first (stable within each group) so a
-// newly added root is reached before the long re-scan of already-covered roots.
-function orderTargetsBySessionCoverage(
+// Order targets by ASCENDING indexed file count so the LEAST-covered roots sync
+// first: a brand-new (0-file) root, or one whose earlier pass imported nothing,
+// is reached before a giant repo that is only partway through its import, and
+// before fully-indexed roots that just need a re-scan. Stable (equal coverage
+// keeps discovery order). Reading ACTUAL coverage — rather than a session flag —
+// means a root whose pass was superseded before importing anything stays at 0
+// and keeps its first claim, so one huge root can never starve the others.
+function orderTargetsByIndexedCoverage(
   targets: readonly ResolvedSyncLoopTarget[],
-  syncedRootIds: ReadonlySet<string>
+  indexedCounts: ReadonlyMap<string, number>
 ): ResolvedSyncLoopTarget[] {
-  const pending = targets.filter((target) => !syncedRootIds.has(target.dbRootId));
-  const settled = targets.filter((target) => syncedRootIds.has(target.dbRootId));
-  return [...pending, ...settled];
+  return targets
+    .map((target, index) => ({ count: indexedCounts.get(target.dbRootId) ?? 0, index, target }))
+    .sort((a, b) => a.count - b.count || a.index - b.index)
+    .map((entry) => entry.target);
+}
+
+// Read each root's actual indexed file count, then order least-covered-first.
+// Skips the query when there is only one root to order (nothing to reorder) or
+// when the DB/collection is unavailable. A failed query falls back to discovery
+// order (logged) so the ordering optimization never blocks indexing.
+async function loadOrderedSyncTargets(args: {
+  backgroundDb: DbHandle | null;
+  managedCollectionId: string | null;
+  syncableTargets: readonly ResolvedSyncLoopTarget[];
+}): Promise<ResolvedSyncLoopTarget[]> {
+  const { backgroundDb, managedCollectionId, syncableTargets } = args;
+  if (syncableTargets.length <= 1 || !(managedCollectionId && backgroundDb)) {
+    return orderTargetsByIndexedCoverage(syncableTargets, new Map());
+  }
+  const indexedCounts = await readIndexedFileCountsByRoot({
+    collectionId: managedCollectionId,
+    db: backgroundDb,
+    rootIds: syncableTargets.map((target) => target.dbRootId),
+  }).catch((error) => {
+    logger.warn('Coverage-based root ordering query failed; using discovery order', { error });
+    return new Map<string, number>();
+  });
+  return orderTargetsByIndexedCoverage(syncableTargets, indexedCounts);
 }
 
 async function runRootSyncPass(args: {
-  isCurrentGeneration: () => boolean;
-  markCovered: () => void;
   reportAsyncError: (operation: string, error: unknown) => void;
   request: WorkspaceCollectionSyncRequest;
   service: Pick<WorkspaceCollectionSyncService, 'sync'>;
 }): Promise<void> {
   try {
     await args.service.sync(args.request);
-    // service.sync resolves WITHOUT throwing when a newer triggerSync supersedes
-    // it (it bumps the run id and aborts the in-flight pass), so mark covered
-    // ONLY if this loop is still current — an aborted/incomplete pass must keep
-    // its first-claim priority, or the new root could be reordered last again
-    // under sustained churn, re-opening the starvation.
-    if (args.isCurrentGeneration()) {
-      args.markCovered();
-    }
   } catch (error) {
     args.reportAsyncError('sync', error);
   }
@@ -755,12 +786,48 @@ function buildSyncLoopTargets(args: {
   return buildFullSyncTargets(allHandles);
 }
 
+// Wrap a database-pressure permit so it can never block longer than
+// BACKGROUND_PERMIT_MAX_WAIT_MS. The underlying permit polls until foreground
+// pressure clears with no upper bound; under a lagging/self-inflicted
+// foreground-latency signal (the indexer's own writes refire foreground `live`
+// queries) that can be indefinite, starving a newly-added root. On timeout we
+// abort the underlying wait and proceed — the QoS layer keeps the resulting work
+// gentle (constrained batches). Genuine foreground-query yielding is unaffected:
+// the import phase only runs once the QoS gate allows new work, which still
+// excludes foreground-query.
+export function boundBackgroundPermitWait(
+  basePermit: (options: { readonly label: string; readonly signal?: AbortSignal }) => Promise<void>
+): (options: { readonly label: string }) => Promise<void> {
+  return async (options: { readonly label: string }): Promise<void> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, BACKGROUND_PERMIT_MAX_WAIT_MS);
+    try {
+      await basePermit({ label: options.label, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        logger.warn('Background DB permit exceeded max wait; proceeding to avoid starvation', {
+          label: options.label,
+          maxWaitMs: BACKGROUND_PERMIT_MAX_WAIT_MS,
+        });
+        return;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 function createWaitForBackgroundPermit(
   db: DbHandle
 ): (options: { readonly label: string }) => Promise<void> {
   const scheduler = getDatabaseWorkScheduler(db);
   if (scheduler) {
-    return createDatabasePressureController({ scheduler }).waitForBackgroundPermit;
+    return boundBackgroundPermitWait(
+      createDatabasePressureController({ scheduler }).waitForBackgroundPermit
+    );
   }
 
   const schedulerSnapshot =
@@ -769,12 +836,14 @@ function createWaitForBackgroundPermit(
     throw new Error('Background indexing requires database QoS scheduler snapshots.');
   }
 
-  return createDatabasePressureController({
-    pollMs: BACKGROUND_PRESSURE_POLL_MS,
-    snapshotSource: {
-      getSnapshot: schedulerSnapshot,
-    },
-  }).waitForBackgroundPermit;
+  return boundBackgroundPermitWait(
+    createDatabasePressureController({
+      pollMs: BACKGROUND_PRESSURE_POLL_MS,
+      snapshotSource: {
+        getSnapshot: schedulerSnapshot,
+      },
+    }).waitForBackgroundPermit
+  );
 }
 
 function toWorkspaceIndexingDatabasePressure(
@@ -1082,14 +1151,6 @@ export function WorkspaceCollectionSyncProvider({
   // triggerSync fires so that an older loop can detect it is superseded and
   // stop iterating before feeding more roots to service.sync.
   const syncLoopGenerationRef = useRef(0);
-  // Db root ids that have completed at least one NON-superseded sync pass this
-  // session. A newly added root (absent here) is synced FIRST so a loop that is
-  // restarted by a frequent re-trigger (queue-drain / refresh events) reaches it
-  // immediately instead of starving it behind a long re-scan of already-covered
-  // roots. This is the core fix for "a folder added mid-session never indexed".
-  // Lazily initialized at first use (see triggerSync) so the Set is not rebuilt
-  // and discarded on every render.
-  const rootsSyncedThisSessionRef = useRef<Set<string> | null>(null);
 
   const reportAsyncError = useCallback(
     (operation: string, error: unknown): void => {
@@ -1120,10 +1181,33 @@ export function WorkspaceCollectionSyncProvider({
     },
     [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
   );
-  const isTreeRestorationReady =
+  const treeRestorationSettled =
     fileTreeContext === null ||
     (!(fileTreeContext.isLoading || fileTreeContext.isRestoringExpandedPaths) &&
       fileTreeContext.isRestorationSettled);
+  // The background indexer scans the filesystem directly, and resolveDbRootId
+  // already awaits root reconciliation, so the file-tree UI restoration is a
+  // convenience gate, NOT a correctness prerequisite. Wait for it briefly (so a
+  // fast restoration completes first) but never block indefinitely: a very large
+  // root can keep the tree loading for minutes, which must not wedge a
+  // freshly-added folder in "waiting" forever (the real "added a folder, nothing
+  // happened" cause). After the grace window, index regardless of tree state.
+  const [treeRestorationGraceExpired, setTreeRestorationGraceExpired] = useState(false);
+  useEffect(() => {
+    if (treeRestorationSettled) {
+      setTreeRestorationGraceExpired(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      logger.warn(
+        'File explorer restoration did not settle within the grace window; starting background indexing anyway',
+        { graceMs: TREE_RESTORATION_GRACE_MS }
+      );
+      setTreeRestorationGraceExpired(true);
+    }, TREE_RESTORATION_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [treeRestorationSettled]);
+  const isTreeRestorationReady = treeRestorationSettled || treeRestorationGraceExpired;
 
   const validateHostedProviderAccess = useCallback(
     async (embeddingSetId: string): Promise<void> => {
@@ -1155,39 +1239,46 @@ export function WorkspaceCollectionSyncProvider({
     createWorkspaceIndexingQosTransitionLogger('app-shell-sync')
   );
 
-  const resolveQosPolicy = useCallback(async (): Promise<WorkspaceIndexingQosPolicy> => {
-    if (!(readDatabasePressure && readPipelineInputs)) {
-      throw new Error('Workspace Index QoS requires database scheduler snapshots.');
-    }
-    const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
-    const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
-    const policy = resolveWorkspaceIndexingQosPolicy({
-      dbPressure: await readDatabasePressure(),
-      // Coarse app-shell signal: this spans the full assistant turn so background
-      // indexing yields while tool/LLM work is active. The desktop hidden-host
-      // ForegroundEmbeddingGate remains the embedding-scoped GPU coordination path.
-      foregroundQueryActive: getAssistantForegroundActivitySnapshot(),
-      idleState: powerSnapshot?.idleState ?? 'unknown',
-      idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
-      manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
-      pipeline: await readPipelineInputs(),
-      powerSource: powerSnapshot?.powerSource ?? 'unknown',
-      // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
-      // backfill exposes provider throttling as durable state.
-      providerRateLimited: false,
-      recentUserInputMs: readRecentUserInputMs(),
-      thermalState: powerSnapshot?.thermalState ?? 'unknown',
-      windowVisible: windowVisibleRef.current,
-    });
-    observeQosTransition(policy);
-    return policy;
-  }, [
-    observeQosTransition,
-    readDatabasePressure,
-    readPipelineInputs,
-    readPowerSnapshot,
-    readRecentUserInputMs,
-  ]);
+  const resolveQosPolicy = useCallback(
+    async (options?: {
+      foregroundDbPressureStarvationBypass?: boolean;
+    }): Promise<WorkspaceIndexingQosPolicy> => {
+      if (!(readDatabasePressure && readPipelineInputs)) {
+        throw new Error('Workspace Index QoS requires database scheduler snapshots.');
+      }
+      const powerSnapshot = readPowerSnapshot ? await readPowerSnapshot() : null;
+      const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
+      const policy = resolveWorkspaceIndexingQosPolicy({
+        dbPressure: await readDatabasePressure(),
+        foregroundDbPressureStarvationBypass:
+          options?.foregroundDbPressureStarvationBypass ?? false,
+        // Coarse app-shell signal: this spans the full assistant turn so background
+        // indexing yields while tool/LLM work is active. The desktop hidden-host
+        // ForegroundEmbeddingGate remains the embedding-scoped GPU coordination path.
+        foregroundQueryActive: getAssistantForegroundActivitySnapshot(),
+        idleState: powerSnapshot?.idleState ?? 'unknown',
+        idleTimeMs: powerSnapshot?.idleTimeMs ?? null,
+        manualPaused: latestBackgroundWorkSnapshot.backgroundIndexingPaused,
+        pipeline: await readPipelineInputs(),
+        powerSource: powerSnapshot?.powerSource ?? 'unknown',
+        // TODO(workspace-index-qos): wire hosted provider rate-limit telemetry when
+        // backfill exposes provider throttling as durable state.
+        providerRateLimited: false,
+        recentUserInputMs: readRecentUserInputMs(),
+        thermalState: powerSnapshot?.thermalState ?? 'unknown',
+        windowVisible: windowVisibleRef.current,
+      });
+      observeQosTransition(policy);
+      return policy;
+    },
+    [
+      observeQosTransition,
+      readDatabasePressure,
+      readPipelineInputs,
+      readPowerSnapshot,
+      readRecentUserInputMs,
+    ]
+  );
 
   const missingRuntimeDependencies = useMemo(() => {
     const missing: string[] = [];
@@ -1511,16 +1602,21 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
-        let syncedRootIds = rootsSyncedThisSessionRef.current;
-        if (!syncedRootIds) {
-          syncedRootIds = new Set<string>();
-          rootsSyncedThisSessionRef.current = syncedRootIds;
+        // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
+        // folder you just added (0 files), or one whose earlier pass imported
+        // nothing, is processed before a giant repo that is only partway through
+        // its import — so one huge root can never block the others, and a newly
+        // added root indexes promptly instead of waiting in line behind a
+        // 20k-file import. Falls back to discovery order if the query fails.
+        // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during coverage read.
+        const orderedTargets = await loadOrderedSyncTargets({
+          backgroundDb,
+          managedCollectionId,
+          syncableTargets,
+        });
+        if (syncLoopGenerationRef.current !== myGeneration) {
+          return;
         }
-        // Sync roots NOT yet synced this session first: a folder added mid-session
-        // has no entry, so it is processed before the long re-scan of
-        // already-covered roots — guaranteeing it is reached even when a frequent
-        // re-trigger (queue-drain / refresh events) keeps restarting the loop.
-        const orderedTargets = orderTargetsBySessionCoverage(syncableTargets, syncedRootIds);
 
         for (const [targetIndex, target] of orderedTargets.entries()) {
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
@@ -1533,8 +1629,6 @@ export function WorkspaceCollectionSyncProvider({
               : { mode: 'full' as const };
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           await runRootSyncPass({
-            isCurrentGeneration: () => syncLoopGenerationRef.current === myGeneration,
-            markCovered: () => syncedRootIds.add(target.dbRootId),
             reportAsyncError,
             request: {
               backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
@@ -1551,6 +1645,7 @@ export function WorkspaceCollectionSyncProvider({
       })();
     },
     [
+      backgroundDb,
       enabled,
       hasHydrated,
       indexingPolicyPreset,
