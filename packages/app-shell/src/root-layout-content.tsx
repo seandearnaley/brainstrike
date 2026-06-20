@@ -40,6 +40,7 @@ import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
+import { CommandPaletteHost } from './command-palette-host';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { ThreadsPanel } from './threads-panel';
@@ -394,6 +395,10 @@ export function RootLayoutContent({
           work can continue across route switches. They remain inert on non-explorer routes
           unless a feature explicitly opts into them. */}
       <ActionRegistryProvider registry={actionRegistry}>
+        {/* The ⌘K command palette mounts once at the visible-UI root. Only the
+            visible renderer mounts RootLayoutContent, so hidden hosts never
+            instantiate it (structural gating — no role check needed here). */}
+        <CommandPaletteHost />
         <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
           <EmbeddingRuntimeProvider>
             <IndexingActivityCoordinator />

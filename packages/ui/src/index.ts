@@ -16,6 +16,7 @@ export * from './checkbox';
 export * from './code-surface';
 export * from './collection-browser';
 export * from './collection-picker';
+export * from './command-palette';
 export * from './context-menu';
 export * from './data-table';
 export * from './dialog';

@@ -103,6 +103,12 @@ vi.mock('../assistant-chat-panel', () => ({
   AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
 }));
 
+// The palette host pulls in the DB, theme, and command registry; this
+// layout-routing test mocks it the same way it mocks every other child panel.
+vi.mock('../command-palette-host', () => ({
+  CommandPaletteHost: () => <div data-testid="command-palette-host" />,
+}));
+
 vi.mock('../agent-sidebar-panel', () => ({
   AgentSidebarPanel: ({
     threadsContent,

@@ -58,6 +58,7 @@ const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
+const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -841,6 +842,19 @@ contextBridge.exposeInMainWorld('power', {
     ipcRenderer.on(APP_POWER_STATE_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(APP_POWER_STATE_EVENT, listener);
+    };
+  },
+});
+
+// ⌘K command palette: the app menu's Cmd+K accelerator pushes this event to the
+// focused window so the renderer (visible-UI root) can open the palette. Mirrors
+// the other one-way main→renderer `on*` bridges (e.g. power.onPowerState).
+contextBridge.exposeInMainWorld('commandPalette', {
+  onOpen: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(COMMAND_PALETTE_OPEN_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(COMMAND_PALETTE_OPEN_EVENT, listener);
     };
   },
 });

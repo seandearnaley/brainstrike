@@ -1129,6 +1129,24 @@ if (singleInstanceLockAcquired) {
           label: 'View',
           submenu: [
             {
+              label: 'Command Palette…',
+              accelerator: process.platform === 'darwin' ? 'Cmd+K' : 'Ctrl+K',
+              click: (_menuItem, browserWindow) => {
+                // Route to the FOCUSED window only, so the palette opens where
+                // the user is looking. Hidden host windows are never focused and
+                // never register the renderer listener, so this is a no-op there.
+                const targetWindow =
+                  browserWindow instanceof BrowserWindow
+                    ? browserWindow
+                    : BrowserWindow.getFocusedWindow();
+                if (!targetWindow || targetWindow.isDestroyed()) {
+                  return;
+                }
+                targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.commandPalette.open);
+              },
+            },
+            { type: 'separator' },
+            {
               label: 'Reload',
               accelerator: process.platform === 'darwin' ? 'Cmd+R' : 'Ctrl+R',
               click: (_menuItem, browserWindow) => {
