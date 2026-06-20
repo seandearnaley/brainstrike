@@ -9,7 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GitCommandRun, GitCommandRunner } from '../assistant-server/git-service';
-import { createGitIpcHandlers, type WorkspaceRootResolver } from '../git-ipc-handlers';
+import {
+  createGitIpcHandlers,
+  execFileGitRunner,
+  type WorkspaceRootResolver,
+} from '../git-ipc-handlers';
 
 const createdDirs: string[] = [];
 
@@ -106,7 +110,8 @@ describe('git IPC handlers — root resolution + containment', () => {
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.cwd).toBe(dir);
-    expect(calls[0]?.args).toEqual(['status', '--porcelain=v2', '--branch']);
+    // Scoped to the opened root ('-- .') for subdir-of-worktree containment.
+    expect(calls[0]?.args).toEqual(['status', '--porcelain=v2', '--branch', '--', '.']);
   });
 
   it('reports a clean error when the resolved root no longer exists on disk', async () => {
@@ -215,6 +220,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       stdout: '',
       stderr: '',
       timedOut: true,
+      failureReason: 'timeout',
     });
     const handlers = createGitIpcHandlers({
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
@@ -248,5 +254,20 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
     // The commit invocation passes the message verbatim as one arg after -m.
     const commitCall = calls.find((c) => c.args[0] === 'commit');
     expect(commitCall?.args).toEqual(['commit', '-m', evil]);
+  });
+});
+
+describe('execFileGitRunner — errno discrimination (real runner)', () => {
+  it('maps an ENOENT spawn failure to failureReason "notFound"', async () => {
+    // A non-existent cwd makes execFile fail to spawn with ENOENT — the same
+    // errno a missing `git` binary yields — so the runner sets 'notFound'.
+    const run = await execFileGitRunner({
+      args: ['status'],
+      cwd: '/no/such/directory/anywhere',
+      timeoutMs: 5000,
+    });
+    expect(run.failureReason).toBe('notFound');
+    expect(run.exitCode).toBeNull();
+    expect(run.timedOut).toBe(false);
   });
 });

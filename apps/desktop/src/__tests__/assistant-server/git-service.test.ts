@@ -14,7 +14,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createGitService, parsePorcelainV2 } from '../../assistant-server/git-service';
+import {
+  createGitService,
+  GIT_MAX_OUTPUT_BYTES,
+  type GitCommandRun,
+  type GitCommandRunner,
+  parsePorcelainV2,
+} from '../../assistant-server/git-service';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 
 const execFileAsync = promisify(execFile);
@@ -163,6 +169,33 @@ describe('git service — status', () => {
     expect(result.value.clean).toBe(true);
     expect(result.value.files).toHaveLength(0);
   });
+
+  it('CONTAINMENT: when the opened root is a subdir, status omits sibling changes', async () => {
+    // repo/  (worktree root)
+    //   opened/   ← the workspace root the user opened
+    //   sibling/  ← outside the opened root
+    const repo = await makeRepo();
+    await fsPromises.mkdir(path.join(repo, 'opened'), { recursive: true });
+    await fsPromises.mkdir(path.join(repo, 'sibling'), { recursive: true });
+    await writeFile(repo, 'opened/inside.txt', 'a\n');
+    await writeFile(repo, 'sibling/outside.txt', 'b\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    // Dirty BOTH a file inside the opened root and a sibling outside it.
+    await writeFile(repo, 'opened/inside.txt', 'a-changed\n');
+    await writeFile(repo, 'sibling/outside.txt', 'b-changed\n');
+
+    const result = await serviceFor(path.join(repo, 'opened')).status();
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.isRepository).toBe(true);
+    // Only the in-root change is reported; the sibling change (which git would
+    // otherwise surface as "../sibling/outside.txt") is excluded.
+    expect(result.value.files.map((f) => f.path)).toEqual(['inside.txt']);
+    expect(result.value.files.some((f) => f.path.includes('..'))).toBe(false);
+  });
 });
 
 describe('git service — diff', () => {
@@ -199,6 +232,97 @@ describe('git service — diff', () => {
     }
     expect(result.value.staged).toBe(true);
     expect(result.value.unifiedDiff).toContain('+staged-change');
+  });
+
+  it('OVERSIZED DIFF: a diff past the buffer is a bounded truncated SUCCESS, not a failure', async () => {
+    const repo = await makeRepo();
+    // Commit a large file, then rewrite EVERY line so the diff is ~2× the file.
+    // The file is sized so the resulting diff exceeds GIT_MAX_BUFFER_BYTES (4×
+    // the soft bound), forcing the execFile maxBuffer overflow path.
+    const lineCount = 260_000;
+    const original = `${Array.from({ length: lineCount }, (_, i) => `original-line-${i}`).join('\n')}\n`;
+    await writeFile(repo, 'big.txt', original);
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    const rewritten = `${Array.from({ length: lineCount }, (_, i) => `changed-line-${i}`).join('\n')}\n`;
+    await writeFile(repo, 'big.txt', rewritten);
+
+    // Whole-tree diff (no path) — the contract is that it does not fail.
+    const result = await serviceFor(repo).diff({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.truncated).toBe(true);
+    // Bounded to ~the soft ceiling (boundOutput trims to GIT_MAX_OUTPUT_BYTES
+    // plus a short marker), NOT the full multi-MB diff.
+    expect(result.value.unifiedDiff.length).toBeLessThanOrEqual(GIT_MAX_OUTPUT_BYTES + 64);
+    // It is still a real diff prefix, not an error dump.
+    expect(result.value.unifiedDiff).toContain('diff --git');
+  }, 30_000);
+
+  it('maps an injected maxBuffer overflow to a truncated success (unit, no large repo)', async () => {
+    // Drive the service with a fake runner that simulates the overflow: a partial
+    // (oversized) stdout prefix + failureReason 'maxBuffer'. The service must
+    // bound it and report truncated:true, ok:true.
+    const oversized = `diff --git a/x b/x\n${'+'.repeat(GIT_MAX_OUTPUT_BYTES + 5000)}`;
+    const overflowRunner: GitCommandRunner = () =>
+      Promise.resolve({
+        exitCode: null,
+        stdout: oversized,
+        stderr: '',
+        timedOut: false,
+        failureReason: 'maxBuffer',
+      } satisfies GitCommandRun);
+    const service = createGitService({ cwd: '/tmp/whatever', run: overflowRunner });
+    const result = await service.diff({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.truncated).toBe(true);
+    expect(result.value.unifiedDiff.length).toBeLessThanOrEqual(GIT_MAX_OUTPUT_BYTES + 64);
+  });
+
+  it('CONTAINMENT: rejects an absolute or ".."-escaping path without running git', async () => {
+    let calls = 0;
+    const spyRunner: GitCommandRunner = (params) => {
+      calls += 1;
+      return execFileGitRunner(params);
+    };
+    const service = createGitService({ cwd: '/tmp/whatever', run: spyRunner });
+
+    const abs = await service.diff({ path: '/etc/passwd' });
+    expect(abs.ok).toBe(false);
+    if (!abs.ok) {
+      expect(abs.error).toMatch(/relative to the opened folder/);
+    }
+    const escaping = await service.diff({ path: '../../sibling/file' });
+    expect(escaping.ok).toBe(false);
+    if (!escaping.ok) {
+      expect(escaping.error).toMatch(/escapes the opened folder/);
+    }
+    // Neither rejected path ever reached git.
+    expect(calls).toBe(0);
+  });
+});
+
+describe('git service — git not installed', () => {
+  it('reports a clear "git is not installed" error for an ENOENT runner', async () => {
+    const enoentRunner: GitCommandRunner = () =>
+      Promise.resolve({
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+        failureReason: 'notFound',
+      } satisfies GitCommandRun);
+    const service = createGitService({ cwd: '/tmp/whatever', run: enoentRunner });
+    const result = await service.status();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/git is not installed or not on PATH/);
+    }
   });
 });
 

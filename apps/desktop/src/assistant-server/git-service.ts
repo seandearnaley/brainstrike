@@ -18,17 +18,43 @@
  * The caller (the IPC handler) is responsible for resolving + containment-
  * checking the `cwd` against a known workspace root before calling in here.
  */
+import path from 'node:path';
 
 export const GIT_DEFAULT_TIMEOUT_MS = 30_000;
 /** Push / pull can hang on auth or a slow network — give them a longer leash. */
 export const GIT_NETWORK_TIMEOUT_MS = 120_000;
-/** Hard ceiling on captured stdout/stderr per git invocation (bytes). */
+/**
+ * Soft ceiling on captured stdout/stderr that the SERVICE applies via
+ * {@link boundOutput} — output past this is truncated to a `truncated: true`
+ * success, NOT a failure.
+ */
 export const GIT_MAX_OUTPUT_BYTES = 1_000_000;
+/**
+ * Hard `execFile` capture buffer. Strictly LARGER than {@link GIT_MAX_OUTPUT_BYTES}
+ * so a diff between the soft and hard ceiling is captured in full and gracefully
+ * truncated by {@link boundOutput} (success) rather than killed by `maxBuffer`
+ * first (which would surface a legitimate big diff as a failure). A diff that
+ * exceeds even this hard ceiling overflows `maxBuffer`; the runner maps that to a
+ * bounded `truncated: true` success via {@link GitCommandFailureReason} rather
+ * than a null-exit error.
+ */
+export const GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4;
+
+/**
+ * Distinguishes the cause of a non-clean `git` run so the service maps each to an
+ * accurate result. `killed === true` alone conflates three causes — the runner
+ * sets this discriminant instead so a `maxBuffer` overflow becomes a truncated
+ * SUCCESS, an abort/timeout becomes the right message, and a missing binary is
+ * reported clearly.
+ */
+export type GitCommandFailureReason = 'maxBuffer' | 'timeout' | 'notFound';
 
 /** Result of running a single `git` invocation through the injected runner. */
 export interface GitCommandRun {
-  /** Process exit code, or null when terminated by a signal (timeout). */
+  /** Process exit code, or null when terminated by a signal (timeout/abort). */
   readonly exitCode: number | null;
+  /** Discriminated failure cause when the run did not exit cleanly. */
+  readonly failureReason?: GitCommandFailureReason;
   readonly stderr: string;
   readonly stdout: string;
   /** True when the invocation was killed because it exceeded its timeout. */
@@ -141,11 +167,16 @@ function isNotARepository(run: GitCommandRun): boolean {
 
 /**
  * Combine a failed run's stderr/stdout into a single actionable error string.
- * Never silent: if both streams are empty we still report the exit code.
+ * Never silent: a discriminated `failureReason` wins (so a timeout, abort, or
+ * missing-binary case reports accurately instead of dumping a stale exit code);
+ * otherwise we surface stderr/stdout, then the exit code as a last resort.
  */
 function describeFailure(run: GitCommandRun): string {
-  if (run.timedOut) {
+  if (run.failureReason === 'timeout') {
     return 'git command timed out';
+  }
+  if (run.failureReason === 'notFound') {
+    return 'git is not installed or not on PATH';
   }
   const stderr = run.stderr.trim();
   if (stderr.length > 0) {
@@ -299,13 +330,37 @@ export function parsePorcelainV2(stdout: string): Omit<GitStatus, 'isRepository'
   };
 }
 
-/** Validate that a model/renderer-supplied path arg is a safe relative-ish path. */
-function assertSafePathArg(rawPath: string): string {
+/**
+ * Resolve + CONTAIN a renderer/model-supplied path arg to a repo-root-relative
+ * pathspec, or reject it.
+ *
+ * `cwd` is already pinned to the opened root, but a returned `git status` path
+ * from a root that is a subdirectory of a larger worktree, or a malicious arg,
+ * could be `../sibling/file` or absolute — git would happily diff/stage that,
+ * escaping the opened folder. So this rejects:
+ * - absolute paths, and
+ * - any path that normalizes to an escape (leading `..`).
+ *
+ * `undefined`/blank → `null` (caller scopes the whole opened root via '.').
+ */
+function resolveContainedPathArg(rawPath: string | undefined): GitResult<string | null> {
+  if (rawPath === undefined) {
+    return { ok: true, value: null };
+  }
   const trimmed = rawPath.trim();
   if (trimmed.length === 0) {
-    throw new Error('path must be a non-empty string');
+    return { ok: true, value: null };
   }
-  return trimmed;
+  if (path.isAbsolute(trimmed)) {
+    return { ok: false, error: `path "${rawPath}" must be relative to the opened folder` };
+  }
+  // Normalize with POSIX semantics on a forward-slashed copy so `..` segments
+  // are resolved; any remaining leading `..` means the path escapes the root.
+  const normalized = path.posix.normalize(trimmed.replace(/\\/g, '/'));
+  if (normalized === '..' || normalized.startsWith('../')) {
+    return { ok: false, error: `path "${rawPath}" escapes the opened folder` };
+  }
+  return { ok: true, value: normalized };
 }
 
 export interface GitServiceOptions {
@@ -333,7 +388,12 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     /** Porcelain status + branch + ahead/behind, parsed into a typed structure. */
     status: async (): Promise<GitResult<GitStatus>> => {
       try {
-        const run_ = await invoke(['status', '--porcelain=v2', '--branch']);
+        // Scope to the opened root ('-- .') so a root that is a SUBDIR of a
+        // larger worktree reports only its own changes — never sibling paths
+        // like `../other/file` that could then be passed back to diff/stage and
+        // escape the opened folder. `--branch` still yields the repo-wide branch
+        // header (ahead/behind), which is what the meter wants.
+        const run_ = await invoke(['status', '--porcelain=v2', '--branch', '--', '.']);
         if (run_.exitCode !== 0) {
           if (isNotARepository(run_)) {
             // A non-repo (or web FSA root) is a clean, EXPECTED state — not an
@@ -373,16 +433,23 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (staged) {
           args.push('--cached');
         }
-        const pathArg = params.path ? assertSafePathArg(params.path) : null;
-        if (pathArg) {
-          // `--` terminates options so a path that looks like a flag (or starts
-          // with `-`) can never be parsed as one.
-          args.push('--', pathArg);
+        const pathResult = resolveContainedPathArg(params.path);
+        if (!pathResult.ok) {
+          return pathResult;
         }
+        const pathArg = pathResult.value;
+        // `--` terminates options so a path that looks like a flag can never be
+        // parsed as one. Scope to the opened root ('.') when no path is given so
+        // a root that is a SUBDIR of a larger worktree never diffs siblings.
+        args.push('--', pathArg ?? '.');
         const run_ = await invoke(args);
-        if (run_.exitCode !== 0) {
+        // An oversized diff overflows `maxBuffer` (failureReason 'maxBuffer'):
+        // the partial stdout is still a valid prefix of the diff, so bound it and
+        // report a `truncated: true` SUCCESS rather than a failure.
+        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer') {
           return { ok: false, error: describeFailure(run_) };
         }
+        const overflowed = run_.failureReason === 'maxBuffer';
         const bounded = boundOutput(run_.stdout);
         return {
           ok: true,
@@ -390,7 +457,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
             staged,
             path: pathArg,
             unifiedDiff: bounded.text,
-            truncated: bounded.truncated,
+            truncated: bounded.truncated || overflowed,
           },
         };
       } catch (error) {
@@ -398,11 +465,15 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /** Stage a path (or all changes when no path is given): `git add`. */
+    /** Stage a path (or all changes within the opened root): `git add`. */
     stage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
       try {
-        const pathArg = params.path ? assertSafePathArg(params.path) : '.';
-        const run_ = await invoke(['add', '--', pathArg]);
+        const pathResult = resolveContainedPathArg(params.path);
+        if (!pathResult.ok) {
+          return pathResult;
+        }
+        // No path → scope to the opened root ('.'), never the whole worktree.
+        const run_ = await invoke(['add', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { ok: false, error: describeFailure(run_) };
         }
@@ -412,11 +483,14 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /** Unstage a path (or all): `git restore --staged`. */
+    /** Unstage a path (or all within the opened root): `git restore --staged`. */
     unstage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
       try {
-        const pathArg = params.path ? assertSafePathArg(params.path) : '.';
-        const run_ = await invoke(['restore', '--staged', '--', pathArg]);
+        const pathResult = resolveContainedPathArg(params.path);
+        if (!pathResult.ok) {
+          return pathResult;
+        }
+        const run_ = await invoke(['restore', '--staged', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { ok: false, error: describeFailure(run_) };
         }

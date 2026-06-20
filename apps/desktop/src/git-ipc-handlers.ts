@@ -2,12 +2,16 @@
  * Main-process handlers for the desktop `git` IPC domain.
  *
  * Responsibilities (the security-critical seam):
- * 1. Resolve a renderer-supplied `rootId` (or absolute path) to a workspace root
- *    that is KNOWN to the app — never an arbitrary cwd. Roots come from the DB
- *    `roots` table (the same source the assistant's read/search tools use), so
- *    `git` can only ever run inside a folder the user actually opened.
- * 2. Canonicalize the cwd via `realpath` and containment-check it with
- *    {@link isWithinRoot} (defence-in-depth against symlink redirects).
+ * 1. Resolve a renderer-supplied `rootId` to a workspace root that is KNOWN to
+ *    the app — never an arbitrary cwd. Roots come from the DB `roots` table (the
+ *    same source the assistant's read/search tools use), so `git` can only ever
+ *    run inside a folder the user actually opened. `realpath` then canonicalizes
+ *    that root to its real path, which becomes the pinned cwd (git runs AT the
+ *    root — there is no user-supplied subpath here to widen).
+ * 2. Per-PATH containment (the `path` arg of diff/stage/unstage, and the paths
+ *    `git status` reports) is enforced inside the service: status is scoped to
+ *    the opened root and path args that are absolute or escape via `..` are
+ *    rejected before reaching git.
  * 3. Run `git` through {@link createGitService} with an `execFile`-backed runner
  *    — args array, NO shell, so a branch name / commit message / path can never
  *    inject a command. No `exec`/`execSync` anywhere.
@@ -16,18 +20,17 @@
  * git failures are logged and surfaced, never thrown across IPC and never
  * silently swallowed.
  */
-import { execFile } from 'node:child_process';
+import { type ExecFileException, execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   createGitService,
-  GIT_MAX_OUTPUT_BYTES,
+  GIT_MAX_BUFFER_BYTES,
   type GitCommandRun,
   type GitCommandRunner,
   type GitResult,
 } from './assistant-server/git-service';
-import { isWithinRoot } from './assistant-server/workspace-path';
 import {
   loadWorkspaceRootsFromDatabase,
   type WorkspaceRootsQueryable,
@@ -40,11 +43,49 @@ const logger = createLogger('GitIpc');
  *
  * - `git` is invoked with an ARGUMENT ARRAY (no shell): shell metacharacters in
  *   any arg are inert. There is deliberately no `shell: true`.
- * - A non-zero exit is NOT a rejection here — `execFile` rejects on non-zero, so
- *   we catch and surface the captured streams + code as a resolved
- *   {@link GitCommandRun}. The service layer turns that into a structured error.
- * - The timeout kills a hung process (push/pull) and is reported via `timedOut`.
+ * - `execFile` REJECTS on a non-zero exit; we catch and resolve a structured
+ *   {@link GitCommandRun} (never reject) so the service maps it to a result.
+ * - The capture buffer is {@link GIT_MAX_BUFFER_BYTES} (strictly larger than the
+ *   service's soft `GIT_MAX_OUTPUT_BYTES`), so an oversized-but-valid diff is
+ *   captured and gracefully truncated rather than killed and mislabeled.
+ * - `error.killed === true` conflates three distinct causes; we DISCRIMINATE
+ *   them into {@link GitCommandRun.failureReason}:
+ *   - `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` → 'maxBuffer' (partial stdout is a
+ *     valid diff prefix; the service returns a truncated SUCCESS), and
+ *   - an abort/timeout kill → 'timeout' (accurate message), while
+ *   - a missing `git` binary (`ENOENT`) → 'notFound' (clear install hint).
  */
+/**
+ * Map an `execFile` error into a {@link GitCommandRun}, discriminating the cause
+ * into `failureReason`. `code` is the numeric exit code on a normal non-zero
+ * exit, or a string errno: 'ENOENT' (missing binary) or
+ * 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' (output overflow). A kill that is NOT a
+ * maxBuffer overflow is a timeout/abort.
+ */
+function classifyExecError(
+  error: ExecFileException,
+  stdout: string,
+  stderr: string
+): GitCommandRun {
+  const code = error.code;
+  const exitCode = typeof code === 'number' ? code : null;
+  let failureReason: GitCommandRun['failureReason'];
+  if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+    failureReason = 'maxBuffer';
+  } else if (code === 'ENOENT') {
+    failureReason = 'notFound';
+  } else if (error.killed === true) {
+    failureReason = 'timeout';
+  }
+  return {
+    exitCode,
+    stdout,
+    stderr,
+    timedOut: failureReason === 'timeout',
+    ...(failureReason ? { failureReason } : {}),
+  };
+}
+
 export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeoutMs }) => {
   return new Promise<GitCommandRun>((resolve) => {
     execFile(
@@ -53,7 +94,7 @@ export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeout
       {
         cwd,
         timeout: timeoutMs,
-        maxBuffer: GIT_MAX_OUTPUT_BYTES,
+        maxBuffer: GIT_MAX_BUFFER_BYTES,
         signal,
         // Discourage interactive credential prompts that would hang a push/pull
         // in a headless main process; surface an auth error instead of blocking.
@@ -66,23 +107,13 @@ export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeout
         },
       },
       (error, stdout, stderr) => {
-        // Default `execFile` encoding is utf8, so the streams are strings.
-        const out = stdout;
-        const err = stderr;
+        // Default `execFile` encoding is utf8, so the streams are strings. On a
+        // maxBuffer overflow these still hold the captured (truncated) prefix.
         if (error) {
-          const execError = error as NodeJS.ErrnoException & {
-            code?: number | string;
-            killed?: boolean;
-          };
-          // `code` is the numeric exit code on a normal non-zero exit, or a
-          // string errno (e.g. 'ENOENT' when git is missing). `killed` + a
-          // 'SIGTERM' signal indicates the timeout/abort fired.
-          const timedOut = execError.killed === true;
-          const exitCode = typeof execError.code === 'number' ? execError.code : null;
-          resolve({ exitCode, stdout: out, stderr: err, timedOut });
+          resolve(classifyExecError(error, stdout, stderr));
           return;
         }
-        resolve({ exitCode: 0, stdout: out, stderr: err, timedOut: false });
+        resolve({ exitCode: 0, stdout, stderr, timedOut: false });
       }
     );
   });
@@ -139,12 +170,12 @@ async function resolveRootCwd(
     return { ok: false, error: 'The selected folder has no local filesystem path.' };
   }
   try {
-    // Canonicalize then re-assert containment (the canonical path must still be
-    // the root itself — symlink redirects cannot widen the cwd).
+    // Canonicalize the DB-known root to its real path (resolving any symlinks),
+    // and use THAT as the pinned cwd. We run git AT the root itself — there is no
+    // user-supplied subpath to widen here, so the containment guarantee is simply
+    // "cwd === realpath(a root the user opened)". Per-path containment (for the
+    // `path` args of diff/stage/unstage) is enforced separately in the service.
     const canonicalRoot = await fsPromises.realpath(match.path);
-    if (!isWithinRoot(canonicalRoot, canonicalRoot)) {
-      return { ok: false, error: 'The selected folder is not a valid workspace root.' };
-    }
     return { ok: true, value: canonicalRoot };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
