@@ -47,6 +47,7 @@ import {
   type ModelPricingResolver,
   resolveCumulativeUsageDisplay,
 } from './assistant-cumulative-usage';
+import { hasDurableAssistantUsageCapability } from './assistant-durable-usage-capability';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
@@ -227,10 +228,10 @@ function hasDesktopRuntimeBridge(): boolean {
 }
 
 function hasDesktopAssistantBackend(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  return Boolean(window.assistant?.url || window.assistant?.getUrl);
+  // Single source of truth for "durable assistant usage is recorded here"
+  // (shared with the cost panel's read-side gate) — see
+  // assistant-durable-usage-capability.ts.
+  return hasDurableAssistantUsageCapability();
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.

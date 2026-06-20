@@ -1842,6 +1842,25 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const db = await wasmLoader.createPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
+    // The aggregation LEFT JOINs roots for display names (production has the
+    // roots table from migration 039). Seed it: root-a is named, root-b is
+    // deliberately absent so the join MISS surfaces a null name (not a crash).
+    await db.query(
+      `CREATE TABLE IF NOT EXISTS roots (
+        id text PRIMARY KEY,
+        kind text,
+        display_name text NOT NULL,
+        path text,
+        status text,
+        created_at timestamptz,
+        last_verified_at timestamptz
+      )`
+    );
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path)
+       VALUES ('root-a', 'path', 'project-alpha', '/tmp/project-alpha')`
+    );
+
     // Workspace 'workspace-a': two roots + an unattributed (null-root) turn,
     // across two threads and two models. The aggregate must group by
     // (root, provider, model) and never bleed in a different workspace.
@@ -1901,9 +1920,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const rows = await repository.getCrossRootUsage('workspace-a');
 
     // NULLS FIRST, then by root id / provider / model — deterministic ordering.
+    // root-a resolves its display name; root-b (no roots row) and the null
+    // bucket carry a null name — never a fabricated one.
     expect(rows).toEqual([
       {
         rootId: null,
+        rootDisplayName: null,
         provider: 'openai',
         model: 'gpt-5.2',
         inputTokens: 50,
@@ -1911,6 +1933,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       },
       {
         rootId: 'root-a',
+        rootDisplayName: 'project-alpha',
         provider: 'openai',
         model: 'gpt-5.2',
         inputTokens: 1500,
@@ -1918,6 +1941,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       },
       {
         rootId: 'root-b',
+        rootDisplayName: null,
         provider: 'anthropic',
         model: 'claude-opus-4-8',
         inputTokens: 2000,
@@ -1930,6 +1954,11 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage-empty');
     const db = await wasmLoader.createPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    // roots exists in production (migration 039); the aggregation joins it.
+    await db.query(
+      'CREATE TABLE IF NOT EXISTS roots (id text PRIMARY KEY, display_name text NOT NULL)'
+    );
 
     await expect(repository.getCrossRootUsage('never-seen')).resolves.toEqual([]);
   });

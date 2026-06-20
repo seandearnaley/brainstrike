@@ -7,7 +7,6 @@ import { useMemo } from 'react';
 import {
   type CrossRootCostRow,
   type ModelPricingResolver,
-  type RootNameResolver,
   resolveCrossRootCostRows,
 } from '../assistant-cross-root-cost';
 import { type CrossRootCostState, useCrossRootCost } from './use-cross-root-cost';
@@ -41,25 +40,9 @@ interface CostAggregationPanelViewProps {
 export function CostAggregationPanelView({ state }: CostAggregationPanelViewProps) {
   const { available, error, loading, rows } = state;
 
-  const rootNameByRootId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const row of rows) {
-      if (row.rootId !== null && row.rootDisplayName) {
-        map.set(row.rootId, row.rootDisplayName);
-      }
-    }
-    return map;
-  }, [rows]);
-
-  const resolveRootName = useMemo<RootNameResolver>(
-    () => (rootId: string) => rootNameByRootId.get(rootId),
-    [rootNameByRootId]
-  );
-
-  const costRows = useMemo(
-    () => resolveCrossRootCostRows(rows, resolveModelPricing, resolveRootName),
-    [resolveRootName, rows]
-  );
+  // Display names come from the aggregation's roots JOIN (on each row); the
+  // helper reads them directly, so no separate resolver is threaded here.
+  const costRows = useMemo(() => resolveCrossRootCostRows(rows, resolveModelPricing), [rows]);
 
   return (
     <Card>

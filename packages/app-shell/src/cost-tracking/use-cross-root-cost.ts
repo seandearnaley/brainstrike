@@ -1,108 +1,93 @@
 import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db';
 import { useMemo } from 'react';
-import type { CrossRootUsageRow } from '../assistant-memory-repository';
+import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
+import {
+  CROSS_ROOT_USAGE_AGGREGATION_SQL,
+  type CrossRootUsageRow,
+  mapCrossRootUsageRow,
+} from '../assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from '../assistant-memory-resource';
 
 /**
  * Per-(root, provider, model) usage subtotal joined with the root's display
- * name. The live query LEFT JOINs the roots table so newly-registered roots
- * (whose client id == roots.id) resolve a name; legacy path-remapped roots
- * miss the join and surface a null name (the panel shows a short id — honest,
- * never a wrong name). NULL root_id is the unattributed bucket.
+ * name (CrossRootUsageRow carries `rootDisplayName`, null for the unattributed
+ * bucket or a legacy path-remapped join miss). NULL root_id is the
+ * unattributed bucket.
  */
-export interface CrossRootUsageQueryRow extends CrossRootUsageRow {
-  readonly rootDisplayName: string | null;
-}
+export type CrossRootUsageQueryRow = CrossRootUsageRow;
 
 /**
  * Cross-root durable usage for the workspace, reactive via a PGlite live query.
  *
- * `available` is false on WEB (no PGlite assistant repo) — the panel renders an
- * honest "session-only" state, NOT zeros (capability-gated, no isElectron).
+ * `available` reflects the durable-usage CAPABILITY (the desktop assistant
+ * backend that actually writes the rows), NOT the raw PGlite handle: brainstrike
+ * is local-first, so WEB also runs under a PGlite `DbProvider`, but web
+ * assistant usage is session-only (in-renderer LocalRuntimeChat) and is never
+ * persisted via `recordRunUsage`. On web `available` is false → the panel
+ * renders an honest session-only state, NOT zeros, and no query is issued
+ * against the (web-empty) usage table.
  */
 export interface CrossRootCostState {
-  /** Whether the durable cross-root store exists (desktop). */
+  /** Whether durable cross-root usage is recorded here (desktop assistant backend). */
   readonly available: boolean;
   readonly error: Error | null;
   readonly loading: boolean;
   readonly rows: readonly CrossRootUsageQueryRow[];
 }
 
-const CROSS_ROOT_USAGE_TABLE = 'brainstrike_assistant_run_usage';
-
-// Aggregate ALL of the workspace's durable usage by (root, provider, model),
-// joining the root's display name. A GROUP BY aggregate has no stable per-row
-// identity, so this MUST run in full-refresh ('query') mode, never incremental
-// — mirrors the single-aggregate live queries elsewhere (e.g. queue counts).
-const CROSS_ROOT_USAGE_QUERY = `
-  SELECT
-    u.root_id AS "rootId",
-    r.display_name AS "rootDisplayName",
-    u.provider AS provider,
-    u.model AS model,
-    SUM(u.input_tokens)::bigint AS "inputTokens",
-    SUM(u.output_tokens)::bigint AS "outputTokens"
-  FROM ${CROSS_ROOT_USAGE_TABLE} u
-  LEFT JOIN roots r ON r.id = u.root_id
-  WHERE u.resource_id = $1
-  GROUP BY u.root_id, r.display_name, u.provider, u.model
-  ORDER BY u.root_id ASC NULLS FIRST, u.provider ASC, u.model ASC
-`;
-
-interface RawCrossRootUsageRow {
-  inputTokens: unknown;
-  model: unknown;
-  outputTokens: unknown;
-  provider: unknown;
-  rootDisplayName: unknown;
-  rootId: unknown;
+interface MappedRows {
+  readonly error: Error | null;
+  readonly rows: readonly CrossRootUsageQueryRow[];
 }
 
-function toNonNegativeInteger(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-function toNullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function mapRow(row: RawCrossRootUsageRow): CrossRootUsageQueryRow {
-  return {
-    rootId: toNullableString(row.rootId),
-    rootDisplayName: toNullableString(row.rootDisplayName),
-    provider: typeof row.provider === 'string' ? row.provider : '',
-    model: typeof row.model === 'string' ? row.model : '',
-    inputTokens: toNonNegativeInteger(row.inputTokens),
-    outputTokens: toNonNegativeInteger(row.outputTokens),
-  };
+/**
+ * Map raw live-query rows through the repo's STRICT parser. A malformed row
+ * (non-finite/negative aggregate, non-string provider/model) THROWS in
+ * mapCrossRootUsageRow exactly as it does on the repo path; we catch it here and
+ * surface it as an error so the panel reads "couldn't load cost", never a
+ * fabricated $0 / 0 tokens (no silent fallbacks).
+ */
+function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
+  try {
+    return { rows: rawRows.map(mapCrossRootUsageRow), error: null };
+  } catch (error: unknown) {
+    return { rows: [], error: error instanceof Error ? error : new Error(String(error)) };
+  }
 }
 
 /**
  * Reactive cross-root usage rows for the workspace. Subscribes to a PGlite live
  * query on mount and auto-unsubscribes on unmount (the underlying hook owns the
- * lifecycle). On web the database handle is absent, so the query is disabled
- * and `available` is false.
+ * lifecycle). When durable usage is unavailable (web), the query is disabled and
+ * `available` is false.
+ *
+ * The query string + row parser are shared with the validated repo method
+ * (CROSS_ROOT_USAGE_AGGREGATION_SQL + mapCrossRootUsageRow) so the aggregation
+ * and the strict no-fabrication contract can never drift between the two paths.
  */
 export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootCostState {
   const database = usePGliteDatabase();
-  const available = database !== null;
+  // Gate on the SAME capability that gates the durable WRITE (the desktop
+  // assistant backend), not the raw PGlite handle — web has a handle but never
+  // writes these rows. Requiring the handle too keeps the query strictly off
+  // until PGlite is actually ready.
+  const available = database !== null && hasDurableAssistantUsageCapability();
   const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
   const params = useMemo(() => [resourceId], [resourceId]);
 
-  const liveQuery = usePGliteLiveQuery<RawCrossRootUsageRow>({
+  const liveQuery = usePGliteLiveQuery<Record<string, unknown>>({
     cacheKey: makeLiveQueryKey('cross-root-usage', resourceId),
-    query: CROSS_ROOT_USAGE_QUERY,
+    query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
     params,
     enabled: available,
   });
 
-  const rows = useMemo(() => liveQuery.rows.map(mapRow), [liveQuery.rows]);
+  const mapped = useMemo<MappedRows>(() => mapLiveRows(liveQuery.rows), [liveQuery.rows]);
 
   return {
     available,
-    error: liveQuery.error,
+    error: liveQuery.error ?? mapped.error,
     loading: liveQuery.loading,
-    rows,
+    rows: mapped.rows,
   };
 }

@@ -11,20 +11,18 @@ function resolvePricing(provider: string, model: string) {
   return PRICING[`${provider}:${model}`];
 }
 
-function resolveRootName(rootId: string): string | undefined {
-  return rootId === 'root-a' ? 'project-alpha' : undefined;
-}
-
 describe('resolveCrossRootCostRows', () => {
   it('returns an empty list when there is no usage', () => {
-    expect(resolveCrossRootCostRows([], resolvePricing, resolveRootName)).toEqual([]);
+    expect(resolveCrossRootCostRows([], resolvePricing)).toEqual([]);
   });
 
   it('groups per root, prices each model with its own rate, and sums per root', () => {
     const rows: CrossRootUsageRow[] = [
       // root-a mixes two models — each priced with its own rate, then summed.
+      // The display name rides on the row (from the aggregation's roots JOIN).
       {
         rootId: 'root-a',
+        rootDisplayName: 'project-alpha',
         provider: 'openai',
         model: 'gpt-5.2',
         inputTokens: 1000,
@@ -32,6 +30,7 @@ describe('resolveCrossRootCostRows', () => {
       },
       {
         rootId: 'root-a',
+        rootDisplayName: 'project-alpha',
         provider: 'anthropic',
         model: 'claude-opus-4-8',
         inputTokens: 500,
@@ -39,7 +38,7 @@ describe('resolveCrossRootCostRows', () => {
       },
     ];
 
-    const result = resolveCrossRootCostRows(rows, resolvePricing, resolveRootName);
+    const result = resolveCrossRootCostRows(rows, resolvePricing);
     expect(result).toHaveLength(1);
     const [rootA] = result;
     expect(rootA?.rootId).toBe('root-a');
@@ -57,26 +56,43 @@ describe('resolveCrossRootCostRows', () => {
     const rows: CrossRootUsageRow[] = [
       {
         rootId: 'root-a',
+        rootDisplayName: 'project-alpha',
         provider: 'openai',
         model: 'gpt-5.2',
         inputTokens: 100,
         outputTokens: 50,
       },
       // unpriced model in the SAME root makes that root's whole cost unavailable.
-      { rootId: 'root-a', provider: 'local', model: 'gemma', inputTokens: 200, outputTokens: 75 },
+      {
+        rootId: 'root-a',
+        rootDisplayName: 'project-alpha',
+        provider: 'local',
+        model: 'gemma',
+        inputTokens: 200,
+        outputTokens: 75,
+      },
     ];
 
-    const result = resolveCrossRootCostRows(rows, resolvePricing, resolveRootName);
+    const result = resolveCrossRootCostRows(rows, resolvePricing);
     expect(result).toHaveLength(1);
     expect(result[0]?.totalTokens).toBe(425);
     expect(result[0]?.cost).toEqual({ available: false, reason: 'unpriced_model' });
   });
 
-  it('renders the unattributed (null) root with a stable label and a truncated id fallback for unknown roots', () => {
+  it('renders the unattributed (null) root with a stable label and a truncated id fallback for join misses', () => {
     const rows: CrossRootUsageRow[] = [
-      { rootId: null, provider: 'openai', model: 'gpt-5.2', inputTokens: 10, outputTokens: 5 },
       {
+        rootId: null,
+        rootDisplayName: null,
+        provider: 'openai',
+        model: 'gpt-5.2',
+        inputTokens: 10,
+        outputTokens: 5,
+      },
+      {
+        // Join miss (e.g. legacy path-remapped id): no display name on the row.
         rootId: 'unknown-root-id-1234567890',
+        rootDisplayName: null,
         provider: 'openai',
         model: 'gpt-5.2',
         inputTokens: 20,
@@ -84,13 +100,13 @@ describe('resolveCrossRootCostRows', () => {
       },
     ];
 
-    const result = resolveCrossRootCostRows(rows, resolvePricing, resolveRootName);
+    const result = resolveCrossRootCostRows(rows, resolvePricing);
     const unattributed = result.find((row) => row.rootId === null);
     const unknown = result.find((row) => row.rootId === 'unknown-root-id-1234567890');
 
     // Null root → an explicit "Unattributed" label, never a fabricated root.
     expect(unattributed?.displayName).toBe('Unattributed');
-    // Unknown (join-miss) root → a short id fallback, never a wrong name.
+    // Join-miss root → a short id fallback, never a wrong name.
     expect(unknown?.displayName).toContain('unknown-');
     expect(unknown?.displayName).not.toBe('Unattributed');
   });

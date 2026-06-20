@@ -123,16 +123,64 @@ export interface RecordRunUsageInput {
 
 /**
  * One per-(root, provider, model) durable usage subtotal for a workspace
- * (resourceId). `rootId` is null for runs that had no focused root. Cost is
- * priced per (root, model) then summed per root — never cumulative tokens
- * against a single price.
+ * (resourceId). `rootId` is null for runs that had no focused root.
+ * `rootDisplayName` is the root's human name from the joined `roots` row, or
+ * null when the root id is the null bucket or the join misses (e.g. a legacy
+ * path-remapped id). Cost is priced per (root, model) then summed per root —
+ * never cumulative tokens against a single price.
  */
 export interface CrossRootUsageRow {
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
   readonly provider: string;
+  readonly rootDisplayName: string | null;
   readonly rootId: string | null;
+}
+
+/**
+ * Single source of truth for the cross-root usage aggregation. Both the
+ * validated repo method (`getCrossRootUsage`) and the reactive live-query hook
+ * (`useCrossRootCost`) reference this exact string so the grouping/ordering and
+ * the roots join can never silently drift between them.
+ *
+ * `$1` = resourceId. Groups per (root, provider, model) so cost stays priceable
+ * per model. NULLS FIRST renders the "unattributed" bucket deterministically.
+ * The LEFT JOIN resolves the root's display name (null for the null bucket or a
+ * join miss); the `r.display_name` GROUP BY key is functionally determined by
+ * `u.root_id` (the roots PK), so it does not change the grouping.
+ */
+export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
+  SELECT
+    u.root_id AS "rootId",
+    r.display_name AS "rootDisplayName",
+    u.provider AS provider,
+    u.model AS model,
+    SUM(u.input_tokens)::bigint AS "inputTokens",
+    SUM(u.output_tokens)::bigint AS "outputTokens"
+  FROM brainstrike_assistant_run_usage u
+  LEFT JOIN roots r ON r.id = u.root_id
+  WHERE u.resource_id = $1
+  GROUP BY u.root_id, r.display_name, u.provider, u.model
+  ORDER BY u.root_id ASC NULLS FIRST, u.provider ASC, u.model ASC
+`;
+
+/**
+ * Strict parser for one aggregation row from CROSS_ROOT_USAGE_AGGREGATION_SQL.
+ * Shared by the repo method and the live-query hook so the no-silent-fallbacks
+ * contract holds on BOTH paths — a malformed/non-finite/negative aggregate or a
+ * non-string provider/model THROWS rather than fabricating $0 / empty strings.
+ * Callers must catch and surface a visible "couldn't load" state.
+ */
+export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsageRow {
+  return {
+    rootId: nullableString(row['rootId']),
+    rootDisplayName: nullableString(row['rootDisplayName']),
+    provider: requireString(row['provider'], 'provider'),
+    model: requireString(row['model'], 'model'),
+    inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
+    outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
+  };
 }
 
 /** Per-model token subtotal for a single thread. */
@@ -1539,30 +1587,15 @@ export function createPgliteAssistantThreadRepository(
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();
-      // Per-(root, provider, model) subtotals for the workspace. Grouping by
-      // model keeps cost priceable per model, then summed per root — the panel
-      // never multiplies a root's cumulative tokens by one model's price.
-      // NULLs FIRST so the "unattributed" bucket renders deterministically.
+      // Single source of truth shared with the reactive live-query hook
+      // (CROSS_ROOT_USAGE_AGGREGATION_SQL + mapCrossRootUsageRow) so the
+      // grouping/ordering/roots-join and the strict no-fabrication parse can
+      // never drift between the validated method and the panel's query.
       const result = await database.query<Record<string, unknown>>(
-        `SELECT
-            root_id AS "rootId",
-            provider,
-            model,
-            SUM(input_tokens)::bigint AS "inputTokens",
-            SUM(output_tokens)::bigint AS "outputTokens"
-         FROM ${ASSISTANT_RUN_USAGE_TABLE}
-         WHERE resource_id = $1
-         GROUP BY root_id, provider, model
-         ORDER BY root_id ASC NULLS FIRST, provider ASC, model ASC`,
+        CROSS_ROOT_USAGE_AGGREGATION_SQL,
         [resourceId]
       );
-      return result.rows.map((row) => ({
-        rootId: nullableString(row['rootId']),
-        provider: requireString(row['provider'], 'provider'),
-        model: requireString(row['model'], 'model'),
-        inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
-        outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
-      }));
+      return result.rows.map(mapCrossRootUsageRow);
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();

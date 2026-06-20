@@ -28,9 +28,6 @@ export type ModelPricingResolver = (
   model: string
 ) => ModelTokenPricing | undefined;
 
-/** Resolves a root's human display name (undefined when the id is unknown). */
-export type RootNameResolver = (rootId: string) => string | undefined;
-
 interface RootAggregate {
   cost: number;
   displayName: string;
@@ -39,16 +36,18 @@ interface RootAggregate {
 }
 
 function shortenRootId(rootId: string): string {
-  // The roots lookup missed (e.g. a legacy path-remapped id). Show a short,
+  // The roots join missed (e.g. a legacy path-remapped id). Show a short,
   // recognizable slice rather than a wrong name or a fabricated bucket.
   return rootId.length > 12 ? `${rootId.slice(0, 8)}…` : rootId;
 }
 
-function resolveDisplayName(rootId: string | null, resolveRootName: RootNameResolver): string {
-  if (rootId === null) {
+function resolveDisplayName(row: CrossRootUsageRow): string {
+  if (row.rootId === null) {
     return UNATTRIBUTED_ROOT_LABEL;
   }
-  return resolveRootName(rootId) ?? shortenRootId(rootId);
+  // Prefer the display name the aggregation JOINed from the roots table; fall
+  // back to a short id when the join missed (never a wrong/fabricated name).
+  return row.rootDisplayName ?? shortenRootId(row.rootId);
 }
 
 /**
@@ -62,8 +61,7 @@ function resolveDisplayName(rootId: string | null, resolveRootName: RootNameReso
  */
 export function resolveCrossRootCostRows(
   rows: readonly CrossRootUsageRow[],
-  resolvePricing: ModelPricingResolver,
-  resolveRootName: RootNameResolver
+  resolvePricing: ModelPricingResolver
 ): CrossRootCostRow[] {
   const order: Array<string | null> = [];
   const byRoot = new Map<string | null, RootAggregate>();
@@ -73,7 +71,7 @@ export function resolveCrossRootCostRows(
     if (!aggregate) {
       aggregate = {
         cost: 0,
-        displayName: resolveDisplayName(row.rootId, resolveRootName),
+        displayName: resolveDisplayName(row),
         hasUnpriced: false,
         totalTokens: 0,
       };

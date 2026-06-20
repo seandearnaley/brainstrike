@@ -92,4 +92,16 @@ describe('CostAggregationPanelView', () => {
 
     expect(screen.getByTestId('cost-aggregation-empty')).toBeInTheDocument();
   });
+
+  it('surfaces a load error (e.g. a malformed row) as a visible error, never zeros', () => {
+    render(
+      <CostAggregationPanelView
+        state={makeState({ error: new Error('malformed aggregate'), rows: [] })}
+      />
+    );
+
+    expect(screen.getByTestId('cost-aggregation-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('cost-aggregation-row')).not.toBeInTheDocument();
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  });
 });
