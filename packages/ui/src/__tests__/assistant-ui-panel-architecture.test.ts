@@ -19,7 +19,14 @@ describe('assistant UI panel architecture', () => {
     // wiring into its own module — a larger refactor than this feature warrants.
     // Bumped 1520 → 1532 for the OM tri-segment prop plumbing (Phase 5.3):
     // omSegment threads the SAME 5 layers alongside cumulativeUsage.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1532);
+    // Bumped 1532 → 1574 for the "/" slash-command prop plumbing (Phase 6.2):
+    // slashCommands threads the SAME 5 layers, plus ChatThreadUI derives the
+    // library adapter/icon-map and wraps the composer in the trigger-popover
+    // root, and a stable EMPTY_SLASH_COMMANDS default avoids a memo-breaking
+    // inline `[]`. The popover UI + command mapper live in their own modules
+    // (composer-trigger-popover.tsx, slash-commands.ts) — only the irreducible
+    // prop threading + composer wrapper stay here.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1574);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

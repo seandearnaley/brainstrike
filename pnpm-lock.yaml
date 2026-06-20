@@ -212,7 +212,7 @@ importers:
         version: 4.3.6
     devDependencies:
       '@assistant-ui/react':
-        specifier: ^0.12.25
+        specifier: ~0.12.25
         version: 0.12.25(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
       '@assistant-ui/react-data-stream':
         specifier: ^0.12.11
@@ -471,7 +471,7 @@ importers:
         version: 4.3.6
     devDependencies:
       '@assistant-ui/react':
-        specifier: ^0.12.25
+        specifier: ~0.12.25
         version: 0.12.25(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
       '@assistant-ui/react-data-stream':
         specifier: ^0.12.11
@@ -2076,7 +2076,7 @@ importers:
   packages/ui:
     dependencies:
       '@assistant-ui/react':
-        specifier: ^0.12.25
+        specifier: ~0.12.25
         version: 0.12.25(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
       '@assistant-ui/react-data-stream':
         specifier: ^0.12.11
