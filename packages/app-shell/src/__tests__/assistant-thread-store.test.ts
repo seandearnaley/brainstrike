@@ -50,6 +50,8 @@ function createRepository(
       updatedAt: new Date('2026-04-22T12:00:00Z'),
     })),
     createThreadRun: vi.fn(),
+    getThreadCumulativeUsage: vi.fn(async () => null),
+    recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),

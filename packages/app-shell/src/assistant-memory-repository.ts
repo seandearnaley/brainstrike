@@ -99,12 +99,49 @@ export interface CompleteAssistantThreadRunInput {
   readonly status: Exclude<AssistantThreadRunStatus, 'running'>;
 }
 
+/**
+ * One durable token-usage record. model/provider are stored PER ROW because a
+ * thread can switch models mid-conversation; cost must be computed per row
+ * against that row's pricing and summed, never against the thread's current
+ * model.
+ */
+export interface RecordRunUsageInput {
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+  readonly resourceId: string;
+  readonly runId: string;
+  readonly threadId: string;
+}
+
+/** Per-model token subtotal for a single thread. */
+export interface ThreadModelUsageSubtotal {
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+}
+
+/**
+ * Cumulative durable token usage for a thread. `perModel` carries the
+ * per-(provider, model) subtotals so the UI can price each model with its own
+ * registry rate and sum — the thread totals alone cannot be priced when the
+ * thread mixed models.
+ */
+export interface ThreadCumulativeUsage {
+  readonly perModel: readonly ThreadModelUsageSubtotal[];
+  readonly totalInputTokens: number;
+  readonly totalOutputTokens: number;
+}
+
 export interface AssistantThreadRepository {
   appendThreadRunEvent: (runId: string, event: AssistantRunEvent) => Promise<void>;
   completeThreadRun: (runId: string, input: CompleteAssistantThreadRunInput) => Promise<void>;
   createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
+  getThreadCumulativeUsage: (threadId: string) => Promise<ThreadCumulativeUsage | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -116,6 +153,7 @@ export interface AssistantThreadRepository {
     resourceId: string
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
+  recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
 }
@@ -135,6 +173,7 @@ export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
+const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
@@ -186,6 +225,27 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
   ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
+
+-- Durable per-thread token usage (Phase 5.1). model/provider are PER ROW so
+-- cost is attributable per model when a thread switches models mid-run.
+-- Bootstrapped here (alongside the runs table) AND created by migration 046 so
+-- both the test-only numbered runner and the real app converge on one shape.
+-- No FK to mastra_threads: usage may be recorded for non-memory-backed turns,
+-- and the row is a billing fact that should outlive a thread deletion cascade.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
+  id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  run_id text NOT NULL,
+  resource_id text NOT NULL,
+  model text NOT NULL,
+  provider text NOT NULL,
+  input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
+  ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
@@ -274,6 +334,28 @@ function requireString(value: unknown, fieldName: string): string {
     throw new Error(`Invalid Mastra memory row: ${fieldName} is not a string.`);
   }
   return value;
+}
+
+/**
+ * Validate a usage token count before persistence. Malformed values THROW —
+ * there is no silent coercion to 0 (see AGENTS.md "no silent fallbacks").
+ */
+function assertUsageTokenCount(value: number, fieldName: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Assistant run usage ${fieldName} must be a non-negative safe integer.`);
+  }
+}
+
+/**
+ * Coerce a SUM() aggregate (PGlite returns ::bigint as a string) into a
+ * non-negative integer, throwing if the DB hands back something unparseable.
+ */
+function requireNonNegativeInteger(value: unknown, fieldName: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!(Number.isFinite(parsed) && Number.isInteger(parsed)) || parsed < 0) {
+    throw new Error(`Invalid run usage aggregate: ${fieldName} is not a non-negative integer.`);
+  }
+  return parsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1369,6 +1451,60 @@ export function createPgliteAssistantThreadRepository(
         ]
       );
       return record;
+    },
+    async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
+      assertUsageTokenCount(input.inputTokens, 'inputTokens');
+      assertUsageTokenCount(input.outputTokens, 'outputTokens');
+      await initialize();
+      await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          crypto.randomUUID(),
+          input.threadId,
+          input.runId,
+          input.resourceId,
+          input.model,
+          input.provider,
+          input.inputTokens,
+          input.outputTokens,
+          new Date(),
+        ]
+      );
+    },
+    async getThreadCumulativeUsage(threadId: string): Promise<ThreadCumulativeUsage | null> {
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT
+            provider,
+            model,
+            SUM(input_tokens)::bigint AS "inputTokens",
+            SUM(output_tokens)::bigint AS "outputTokens"
+         FROM ${ASSISTANT_RUN_USAGE_TABLE}
+         WHERE thread_id = $1
+         GROUP BY provider, model
+         ORDER BY provider ASC, model ASC`,
+        [threadId]
+      );
+      if (result.rows.length === 0) {
+        return null;
+      }
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      const perModel = result.rows.map((row) => {
+        const inputTokens = requireNonNegativeInteger(row['inputTokens'], 'inputTokens');
+        const outputTokens = requireNonNegativeInteger(row['outputTokens'], 'outputTokens');
+        totalInputTokens += inputTokens;
+        totalOutputTokens += outputTokens;
+        return {
+          provider: requireString(row['provider'], 'provider'),
+          model: requireString(row['model'], 'model'),
+          inputTokens,
+          outputTokens,
+        } satisfies ThreadModelUsageSubtotal;
+      });
+      return { perModel, totalInputTokens, totalOutputTokens };
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();

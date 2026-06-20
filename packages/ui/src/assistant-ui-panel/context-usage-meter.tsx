@@ -12,17 +12,44 @@
  */
 import { useAuiState } from '@assistant-ui/react';
 import {
+  type CostEstimate,
   countTokensHeuristic,
   formatTokenCount,
+  formatUsdCost,
 } from '@brainstrike/utils/token-counting-heuristics';
 import { type FC, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { getMessageParts } from './assistant-run-timeline';
 import { useContextUsageStore } from './context-usage-store';
 
+/**
+ * Durable cumulative usage for the active thread, resolved upstream (tokens +
+ * a discriminated cost). Distinct from the one-turn-lag bar above: this is the
+ * running total persisted across reloads. `cost` is never $0 for an unavailable
+ * price — the `available: false` branch renders "cost unavailable".
+ */
+export interface CumulativeUsageDisplay {
+  readonly cost: CostEstimate;
+  readonly totalTokens: number;
+}
+
+/** Resolve a cost estimate to its display string (never $0 for unavailable). */
+function costLabel(cost: CostEstimate): string {
+  if (cost.available) {
+    return formatUsdCost(cost.usdAmount);
+  }
+  return 'cost unavailable';
+}
+
 export interface ContextUsageMeterProps {
   /** Full model context window size. Meter is hidden when absent. */
   contextWindow: number | undefined;
+  /**
+   * Durable cumulative usage for this thread (running token total + cost),
+   * hydrated from the DB. Absent on web / before hydration → the cumulative line
+   * is not shown (the last-turn bar still renders).
+   */
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   /** Effective input budget (contextWindow − output reservation). Meter is hidden when absent. */
   effectiveInputBudget: number | undefined;
   /** Heuristic token estimate to display before exact usage is recorded. */
@@ -52,6 +79,7 @@ function formatCompact(count: number): string {
 export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
   threadKey,
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
   estimatedTokens,
 }) => {
@@ -98,9 +126,12 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
       // not lost while the fraction shows the effective input budget.
       title={`model window ${formatTokenCount(contextWindow)}`}
     >
-      {/* Token counts row — denominator is effectiveInputBudget so the text
-          fraction and the bar fill tell the same story (both use the same
-          denominator). The full contextWindow is visible in the title above. */}
+      {/* Last-turn token counts row — this bar is a ONE-TURN-LAG estimate of
+          the next prompt's size (prev input + prev output), so it is labelled
+          "last turn" to disambiguate it from the cumulative line below. The
+          denominator is effectiveInputBudget so the text fraction and the bar
+          fill tell the same story. The full contextWindow is visible in the
+          title above. */}
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
@@ -112,6 +143,9 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
                 : 'text-muted-foreground'
           )}
         >
+          <span className="mr-1 text-[10px] text-muted-foreground/60 uppercase tracking-wide">
+            last turn
+          </span>
           {formatCompact(usedTokens)} / {formatTokenCount(effectiveInputBudget)}
         </span>
         {isEstimated && (
@@ -136,6 +170,26 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
         />
       </div>
 
+      {/* Cumulative durable usage + cost. Only shown when hydrated from the DB
+          (desktop). Cost renders via formatUsdCost, or the literal "cost
+          unavailable" for the available:false branch — NEVER $0. */}
+      {cumulativeUsage && (
+        <div
+          className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80"
+          data-testid="context-usage-cumulative"
+        >
+          <span className="tabular-nums">
+            <span className="mr-1 text-[10px] text-muted-foreground/60 uppercase tracking-wide">
+              cumulative
+            </span>
+            {formatTokenCount(cumulativeUsage.totalTokens)}
+          </span>
+          <span className="tabular-nums" data-testid="context-usage-cost">
+            {costLabel(cumulativeUsage.cost)}
+          </span>
+        </div>
+      )}
+
       {/* Critical windowing notice */}
       {state === 'critical' && (
         <p className="mt-1 text-[11px] text-destructive/80">
@@ -158,12 +212,14 @@ ContextUsageMeter.displayName = 'ContextUsageMeter';
  */
 export interface ThreadContextMeterProps {
   contextWindow: number | undefined;
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   effectiveInputBudget: number | undefined;
   threadKey: string | undefined;
 }
 
 export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
   threadKey,
 }) => {
@@ -198,6 +254,7 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
   return (
     <ContextUsageMeter
       contextWindow={contextWindow}
+      {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
       estimatedTokens={estimatedTokens}
       threadKey={threadKey}

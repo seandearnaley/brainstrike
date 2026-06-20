@@ -869,6 +869,16 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       </div>
     );
   },
+  // The wrapper reads the usage store both as a hook (selector at render time)
+  // and via getState() inside the usage callback. The mock supports both: the
+  // selector receives an empty usage map and getState exposes recordUsage.
+  useContextUsageStore: Object.assign(
+    (selector: (state: { usageByThread: Record<string, unknown> }) => unknown) =>
+      selector({ usageByThread: {} }),
+    {
+      getState: () => ({ recordUsage: () => {} }),
+    }
+  ),
 }));
 
 // Reset enabled models to defaults before each test
