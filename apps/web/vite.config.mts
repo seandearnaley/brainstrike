@@ -226,6 +226,13 @@ export default defineConfig({
         '../../packages/file-explorer-hooks/src'
       ),
       '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
+      // Source-alias like every other @brainstrike package. Resolving these to
+      // their built `dist` lands `defineContextAction` in a separate chunk from
+      // the source feature `*/context-actions` that call it at module-init →
+      // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
+      // renderer on startup (dev is unaffected). See the vite-alias coverage test.
+      '@brainstrike/commands': path.resolve(__dirname, '../../packages/commands/src'),
+      '@brainstrike/context-actions': path.resolve(__dirname, '../../packages/context-actions/src'),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embeddings/runtime-config': path.resolve(
