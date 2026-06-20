@@ -69,6 +69,14 @@ const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapsh
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const GIT_STATUS_CHANNEL = 'git:status' as const;
+const GIT_DIFF_CHANNEL = 'git:diff' as const;
+const GIT_STAGE_CHANNEL = 'git:stage' as const;
+const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
+const GIT_COMMIT_CHANNEL = 'git:commit' as const;
+const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
+const GIT_PUSH_CHANNEL = 'git:push' as const;
+const GIT_PULL_CHANNEL = 'git:pull' as const;
 
 import type {
   ApplyManagedCacheBatchArgs,
@@ -1004,5 +1012,28 @@ if (shouldExposeBridge('platform')) {
     openPath: (absolutePath: string) => ipcRenderer.invoke(SHELL_OPEN_PATH_CHANNEL, absolutePath),
     showItemInFolder: (absolutePath: string) =>
       ipcRenderer.invoke(SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL, absolutePath),
+  });
+}
+
+// Git bridge (desktop-only): typed git operations on a workspace root. Every
+// call passes the durable `rootId` (DB roots.id) — main resolves + containment-
+// checks it to an absolute cwd and runs git via execFile (no shell). Web never
+// constructs this bridge (there is no preload), so `window.git` is simply
+// absent there; consumers must capability-check `window.git` rather than
+// `isElectron()`. The Git panel UI lands in a later PR.
+if (shouldExposeBridge('git')) {
+  contextBridge.exposeInMainWorld('git', {
+    status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    diff: (rootId: string, params?: { path?: string; staged?: boolean }) =>
+      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
+    stage: (rootId: string, params?: { path?: string }) =>
+      ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
+    unstage: (rootId: string, params?: { path?: string }) =>
+      ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+    commit: (rootId: string, params: { message: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
+    aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
+    push: (rootId: string) => ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId),
+    pull: (rootId: string) => ipcRenderer.invoke(GIT_PULL_CHANNEL, rootId),
   });
 }

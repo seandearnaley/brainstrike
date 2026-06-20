@@ -32,6 +32,16 @@ export const DESKTOP_IPC_CHANNELS = {
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
   },
+  git: {
+    aheadBehind: 'git:aheadBehind',
+    commit: 'git:commit',
+    diff: 'git:diff',
+    pull: 'git:pull',
+    push: 'git:push',
+    stage: 'git:stage',
+    status: 'git:status',
+    unstage: 'git:unstage',
+  },
   files: {
     addRoot: 'fs:addRoot',
     exists: 'fs:exists',
