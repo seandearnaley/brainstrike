@@ -3,7 +3,6 @@ import {
   calculateGroupTokens,
   countTokensAccurate,
   countTokensHeuristic,
-  estimateTokenCost,
   formatTokenCount,
   supportsAccurateTokenCounting,
 } from '../token-utils';
@@ -135,41 +134,6 @@ describe('Token Utilities - Enhanced Coverage', () => {
       const texts = Array.from({ length: 100 }, (_, i) => `Text number ${i}`);
       const result = await calculateGroupTokens(texts);
       expect(result).toBeGreaterThan(0);
-    });
-  });
-
-  describe('estimateTokenCost - Edge Cases', () => {
-    it('should handle 0 tokens', () => {
-      expect(estimateTokenCost(0, 0)).toBe(0);
-      expect(estimateTokenCost(0)).toBe(0);
-    });
-
-    it('should handle only input tokens', () => {
-      const result = estimateTokenCost(1000);
-      expect(result).toBe(0.01); // 1000 tokens * $0.01/1K = $0.01
-    });
-
-    it('should handle only output tokens', () => {
-      const result = estimateTokenCost(0, 1000);
-      expect(result).toBeCloseTo(0.03, 4); // 1000 tokens * $0.03/1K = $0.03
-    });
-
-    it('should handle very large token counts', () => {
-      const result = estimateTokenCost(10_000_000, 5_000_000);
-      // 10M input * $0.01/1K = $100
-      // 5M output * $0.03/1K = $150
-      // Total = $250
-      expect(result).toBe(250);
-    });
-
-    it('should handle fractional token counts', () => {
-      const result = estimateTokenCost(500, 250);
-      expect(result).toBeCloseTo(0.0125, 4); // 0.005 + 0.0075
-    });
-
-    it('should handle 1 token', () => {
-      const result = estimateTokenCost(1, 1);
-      expect(result).toBeCloseTo(0.000_04, 5); // 0.00001 + 0.00003
     });
   });
 

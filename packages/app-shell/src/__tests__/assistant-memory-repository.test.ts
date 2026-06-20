@@ -14,6 +14,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -61,6 +63,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -88,6 +92,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -126,6 +132,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -156,6 +164,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -223,6 +233,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -285,6 +297,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -370,6 +384,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -431,6 +447,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -498,6 +516,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -552,6 +572,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
         appendThreadRunEvent: vi.fn(),
         createThread: vi.fn(),
         createThreadRun: vi.fn(),
+        getThreadCumulativeUsage: vi.fn(async () => null),
+        recordRunUsage: vi.fn(),
         deleteThread: vi.fn(),
         listThreads: vi.fn(),
         listLatestThreadRuns: vi.fn(),
@@ -662,6 +684,8 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
@@ -1241,6 +1265,58 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('bootstraps the run-usage table and inserts a usage row', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.recordRunUsage({
+      threadId: 'thread-1',
+      runId: 'run-1',
+      resourceId: '/tmp/workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 120,
+      outputTokens: 45,
+    });
+
+    expect(db.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_usage')
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_run_usage'),
+      expect.arrayContaining([
+        'thread-1',
+        'run-1',
+        '/tmp/workspace-a',
+        'gpt-5.2',
+        'openai',
+        120,
+        45,
+      ])
+    );
+  });
+
+  it('rejects negative token counts before persistence (no silent coercion)', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.recordRunUsage({
+        threadId: 'thread-1',
+        runId: 'run-1',
+        resourceId: '/tmp/workspace-a',
+        model: 'gpt-5.2',
+        provider: 'openai',
+        inputTokens: -1,
+        outputTokens: 0,
+      })
+    ).rejects.toThrow();
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_run_usage'),
+      expect.anything()
+    );
+  });
+
   it('persists compact redacted assistant run event summaries', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -1648,6 +1724,82 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       color: 'rose',
       source: 'brainstrike',
     });
+  });
+
+  it('records run usage and aggregates cumulative tokens per model in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-cumulative');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    // Same thread, three runs across TWO models — cost must be attributable
+    // per model, so the read API returns per-model subtotals.
+    await repository.recordRunUsage({
+      threadId: 'thread-cost',
+      runId: 'run-1',
+      resourceId: 'workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 1000,
+      outputTokens: 200,
+    });
+    await repository.recordRunUsage({
+      threadId: 'thread-cost',
+      runId: 'run-2',
+      resourceId: 'workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 500,
+      outputTokens: 100,
+    });
+    await repository.recordRunUsage({
+      threadId: 'thread-cost',
+      runId: 'run-3',
+      resourceId: 'workspace-a',
+      model: 'claude-opus-4-8',
+      provider: 'anthropic',
+      inputTokens: 2000,
+      outputTokens: 300,
+    });
+    // A different thread must not bleed into the aggregate.
+    await repository.recordRunUsage({
+      threadId: 'other-thread',
+      runId: 'run-x',
+      resourceId: 'workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 9999,
+      outputTokens: 9999,
+    });
+
+    const usage = await repository.getThreadCumulativeUsage('thread-cost');
+    expect(usage).not.toBeNull();
+    expect(usage?.totalInputTokens).toBe(3500);
+    expect(usage?.totalOutputTokens).toBe(600);
+
+    // Per-model subtotals so the UI can compute cost against each model's price.
+    const byModel = new Map(
+      (usage?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
+    );
+    expect(byModel.get('openai:gpt-5.2')).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.2',
+      inputTokens: 1500,
+      outputTokens: 300,
+    });
+    expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
+      provider: 'anthropic',
+      model: 'claude-opus-4-8',
+      inputTokens: 2000,
+      outputTokens: 300,
+    });
+  });
+
+  it('returns null cumulative usage for a thread with no recorded runs', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-empty');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    await expect(repository.getThreadCumulativeUsage('never-seen')).resolves.toBeNull();
   });
 });
 

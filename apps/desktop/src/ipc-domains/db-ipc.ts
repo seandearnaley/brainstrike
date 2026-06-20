@@ -70,7 +70,12 @@ interface PGliteLiveQuerySurface {
   };
 }
 
-type OptionalRelationTable = 'collection_indexing_stats' | 'embedding_sets' | 'job_queue' | 'roots';
+type OptionalRelationTable =
+  | 'brainstrike_assistant_run_usage'
+  | 'collection_indexing_stats'
+  | 'embedding_sets'
+  | 'job_queue'
+  | 'roots';
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
@@ -687,6 +692,11 @@ export function registerDatabaseIpcHandlers(
             await clearOptionalRelation(tx, 'collection_indexing_stats');
             await clearOptionalRelation(tx, 'embedding_sets');
             await clearOptionalRelation(tx, 'job_queue');
+            // Durable per-thread token usage (Phase 5.1) is a new persisted
+            // store; a factory reset must wipe it so cost/usage history does not
+            // survive a "true fresh start" (see FACTORY RESET CONTRACT). It has
+            // no FK, so nothing cascades it — it must be cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_run_usage');
 
             return {
               deletedChunks,

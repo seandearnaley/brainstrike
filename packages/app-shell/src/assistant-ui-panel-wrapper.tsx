@@ -43,6 +43,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type CumulativeUsageDisplay,
+  type ModelPricingResolver,
+  resolveCumulativeUsageDisplay,
+} from './assistant-cumulative-usage';
+import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
@@ -92,6 +97,7 @@ export interface AssistantUiPanelWrapperProps {
 }
 
 const assistantSelectionWriteBackLogger = createLogger('AssistantSelectionWriteBack');
+const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
 /**
  * Normalize an absolute root path for matching the server's broadcast rootPath
@@ -1182,22 +1188,111 @@ export function AssistantUiPanelWrapper({
   );
   const disabledReason = memoryDisabledReason ?? providerDisabledReason;
 
-  // Record provider token usage keyed by the active memory thread id.
-  // Falls back to a stable per-panel constant when no thread is identified
-  // (non-memory-backed sessions) so usage is still captured for the current
-  // panel and cleared on the next turn or session.
+  // Record provider token usage. ONE usage derivation (the single tap) fans out
+  // to two sinks:
+  //   1. the session-lived zustand store (last-turn meter), keyed by the active
+  //      memory thread id (falls back to 'active' for non-memory sessions);
+  //   2. a DURABLE per-run row in brainstrike_assistant_run_usage, written only
+  //      when the PGlite-backed thread repo exists (desktop). On web the repo is
+  //      absent → the durable write is simply skipped (honest session-only
+  //      fallback; capability-gated, never an isElectron() check and never $0).
+  // model/provider are stored PER ROW so cost is attributable per model when a
+  // thread switches models mid-conversation.
   const handleUsage = useCallback(
     (usage: { inputTokens: number; outputTokens: number }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
       useContextUsageStore.getState().recordUsage(threadId, usage);
+
+      // Durable sink: requires a real thread id, the desktop PGlite repo, and a
+      // resolved model/provider. Any missing piece means we cannot attribute the
+      // row honestly, so we skip the durable write (the zustand sink still ran).
+      if (
+        !(
+          assistantThreadRepository &&
+          selectedMemoryThreadId &&
+          selectedProvider &&
+          resolvedModelName
+        )
+      ) {
+        return;
+      }
+      assistantThreadRepository
+        .recordRunUsage({
+          threadId: selectedMemoryThreadId,
+          // The usage tap carries no run id; one usage event maps to one durable
+          // row, so a fresh id per event is a faithful 1:1 record.
+          runId: crypto.randomUUID(),
+          resourceId: memoryResourceId,
+          model: resolvedModelName,
+          provider: selectedProvider,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        })
+        .catch((error: unknown) => {
+          // Never swallow silently — durable usage is best-effort relative to the
+          // turn, but a failure must be observable.
+          assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
+        });
     },
-    [selectedMemoryThreadId]
+    [
+      assistantThreadRepository,
+      memoryResourceId,
+      resolvedModelName,
+      selectedMemoryThreadId,
+      selectedProvider,
+    ]
   );
+
+  // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
+  // not a heuristic). Re-hydrates when the thread/repo changes and after each new
+  // last-turn usage write (a fresh durable row just landed). Desktop-only: when
+  // the repo is absent (web) the cumulative line is simply not shown.
+  const lastTurnUsage = useContextUsageStore((state) =>
+    selectedMemoryThreadId ? state.usageByThread[selectedMemoryThreadId] : undefined
+  );
+  const [cumulativeUsage, setCumulativeUsage] = useState<CumulativeUsageDisplay | null>(null);
+  const resolveModelPricing = useCallback<ModelPricingResolver>(
+    (provider: string, model: string) => {
+      if (!isSupportedProvider(provider)) {
+        return;
+      }
+      return getProviderLlmModels(provider).find(
+        (candidate: LlmProviderModelDefinition) => candidate.id === model
+      )?.pricing;
+    },
+    [getProviderLlmModels]
+  );
+  useEffect(() => {
+    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
+      setCumulativeUsage(null);
+      return;
+    }
+    let cancelled = false;
+    assistantThreadRepository
+      .getThreadCumulativeUsage(selectedMemoryThreadId)
+      .then((usage) => {
+        if (cancelled) {
+          return;
+        }
+        setCumulativeUsage(resolveCumulativeUsageDisplay(usage, resolveModelPricing));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        assistantUsageWriteBackLogger.warn('Failed to load cumulative run usage', { error });
+        setCumulativeUsage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantThreadRepository, selectedMemoryThreadId, resolveModelPricing, lastTurnUsage]);
 
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       contextWindow={selectedModelBudgetDef?.contextWindow}
+      {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}

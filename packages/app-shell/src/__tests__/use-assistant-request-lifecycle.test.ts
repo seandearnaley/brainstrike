@@ -15,6 +15,8 @@ function createRepositoryStub(
     completeThreadRun: vi.fn(async () => {}),
     createThread: vi.fn(),
     createThreadRun: vi.fn(async (input) => ({ ...input, createdAt: 0, status: 'running' })),
+    getThreadCumulativeUsage: vi.fn(async () => null),
+    recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),

@@ -89,6 +89,46 @@ describe('ContextUsageMeter', () => {
     expect(screen.getByText(/126\.0K tokens/)).toBeInTheDocument();
     expect(screen.queryByText(/200\.0K tokens/)).not.toBeInTheDocument();
   });
+
+  it('labels the last-turn bar so it is distinct from the cumulative line', () => {
+    render(<ContextUsageMeter {...props} />);
+    expect(screen.getByText(/last turn/i)).toBeInTheDocument();
+  });
+
+  it('does not render the cumulative line when no durable usage is supplied', () => {
+    render(<ContextUsageMeter {...props} />);
+    expect(screen.queryByTestId('context-usage-cumulative')).not.toBeInTheDocument();
+  });
+
+  it('renders the cumulative tokens and exact cost when priced usage is supplied', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        cumulativeUsage={{
+          totalTokens: 1_800_000,
+          cost: { available: true, usdAmount: 12.5, provenance: 'exact-pricing' },
+        }}
+      />
+    );
+    const cumulative = screen.getByTestId('context-usage-cumulative');
+    expect(cumulative).toHaveTextContent(/1\.8M tokens/);
+    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent('$12.50');
+  });
+
+  it('renders "cost unavailable" (never $0) for an unpriced model', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        cumulativeUsage={{
+          totalTokens: 1000,
+          cost: { available: false, reason: 'unpriced_model' },
+        }}
+      />
+    );
+    const cost = screen.getByTestId('context-usage-cost');
+    expect(cost).toHaveTextContent(/cost unavailable/i);
+    expect(cost).not.toHaveTextContent('$0');
+  });
 });
 
 describe('ThreadContextMeter', () => {

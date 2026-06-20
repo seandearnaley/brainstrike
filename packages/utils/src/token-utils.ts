@@ -17,11 +17,7 @@ export {
   ACCURATE_TOKEN_ENCODING,
   ACCURATE_TOKEN_MODEL_HINT,
 } from './token-constants';
-export {
-  countTokensHeuristic,
-  estimateTokenCost,
-  formatTokenCount,
-} from './token-counting-heuristics';
+export { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics';
 
 import { countTokensHeuristic } from './token-counting-heuristics';
 
