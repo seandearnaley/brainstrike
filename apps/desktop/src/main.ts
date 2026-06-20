@@ -49,6 +49,7 @@ import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
+import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkSchedulerSnapshot,
@@ -648,6 +649,7 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterGitIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -946,6 +948,7 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
+unregisterGitIpcHandlers = registerGitIpcHandlers();
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1498,6 +1501,10 @@ app.on('will-quit', () => {
   if (unregisterClipboardIpcHandlers) {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
+  }
+  if (unregisterGitIpcHandlers) {
+    unregisterGitIpcHandlers();
+    unregisterGitIpcHandlers = null;
   }
   removeLogBufferListener();
 });

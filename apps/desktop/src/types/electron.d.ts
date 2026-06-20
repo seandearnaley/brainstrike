@@ -41,6 +41,14 @@ import type {
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
+import type {
+  GitAheadBehind,
+  GitCommitResult,
+  GitDiff,
+  GitPushPullResult,
+  GitResult,
+  GitStatus,
+} from '../assistant-server/git-service';
 
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -169,6 +177,26 @@ declare global {
         callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
       ) => () => void;
       reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
+    };
+    /**
+     * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
+     * capability-check `window.git` rather than `isElectron()`. Every call takes
+     * the durable workspace `rootId`; main resolves + containment-checks it to an
+     * absolute cwd and runs git via execFile (no shell). Each method resolves to
+     * a structured `GitResult` (never throws across IPC).
+     */
+    git?: {
+      status: (rootId: string) => Promise<GitResult<GitStatus>>;
+      diff: (
+        rootId: string,
+        params?: { path?: string; staged?: boolean }
+      ) => Promise<GitResult<GitDiff>>;
+      stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
+      unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
+      commit: (rootId: string, params: { message: string }) => Promise<GitResult<GitCommitResult>>;
+      aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
+      push: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+      pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
     };
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
