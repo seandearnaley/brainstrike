@@ -12,6 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleFileRecordRepository } from '../src/repositories/drizzle/file-record-repository.js';
 import * as schema from '../src/schema/index.js';
+import {
+  QUICK_OPEN_MAX_LIMIT,
+  QUICK_OPEN_NAME_SEARCH_SQL,
+  type QuickOpenFileRow,
+} from '../src/search/quick-open-query.js';
 
 describe('DrizzleFileRecordRepository', () => {
   let client: PGlite;
@@ -541,7 +546,7 @@ describe('DrizzleFileRecordRepository', () => {
     });
   });
 
-  describe('findByNamePrefix (quick-open)', () => {
+  describe('findByNameSubstring (quick-open)', () => {
     // Seeds a roots row + a file_records row stamped with that root_id. Mirrors
     // the managed-cache identity: repository.create never writes root_id, so we
     // stamp it via the raw client (the same approach as seedManagedCacheEntry).
@@ -599,7 +604,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootDisplayName: 'Alpha',
       });
 
-      const results = await repository.findByNamePrefix('read', 50);
+      const results = await repository.findByNameSubstring('read', 50);
 
       // Only the two 'read*' rows match; 'readme.md' (9 chars) sorts before
       // 'read-stream.ts' (14 chars).
@@ -626,7 +631,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootDisplayName: 'Beta',
       });
 
-      const results = await repository.findByNamePrefix('index', 50);
+      const results = await repository.findByNameSubstring('index', 50);
 
       expect(results).toHaveLength(2);
       const byRoot = new Map(results.map((row) => [row.root_id, row]));
@@ -639,7 +644,7 @@ describe('DrizzleFileRecordRepository', () => {
     it('labels legacy NULL root_id rows with a NULL display_name (honest)', async () => {
       await seedFile({ id: 'legacy', name: 'legacy.ts', path: 'legacy.ts' });
 
-      const results = await repository.findByNamePrefix('legacy', 50);
+      const results = await repository.findByNameSubstring('legacy', 50);
 
       expect(results).toHaveLength(1);
       expect(results[0]?.root_id).toBeNull();
@@ -654,7 +659,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-a',
       });
 
-      const results = await repository.findByNamePrefix('zzz-no-match', 50);
+      const results = await repository.findByNameSubstring('zzz-no-match', 50);
       expect(results).toEqual([]);
     });
 
@@ -668,7 +673,7 @@ describe('DrizzleFileRecordRepository', () => {
         });
       }
 
-      const results = await repository.findByNamePrefix('match', 1000);
+      const results = await repository.findByNameSubstring('match', 1000);
       expect(results.length).toBeLessThanOrEqual(50);
     });
 
@@ -677,6 +682,35 @@ describe('DrizzleFileRecordRepository', () => {
         `SELECT indexname FROM pg_indexes WHERE tablename = 'file_records'`
       );
       expect(index.rows.map((row) => row.indexname)).toContain('idx_file_records_name_trgm');
+    });
+
+    it('matches the renderer raw SQL row-for-row (drift guard between the two impls)', async () => {
+      // The repo rebuilds the shared SQL with the Drizzle builder; the renderer
+      // runs QUICK_OPEN_NAME_SEARCH_SQL verbatim. Assert they agree so the two
+      // implementations can never silently diverge.
+      await seedFile({
+        id: 'q1',
+        name: 'query.ts',
+        path: 'src/query.ts',
+        rootId: 'root-a',
+        rootDisplayName: 'Alpha',
+      });
+      await seedFile({
+        id: 'q2',
+        name: 'query-builder.ts',
+        path: 'src/query-builder.ts',
+        rootId: 'root-b',
+        rootDisplayName: 'Beta',
+      });
+      await seedFile({ id: 'q3', name: 'unmatched.ts', path: 'src/unmatched.ts' });
+
+      const viaRepo = await repository.findByNameSubstring('query', QUICK_OPEN_MAX_LIMIT);
+      const viaRawSql = await client.query<QuickOpenFileRow>(QUICK_OPEN_NAME_SEARCH_SQL, [
+        'query',
+        QUICK_OPEN_MAX_LIMIT,
+      ]);
+
+      expect(viaRepo).toEqual(viaRawSql.rows);
     });
   });
 });

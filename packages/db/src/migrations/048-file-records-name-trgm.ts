@@ -4,7 +4,7 @@ import type { Migration } from './migration-runner';
  * Migration 048: trigram GIN index on file_records.name for ⌘P quick-open.
  *
  * Powers the quick-open file finder (PR-6.3): the name fuzzy-find query
- * (`findByNamePrefix`) uses `name ILIKE '%...%'`, which becomes an index scan
+ * (`findByNameSubstring`) uses `name ILIKE '%...%'`, which becomes an index scan
  * instead of a sequential scan with this trigram index. The pg_trgm extension
  * is already enabled (migration 038), so this migration only adds the index.
  *

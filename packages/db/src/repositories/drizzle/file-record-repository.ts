@@ -227,7 +227,7 @@ export class DrizzleFileRecordRepository {
    * never guesses), ordered shortest-name-first then by path, bounded by a
    * clamped limit (never an unbounded scan).
    */
-  async findByNamePrefix(query: string, limit: number): Promise<QuickOpenFileRow[]> {
+  async findByNameSubstring(query: string, limit: number): Promise<QuickOpenFileRow[]> {
     const boundedLimit = clampQuickOpenLimit(limit);
     const rows = await this.db
       .select({
