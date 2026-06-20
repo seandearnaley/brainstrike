@@ -53,6 +53,7 @@ import {
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   addValuesToSet,
@@ -88,6 +89,7 @@ import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -1299,11 +1301,49 @@ export function AssistantUiPanelWrapper({
     void refreshCumulativeUsage();
   }, [refreshCumulativeUsage]);
 
+  // OM tri-segment (chat / observation / free) + compaction stat. Desktop-only:
+  // gated on the durable-assistant capability (NOT raw PGlite presence — web
+  // has a PGlite handle but no durable OM rows). The live query is the ONLY
+  // async state; omSegment is DERIVED during render (no setState-in-effect, per
+  // the react-doctor no-adjust-state-on-prop-change rule).
+  const hasDurableOmCapability = hasDurableAssistantUsageCapability();
+  const omRowResult = useObservationalMemoryRow({
+    hasDurableCapability: hasDurableOmCapability,
+    threadId: selectedMemoryThreadId,
+  });
+  // Last-turn chat tokens for the active thread (same session store + key the
+  // meter's last-turn bar uses). Absent before the first exact usage → 0, an
+  // honest empty chat segment rather than a fabricated value.
+  const lastTurnUsage = useContextUsageStore((state) =>
+    selectedMemoryThreadId ? state.usageByThread[selectedMemoryThreadId] : undefined
+  );
+  const omSegment = useMemo<OmMeterState | undefined>(() => {
+    if (effectiveInputBudget === undefined) {
+      return;
+    }
+    return resolveOmMeterState({
+      hasDurableCapability: hasDurableOmCapability,
+      omEnabled: observationalMemorySettings.enabled,
+      chatTokens: lastTurnUsage ? lastTurnUsage.inputTokens + lastTurnUsage.outputTokens : 0,
+      effectiveInputBudget,
+      row: omRowResult.row,
+      queryError: omRowResult.error,
+    });
+  }, [
+    effectiveInputBudget,
+    hasDurableOmCapability,
+    lastTurnUsage,
+    observationalMemorySettings.enabled,
+    omRowResult.error,
+    omRowResult.row,
+  ]);
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       contextWindow={selectedModelBudgetDef?.contextWindow}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
+      {...(omSegment ? { omSegment } : {})}
       effectiveInputBudget={effectiveInputBudget}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}

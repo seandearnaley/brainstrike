@@ -17,7 +17,9 @@ describe('assistant UI panel architecture', () => {
     // components (AssistantUiPanel → Local/DataStream chat → ChatThreadUI →
     // ThreadContextMeter), which is irreducible without extracting the meter
     // wiring into its own module — a larger refactor than this feature warrants.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1520);
+    // Bumped 1520 → 1532 for the OM tri-segment prop plumbing (Phase 5.3):
+    // omSegment threads the SAME 5 layers alongside cumulativeUsage.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1532);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
