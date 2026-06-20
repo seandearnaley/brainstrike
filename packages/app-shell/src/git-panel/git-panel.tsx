@@ -36,6 +36,14 @@ type DiffState =
   | { kind: 'loaded'; diff: LoadedDiff }
   | { kind: 'failed' };
 
+/** A resolved async diff outcome (loaded/failed) tagged with the request key
+ *  (path:staged) it belongs to, so a stale resolution for a previously-selected
+ *  file is never shown for the current selection. */
+interface ResolvedDiff {
+  readonly key: string;
+  readonly state: Extract<DiffState, { kind: 'loaded' | 'failed' }>;
+}
+
 /** Split the flat status file list into the three reviewer-facing buckets. */
 function partitionFiles(files: readonly GitStatusFile[]): {
   staged: GitStatusFile[];
@@ -219,10 +227,14 @@ function useSelectedDiff(loadDiff: ReturnType<typeof useGitPanel>['loadDiff']): 
   parsedDiff: ParsedUnifiedDiff | null;
 } {
   const [selected, setSelected] = useState<SelectedFile | null>(null);
-  // One discriminated state — folds loading/loaded/failed into a single setState
-  // per transition (no cascade) and distinguishes a load FAILURE from a
-  // legitimately-empty diff so the pane never lies about why it is empty.
-  const [diffState, setDiffState] = useState<DiffState>({ kind: 'idle' });
+  // Track ONLY the resolved async outcome (loaded/failed), tagged with the
+  // request key it belongs to. idle/loading are DERIVED during render from the
+  // selection + this outcome, so the effect never mirrors a derived value back
+  // into state with a synchronous setState (the React-recommended pattern: the
+  // effect's only setState is the async `.then` "subscribe to external system"
+  // callback). This still distinguishes a load FAILURE from a legitimately empty
+  // diff so the pane never lies about why it is empty.
+  const [resolved, setResolved] = useState<ResolvedDiff | null>(null);
 
   const handleSelect = useCallback((file: GitStatusFile, staged: boolean) => {
     setSelected({ path: file.path, staged, untracked: file.untracked });
@@ -236,31 +248,50 @@ function useSelectedDiff(loadDiff: ReturnType<typeof useGitPanel>['loadDiff']): 
   const selectedPath = selected?.path ?? null;
   const selectedStaged = selected?.staged ?? false;
   const selectedUntracked = selected?.untracked ?? false;
+  const requestKey =
+    selectedPath === null ? null : `${selectedPath}:${selectedStaged}:${selectedUntracked}`;
 
   useEffect(() => {
-    if (selectedPath === null) {
-      setDiffState({ kind: 'idle' });
+    if (selectedPath === null || requestKey === null) {
       return;
     }
     let cancelled = false;
-    setDiffState({ kind: 'loading' });
     void loadDiff(selectedPath, { staged: selectedStaged, untracked: selectedUntracked }).then(
       (result) => {
         if (cancelled) {
           return;
         }
         // `loadDiff` returns null ONLY on a bridge error (already toasted).
-        setDiffState(result ? { kind: 'loaded', diff: result } : { kind: 'failed' });
+        setResolved(
+          result
+            ? { key: requestKey, state: { kind: 'loaded', diff: result } }
+            : { key: requestKey, state: { kind: 'failed' } }
+        );
       }
     );
     return () => {
       cancelled = true;
     };
-  }, [selectedPath, selectedStaged, selectedUntracked, loadDiff]);
+  }, [requestKey, selectedPath, selectedStaged, selectedUntracked, loadDiff]);
 
+  // Derive the pane state: no selection → idle; a resolved outcome for the
+  // CURRENT request → that outcome; otherwise the fetch is still in flight.
+  const diffState: DiffState =
+    requestKey === null
+      ? { kind: 'idle' }
+      : resolved?.key === requestKey
+        ? resolved.state
+        : { kind: 'loading' };
+
+  // The resolved diff that belongs to the CURRENT selection (null while loading,
+  // on failure, or when `resolved` is stale for a previously-selected file).
+  const currentDiff =
+    resolved?.key === requestKey && resolved.state.kind === 'loaded' ? resolved.state.diff : null;
+  // Memo keyed on the STABLE resolved diff (not the per-render `diffState` object)
+  // so the parse only re-runs when the loaded diff itself changes.
   const parsedDiff = useMemo(
-    () => (diffState.kind === 'loaded' ? parseUnifiedDiff(diffState.diff.unifiedDiff) : null),
-    [diffState]
+    () => (currentDiff ? parseUnifiedDiff(currentDiff.unifiedDiff) : null),
+    [currentDiff]
   );
 
   return { selected, handleSelect, diffState, parsedDiff };
