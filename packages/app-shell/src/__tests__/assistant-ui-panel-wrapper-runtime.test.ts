@@ -35,6 +35,8 @@ function createRepositoryStub(
       throw new Error('not used');
     },
     createThreadRun,
+    getThreadCumulativeUsage: async () => null,
+    recordRunUsage: async () => {},
     deleteThread: async () => {},
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],

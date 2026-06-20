@@ -44,6 +44,7 @@ import { migration042JobQueueChunkId } from './042-job-queue-chunk-id.js';
 import { migration043JobQueueEmbeddingSetId } from './043-job-queue-embedding-set-id.js';
 import { migration044DimensionIndexSuspensions } from './044-dimension-index-suspensions.js';
 import { migration045DimensionIndexMaintenance } from './045-dimension-index-maintenance.js';
+import { migration046AssistantRunUsage } from './046-assistant-run-usage.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -94,6 +95,7 @@ export const migrations: Migration[] = [
   migration043JobQueueEmbeddingSetId,
   migration044DimensionIndexSuspensions,
   migration045DimensionIndexMaintenance,
+  migration046AssistantRunUsage,
 ];
 
 // Export base migrations (without chunks table) for test environments

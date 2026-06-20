@@ -70,7 +70,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
-import { ThreadContextMeter } from './context-usage-meter';
+import { type CumulativeUsageDisplay, ThreadContextMeter } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { LocalModelStatus } from './local-model-status';
@@ -237,6 +237,8 @@ export interface AssistantUiPanelProps {
   ) => Promise<void> | void;
   /** Full model context window size. Passed to the context meter. */
   contextWindow?: number | undefined;
+  /** Durable cumulative usage (tokens + cost) for the active thread. Desktop-only. */
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   disabled?: boolean;
   disabledReason?: string;
   /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
@@ -592,6 +594,7 @@ interface ChatThreadProps {
       ) => Promise<void> | void)
     | undefined;
   contextWindow?: number | undefined;
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
   effectiveInputBudget?: number | undefined;
@@ -627,6 +630,7 @@ const LocalRuntimeChat: FC<
   }
 > = ({
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
   providerGroups,
   pickerModels,
@@ -712,6 +716,7 @@ const LocalRuntimeChat: FC<
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
           contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
           hasGroupedProviders={hasGroupedProviders}
@@ -758,6 +763,7 @@ const DataStreamRuntimeChat: FC<
   }
 > = ({
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
   providerGroups,
   pickerModels,
@@ -844,6 +850,7 @@ const DataStreamRuntimeChat: FC<
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
           contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
           hasGroupedProviders={hasGroupedProviders}
@@ -872,6 +879,7 @@ const DataStreamRuntimeChat: FC<
  */
 const ChatThreadUI: FC<{
   contextWindow?: number | undefined;
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   effectiveInputBudget?: number | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -892,6 +900,7 @@ const ChatThreadUI: FC<{
   toolMenu?: AssistantToolMenuConfig | undefined;
 }> = ({
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
   providerGroups,
   hasGroupedProviders,
@@ -992,6 +1001,7 @@ const ChatThreadUI: FC<{
       <div className="bs-composer-shell" data-testid="assistant-composer-shell">
         <ThreadContextMeter
           contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
           effectiveInputBudget={effectiveInputBudget}
           threadKey={threadKey}
         />
@@ -1057,6 +1067,7 @@ const ChatThreadUI: FC<{
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
   contextWindow,
+  cumulativeUsage,
   completePreparedRequest,
   effectiveInputBudget,
   providerGroups,
@@ -1139,6 +1150,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           <LocalRuntimeChat
             completePreparedRequest={completePreparedRequest}
             contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
             disabled={disabled}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
@@ -1168,6 +1180,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             api={api}
             completePreparedRequest={completePreparedRequest}
             contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
             disabled={disabled}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}

@@ -43,6 +43,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type CumulativeUsageDisplay,
+  type ModelPricingResolver,
+  resolveCumulativeUsageDisplay,
+} from './assistant-cumulative-usage';
+import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
@@ -92,6 +97,7 @@ export interface AssistantUiPanelWrapperProps {
 }
 
 const assistantSelectionWriteBackLogger = createLogger('AssistantSelectionWriteBack');
+const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
 /**
  * Normalize an absolute root path for matching the server's broadcast rootPath
@@ -875,17 +881,21 @@ export function AssistantUiPanelWrapper({
     workspaceRootPath,
   });
 
-  const { completePreparedRequest, prepareRequestData, renewActiveAssistantForegroundActivity } =
-    useAssistantRequestLifecycle({
-      assistantThreadRepository,
-      memoryResourceId,
-      modelSettings,
-      providerOptions,
-      requestData,
-      resolvedModelName,
-      selectedMemoryThreadId,
-      selectedProvider,
-    });
+  const {
+    completePreparedRequest,
+    getActiveRunUsageContext,
+    prepareRequestData,
+    renewActiveAssistantForegroundActivity,
+  } = useAssistantRequestLifecycle({
+    assistantThreadRepository,
+    memoryResourceId,
+    modelSettings,
+    providerOptions,
+    requestData,
+    resolvedModelName,
+    selectedMemoryThreadId,
+    selectedProvider,
+  });
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1182,22 +1192,111 @@ export function AssistantUiPanelWrapper({
   );
   const disabledReason = memoryDisabledReason ?? providerDisabledReason;
 
-  // Record provider token usage keyed by the active memory thread id.
-  // Falls back to a stable per-panel constant when no thread is identified
-  // (non-memory-backed sessions) so usage is still captured for the current
-  // panel and cleared on the next turn or session.
+  // Bumped after each durable usage write COMMITS, so the cumulative re-read is
+  // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
+  // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
+  // line is simply not shown.
+  const [cumulativeUsage, setCumulativeUsage] = useState<CumulativeUsageDisplay | null>(null);
+  const resolveModelPricing = useCallback<ModelPricingResolver>(
+    (provider: string, model: string) => {
+      if (!isSupportedProvider(provider)) {
+        return;
+      }
+      return getProviderLlmModels(provider).find(
+        (candidate: LlmProviderModelDefinition) => candidate.id === model
+      )?.pricing;
+    },
+    [getProviderLlmModels]
+  );
+  // Monotonic load token: a slower in-flight load (e.g. an earlier thread) must
+  // never clobber a newer one. Every loader captures the id at call time and only
+  // commits state if it is still the latest — a single setState path (no
+  // cascading sets, no separate cancel flag per call).
+  const cumulativeUsageLoadIdRef = useRef(0);
+  const refreshCumulativeUsage = useCallback(async (): Promise<void> => {
+    cumulativeUsageLoadIdRef.current += 1;
+    const loadId = cumulativeUsageLoadIdRef.current;
+    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
+      setCumulativeUsage(null);
+      return;
+    }
+    let next: CumulativeUsageDisplay | null = null;
+    try {
+      const usage =
+        await assistantThreadRepository.getThreadCumulativeUsage(selectedMemoryThreadId);
+      next = resolveCumulativeUsageDisplay(usage, resolveModelPricing);
+    } catch (error: unknown) {
+      assistantUsageWriteBackLogger.warn('Failed to load cumulative run usage', { error });
+    }
+    if (loadId === cumulativeUsageLoadIdRef.current) {
+      setCumulativeUsage(next);
+    }
+  }, [assistantThreadRepository, resolveModelPricing, selectedMemoryThreadId]);
+
+  // Record provider token usage. ONE usage derivation (the single tap) fans out
+  // to two sinks:
+  //   1. the session-lived zustand store (last-turn meter), keyed by the active
+  //      memory thread id (falls back to 'active' for non-memory sessions);
+  //   2. a DURABLE per-run row in brainstrike_assistant_run_usage, written only
+  //      when the PGlite-backed thread repo exists (desktop). On web the repo is
+  //      absent → the durable write is simply skipped (honest session-only
+  //      fallback; capability-gated, never an isElectron() check and never $0).
+  // model/provider are attributed from the REQUEST-START snapshot (the model that
+  // produced the tokens), never the live picker selection — the picker stays
+  // interactive mid-run. They are stored PER ROW so cost is attributable per
+  // model when a thread switches models mid-conversation.
   const handleUsage = useCallback(
     (usage: { inputTokens: number; outputTokens: number }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
       useContextUsageStore.getState().recordUsage(threadId, usage);
+
+      // Durable sink: requires a real thread id, the desktop PGlite repo, and the
+      // in-flight run's request-start usage context. A missing piece means we
+      // cannot attribute the row honestly, so we skip the durable write (the
+      // zustand sink still ran).
+      const runContext = getActiveRunUsageContext();
+      if (!(assistantThreadRepository && selectedMemoryThreadId && runContext)) {
+        return;
+      }
+      assistantThreadRepository
+        .recordRunUsage({
+          threadId: selectedMemoryThreadId,
+          runId: runContext.runId,
+          resourceId: memoryResourceId,
+          model: runContext.model,
+          provider: runContext.provider,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        })
+        // Re-read the cumulative total from the write's OWN completion so the
+        // SELECT provably follows the INSERT (not racing it on the PGlite queue).
+        .then(() => refreshCumulativeUsage())
+        .catch((error: unknown) => {
+          // Never swallow silently — durable usage is best-effort relative to the
+          // turn, but a failure must be observable.
+          assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
+        });
     },
-    [selectedMemoryThreadId]
+    [
+      assistantThreadRepository,
+      getActiveRunUsageContext,
+      memoryResourceId,
+      refreshCumulativeUsage,
+      selectedMemoryThreadId,
+    ]
   );
+
+  // Initial / thread-switch load. The post-write refresh rides handleUsage's
+  // own completion, so this effect only fires on repo/thread change.
+  useEffect(() => {
+    void refreshCumulativeUsage();
+  }, [refreshCumulativeUsage]);
 
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       contextWindow={selectedModelBudgetDef?.contextWindow}
+      {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}
