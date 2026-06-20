@@ -1,4 +1,5 @@
 import type {
+  ActionGroup,
   AnyContextAction,
   ContextTarget,
   ContextTargetKind,
@@ -9,8 +10,14 @@ import type { Command, CommandGroup } from './types';
  * One-way projection: context-actions `ActionGroup` → palette `CommandGroup`.
  * The context menu remains the source of truth for target-bound operations;
  * this only governs where a bridged command sorts in the palette.
+ *
+ * Keyed by the CLOSED `ActionGroup` union so the mapping is EXHAUSTIVE: if
+ * context-actions adds a new group (e.g. `'share'`), this becomes a compile
+ * error here until it is mapped, rather than silently bucketing the new group
+ * as `'workspace'`. There is intentionally no runtime fallback — a new,
+ * unmapped group is a build break, not a silent coercion.
  */
-const ACTION_GROUP_TO_COMMAND_GROUP: Record<string, CommandGroup> = {
+const ACTION_GROUP_TO_COMMAND_GROUP: Record<ActionGroup, CommandGroup> = {
   tree: 'file',
   copy: 'file',
   navigate: 'navigate',
@@ -18,18 +25,20 @@ const ACTION_GROUP_TO_COMMAND_GROUP: Record<string, CommandGroup> = {
   danger: 'danger',
 };
 
-function resolveCommandGroup(actionGroup: string): CommandGroup {
-  return ACTION_GROUP_TO_COMMAND_GROUP[actionGroup] ?? 'workspace';
-}
-
 /**
  * Adapts a context-actions `ContextAction` into a palette `Command`, bound to
- * the CURRENTLY-focused target (resolved lazily via `getTarget`). One-way only:
- * the palette projects context actions, never the reverse, and never mutates
- * the action system.
+ * the target that is focused AT BRIDGE TIME. `getTarget()` is invoked EAGERLY
+ * (once, here) and the resolved target is snapshotted into the returned
+ * command's `run` closure — the command does NOT re-read the focused target
+ * later. Because the command registry is immutable, the app MUST rebuild its
+ * commands (re-run `bridgeActionToCommand`) whenever the focused target
+ * changes for the palette to track it; in PR-6.1b the palette captures the
+ * target at open time and rebuilds on open, so the snapshot is always current
+ * for the session it is shown. One-way only: the palette projects context
+ * actions, never the reverse, and never mutates the action system.
  *
- * Returns `null` when the action cannot run against the present target, so the
- * caller (the app command registry) simply drops it from the palette:
+ * Returns `null` when the action cannot run against the snapshotted target, so
+ * the caller (the app command registry) simply drops it from the palette:
  *  - no target captured at all;
  *  - the action does not apply to the target's kind (`appliesTo`);
  *  - the action's data-shaped `isVisible` gate fails for this target.
@@ -61,7 +70,7 @@ export function bridgeActionToCommand(
   const command: Command = {
     id: action.id,
     label,
-    group: resolveCommandGroup(action.group),
+    group: ACTION_GROUP_TO_COMMAND_GROUP[action.group],
     ...(action.icon ? { icon: action.icon } : {}),
     ...(action.requiredCapabilities
       ? { requiredCapabilities: [...action.requiredCapabilities] }
