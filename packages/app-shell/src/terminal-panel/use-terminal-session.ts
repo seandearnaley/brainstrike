@@ -11,6 +11,21 @@ import { XTERM_THEME } from './xterm-theme';
 const logger = createLogger('TerminalPanel');
 
 /**
+ * Log an IPC-level rejection from a fire-and-forget bridge call. The
+ * `TerminalResult` envelope never throws, but the underlying transport can (e.g.
+ * the bridge tears down mid-call); without this the rejection would be an
+ * unhandled promise rejection rather than a logged warning.
+ */
+function warnBridgeRejection(op: string): (error: unknown) => void {
+  return (error: unknown) => {
+    logger.warn('terminal bridge call rejected', {
+      op,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  };
+}
+
+/**
  * Discriminated session lifecycle.
  *
  * `idle` (no bridge/root) and `starting` (a session is being set up) are DERIVED
@@ -35,6 +50,14 @@ type SessionOutcome =
 
 interface TaggedOutcome {
   readonly outcome: SessionOutcome;
+  /**
+   * The root this outcome belongs to. The lifecycle effect re-runs on a root
+   * switch (deps include `activeRootId`) WITHOUT bumping `sessionId`, so the
+   * render-time freshness gate must key on both — otherwise the previous root's
+   * `exited`/`error` outcome leaks onto the freshly-starting root until its
+   * `create()` resolves.
+   */
+  readonly rootId: string;
   readonly sessionId: number;
 }
 
@@ -131,12 +154,18 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         if (cancelled) {
           // Created after teardown: reap the orphan pty rather than leak it.
           if (result.ok) {
-            void bridge.destroy({ terminalId: result.value.terminalId });
+            void bridge
+              .destroy({ terminalId: result.value.terminalId })
+              .catch(warnBridgeRejection('destroy'));
           }
           return;
         }
         if (!result.ok) {
-          setTagged({ sessionId, outcome: { kind: 'error', message: result.error } });
+          setTagged({
+            sessionId,
+            rootId: activeRootId,
+            outcome: { kind: 'error', message: result.error },
+          });
           logger.error('terminal create failed', { error: result.error });
           toast({
             title: 'Terminal failed to start',
@@ -148,7 +177,11 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
 
         terminalId = result.value.terminalId;
         const liveId = terminalId;
-        setTagged({ sessionId, outcome: { kind: 'ready', cwd: result.value.cwd } });
+        setTagged({
+          sessionId,
+          rootId: activeRootId,
+          outcome: { kind: 'ready', cwd: result.value.cwd },
+        });
 
         // pty output → surrogate-safe reassembly → xterm.
         const surrogates = new SurrogateBuffer();
@@ -172,18 +205,24 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           }
           setTagged({
             sessionId,
+            rootId: activeRootId,
             outcome: { kind: 'exited', exitCode: event.exitCode, signal: event.signal },
           });
         });
         disposers.push(offExit);
 
-        // keystrokes → pty. A `{ ok:false }` write (dead pty) surfaces once.
+        // keystrokes → pty. A `{ ok:false }` write (dead pty) surfaces once; an
+        // IPC-level rejection (bridge torn down mid-keystroke) is logged, not left
+        // as an unhandled rejection on this hot path.
         const onInput = term.onData((data: string) => {
-          void bridge.write({ terminalId: liveId, data }).then((writeResult) => {
-            if (!writeResult.ok) {
-              logger.warn('terminal write failed', { error: writeResult.error });
-            }
-          });
+          void bridge
+            .write({ terminalId: liveId, data })
+            .then((writeResult) => {
+              if (!writeResult.ok) {
+                logger.warn('terminal write failed', { error: writeResult.error });
+              }
+            })
+            .catch(warnBridgeRejection('write'));
         });
         disposers.push(() => onInput.dispose());
 
@@ -196,7 +235,9 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           } catch {
             return;
           }
-          void bridge.resize({ terminalId: liveId, cols: term.cols, rows: term.rows });
+          void bridge
+            .resize({ terminalId: liveId, cols: term.cols, rows: term.rows })
+            .catch(warnBridgeRejection('resize'));
         };
         const observer = new ResizeObserver(() => {
           if (resizeTimer !== null) {
@@ -219,7 +260,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        setTagged({ sessionId, outcome: { kind: 'error', message } });
+        setTagged({ sessionId, rootId: activeRootId, outcome: { kind: 'error', message } });
         logger.error('terminal create threw', { error: message });
         toast({ title: 'Terminal failed to start', description: message, variant: 'destructive' });
       });
@@ -230,7 +271,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         dispose();
       }
       if (terminalId) {
-        void bridge.destroy({ terminalId });
+        void bridge.destroy({ terminalId }).catch(warnBridgeRejection('destroy'));
       }
       term.dispose();
     };
@@ -238,12 +279,15 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
 
   // Derive the displayed state during render (no effect mirror):
   //  - no bridge/root → idle;
-  //  - a fresh outcome for the CURRENT session → that outcome;
+  //  - a fresh outcome for the CURRENT session AND root → that outcome;
   //  - otherwise the session is still being set up → starting.
+  // The gate keys on both `sessionId` and `activeRootId`: the lifecycle effect
+  // re-runs on a root switch without bumping `sessionId`, so an outcome tagged
+  // with the prior root must NOT surface for the newly-focused one.
   let state: TerminalSessionState;
   if (!(bridge && activeRootId)) {
     state = { kind: 'idle' };
-  } else if (tagged?.sessionId === sessionId) {
+  } else if (tagged?.sessionId === sessionId && tagged.rootId === activeRootId) {
     state = tagged.outcome;
   } else {
     state = { kind: 'starting' };

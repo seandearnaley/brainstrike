@@ -314,6 +314,56 @@ describe('TerminalPanel', () => {
     );
   });
 
+  it("does not leak a prior root's exited overlay onto a freshly-starting root", async () => {
+    // root-2's create stays pending so we can observe the switch-over window:
+    // the gap between the old session's teardown and the new create resolving.
+    // A holder object (not a `let`) keeps the resolver typed across the executor
+    // closure — a closure-assigned `let` would be flow-narrowed to its initializer.
+    type CreateResult = TerminalResult<{ terminalId: string; cwd: string }>;
+    const deferred: { resolve: (result: CreateResult) => void } = {
+      resolve: () => {
+        throw new Error('root-2 create resolved before it was pending');
+      },
+    };
+    const create = vi.fn((args: { rootId: string }): Promise<CreateResult> => {
+      if (args.rootId === 'root-2') {
+        return new Promise<CreateResult>((resolve) => {
+          deferred.resolve = resolve;
+        });
+      }
+      return Promise.resolve(ok({ terminalId: 'pty-1', cwd: '/abs/repo' }));
+    });
+    installBridge({ create: create as TerminalBridge['create'] });
+
+    const { rerender } = render(<TerminalPanel />);
+    await screen.findByTestId('terminal-panel');
+    await waitFor(() => expect(exitCallback).not.toBeNull());
+
+    // root-1's shell exits → its exited overlay paints.
+    exitCallback?.({ terminalId: 'pty-1', exitCode: 0, signal: null });
+    await screen.findByTestId('terminal-panel-exited');
+
+    // Focus a DIFFERENT workspace root. Its create is still pending, so the
+    // session is `starting` — root-1's stale `exited` outcome must NOT leak.
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'repo2',
+      path: '/abs/repo2',
+      platform: 'electron',
+      rootId: 'root-2',
+    };
+    rerender(<TerminalPanel />);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('terminal-panel-exited')).not.toBeInTheDocument()
+    );
+    expect(screen.getByTestId('terminal-host')).toBeInTheDocument();
+
+    // Resolving root-2's create surfaces ITS cwd — not the stale one.
+    deferred.resolve(ok({ terminalId: 'pty-2', cwd: '/abs/repo2' }));
+    await waitFor(() => expect(screen.getByText('/abs/repo2')).toBeInTheDocument());
+  });
+
   it('renders the no-root empty state when no workspace is focused', async () => {
     mockRoot.handle = null;
     installBridge();
