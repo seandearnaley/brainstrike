@@ -36,6 +36,8 @@ import {
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
+  type WebSearchInput,
+  WebSearchInputSchema,
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
   withFileLock,
@@ -65,6 +67,11 @@ import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
+  runWebSearch,
+  WEB_SEARCH_TOOL_ID,
+  type WebSearchToolDependencies,
+} from './web-search-tool';
+import {
   isHiddenPath,
   isWithinRoot,
   joinSegments,
@@ -78,6 +85,13 @@ type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  /**
+   * Optional override for the webSearch tool's network/key resolution. Used by
+   * tests to inject a stubbed Tavily fetch and key resolver so the loop runs
+   * hermetically. In production this is omitted and runWebSearch resolves the
+   * real keychain key and uses the real fetch.
+   */
+  webSearch?: WebSearchToolDependencies | undefined;
 }
 
 const logger = createLogger('DesktopAssistantTools');
@@ -1935,6 +1949,23 @@ export function buildDesktopAssistantTools(
           return await runGlobWorkspace(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('globWorkspace failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [WEB_SEARCH_TOOL_ID]: {
+      id: WEB_SEARCH_TOOL_ID,
+      description:
+        'Search the web via Tavily for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. Requires a Tavily API key in Settings → API Keys: when none is configured the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results (title, url, snippet) are truncated to a fixed budget.',
+      inputSchema: WebSearchInputSchema,
+      // The Tavily key is resolved server-side inside runWebSearch and never
+      // returned to the model. No injected deps here → real fetch + keychain.
+      execute: async (input: ToolExecuteInput<WebSearchInput>) => {
+        const resolvedInput = parseToolExecuteInput(WebSearchInputSchema, input);
+        try {
+          return await runWebSearch(resolvedInput, dependencies.webSearch);
+        } catch (error) {
+          logger.error('webSearch failed', { error, query: resolvedInput.query });
           throw error;
         }
       },

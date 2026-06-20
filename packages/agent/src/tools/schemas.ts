@@ -559,6 +559,31 @@ export const GlobWorkspaceInputSchema = z
 
 export type GlobWorkspaceInput = z.infer<typeof GlobWorkspaceInputSchema>;
 
+// ============================================================================
+// Web Search Tool Schema
+// ============================================================================
+
+export const WebSearchInputSchema = z
+  .object({
+    query: z
+      .string()
+      .min(2)
+      .max(400)
+      .describe(
+        'The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents.'
+      ),
+    maxResults: z
+      .number()
+      .int()
+      .positive()
+      .max(10)
+      .optional()
+      .describe('Maximum number of results to return (default 5, max 10)'),
+  })
+  .strict();
+
+export type WebSearchInput = z.infer<typeof WebSearchInputSchema>;
+
 export const ExecuteCommandInputSchema = z
   .object({
     command: z
@@ -611,6 +636,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.grepSearch': GrepSearchInputSchema,
   'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
+  'brainstrike.webSearch': WebSearchInputSchema,
   'brainstrike.executeCommand': ExecuteCommandInputSchema,
 };
 
