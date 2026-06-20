@@ -732,6 +732,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/commands':
+        specifier: workspace:*
+        version: link:../commands
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -2087,6 +2090,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/commands':
+        specifier: workspace:*
+        version: link:../commands
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions

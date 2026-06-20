@@ -92,6 +92,9 @@ declare global {
       onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
       onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
     };
+    commandPalette?: {
+      onOpen: (callback: () => void) => () => void;
+    };
     desktopDiagnostics?: {
       getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
     };
