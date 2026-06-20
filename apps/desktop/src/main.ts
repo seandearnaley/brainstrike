@@ -1145,6 +1145,22 @@ if (singleInstanceLockAcquired) {
                 targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.commandPalette.open);
               },
             },
+            {
+              label: 'Quick Open…',
+              accelerator: process.platform === 'darwin' ? 'Cmd+P' : 'Ctrl+P',
+              click: (_menuItem, browserWindow) => {
+                // Same focused-window routing as the command palette; a no-op on
+                // hidden host windows (never focused, never register the listener).
+                const targetWindow =
+                  browserWindow instanceof BrowserWindow
+                    ? browserWindow
+                    : BrowserWindow.getFocusedWindow();
+                if (!targetWindow || targetWindow.isDestroyed()) {
+                  return;
+                }
+                targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.quickOpen.open);
+              },
+            },
             { type: 'separator' },
             {
               label: 'Reload',

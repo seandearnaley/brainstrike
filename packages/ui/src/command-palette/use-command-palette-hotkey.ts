@@ -1,17 +1,5 @@
 import * as React from 'react';
-
-/**
- * True on macOS, where the command-palette accelerator is ⌘K (metaKey). Mirrors
- * the existing platform check in `file-explorer-ui` `revealLabel()` —
- * `navigator.platform` startsWith 'mac' — since the codebase has no shared
- * platform util. SSR-safe (no `navigator` ⇒ treated as non-mac).
- */
-function isMacPlatform(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-  return navigator.platform.toLowerCase().startsWith('mac');
-}
+import { isPlatformAccelerator } from './platform-accelerator';
 
 /**
  * True when the event is the platform command-palette accelerator:
@@ -22,10 +10,7 @@ function isMacPlatform(): boolean {
  * macOS Ctrl+K and Windows ⌘K do not open the palette).
  */
 function isCommandPaletteAccelerator(event: KeyboardEvent): boolean {
-  if (event.key.toLowerCase() !== 'k') {
-    return false;
-  }
-  return isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return isPlatformAccelerator(event, 'k');
 }
 
 export interface CommandPaletteHotkeyOptions {

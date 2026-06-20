@@ -15,6 +15,11 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
+  quickOpen: {
+    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
+    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
+    open: 'quick-open:open',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',

@@ -34,6 +34,13 @@ export {
   type HybridSearchResult,
   HybridSearchService,
 } from './hybrid-search-service.js';
+// Quick-open (⌘P) file-name search
+export {
+  clampQuickOpenLimit,
+  QUICK_OPEN_MAX_LIMIT,
+  QUICK_OPEN_NAME_SEARCH_SQL,
+  type QuickOpenFileRow,
+} from './quick-open-query.js';
 // RRF Algorithm
 export {
   // Core RRF functions
