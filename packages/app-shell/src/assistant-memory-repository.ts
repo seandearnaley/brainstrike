@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
   created_at timestamptz NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_run_usage_thread
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
 `;
 

@@ -84,24 +84,4 @@ export default {
     // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
     Security: 'off' as const,
   },
-
-  ignore: {
-    // Per-file + rule suppressions (narrower than the top-level `rules`/`categories`,
-    // and NOT the forbidden top-level `ignore.files`, which would flip lint to an
-    // include-list — see the header).
-    overrides: [
-      {
-        // The thread cumulative-usage meter HYDRATES from the PGlite-backed thread
-        // repository (an async DB read), so the resolved value cannot be derived
-        // during render — it legitimately needs a useEffect that setStates from the
-        // resolved promise (re-running on thread switch + after each new durable
-        // usage write). `no-adjust-state-on-prop-change` targets SYNCHRONOUS
-        // prop→state derivation (its own react.dev reference explicitly excludes
-        // data fetching); this is the documented false-positive class. Same async-
-        // load-in-effect shape biome accepts in use-roots-reconciliation.ts.
-        files: ['**/assistant-ui-panel-wrapper.tsx'],
-        rules: ['react-doctor/no-adjust-state-on-prop-change'],
-      },
-    ],
-  },
 };

@@ -48,7 +48,9 @@ describe('migration 046: assistant run usage table', () => {
     const index = await db.query<IndexRow>(
       `SELECT indexname FROM pg_indexes WHERE tablename = 'brainstrike_assistant_run_usage'`
     );
-    expect(index.rows.map((row) => row.indexname)).toContain('idx_run_usage_thread');
+    expect(index.rows.map((row) => row.indexname)).toContain(
+      'brainstrike_assistant_run_usage_thread_idx'
+    );
   });
 
   it('stores model/provider per row so per-model attribution survives', {

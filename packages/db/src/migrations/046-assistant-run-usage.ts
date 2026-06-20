@@ -32,11 +32,11 @@ export const migration046AssistantRunUsage: Migration = {
     );
     --> statement-breakpoint
 
-    CREATE INDEX IF NOT EXISTS idx_run_usage_thread
+    CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
       ON brainstrike_assistant_run_usage (thread_id);
   `,
   down: `
-    DROP INDEX IF EXISTS idx_run_usage_thread;
+    DROP INDEX IF EXISTS brainstrike_assistant_run_usage_thread_idx;
     --> statement-breakpoint
 
     DROP TABLE IF EXISTS brainstrike_assistant_run_usage;
