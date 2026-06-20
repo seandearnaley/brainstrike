@@ -90,6 +90,7 @@ import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picke
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
+import { useFileMentions } from './use-file-mentions';
 import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
@@ -1341,6 +1342,15 @@ export function AssistantUiPanelWrapper({
   // web automatically via registry.available(ctx).
   const slashCommands = useAssistantSlashCommands();
 
+  // "@" file mentions: only meaningful when the desktop assistant server is
+  // present to PARSE the inserted directive and inject the referenced file's
+  // content (web has no server to resolve it). This is a capability gate, not an
+  // isElectron check — when the backend is absent we omit the query seam, so the
+  // panel never mounts the "@" feature. The app-shell owns the query state and
+  // loads matches from the file index via `useFileMentions` (async-via-state).
+  const [fileMentionQuery, setFileMentionQuery] = useState('');
+  const { fileMentions } = useFileMentions(fileMentionQuery);
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
@@ -1358,6 +1368,9 @@ export function AssistantUiPanelWrapper({
       providerSettings={effectiveProviderSettings}
       requestData={requestData}
       slashCommands={slashCommands}
+      {...(desktopAssistantBackendAvailable
+        ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+        : {})}
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}
       {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}

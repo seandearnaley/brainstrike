@@ -363,7 +363,10 @@ function truncateContent(
   };
 }
 
-async function readWorkspaceTextFile(args: { requestedPath: string; rootPath: string }): Promise<{
+export async function readWorkspaceTextFile(args: {
+  requestedPath: string;
+  rootPath: string;
+}): Promise<{
   content: string;
   path: string;
   size: number;

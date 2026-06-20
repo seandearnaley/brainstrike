@@ -338,6 +338,49 @@
   white-space: nowrap;
 }
 
+/*
+ * "@" file-mention items reuse the trigger-item chrome but stack a secondary
+ * line (path + root) under the file basename.
+ */
+.bs-composer-mention-item {
+  align-items: flex-start;
+}
+
+.bs-composer-mention-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.0625rem;
+}
+
+.bs-composer-mention-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.bs-composer-mention-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bs-composer-mention-root {
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
 .aui-composer-send,
 .aui-composer-cancel {
   align-items: center;
