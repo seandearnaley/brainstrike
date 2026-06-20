@@ -203,6 +203,13 @@ vi.mock('@assistant-ui/react', () => {
           {children}
         </button>
       ),
+      // Slash-command "/" menu primitives. The popover only renders when the
+      // trigger is active, which never happens in these structural tests, so
+      // the items render nothing — the root just passes children through.
+      Unstable_SlashCommandRoot: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+      Unstable_TriggerPopoverPopover: () => null,
+      Unstable_TriggerPopoverItems: () => null,
+      Unstable_TriggerPopoverItem: () => null,
     },
     ErrorPrimitive: {
       Root: Primitive,
@@ -247,6 +254,11 @@ vi.mock('@assistant-ui/react', () => {
     }),
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
+    unstable_useSlashCommandAdapter: () => ({
+      categories: () => [],
+      categoryItems: () => [],
+      search: () => [],
+    }),
     useMessagePartReasoning: () => ({
       type: 'reasoning' as const,
       text: 'Reasoning text',

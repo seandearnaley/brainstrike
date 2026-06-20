@@ -624,6 +624,14 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
   };
 });
 
+// The "/" slash-command projection depends on the theme/toast/command-registry
+// seam (covered by its own unit tests). The wrapper suite focuses on
+// provider/model/transport logic, so stub the hook to an empty list — it needs
+// no ThemeProvider/ToastProvider here.
+vi.mock('../use-assistant-slash-commands', () => ({
+  useAssistantSlashCommands: () => [],
+}));
+
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   // Defaults to no desktop llm-host bridge, so local chat resolves to the

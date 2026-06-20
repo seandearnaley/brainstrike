@@ -9,6 +9,7 @@ import {
   MessagePrimitive,
   type ThreadHistoryAdapter,
   ThreadPrimitive,
+  unstable_useSlashCommandAdapter,
   useAssistantDataUI,
   useAui,
   useAuiState,
@@ -70,6 +71,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
+import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
   type OmMeterState,
@@ -79,6 +81,11 @@ import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import {
+  buildSlashCommandIconMap,
+  type SlashCommand,
+  toSlashCommandAdapterOptions,
+} from './slash-commands';
 import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
 import { collectToolDurations } from './tool-durations';
@@ -279,6 +286,14 @@ export interface AssistantUiPanelProps {
   requestData?: Record<string, unknown>;
   selectedModel?: string;
   selectedProvider?: string;
+  /**
+   * App commands projected into the composer's "/" slash menu. The panel is
+   * presentational — it never builds the command registry. The app (app-shell)
+   * derives these from its command registry (capability-gated, danger group
+   * excluded) and pre-binds each `execute` to the command's `run(ctx)`. Defaults
+   * to `[]`, so callers/web with no commands simply show nothing.
+   */
+  slashCommands?: readonly SlashCommand[];
   threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
 }
@@ -557,6 +572,56 @@ const AssistantDataRendererRegistration: FC = () => {
 // Keep this in sync with the collapsed-history nth-last-child selector in overrides.css.
 const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 
+// Stable empty default for the optional slashCommands prop. A literal `[]`
+// default would create a new array each render, breaking memoization in the
+// adapter/icon-map derivations downstream (react-doctor: empty default prop).
+const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
+
+/**
+ * The composer input row (textarea + Send/Cancel), defined ONCE so both the
+ * slash-enabled and plain composer paths share it — only the optional
+ * `slashPopover` differs. Send / Cancel are unchanged regardless of the slash
+ * feature. When `slashPopover` is omitted the row renders without any "/" menu.
+ */
+const ComposerInputRow: FC<{
+  isComposerDisabled: boolean;
+  slashPopover?: ReactNode;
+}> = ({ isComposerDisabled, slashPopover }) => (
+  <div className="bs-composer-input-frame">
+    <ComposerPrimitive.Input
+      aria-label="Message input"
+      className="aui-composer-input"
+      disabled={isComposerDisabled}
+      id="assistant-input"
+      placeholder="Ask BrainStrike anything..."
+      rows={1}
+    />
+    {slashPopover}
+    <div className="bs-composer-primary-actions">
+      <ThreadPrimitive.If running={false}>
+        <ComposerPrimitive.Send
+          aria-label="Send"
+          className="aui-button aui-button-primary aui-composer-send"
+          disabled={isComposerDisabled}
+          title="Send"
+        >
+          <ArrowUpIcon className="size-4" />
+        </ComposerPrimitive.Send>
+      </ThreadPrimitive.If>
+      <ThreadPrimitive.If running>
+        <ComposerPrimitive.Cancel
+          aria-label="Stop"
+          className="aui-button aui-button-primary aui-composer-cancel"
+          disabled={isComposerDisabled}
+          title="Stop"
+        >
+          <SquareIcon className="size-3.5 fill-current" />
+        </ComposerPrimitive.Cancel>
+      </ThreadPrimitive.If>
+    </div>
+  </div>
+);
+
 const ThreadHistoryControl: FC<{
   controlsId: string;
   expanded: boolean;
@@ -621,6 +686,7 @@ interface ChatThreadProps {
   requestData?: Record<string, unknown> | undefined;
   selectedModel: string | undefined;
   selectedProvider: string | undefined;
+  slashCommands: readonly SlashCommand[];
   toolMenu?: AssistantToolMenuConfig | undefined;
 }
 
@@ -656,6 +722,7 @@ const LocalRuntimeChat: FC<
   loadLocalLlmBackend,
   modelId,
   onLoadingStateChange,
+  slashCommands,
   toolMenu,
   requestData,
   prepareRequestData,
@@ -739,6 +806,7 @@ const LocalRuntimeChat: FC<
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          slashCommands={slashCommands}
           threadKey={threadKey}
           toolMenu={toolMenu}
         />
@@ -795,6 +863,7 @@ const DataStreamRuntimeChat: FC<
   prepareRequestData,
   prepareLocalModel,
   modelName,
+  slashCommands,
   toolMenu,
   threadKey,
 }) => {
@@ -875,6 +944,7 @@ const DataStreamRuntimeChat: FC<
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          slashCommands={slashCommands}
           threadKey={threadKey}
           toolMenu={toolMenu}
         />
@@ -907,6 +977,7 @@ const ChatThreadUI: FC<{
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
+  slashCommands: readonly SlashCommand[];
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }> = ({
@@ -927,6 +998,7 @@ const ChatThreadUI: FC<{
   isComposerDisabled,
   disabledReason,
   localLoadingState,
+  slashCommands,
   threadKey,
   toolMenu,
 }) => {
@@ -935,6 +1007,21 @@ const ChatThreadUI: FC<{
   const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
   const messagesRegionId = useId();
+
+  // Slash-command "/" menu: derive the library adapter + icon lookup from the
+  // app-passed commands during render (no setState-in-effect). The adapter hook
+  // is memoized on the command list and always runs (rules-of-hooks), but the
+  // slash root is only MOUNTED when there are commands — the installed
+  // @assistant-ui opens the popover whenever "/" is typed and an adapter is
+  // present, regardless of whether search() returns items, so mounting it with
+  // an empty list would surface an empty menu. "No commands" ⇒ no slash feature.
+  const hasSlashCommands = slashCommands.length > 0;
+  const slashAdapterOptions = useMemo(
+    () => toSlashCommandAdapterOptions(slashCommands),
+    [slashCommands]
+  );
+  const slashAdapter = unstable_useSlashCommandAdapter(slashAdapterOptions);
+  const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
 
   return (
     <ThreadPrimitive.Root
@@ -1025,38 +1112,22 @@ const ChatThreadUI: FC<{
           data-disabled={isComposerDisabled ? '' : undefined}
           onSubmitCapture={onThreadRunStart}
         >
-          <div className="bs-composer-input-frame">
-            <ComposerPrimitive.Input
-              aria-label="Message input"
-              className="aui-composer-input"
-              disabled={isComposerDisabled}
-              id="assistant-input"
-              placeholder="Ask BrainStrike anything..."
-              rows={1}
-            />
-            <div className="bs-composer-primary-actions">
-              <ThreadPrimitive.If running={false}>
-                <ComposerPrimitive.Send
-                  aria-label="Send"
-                  className="aui-button aui-button-primary aui-composer-send"
-                  disabled={isComposerDisabled}
-                  title="Send"
-                >
-                  <ArrowUpIcon className="size-4" />
-                </ComposerPrimitive.Send>
-              </ThreadPrimitive.If>
-              <ThreadPrimitive.If running>
-                <ComposerPrimitive.Cancel
-                  aria-label="Stop"
-                  className="aui-button aui-button-primary aui-composer-cancel"
-                  disabled={isComposerDisabled}
-                  title="Stop"
-                >
-                  <SquareIcon className="size-3.5 fill-current" />
-                </ComposerPrimitive.Cancel>
-              </ThreadPrimitive.If>
-            </div>
-          </div>
+          {/* The composer input row. When slash commands exist it is wrapped in
+              the "/" slash root (trigger detection reads the composer text, and
+              the popover renders after the Input); when there are none the row
+              renders bare, so typing "/" does nothing special — "no commands"
+              means "no slash feature," never an empty menu. Send / Cancel are
+              unchanged either way. */}
+          {hasSlashCommands ? (
+            <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
+              <ComposerInputRow
+                isComposerDisabled={isComposerDisabled}
+                slashPopover={<ComposerTriggerPopover iconMap={slashIconMap} />}
+              />
+            </ComposerPrimitive.Unstable_SlashCommandRoot>
+          ) : (
+            <ComposerInputRow isComposerDisabled={isComposerDisabled} />
+          )}
           {hasGroupedProviders && (
             <ProviderModelHeader
               groups={providerGroups}
@@ -1097,6 +1168,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onStreamActivity,
   onThreadRunStart,
   onUsage,
+  slashCommands = EMPTY_SLASH_COMMANDS,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1187,6 +1259,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
             threadKey={threadKey}
             toolMenu={toolMenu}
           />
@@ -1218,6 +1291,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
             threadKey={threadKey}
             toolMenu={toolMenu}
           />
