@@ -49,6 +49,10 @@
       "types": "./dist/diagnostics/index.d.ts",
       "import": "./dist/diagnostics/index.js"
     },
+    "./git-panel": {
+      "types": "./dist/git-panel/index.d.ts",
+      "import": "./dist/git-panel/index.js"
+    },
     "./navigation": {
       "types": "./dist/navigation.d.ts",
       "import": "./dist/navigation.js"

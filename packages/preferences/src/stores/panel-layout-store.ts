@@ -4,7 +4,7 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'prompts'
+ * - activeTab: 'explorer' | 'settings' | 'prompts' | 'git'
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -16,7 +16,7 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type PanelTab = 'explorer' | 'settings' | 'prompts';
+export type PanelTab = 'explorer' | 'settings' | 'prompts' | 'git';
 
 export interface PanelLayoutStoreState {
   // Root tabs

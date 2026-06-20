@@ -19,6 +19,7 @@ export * from './collection-picker';
 export * from './context-menu';
 export * from './data-table';
 export * from './dialog';
+export * from './diff-view';
 export * from './dropdown-menu';
 export * from './empty-state';
 export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';

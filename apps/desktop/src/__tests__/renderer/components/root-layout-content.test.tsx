@@ -90,6 +90,18 @@ vi.mock('@brainstrike/app-shell', () => ({
   ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
+// The Git surface is capability-gated; in unit tests `window.git` is absent so
+// the bridge reports unavailable and no Git tab is constructed. Mock the module
+// to keep the heavy @codemirror/merge graph out of this test.
+vi.mock('@brainstrike/app-shell/git-panel', () => ({
+  GitPanel: () => <div data-testid="git-panel" />,
+  isGitBridgeAvailable: () => false,
+}));
+
+vi.mock('../../../renderer/components/git-page-content', () => ({
+  default: () => <div data-testid="git-page-content" />,
+}));
+
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: ({
     contextExplorerPageContent,

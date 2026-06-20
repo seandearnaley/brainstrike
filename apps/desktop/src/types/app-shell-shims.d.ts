@@ -34,12 +34,19 @@ declare module '@brainstrike/app-shell/root-layout-content' {
     contextExplorerPageContent: React.ReactNode;
     contextExplorerPanelContent?: React.ReactNode;
     databaseTabChunkingMode?: 'host-proxy' | 'local';
+    gitPageContent?: React.ReactNode;
     loadEmbeddingQueue?: (() => Promise<unknown>) | null;
     navigationItems: unknown[];
     preloadDatabaseTabOnMount?: boolean;
     promptsPageContent?: React.ReactNode;
     settingsPageContent: React.ReactNode;
   }
+}
+
+declare module '@brainstrike/app-shell/git-panel' {
+  export const GitPanel: React.ComponentType;
+  /** True when the desktop `window.git` bridge is present and fully formed. */
+  export function isGitBridgeAvailable(): boolean;
 }
 
 declare module '@brainstrike/app-shell/connected-prompt-manager-lazy' {

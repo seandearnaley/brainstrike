@@ -1,4 +1,5 @@
 import { ConnectedPromptManager } from '@brainstrike/app-shell';
+import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,
@@ -8,9 +9,13 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/utils/logger';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { GitBranch } from 'lucide-react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
+import GitPageContent from './git-page-content';
 import SettingsPageContent from './settings/page-content';
+
+const GIT_NAVIGATION_ITEM: NavigationItem = { name: 'Git', icon: GitBranch, path: '/git' };
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -61,7 +66,17 @@ export default function RootLayoutContent() {
   );
   activeToolsTabRef.current = db ? 'database-ready' : 'initializing';
 
-  const navigationConfig = navigationItems as NavigationItem[];
+  // Capability gate: only surface the Git tab when the desktop `window.git`
+  // bridge is present (no isElectron check). The bridge exists before React
+  // mounts, so this is stable for the window's lifetime — resolve it once.
+  const gitAvailable = useMemo(() => isGitBridgeAvailable(), []);
+  const navigationConfig = useMemo<NavigationItem[]>(
+    () =>
+      gitAvailable
+        ? [...(navigationItems as NavigationItem[]), GIT_NAVIGATION_ITEM]
+        : (navigationItems as NavigationItem[]),
+    [gitAvailable]
+  );
   const loadEmbeddingQueue = useCallback(
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
@@ -75,6 +90,7 @@ export default function RootLayoutContent() {
     contextExplorerPageContent: <ContextExplorerPageContent />,
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,
+    ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
