@@ -89,6 +89,7 @@ import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
@@ -1334,6 +1335,12 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
+  // Capability-gated "/" slash commands, projected from the SAME command
+  // registry the ⌘K palette uses (danger group excluded; execute pre-bound to
+  // the command's run + outcome handling). Desktop-only commands are absent on
+  // web automatically via registry.available(ctx).
+  const slashCommands = useAssistantSlashCommands();
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
@@ -1350,6 +1357,7 @@ export function AssistantUiPanelWrapper({
       providerGroups={providerGroups}
       providerSettings={effectiveProviderSettings}
       requestData={requestData}
+      slashCommands={slashCommands}
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}
       {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
