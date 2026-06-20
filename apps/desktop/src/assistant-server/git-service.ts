@@ -422,31 +422,51 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /** Unified diff for a path (or the whole tree), optionally for the index. */
+    /**
+     * Unified diff for a path (or the whole tree), optionally for the index.
+     *
+     * For an UNTRACKED file (`untracked: true`), a plain `git diff` reports
+     * nothing (the file is not in the index), so the reviewer would see an empty
+     * diff for a file that clearly has content. In that case we diff the new file
+     * against `/dev/null` with `git diff --no-index`, which renders the whole
+     * file as additions. `--no-index` intentionally exits 1 when the inputs
+     * differ — that is the normal "there is a diff" outcome, NOT a failure.
+     */
     diff: async (params: {
       path?: string | undefined;
       staged?: boolean | undefined;
+      untracked?: boolean | undefined;
     }): Promise<GitResult<GitDiff>> => {
       try {
         const staged = params.staged === true;
-        const args = ['diff'];
-        if (staged) {
-          args.push('--cached');
-        }
+        const untracked = params.untracked === true;
         const pathResult = resolveContainedPathArg(params.path);
         if (!pathResult.ok) {
           return pathResult;
         }
         const pathArg = pathResult.value;
-        // `--` terminates options so a path that looks like a flag can never be
-        // parsed as one. Scope to the opened root ('.') when no path is given so
-        // a root that is a SUBDIR of a larger worktree never diffs siblings.
-        args.push('--', pathArg ?? '.');
+
+        const args: string[] = ['diff'];
+        if (untracked && pathArg !== null) {
+          // Whole-file additions for a new, untracked file.
+          args.push('--no-index', '--', '/dev/null', pathArg);
+        } else {
+          if (staged) {
+            args.push('--cached');
+          }
+          // `--` terminates options so a path that looks like a flag can never be
+          // parsed as one. Scope to the opened root ('.') when no path is given so
+          // a root that is a SUBDIR of a larger worktree never diffs siblings.
+          args.push('--', pathArg ?? '.');
+        }
+
         const run_ = await invoke(args);
         // An oversized diff overflows `maxBuffer` (failureReason 'maxBuffer'):
         // the partial stdout is still a valid prefix of the diff, so bound it and
-        // report a `truncated: true` SUCCESS rather than a failure.
-        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer') {
+        // report a `truncated: true` SUCCESS rather than a failure. With
+        // `--no-index`, exit code 1 means "files differ" (expected success).
+        const noIndexDiffered = untracked && run_.exitCode === 1;
+        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer' && !noIndexDiffered) {
           return { ok: false, error: describeFailure(run_) };
         }
         const overflowed = run_.failureReason === 'maxBuffer';
@@ -577,10 +597,31 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /** Push to the upstream remote (network op, longer timeout). */
+    /**
+     * Push to the upstream remote (network op, longer timeout).
+     *
+     * When the current branch has NO upstream (a freshly-created local branch),
+     * a bare `git push` fails unless the user configured `push.autoSetupRemote`.
+     * So we first probe `@{upstream}`; if it is absent we push with
+     * `-u origin HEAD`, which both pushes AND sets the upstream so subsequent
+     * pushes/pulls and the ahead/behind meter work. This keeps `origin` as the
+     * conventional default remote — if the user has a non-`origin` remote the
+     * push surfaces git's own actionable error rather than silently guessing.
+     */
     push: async (): Promise<GitResult<GitPushPullResult>> => {
       try {
-        const run_ = await invoke(['push'], GIT_NETWORK_TIMEOUT_MS);
+        const upstreamRun = await invoke([
+          'rev-parse',
+          '--abbrev-ref',
+          '--symbolic-full-name',
+          '@{upstream}',
+        ]);
+        const hasUpstream = upstreamRun.exitCode === 0 && upstreamRun.stdout.trim().length > 0;
+        const args = hasUpstream
+          ? ['push']
+          : // No upstream: set it on this first push so the branch becomes tracked.
+            ['push', '-u', 'origin', 'HEAD'];
+        const run_ = await invoke(args, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { ok: false, error: describeFailure(run_) };
         }

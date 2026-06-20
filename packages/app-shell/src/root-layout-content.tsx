@@ -134,6 +134,12 @@ export interface RootLayoutContentProps {
    * This loader is the single source of truth for app-wide database tooling:
    * RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel.
    */
+  /**
+   * Optional Git surface (desktop-only). Supplied by the desktop wrapper when
+   * the `window.git` bridge is present; web never constructs it (capability
+   * gating, not an isElectron check). When absent, no Git nav item is rendered.
+   */
+  readonly gitPageContent?: ReactNode;
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
@@ -145,6 +151,7 @@ export interface RootLayoutContentProps {
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/settings': 'settings',
   '/prompts': 'prompts',
+  '/git': 'git',
 };
 
 function resolveActiveTabForPath(path: string): PanelTab {
@@ -320,6 +327,7 @@ export function RootLayoutContent({
   contextExplorerPanelContent,
   settingsPageContent,
   promptsPageContent,
+  gitPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -412,6 +420,15 @@ export function RootLayoutContent({
                 data-testid="settings-route"
               >
                 {settingsPageContent}
+              </div>
+            ) : null}
+            {gitPageContent && mountedTabs.has('git') ? (
+              <div
+                aria-hidden={activeTab !== 'git'}
+                className={activeTab === 'git' ? 'h-full' : 'hidden h-full'}
+                data-testid="git-route"
+              >
+                {gitPageContent}
               </div>
             ) : null}
           </EmbeddingRuntimeProvider>
