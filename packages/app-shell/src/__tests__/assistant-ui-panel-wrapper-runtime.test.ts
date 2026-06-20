@@ -36,6 +36,7 @@ function createRepositoryStub(
     },
     createThreadRun,
     getThreadCumulativeUsage: async () => null,
+    getCrossRootUsage: async () => [],
     recordRunUsage: async () => {},
     deleteThread: async () => {},
     listLatestThreadRuns: async () => [],
