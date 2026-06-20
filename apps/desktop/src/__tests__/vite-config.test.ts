@@ -50,6 +50,24 @@ describe('desktop vite config alias contract', () => {
     expect(config).toContain("'@brainstrike/file-tree-worker'");
   });
 
+  it('source-aliases context-actions + commands in BOTH renderer vite configs (chunk-init TDZ)', () => {
+    // Resolving these to their built `dist` (instead of source, like every other
+    // @brainstrike package) lands `defineContextAction` in a separate chunk from
+    // the source feature `*/context-actions` that call it at module-init →
+    // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
+    // renderer on startup forever (dev is unaffected; caught only by live
+    // built-app verification / the Desktop E2E smoke). They MUST resolve to src.
+    const desktop = readDesktopViteConfig();
+    const web = readFileSync(path.resolve(process.cwd(), '../web/vite.config.mts'), 'utf8');
+    for (const pkg of ['context-actions', 'commands'] as const) {
+      for (const config of [desktop, web]) {
+        expect(config).toContain(`@brainstrike/${pkg}`);
+        expect(config).toContain(`../../packages/${pkg}/src`);
+        expect(config).not.toContain(`@brainstrike/${pkg}/dist`);
+      }
+    }
+  });
+
   it('uses a dedicated strict dev-server port for the desktop renderer', () => {
     const config = readDesktopViteConfig();
 
