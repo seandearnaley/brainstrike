@@ -118,6 +118,30 @@ describe('tool schemas', () => {
     );
   });
 
+  it('validates webSearch input and rejects unknown fields (strict)', () => {
+    expect(validateToolInput('brainstrike.webSearch', { query: 'react useEffect' }).ok).toBe(true);
+    expect(
+      validateToolInput('brainstrike.webSearch', { query: 'react useEffect', maxResults: 3 }).ok
+    ).toBe(true);
+    // Missing required query → invalid.
+    expect(validateToolInput('brainstrike.webSearch', {}).ok).toBe(false);
+    // maxResults over the cap → invalid.
+    expect(validateToolInput('brainstrike.webSearch', { query: 'x y', maxResults: 50 }).ok).toBe(
+      false
+    );
+    // Unknown field → rejected by .strict().
+    expect(validateToolInput('brainstrike.webSearch', { query: 'react', bogus: true }).ok).toBe(
+      false
+    );
+  });
+
+  it('documents webSearch in schema display metadata with the external-service caveat', () => {
+    const display = getToolSchemaDisplay('brainstrike.webSearch');
+    expect(display).toBeDefined();
+    expect(display?.parameters.find((param) => param.name === 'query')?.required).toBe(true);
+    expect(display?.description).toContain('EXTERNAL SERVICE');
+  });
+
   it('documents context curation tools in schema display metadata', () => {
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
