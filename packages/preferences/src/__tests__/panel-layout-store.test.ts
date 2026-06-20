@@ -78,6 +78,11 @@ describe('panel-layout-store', () => {
     expect(store.getState().activeTab).toBe('prompts');
   });
 
+  it('supports terminal tab', () => {
+    store.getState().setActiveTab('terminal');
+    expect(store.getState().activeTab).toBe('terminal');
+  });
+
   it('resets corrupted sizes below minimum threshold to defaults', () => {
     // Sizes like [4.488, 5.386, 0] represent corrupted localStorage values
     store.getState().setSizes([4.488, 5.386, 0]);
