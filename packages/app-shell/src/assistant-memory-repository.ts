@@ -111,8 +111,28 @@ export interface RecordRunUsageInput {
   readonly outputTokens: number;
   readonly provider: string;
   readonly resourceId: string;
+  /**
+   * Workspace ROOT this run was focused on, snapshotted at request start.
+   * Null/undefined when no root is focused — an honest "unattributed" bucket,
+   * NOT a fake root (no silent fallback).
+   */
+  readonly rootId?: string | null;
   readonly runId: string;
   readonly threadId: string;
+}
+
+/**
+ * One per-(root, provider, model) durable usage subtotal for a workspace
+ * (resourceId). `rootId` is null for runs that had no focused root. Cost is
+ * priced per (root, model) then summed per root — never cumulative tokens
+ * against a single price.
+ */
+export interface CrossRootUsageRow {
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+  readonly rootId: string | null;
 }
 
 /** Per-model token subtotal for a single thread. */
@@ -141,6 +161,7 @@ export interface AssistantThreadRepository {
   createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
+  getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
   getThreadCumulativeUsage: (threadId: string) => Promise<ThreadCumulativeUsage | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
@@ -232,6 +253,11 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
 -- both the test-only numbered runner and the real app converge on one shape.
 -- No FK to mastra_threads: usage may be recorded for non-memory-backed turns,
 -- and the row is a billing fact that should outlive a thread deletion cascade.
+-- root_id (Phase 5.2, nullable) groups usage by workspace ROOT for cross-root
+-- cost aggregation. Captured at request start (focus can change mid-run);
+-- NULL is an honest "unattributed" bucket, never a fake root. This bootstrap,
+-- migration 046 (table), and migration 047 (ALTER + index) must converge on
+-- one shape — keep the column + the root index byte-identical to 047.
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
   id text PRIMARY KEY,
   thread_id text NOT NULL,
@@ -241,11 +267,15 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
   provider text NOT NULL,
   input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
   output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
-  created_at timestamptz NOT NULL DEFAULT NOW()
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  root_id text
 );
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
+  ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
@@ -1458,8 +1488,8 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
-          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           crypto.randomUUID(),
           input.threadId,
@@ -1470,6 +1500,7 @@ export function createPgliteAssistantThreadRepository(
           input.inputTokens,
           input.outputTokens,
           new Date(),
+          input.rootId ?? null,
         ]
       );
     },
@@ -1505,6 +1536,33 @@ export function createPgliteAssistantThreadRepository(
         } satisfies ThreadModelUsageSubtotal;
       });
       return { perModel, totalInputTokens, totalOutputTokens };
+    },
+    async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
+      await initialize();
+      // Per-(root, provider, model) subtotals for the workspace. Grouping by
+      // model keeps cost priceable per model, then summed per root — the panel
+      // never multiplies a root's cumulative tokens by one model's price.
+      // NULLs FIRST so the "unattributed" bucket renders deterministically.
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT
+            root_id AS "rootId",
+            provider,
+            model,
+            SUM(input_tokens)::bigint AS "inputTokens",
+            SUM(output_tokens)::bigint AS "outputTokens"
+         FROM ${ASSISTANT_RUN_USAGE_TABLE}
+         WHERE resource_id = $1
+         GROUP BY root_id, provider, model
+         ORDER BY root_id ASC NULLS FIRST, provider ASC, model ASC`,
+        [resourceId]
+      );
+      return result.rows.map((row) => ({
+        rootId: nullableString(row['rootId']),
+        provider: requireString(row['provider'], 'provider'),
+        model: requireString(row['model'], 'model'),
+        inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
+        outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
+      }));
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();

@@ -97,6 +97,14 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   }),
 }));
 
+vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+  createCostTrackingSettingsCategory: (): MockSettingsCategory => ({
+    id: 'cost-tracking',
+    title: 'Cost Tracking',
+    content: <div data-testid="cost-tracking-category" />,
+  }),
+}));
+
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useRestoreAccess: () => ({
     storedFolders: mockState.storedFolders,
@@ -349,6 +357,7 @@ describe('SettingsPageContent tool operations', () => {
       'appearance',
       'search-indexing',
       'token-counting',
+      'cost-tracking',
       'local-runtimes',
       'models',
       'logging',

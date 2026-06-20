@@ -13,6 +13,13 @@ import {
 
 interface UseAssistantRequestLifecycleArgs {
   readonly assistantThreadRepository: AssistantThreadRepository | null;
+  /**
+   * The focused workspace ROOT id at request preparation, or null/undefined
+   * when no root is focused. Snapshotted with the run so durable usage is
+   * attributed to the root the run operated on — focus, like the model, can
+   * change mid-run.
+   */
+  readonly focusedRootId: string | null | undefined;
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
   readonly providerOptions: Record<string, unknown> | undefined;
@@ -30,6 +37,11 @@ interface UseAssistantRequestLifecycleArgs {
 export interface AssistantRunUsageContext {
   readonly model: string;
   readonly provider: string;
+  /**
+   * Focused workspace ROOT id at request start, or null when unattributed.
+   * Snapshotted (not read live at finish) for the same reason as the model.
+   */
+  readonly rootId: string | null;
   readonly runId: string;
 }
 
@@ -51,6 +63,7 @@ interface UseAssistantRequestLifecycleResult {
 
 export function useAssistantRequestLifecycle({
   assistantThreadRepository,
+  focusedRootId,
   memoryResourceId,
   modelSettings,
   providerOptions,
@@ -135,6 +148,10 @@ export function useAssistantRequestLifecycle({
           runId,
           provider: selectedProvider,
           model: resolvedModelName,
+          // Snapshot the focused root too — focus can change mid-run, so
+          // durable usage must attribute to the root the run operated on.
+          // No focused root → null (honest "unattributed", never a fake root).
+          rootId: focusedRootId ?? null,
         });
       }
       activeAssistantForegroundRunIdRef.current = runId;
@@ -149,6 +166,7 @@ export function useAssistantRequestLifecycle({
     };
   }, [
     assistantThreadRepository,
+    focusedRootId,
     memoryResourceId,
     modelSettings,
     providerOptions,

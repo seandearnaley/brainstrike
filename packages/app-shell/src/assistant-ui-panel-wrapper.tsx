@@ -888,6 +888,9 @@ export function AssistantUiPanelWrapper({
     renewActiveAssistantForegroundActivity,
   } = useAssistantRequestLifecycle({
     assistantThreadRepository,
+    // The focused root id (file-explorer store; same identity space as the DB
+    // roots.id). Snapshotted at request start for durable per-root cost.
+    focusedRootId: currentFolderId,
     memoryResourceId,
     modelSettings,
     providerOptions,
@@ -1263,6 +1266,9 @@ export function AssistantUiPanelWrapper({
           threadId: selectedMemoryThreadId,
           runId: runContext.runId,
           resourceId: memoryResourceId,
+          // Request-start root (null when unattributed) — same snapshot source
+          // as model/provider, so cost is attributable per workspace root.
+          rootId: runContext.rootId,
           model: runContext.model,
           provider: runContext.provider,
           inputTokens: usage.inputTokens,

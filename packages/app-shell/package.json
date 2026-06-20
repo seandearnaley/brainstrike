@@ -48,6 +48,10 @@
       "types": "./dist/connected-prompt-manager-lazy.d.ts",
       "import": "./dist/connected-prompt-manager-lazy.js"
     },
+    "./cost-tracking": {
+      "types": "./dist/cost-tracking/index.d.ts",
+      "import": "./dist/cost-tracking/index.js"
+    },
     "./diagnostics": {
       "types": "./dist/diagnostics/index.d.ts",
       "import": "./dist/diagnostics/index.js"
