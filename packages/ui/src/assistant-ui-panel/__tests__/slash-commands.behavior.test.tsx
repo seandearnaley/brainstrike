@@ -149,12 +149,19 @@ describe('composer slash commands', () => {
     expect(within(popover).queryByText('Reveal in Finder')).not.toBeInTheDocument();
   });
 
-  it('renders the composer with no slash popover when no commands are passed', async () => {
+  it('does NOT mount the slash root (no popover opens) when no commands are passed', async () => {
     renderPanel([]);
     await typeSlash();
 
-    // With an empty command list the library renders no options; the listbox
-    // either never opens or is empty — assert no command text leaks in.
-    expect(screen.queryByText('New thread')).not.toBeInTheDocument();
+    // The installed @assistant-ui opens the popover whenever "/" is typed and an
+    // adapter is mounted — it does NOT check that search() returns items. So the
+    // panel must not mount the slash root at all when there are no commands;
+    // otherwise an empty menu would appear. Assert the listbox never opens.
+    // (queryByRole is synchronous — if the root were mounted the popover would
+    // already be open by now since the trigger char is in the textarea.)
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).not.toBeInTheDocument();
+    // The composer itself still works (Input/Send rendered).
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
 });

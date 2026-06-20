@@ -1,9 +1,14 @@
-import type { Command } from '@brainstrike/commands';
+import type { Command, CommandContext } from '@brainstrike/commands';
 import type { ContextTarget } from '@brainstrike/context-actions';
+import { addLogListener, configureLogger, createLogger, type LogRecord } from '@brainstrike/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';
-import { selectSlashCommandSource } from '../slash-command-source';
+import {
+  runSlashCommand,
+  type SlashCommandFailureToast,
+  selectSlashCommandSource,
+} from '../slash-command-source';
 
 type MutableWindow = Window & { platform?: unknown };
 
@@ -90,5 +95,111 @@ describe('selectSlashCommandSource (slash-command projection)', () => {
     const ids = selectSlashCommandSource(registry, context).map((command) => command.id);
     expect(ids).toContain('thread.new');
     expect(ids).not.toContain('workspace.factory-reset');
+  });
+});
+
+describe('runSlashCommand (no-silent-fallbacks failure seam)', () => {
+  const context = {} as CommandContext;
+
+  function captureErrorLogs(): { records: LogRecord[]; stop: () => void } {
+    // Per the repo logging convention, assert via addLogListener — never by
+    // mocking console.
+    configureLogger({ console: false });
+    const records: LogRecord[] = [];
+    const stop = addLogListener((record) => {
+      records.push(record);
+    });
+    return { records, stop };
+  }
+
+  it('surfaces a destructive toast + logger.error when run resolves { ok: false }', async () => {
+    const toast = vi.fn<SlashCommandFailureToast>();
+    const logger = createLogger('AssistantSlashCommands');
+    const { records, stop } = captureErrorLogs();
+    const command: Command = {
+      id: 'thread.new',
+      label: 'New thread',
+      run: () => Promise.resolve({ ok: false, error: 'boom' }),
+    };
+
+    try {
+      await runSlashCommand(command, context, { toast, logger });
+    } finally {
+      stop();
+    }
+
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'destructive',
+      title: 'Command failed',
+      description: 'boom',
+    });
+    const errorRecord = records.find(
+      (record) =>
+        record.scope === 'AssistantSlashCommands' &&
+        record.message?.includes('Slash command failed')
+    );
+    expect(errorRecord).toBeDefined();
+    expect(errorRecord?.args).toContainEqual({ id: 'thread.new', description: 'boom' });
+  });
+
+  it('surfaces a destructive toast + logger.error when run REJECTS (not swallowed)', async () => {
+    const toast = vi.fn<SlashCommandFailureToast>();
+    const logger = createLogger('AssistantSlashCommands');
+    const { records, stop } = captureErrorLogs();
+    const command: Command = {
+      id: 'fs.reveal',
+      label: 'Reveal in Finder',
+      run: () => Promise.reject(new Error('bridge exploded')),
+    };
+
+    try {
+      // The rejection must be caught inside runSlashCommand — awaiting here must
+      // NOT throw (the failure is surfaced, never swallowed AND never escapes).
+      await expect(runSlashCommand(command, context, { toast, logger })).resolves.toBeUndefined();
+    } finally {
+      stop();
+    }
+
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'destructive',
+      title: 'Command failed',
+      description: 'bridge exploded',
+    });
+    const errorRecord = records.find(
+      (record) =>
+        record.scope === 'AssistantSlashCommands' &&
+        record.message?.includes('Slash command failed')
+    );
+    expect(errorRecord?.args).toContainEqual({
+      id: 'fs.reveal',
+      description: 'bridge exploded',
+    });
+  });
+
+  it('is silent on success (no toast, no error log)', async () => {
+    const toast = vi.fn<SlashCommandFailureToast>();
+    const logger = createLogger('AssistantSlashCommands');
+    const { records, stop } = captureErrorLogs();
+    const command: Command = {
+      id: 'thread.new',
+      label: 'New thread',
+      run: () => Promise.resolve({ ok: true }),
+    };
+
+    try {
+      await runSlashCommand(command, context, { toast, logger });
+    } finally {
+      stop();
+    }
+
+    expect(toast).not.toHaveBeenCalled();
+    expect(
+      records.some(
+        (record) =>
+          record.scope === 'AssistantSlashCommands' &&
+          record.message?.includes('Slash command failed')
+      )
+    ).toBe(false);
   });
 });

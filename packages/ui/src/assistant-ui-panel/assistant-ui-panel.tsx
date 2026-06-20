@@ -577,6 +577,51 @@ const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 // adapter/icon-map derivations downstream (react-doctor: empty default prop).
 const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 
+/**
+ * The composer input row (textarea + Send/Cancel), defined ONCE so both the
+ * slash-enabled and plain composer paths share it — only the optional
+ * `slashPopover` differs. Send / Cancel are unchanged regardless of the slash
+ * feature. When `slashPopover` is omitted the row renders without any "/" menu.
+ */
+const ComposerInputRow: FC<{
+  isComposerDisabled: boolean;
+  slashPopover?: ReactNode;
+}> = ({ isComposerDisabled, slashPopover }) => (
+  <div className="bs-composer-input-frame">
+    <ComposerPrimitive.Input
+      aria-label="Message input"
+      className="aui-composer-input"
+      disabled={isComposerDisabled}
+      id="assistant-input"
+      placeholder="Ask BrainStrike anything..."
+      rows={1}
+    />
+    {slashPopover}
+    <div className="bs-composer-primary-actions">
+      <ThreadPrimitive.If running={false}>
+        <ComposerPrimitive.Send
+          aria-label="Send"
+          className="aui-button aui-button-primary aui-composer-send"
+          disabled={isComposerDisabled}
+          title="Send"
+        >
+          <ArrowUpIcon className="size-4" />
+        </ComposerPrimitive.Send>
+      </ThreadPrimitive.If>
+      <ThreadPrimitive.If running>
+        <ComposerPrimitive.Cancel
+          aria-label="Stop"
+          className="aui-button aui-button-primary aui-composer-cancel"
+          disabled={isComposerDisabled}
+          title="Stop"
+        >
+          <SquareIcon className="size-3.5 fill-current" />
+        </ComposerPrimitive.Cancel>
+      </ThreadPrimitive.If>
+    </div>
+  </div>
+);
+
 const ThreadHistoryControl: FC<{
   controlsId: string;
   expanded: boolean;
@@ -964,9 +1009,13 @@ const ChatThreadUI: FC<{
   const messagesRegionId = useId();
 
   // Slash-command "/" menu: derive the library adapter + icon lookup from the
-  // app-passed commands during render (no setState-in-effect). The adapter
-  // hook is memoized on the command list; when no commands are passed the menu
-  // simply has nothing to show.
+  // app-passed commands during render (no setState-in-effect). The adapter hook
+  // is memoized on the command list and always runs (rules-of-hooks), but the
+  // slash root is only MOUNTED when there are commands — the installed
+  // @assistant-ui opens the popover whenever "/" is typed and an adapter is
+  // present, regardless of whether search() returns items, so mounting it with
+  // an empty list would surface an empty menu. "No commands" ⇒ no slash feature.
+  const hasSlashCommands = slashCommands.length > 0;
   const slashAdapterOptions = useMemo(
     () => toSlashCommandAdapterOptions(slashCommands),
     [slashCommands]
@@ -1063,46 +1112,22 @@ const ChatThreadUI: FC<{
           data-disabled={isComposerDisabled ? '' : undefined}
           onSubmitCapture={onThreadRunStart}
         >
-          {/* The "/" slash menu wraps the Input (trigger detection reads the
-              composer text) and renders its popover after it. Send / Cancel /
-              Attachments are unchanged — this is a pure addition. The library
-              owns the editable-combobox a11y (listbox/option + aria-active-
-              descendant). */}
-          <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
-            <div className="bs-composer-input-frame">
-              <ComposerPrimitive.Input
-                aria-label="Message input"
-                className="aui-composer-input"
-                disabled={isComposerDisabled}
-                id="assistant-input"
-                placeholder="Ask BrainStrike anything..."
-                rows={1}
+          {/* The composer input row. When slash commands exist it is wrapped in
+              the "/" slash root (trigger detection reads the composer text, and
+              the popover renders after the Input); when there are none the row
+              renders bare, so typing "/" does nothing special — "no commands"
+              means "no slash feature," never an empty menu. Send / Cancel are
+              unchanged either way. */}
+          {hasSlashCommands ? (
+            <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
+              <ComposerInputRow
+                isComposerDisabled={isComposerDisabled}
+                slashPopover={<ComposerTriggerPopover iconMap={slashIconMap} />}
               />
-              <ComposerTriggerPopover iconMap={slashIconMap} />
-              <div className="bs-composer-primary-actions">
-                <ThreadPrimitive.If running={false}>
-                  <ComposerPrimitive.Send
-                    aria-label="Send"
-                    className="aui-button aui-button-primary aui-composer-send"
-                    disabled={isComposerDisabled}
-                    title="Send"
-                  >
-                    <ArrowUpIcon className="size-4" />
-                  </ComposerPrimitive.Send>
-                </ThreadPrimitive.If>
-                <ThreadPrimitive.If running>
-                  <ComposerPrimitive.Cancel
-                    aria-label="Stop"
-                    className="aui-button aui-button-primary aui-composer-cancel"
-                    disabled={isComposerDisabled}
-                    title="Stop"
-                  >
-                    <SquareIcon className="size-3.5 fill-current" />
-                  </ComposerPrimitive.Cancel>
-                </ThreadPrimitive.If>
-              </div>
-            </div>
-          </ComposerPrimitive.Unstable_SlashCommandRoot>
+            </ComposerPrimitive.Unstable_SlashCommandRoot>
+          ) : (
+            <ComposerInputRow isComposerDisabled={isComposerDisabled} />
+          )}
           {hasGroupedProviders && (
             <ProviderModelHeader
               groups={providerGroups}

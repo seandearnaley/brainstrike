@@ -9,7 +9,7 @@ import {
   buildAppCommandContext,
   createAppCommandRegistry,
 } from './command-registry';
-import { selectSlashCommandSource } from './slash-command-source';
+import { runSlashCommand, selectSlashCommandSource } from './slash-command-source';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
 
 const logger = createLogger('AssistantSlashCommands');
@@ -59,24 +59,7 @@ export function useAssistantSlashCommands(): readonly SlashCommand[] {
   );
 
   const runCommand = useCallback(
-    async (command: Command): Promise<void> => {
-      let outcome: { ok: boolean; error?: string };
-      try {
-        outcome = await command.run(context);
-      } catch (error) {
-        outcome = {
-          ok: false,
-          error: error instanceof Error ? error.message : 'Command failed unexpectedly',
-        };
-      }
-      if (outcome.ok) {
-        return;
-      }
-      // Surface the failure (toast + log) — never swallow it.
-      const description = outcome.error ?? `"${command.label}" could not be completed.`;
-      logger.error('Slash command failed', { id: command.id, description });
-      toast({ variant: 'destructive', title: 'Command failed', description });
-    },
+    (command: Command): Promise<void> => runSlashCommand(command, context, { toast, logger }),
     [context, toast]
   );
 

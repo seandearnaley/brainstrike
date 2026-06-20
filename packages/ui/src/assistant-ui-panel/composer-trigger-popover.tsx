@@ -1,7 +1,6 @@
 import { ComposerPrimitive } from '@assistant-ui/react';
 import { SlashIcon } from 'lucide-react';
 import type { ComponentType, FC, ReactNode } from 'react';
-import { cn } from '../lib/utils';
 
 /**
  * Presentational popover content for the composer's "/" slash menu. It renders
@@ -38,7 +37,7 @@ export const ComposerTriggerPopover: FC<ComposerTriggerPopoverProps> = ({ iconMa
               item={item}
               key={item.id}
             >
-              <Icon className={cn('size-4 shrink-0 text-muted-foreground')} />
+              <Icon className="size-4 shrink-0 text-muted-foreground" />
               <span className="bs-composer-trigger-item-label">{item.label}</span>
             </ComposerPrimitive.Unstable_TriggerPopoverItem>
           );
