@@ -70,7 +70,11 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
-import { type CumulativeUsageDisplay, ThreadContextMeter } from './context-usage-meter';
+import {
+  type CumulativeUsageDisplay,
+  type OmMeterState,
+  ThreadContextMeter,
+} from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { LocalModelStatus } from './local-model-status';
@@ -253,6 +257,7 @@ export interface AssistantUiPanelProps {
    * runtime (web, or desktop without the llm-host bridge).
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
+  omSegment?: OmMeterState | undefined;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -600,6 +605,7 @@ interface ChatThreadProps {
   effectiveInputBudget?: number | undefined;
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
+  omSegment?: OmMeterState | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -631,6 +637,7 @@ const LocalRuntimeChat: FC<
 > = ({
   contextWindow,
   cumulativeUsage,
+  omSegment,
   effectiveInputBudget,
   providerGroups,
   pickerModels,
@@ -722,6 +729,7 @@ const LocalRuntimeChat: FC<
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
+          omSegment={omSegment}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -764,6 +772,7 @@ const DataStreamRuntimeChat: FC<
 > = ({
   contextWindow,
   cumulativeUsage,
+  omSegment,
   effectiveInputBudget,
   providerGroups,
   pickerModels,
@@ -856,6 +865,7 @@ const DataStreamRuntimeChat: FC<
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
+          omSegment={omSegment}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -880,6 +890,7 @@ const DataStreamRuntimeChat: FC<
 const ChatThreadUI: FC<{
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
+  omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -901,6 +912,7 @@ const ChatThreadUI: FC<{
 }> = ({
   contextWindow,
   cumulativeUsage,
+  omSegment,
   effectiveInputBudget,
   providerGroups,
   hasGroupedProviders,
@@ -1003,6 +1015,7 @@ const ChatThreadUI: FC<{
           contextWindow={contextWindow}
           cumulativeUsage={cumulativeUsage}
           effectiveInputBudget={effectiveInputBudget}
+          omSegment={omSegment}
           threadKey={threadKey}
         />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
@@ -1068,6 +1081,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
   contextWindow,
   cumulativeUsage,
+  omSegment,
   completePreparedRequest,
   effectiveInputBudget,
   providerGroups,
@@ -1158,6 +1172,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             loadLocalLlmBackend={loadLocalLlmBackend}
             localLoadingState={localLoadingState}
             modelId={modelName}
+            omSegment={omSegment}
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
@@ -1188,6 +1203,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
             localLoadingState={localLoadingState}
             modelName={modelName}
+            omSegment={omSegment}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
             onStreamActivity={onStreamActivity}
