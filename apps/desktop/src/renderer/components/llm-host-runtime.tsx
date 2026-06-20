@@ -234,7 +234,8 @@ function reportRequestError(
   request: LlmHostRequest,
   runtimeId: string,
   stage: string,
-  error: unknown
+  error: unknown,
+  engineReset = false
 ): void {
   const message = error instanceof Error ? error.message : String(error);
   logger.error('Llm host request failed', {
@@ -249,6 +250,7 @@ function reportRequestError(
   reportResponse(
     createLlmHostErrorReport(request, error, {
       stage,
+      ...(engineReset ? { engineReset: true } : {}),
       diagnostics: {
         kind: request.payload.kind,
         modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
@@ -266,8 +268,20 @@ function reportRequestError(
  * substrings match — generic words like "device"/"buffer"/"session"/"tensor"
  * also appear in tokenizer/template/validation errors, and a false positive
  * throws away a warmed multi-GB model. ("gpu" also covers "webgpu".)
+ *
+ * GPU memory exhaustion (e.g. prefilling a prompt larger than the device can
+ * hold) is the same kind of poisoning fault, but ONNX Runtime surfaces it
+ * through several messages that contain NO "gpu" substring: an OrtRun
+ * `SafeInt` integer overflow, a `std::bad_alloc`, etc. We match the specific
+ * ORT/C++ tokens (`ortrun`/`bad_alloc`/`safeint`) — not the generic phrase
+ * "integer overflow", which `safeint` already covers and which is the only
+ * token here that could plausibly appear in a non-engine error. Those tokens
+ * never appear in JS tokenizer/template/validation errors, so matching them is
+ * safe and keeps a single overflowed tool turn from bricking local chat for
+ * the rest of the session.
  */
-const ENGINE_FAULT_PATTERN = /gpu|unaligned|adapter|out of memory|device lost/i;
+const ENGINE_FAULT_PATTERN =
+  /gpu|unaligned|adapter|out of memory|device lost|ortrun|bad_alloc|safeint/i;
 
 function isEngineFault(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') {
@@ -360,6 +374,8 @@ async function processLlmHostRequest(
 ): Promise<void> {
   let stage = 'received-request';
   let retriedAfterEngineFault = false;
+  // Hoisted so the outer catch can also honor an abort (see the catch below).
+  let abortController: AbortController | null = null;
   try {
     logRequestReceived(request, runtimeId);
     stage = 'initialize-backend';
@@ -368,7 +384,7 @@ async function processLlmHostRequest(
       return;
     }
     stage = 'generate-response';
-    const abortController = createAbortController(request.requestId);
+    abortController = createAbortController(request.requestId);
     try {
       await handleGenerateRequest(backend, request, runtimeId, abortController);
     } catch (error) {
@@ -381,11 +397,20 @@ async function processLlmHostRequest(
       clearAbortController(request.requestId);
     }
   } catch (error) {
-    const reportedError =
-      stage === 'generate-response' && isEngineFault(error)
-        ? await recoverFromEngineFault(backend, request, runtimeId, error, retriedAfterEngineFault)
-        : error;
-    reportRequestError(request, runtimeId, stage, reportedError);
+    // A recoverable engine fault is one the renderer already disposed locally;
+    // flag it so the main-process manager escalates to a host-window reset
+    // (a fresh WebGPU device) — disposing the ORT session alone leaves the
+    // wedged device behind (see LlmHostErrorDetails.engineReset). Aborts never
+    // trigger recovery: a cancelled generation can surface as a non-AbortError
+    // engine-fault-shaped GPU error (teardown racing the inference), and a
+    // spurious window reset on a cancelled request would needlessly reject
+    // other in-flight work — so re-check the abort flag here too.
+    const recoverableEngineFault =
+      stage === 'generate-response' && isEngineFault(error) && !abortController?.signal.aborted;
+    const reportedError = recoverableEngineFault
+      ? await recoverFromEngineFault(backend, request, runtimeId, error, retriedAfterEngineFault)
+      : error;
+    reportRequestError(request, runtimeId, stage, reportedError, recoverableEngineFault);
   }
 }
 

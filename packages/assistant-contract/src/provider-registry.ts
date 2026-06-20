@@ -555,14 +555,29 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: false,
-        // 131_072 matches the value declared in the DB model-catalog migration
-        // (028-gemma-local-llm.ts, capabilities.contextWindow=131072) and is the
-        // context window Gemma 4 E2B actually supports per the Gemma 4 spec.
-        // The previous value (32_768) was incorrect — it was inherited from older
-        // local models (FunctionGemma 270M, Qwen3 0.6B) before migration 028 added
-        // Gemma 4 E2B. The runtime reports capabilities at contextWindow:131072.
-        contextWindow: 131_072,
-        maxOutputTokens: 8192,
+        // These are the RUNTIME budgets, not Gemma 4 E2B's architectural limits
+        // (the model spec lists ~128K context). The local provider runs q4f16
+        // weights through transformers.js on WebGPU, where prefilling a large
+        // prompt allocates an O(seq^2) attention buffer that exhausts GPU memory
+        // and aborts ONNX Runtime (SafeInt overflow / std::bad_alloc) well below
+        // the architectural window — empirically in the low thousands of tokens
+        // on a typical device. Declaring 131_072/8192 told the context-budget
+        // machinery (deriveEffectiveInputBudget -> agentLoop.inputTokenLimit ->
+        // Mastra TokenLimiter) and the meter that ~128K was usable, so multi-turn
+        // and tool-calling contexts ballooned straight into an OOM crash. These
+        // conservative values keep the assembled prompt bounded and cap local
+        // generation; a prompt that still exceeds a given device's GPU is caught
+        // by the engine-fault reset in llm-host-runtime (recovers + reports
+        // instead of poisoning the session). NOTE: this is RUNTIME-only metadata
+        // (no DB model-catalog migration). The DB catalog row (migration
+        // 028-gemma-local-llm.ts) still carries the DESCRIPTIVE
+        // capabilities.contextWindow: 131072, which is intentionally NOT
+        // consulted for budgeting — this static registry value is the sole
+        // budget source for the built-in 'local' provider — so the two
+        // diverging is harmless, not a bug. The deeper fix for reliable local
+        // tool-calling is a leaner local system-prompt/tool-schema footprint.
+        contextWindow: 8192,
+        maxOutputTokens: 2048,
       },
     ],
   },
