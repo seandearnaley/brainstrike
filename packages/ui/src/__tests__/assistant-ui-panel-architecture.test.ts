@@ -28,7 +28,12 @@ describe('assistant UI panel architecture', () => {
     // EMPTY_SLASH_COMMANDS default avoids a memo-breaking inline `[]`. The
     // popover UI + command mapper live in their own modules
     // (composer-trigger-popover.tsx, slash-commands.ts).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1600);
+    // Bumped 1600 → 1610 for the Fast Refresh hook-alias comment: the slash
+    // adapter is imported `unstable_useSlashCommandAdapter as useSlashCommandAdapter`
+    // so Vite dev's Fast Refresh recognizes it as a hook (a bare `unstable_use…`
+    // call corrupts the hook signature and crashes the dev server — see
+    // fast-refresh-hook-aliasing.test.ts).
+    expect(source.split('\n').length).toBeLessThanOrEqual(1610);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

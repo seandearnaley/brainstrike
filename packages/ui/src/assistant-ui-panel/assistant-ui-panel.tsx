@@ -9,12 +9,17 @@ import {
   MessagePrimitive,
   type ThreadHistoryAdapter,
   ThreadPrimitive,
-  unstable_useSlashCommandAdapter,
   useAssistantDataUI,
   useAui,
   useAuiState,
   useLocalRuntime,
   useMessagePartReasoning,
+  // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
+  // it as a hook. Its detection keys on the `use` prefix; an `unstable_use…` call
+  // site is missed, so React's real hook count (this hook calls useMemo) exceeds the
+  // Fast Refresh signature and throws "Rendered fewer hooks" -- crashing ChatThreadUI
+  // + looping the error boundary in dev. Dev-only; prod/tests (no Fast Refresh) were fine.
+  unstable_useSlashCommandAdapter as useSlashCommandAdapter,
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -1020,7 +1025,7 @@ const ChatThreadUI: FC<{
     () => toSlashCommandAdapterOptions(slashCommands),
     [slashCommands]
   );
-  const slashAdapter = unstable_useSlashCommandAdapter(slashAdapterOptions);
+  const slashAdapter = useSlashCommandAdapter(slashAdapterOptions);
   const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
 
   return (
