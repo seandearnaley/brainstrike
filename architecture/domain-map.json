@@ -134,6 +134,7 @@
       "owner": "foundation",
       "packages": [
         "@brainstrike/assistant-contract",
+        "@brainstrike/commands",
         "@brainstrike/context-actions",
         "@brainstrike/file-system",
         "@brainstrike/hooks",
