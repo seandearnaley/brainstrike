@@ -442,6 +442,10 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
   usePGliteDatabase: vi.fn(() => mockDb),
+  // The OM segment live query (useObservationalMemoryRow) — inert in these tests
+  // (no rows, not loading, no error) so the meter resolves to an empty/chat-only
+  // state without a real subscription.
+  usePGliteLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => {

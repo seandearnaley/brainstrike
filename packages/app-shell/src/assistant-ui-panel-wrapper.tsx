@@ -53,6 +53,7 @@ import {
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   addValuesToSet,
@@ -88,6 +89,7 @@ import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -1299,12 +1301,46 @@ export function AssistantUiPanelWrapper({
     void refreshCumulativeUsage();
   }, [refreshCumulativeUsage]);
 
+  // OM informational stats (observed tokens + compaction saved). Desktop-only:
+  // gated on the durable-assistant capability (NOT raw PGlite presence — web has
+  // a PGlite handle but no durable OM rows). The observation is NOT a budget
+  // segment (it does not consume this turn's input budget), so this derivation
+  // takes no budget/chat input. The live query is the ONLY async state; omSegment
+  // is DERIVED during render (no setState-in-effect, per the react-doctor
+  // no-adjust-state-on-prop-change rule). Scope selects the lookup key shape:
+  // thread → thread:{threadId}, Workspace(resource) → resource:{resourceId}.
+  const hasDurableOmCapability = hasDurableAssistantUsageCapability();
+  const omRowResult = useObservationalMemoryRow({
+    hasDurableCapability: hasDurableOmCapability,
+    scope: observationalMemorySettings.scope,
+    threadId: selectedMemoryThreadId,
+    resourceId: memoryResourceId,
+  });
+  const omSegment = useMemo<OmMeterState>(
+    () =>
+      resolveOmMeterState({
+        hasDurableCapability: hasDurableOmCapability,
+        omEnabled: observationalMemorySettings.enabled,
+        loading: omRowResult.loading,
+        row: omRowResult.row,
+        queryError: omRowResult.error,
+      }),
+    [
+      hasDurableOmCapability,
+      observationalMemorySettings.enabled,
+      omRowResult.error,
+      omRowResult.loading,
+      omRowResult.row,
+    ]
+  );
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
       contextWindow={selectedModelBudgetDef?.contextWindow}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
+      omSegment={omSegment}
       onProviderSettingsChange={handleProviderSettingsChange}
       onStreamActivity={renewActiveAssistantForegroundActivity}
       onUsage={handleUsage}
