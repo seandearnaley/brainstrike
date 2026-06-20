@@ -15,7 +15,10 @@ export interface UseGitPanelResult {
   /** True while a push or pull network op is running. */
   readonly isSyncing: boolean;
   /** Loads a diff for a file, or null on error (error already toasted). */
-  readonly loadDiff: (path: string, staged: boolean) => Promise<LoadedDiff | null>;
+  readonly loadDiff: (
+    path: string,
+    options: { staged: boolean; untracked: boolean }
+  ) => Promise<LoadedDiff | null>;
   readonly pull: () => Promise<void>;
   readonly push: () => Promise<void>;
   readonly refresh: () => void;
@@ -239,12 +242,19 @@ export function useGitPanel(): UseGitPanelResult {
   }, [bridge, activeRootId, runMutation, toast]);
 
   const loadDiff = useCallback(
-    async (path: string, staged: boolean): Promise<LoadedDiff | null> => {
+    async (
+      path: string,
+      options: { staged: boolean; untracked: boolean }
+    ): Promise<LoadedDiff | null> => {
       if (!(bridge && activeRootId)) {
         return null;
       }
       try {
-        const result = await bridge.diff(activeRootId, { path, staged });
+        const result = await bridge.diff(activeRootId, {
+          path,
+          staged: options.staged,
+          untracked: options.untracked,
+        });
         if (!result.ok) {
           logger.error('git diff failed', { error: result.error, path });
           toast({ title: 'Diff failed', description: result.error, variant: 'destructive' });

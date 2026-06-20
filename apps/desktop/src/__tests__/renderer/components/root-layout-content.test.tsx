@@ -1,5 +1,5 @@
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -90,12 +90,13 @@ vi.mock('@brainstrike/app-shell', () => ({
   ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
-// The Git surface is capability-gated; in unit tests `window.git` is absent so
-// the bridge reports unavailable and no Git tab is constructed. Mock the module
-// to keep the heavy @codemirror/merge graph out of this test.
-vi.mock('@brainstrike/app-shell/git-panel', () => ({
-  GitPanel: () => <div data-testid="git-panel" />,
-  isGitBridgeAvailable: () => false,
+// The Git surface is capability-gated. `gitBridgeAvailableMock` lets each test
+// drive the `isGitBridgeAvailable()` branch (default false = web-safe). Mocking
+// the availability subpath keeps the heavy @codemirror/merge graph out of this
+// test.
+const gitBridgeAvailableMock = vi.fn(() => false);
+vi.mock('@brainstrike/app-shell/git-panel/availability', () => ({
+  isGitBridgeAvailable: () => gitBridgeAvailableMock(),
 }));
 
 vi.mock('../../../renderer/components/git-page-content', () => ({
@@ -105,12 +106,25 @@ vi.mock('../../../renderer/components/git-page-content', () => ({
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: ({
     contextExplorerPageContent,
+    gitPageContent,
+    navigationItems,
   }: {
     contextExplorerPageContent: React.ReactNode;
+    gitPageContent?: React.ReactNode;
+    navigationItems?: Array<{ name: string; path: string }>;
   }) => (
     <div data-testid="file-explorer-provider">
       <div data-testid="app-layout">
+        {/* Surface the nav items + git page so capability-gating can be asserted. */}
+        <nav data-testid="nav-items">
+          {(navigationItems ?? []).map((item) => (
+            <span data-testid={`nav-item-${item.path}`} key={item.path}>
+              {item.name}
+            </span>
+          ))}
+        </nav>
         <main>{contextExplorerPageContent}</main>
+        {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
       </div>
     </div>
   ),
@@ -194,6 +208,8 @@ describe('RootLayoutContent', () => {
     currentDb = null;
     homeMountCount = 0;
     vi.clearAllMocks();
+    // Default: Git bridge unavailable (web-safe). clearAllMocks wiped the impl.
+    gitBridgeAvailableMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -221,6 +237,25 @@ describe('RootLayoutContent', () => {
   it('should render home page content by default', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+  });
+
+  it('does NOT surface the Git tab when window.git is absent (web-safe gate)', () => {
+    gitBridgeAvailableMock.mockReturnValue(false);
+    render(<RootLayoutContent />);
+    expect(screen.queryByTestId('nav-item-/git')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('git-page-slot')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the Git nav item + mounts the git page when window.git is available', () => {
+    gitBridgeAvailableMock.mockReturnValue(true);
+    render(<RootLayoutContent />);
+    const gitNavItem = screen.getByTestId('nav-item-/git');
+    expect(gitNavItem).toBeInTheDocument();
+    expect(gitNavItem).toHaveTextContent('Git');
+    // gitPageContent was passed → the git page surface mounts.
+    const gitSlot = screen.getByTestId('git-page-slot');
+    expect(gitSlot).toBeInTheDocument();
+    expect(within(gitSlot).getByTestId('git-page-content')).toBeInTheDocument();
   });
 
   it('keeps home content mounted while the database becomes available', async () => {

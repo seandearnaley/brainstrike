@@ -24,7 +24,17 @@ import { type LoadedDiff, useGitPanel } from './use-git-panel';
 interface SelectedFile {
   readonly path: string;
   readonly staged: boolean;
+  /** True for an untracked file → diff the whole file against /dev/null. */
+  readonly untracked: boolean;
 }
+
+/** Discriminated state for the diff pane: distinguishes loading / loaded / a
+ *  bridge FAILURE (already toasted) from a legitimately empty diff. */
+type DiffState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'loaded'; diff: LoadedDiff }
+  | { kind: 'failed' };
 
 /** Split the flat status file list into the three reviewer-facing buckets. */
 function partitionFiles(files: readonly GitStatusFile[]): {
@@ -125,34 +135,55 @@ function FileSection({
   );
 }
 
+/** Centered muted message used by several DiffPane states. */
+function DiffPaneMessage({
+  children,
+  testId,
+  tone,
+}: {
+  readonly children: ReactElement | string;
+  readonly testId?: string;
+  readonly tone?: 'muted' | 'destructive';
+}): ReactElement {
+  return (
+    <div
+      className={`flex h-full items-center justify-center px-6 text-center text-sm ${
+        tone === 'destructive' ? 'text-destructive' : 'text-muted-foreground'
+      }`}
+      data-testid={testId}
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
- * Right pane: the diff for the selected file (or a placeholder / loading /
- * no-textual-change state). Extracted so {@link GitPanel} stays within the
- * cognitive-complexity budget.
+ * Right pane: the diff for the selected file. Renders distinct states for
+ * no-selection / loading / load-FAILURE / actual diff / no-textual-changes, so
+ * the pane never conflates a bridge error or an empty diff into one misleading
+ * message. Extracted so {@link GitPanel} stays within the cognitive-complexity
+ * budget.
  */
 function DiffPane({
   selected,
-  isDiffLoading,
+  diffState,
   parsedDiff,
-  diff,
 }: {
   readonly selected: SelectedFile | null;
-  readonly isDiffLoading: boolean;
+  readonly diffState: DiffState;
   readonly parsedDiff: ParsedUnifiedDiff | null;
-  readonly diff: LoadedDiff | null;
 }): ReactElement {
   if (!selected) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        Select a file to view its diff.
-      </div>
-    );
+    return <DiffPaneMessage>Select a file to view its diff.</DiffPaneMessage>;
   }
-  if (isDiffLoading && !parsedDiff) {
+  if (diffState.kind === 'loading' || diffState.kind === 'idle') {
+    return <DiffPaneMessage>Loading diff…</DiffPaneMessage>;
+  }
+  if (diffState.kind === 'failed') {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-        Loading diff…
-      </div>
+      <DiffPaneMessage testId="git-panel-diff-error" tone="destructive">
+        {`Could not load the diff for ${selected.path}.`}
+      </DiffPaneMessage>
     );
   }
   if (parsedDiff?.hasHunks) {
@@ -164,18 +195,75 @@ function DiffPane({
         modified={parsedDiff.modified}
         original={parsedDiff.original}
         testId="git-panel-diff"
-        truncated={diff?.truncated ?? false}
+        truncated={diffState.diff.truncated}
       />
     );
   }
+  // Loaded but no hunks: an empty (e.g. mode-only) change.
   return (
-    <div
-      className="flex h-full items-center justify-center text-muted-foreground text-sm"
-      data-testid="git-panel-no-textual-diff"
-    >
-      No textual changes to display for {selected.path}.
-    </div>
+    <DiffPaneMessage testId="git-panel-no-textual-diff">
+      {`No textual changes to display for ${selected.path}.`}
+    </DiffPaneMessage>
   );
+}
+
+/**
+ * Owns the selected-file → diff lifecycle: tracks the clicked file and loads its
+ * diff via the bridge into a discriminated {@link DiffState}. Keeps {@link GitPanel}
+ * within its cognitive-complexity budget and isolates the load effect.
+ */
+function useSelectedDiff(loadDiff: ReturnType<typeof useGitPanel>['loadDiff']): {
+  selected: SelectedFile | null;
+  handleSelect: (file: GitStatusFile, staged: boolean) => void;
+  diffState: DiffState;
+  parsedDiff: ParsedUnifiedDiff | null;
+} {
+  const [selected, setSelected] = useState<SelectedFile | null>(null);
+  // One discriminated state — folds loading/loaded/failed into a single setState
+  // per transition (no cascade) and distinguishes a load FAILURE from a
+  // legitimately-empty diff so the pane never lies about why it is empty.
+  const [diffState, setDiffState] = useState<DiffState>({ kind: 'idle' });
+
+  const handleSelect = useCallback((file: GitStatusFile, staged: boolean) => {
+    setSelected({ path: file.path, staged, untracked: file.untracked });
+  }, []);
+
+  // Key the fetch on the selected file's IDENTITY (path + staged + untracked),
+  // not the whole `status` object, so an unrelated status refresh (staging a
+  // different file, push/pull, focus refetch) does not re-fetch + rebuild the
+  // open diff. The selected file's own staged↔unstaged transition changes
+  // `selected` and so still re-fetches correctly.
+  const selectedPath = selected?.path ?? null;
+  const selectedStaged = selected?.staged ?? false;
+  const selectedUntracked = selected?.untracked ?? false;
+
+  useEffect(() => {
+    if (selectedPath === null) {
+      setDiffState({ kind: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setDiffState({ kind: 'loading' });
+    void loadDiff(selectedPath, { staged: selectedStaged, untracked: selectedUntracked }).then(
+      (result) => {
+        if (cancelled) {
+          return;
+        }
+        // `loadDiff` returns null ONLY on a bridge error (already toasted).
+        setDiffState(result ? { kind: 'loaded', diff: result } : { kind: 'failed' });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPath, selectedStaged, selectedUntracked, loadDiff]);
+
+  const parsedDiff = useMemo(
+    () => (diffState.kind === 'loaded' ? parseUnifiedDiff(diffState.diff.unifiedDiff) : null),
+    [diffState]
+  );
+
+  return { selected, handleSelect, diffState, parsedDiff };
 }
 
 /**
@@ -206,41 +294,9 @@ export function GitPanel(): ReactElement {
   } = useGitPanel();
 
   const [commitMessage, setCommitMessage] = useState('');
-  const [selected, setSelected] = useState<SelectedFile | null>(null);
-  const [diff, setDiff] = useState<LoadedDiff | null>(null);
-  const [isDiffLoading, setIsDiffLoading] = useState(false);
+  const { selected, handleSelect, diffState, parsedDiff } = useSelectedDiff(loadDiff);
 
   const buckets = useMemo(() => partitionFiles(status?.files ?? []), [status?.files]);
-
-  const handleSelect = useCallback((file: GitStatusFile, staged: boolean) => {
-    setSelected({ path: file.path, staged });
-  }, []);
-
-  // Load (or reload) the diff whenever the selection changes or status refreshes.
-  useEffect(() => {
-    if (!selected) {
-      setDiff(null);
-      return;
-    }
-    let cancelled = false;
-    setIsDiffLoading(true);
-    void loadDiff(selected.path, selected.staged)
-      .then((result) => {
-        if (!cancelled) {
-          setDiff(result);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsDiffLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected, loadDiff, status]);
-
-  const parsedDiff = useMemo(() => (diff ? parseUnifiedDiff(diff.unifiedDiff) : null), [diff]);
 
   const handleCommit = useCallback(async () => {
     const ok = await commit(commitMessage);
@@ -333,9 +389,13 @@ export function GitPanel(): ReactElement {
               </Badge>
             ) : null}
           </Button>
+          {/* Push is enabled even with NO upstream so a freshly-created local
+              branch can push and set its upstream (the service uses
+              `push -u origin HEAD` when no upstream exists). It only requires a
+              branch (not a detached HEAD) and no in-flight sync. */}
           <Button
             aria-label="Push to upstream"
-            disabled={isSyncing || !status?.upstream}
+            disabled={isSyncing || !status?.branch}
             onClick={push}
             size="sm"
             type="button"
@@ -448,12 +508,7 @@ export function GitPanel(): ReactElement {
 
       {/* Right: diff viewer */}
       <div className="min-w-0 flex-1">
-        <DiffPane
-          diff={diff}
-          isDiffLoading={isDiffLoading}
-          parsedDiff={parsedDiff}
-          selected={selected}
-        />
+        <DiffPane diffState={diffState} parsedDiff={parsedDiff} selected={selected} />
       </div>
     </div>
   );

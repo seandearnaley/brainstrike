@@ -53,6 +53,10 @@
       "types": "./dist/git-panel/index.d.ts",
       "import": "./dist/git-panel/index.js"
     },
+    "./git-panel/availability": {
+      "types": "./dist/git-panel/availability.d.ts",
+      "import": "./dist/git-panel/availability.js"
+    },
     "./navigation": {
       "types": "./dist/navigation.d.ts",
       "import": "./dist/navigation.js"

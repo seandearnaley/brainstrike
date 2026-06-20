@@ -65,7 +65,7 @@ export interface GitBridge {
   commit: (rootId: string, params: { message: string }) => Promise<GitResult<GitCommitResult>>;
   diff: (
     rootId: string,
-    params?: { path?: string; staged?: boolean }
+    params?: { path?: string; staged?: boolean; untracked?: boolean }
   ) => Promise<GitResult<GitDiff>>;
   pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
   push: (rootId: string) => Promise<GitResult<GitPushPullResult>>;

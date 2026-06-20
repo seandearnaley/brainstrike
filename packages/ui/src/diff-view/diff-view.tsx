@@ -144,11 +144,9 @@ export function DiffView({
   // Re-mount the CodeMirror view whenever the inputs that affect its construction
   // change. `@codemirror/merge`'s MergeView has no simple "swap docs" API for a
   // read-only view, so a clean teardown/rebuild is the simplest correct approach
-  // (the documents here are bounded diffs, not whole large files).
-  const renderKey = useMemo(
-    () => `${mode}:${resolvedLanguage.label}`,
-    [mode, resolvedLanguage.label]
-  );
+  // (the documents here are bounded diffs, not whole large files). A plain string
+  // concat is cheap — no useMemo needed.
+  const renderKey = `${mode}:${resolvedLanguage.label}`;
 
   const toggleMode = useCallback(() => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));

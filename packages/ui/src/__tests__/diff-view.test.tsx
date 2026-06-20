@@ -100,4 +100,56 @@ describe('parseUnifiedDiff', () => {
     expect(parsed.original).toBe('');
     expect(parsed.modified).toBe('line one\nline two');
   });
+
+  it('does not leak the git-service "…(output truncated)" marker into either side', () => {
+    // The git-service appends a literal "\n…(output truncated)" marker (no diff
+    // prefix) when it bounds a >1MB diff.
+    const unified = [
+      'diff --git a/big.ts b/big.ts',
+      '--- a/big.ts',
+      '+++ b/big.ts',
+      '@@ -1,2 +1,2 @@',
+      '-const a = 1;',
+      '+const a = 2;',
+      ' tail();',
+      '…(output truncated)',
+    ].join('\n');
+
+    const parsed = parseUnifiedDiff(unified);
+    expect(parsed.hasHunks).toBe(true);
+    expect(parsed.original).not.toContain('output truncated');
+    expect(parsed.modified).not.toContain('output truncated');
+    expect(parsed.original).toBe('const a = 1;\ntail();');
+    expect(parsed.modified).toBe('const a = 2;\ntail();');
+  });
+
+  it('parses changed lines whose content begins with -- / ++ as +/- hunk lines, not file headers', () => {
+    // A deleted line "-- old marker" becomes raw "--- old marker"; an added line
+    // "++ new marker" becomes raw "+++ new marker". These must NOT be mistaken
+    // for `--- ` / `+++ ` file headers (which would drop the rest of the hunk).
+    const unified = [
+      'diff --git a/doc.md b/doc.md',
+      '--- a/doc.md',
+      '+++ b/doc.md',
+      '@@ -1,3 +1,3 @@',
+      '--- old marker',
+      '+++ new marker',
+      ' kept line',
+      '',
+    ].join('\n');
+
+    const parsed = parseUnifiedDiff(unified);
+    expect(parsed.original).toBe('-- old marker\nkept line');
+    expect(parsed.modified).toBe('++ new marker\nkept line');
+  });
+
+  it('preserves a genuine non-final blank context line so sides stay aligned', () => {
+    // Some producers emit an unprefixed empty line for a blank context row.
+    const unified = ['@@ -1,3 +1,3 @@', ' a', '', '-b', '+c', ''].join('\n');
+
+    const parsed = parseUnifiedDiff(unified);
+    // The blank context row is kept on both sides; the trailing artifact is dropped.
+    expect(parsed.original).toBe('a\n\nb');
+    expect(parsed.modified).toBe('a\n\nc');
+  });
 });

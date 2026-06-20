@@ -49,6 +49,11 @@ declare module '@brainstrike/app-shell/git-panel' {
   export function isGitBridgeAvailable(): boolean;
 }
 
+declare module '@brainstrike/app-shell/git-panel/availability' {
+  /** True when the desktop `window.git` bridge is present and fully formed. */
+  export function isGitBridgeAvailable(): boolean;
+}
+
 declare module '@brainstrike/app-shell/connected-prompt-manager-lazy' {
   export const ConnectedPromptManagerLazy: React.ComponentType;
 }

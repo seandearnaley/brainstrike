@@ -1,5 +1,8 @@
 import { ConnectedPromptManager } from '@brainstrike/app-shell';
-import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel';
+// Capability check from the dependency-light `availability` subpath (NOT
+// `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
+// startup check does not defeat the lazy code-split in git-page-content.tsx.
+import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel/availability';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,

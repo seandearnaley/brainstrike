@@ -49,58 +49,84 @@ function isDiffHeaderLine(line: string): boolean {
   );
 }
 
+/**
+ * How a single in-hunk line maps onto the reconstructed sides.
+ * - `addition` → modified only; `deletion` → original only; `context` → both.
+ * - `skip` → metadata / truncation marker / trailing artifact (dropped).
+ * - `end-hunk` → a file-header line that ends the current hunk.
+ */
+type HunkLineKind = 'addition' | 'deletion' | 'context' | 'skip' | 'end-hunk';
+
+/** Classify one line that occurs INSIDE a hunk into a {@link HunkLineKind}. */
+function classifyHunkLine(
+  line: string,
+  isLastLine: boolean
+): { kind: HunkLineKind; content: string } {
+  // INSIDE a hunk, a real content line always carries a 1-char prefix
+  // (`+` / `-` / ` `). Detect that FIRST so a changed line whose own text starts
+  // with `-- ` / `++ ` (raw `--- heading` / `+++ heading`) is parsed as a
+  // deletion/addition, NOT mistaken for a `--- ` / `+++ ` file header.
+  const marker = line[0];
+  if (marker === '+') {
+    return { kind: 'addition', content: line.slice(1) };
+  }
+  if (marker === '-') {
+    return { kind: 'deletion', content: line.slice(1) };
+  }
+  if (marker === ' ') {
+    return { kind: 'context', content: line.slice(1) };
+  }
+  // `\ No newline at end of file` is metadata; the git-service's literal
+  // `…(output truncated)` marker is not content (the badge already signals it).
+  if (line.startsWith('\\') || line.startsWith('…')) {
+    return { kind: 'skip', content: '' };
+  }
+  if (isDiffHeaderLine(line)) {
+    return { kind: 'end-hunk', content: '' };
+  }
+  // An empty line: ONLY the final element is the trailing-newline artifact of
+  // `split('\n')` and is dropped. A non-final empty line is a genuine blank
+  // context row some producers emit unprefixed — keep it so sides stay aligned.
+  if (line.length === 0) {
+    return isLastLine ? { kind: 'skip', content: '' } : { kind: 'context', content: '' };
+  }
+  // Any other unprefixed, non-header line is unexpected; treat as shared context
+  // rather than silently dropping it (keeps alignment).
+  return { kind: 'context', content: line };
+}
+
 export function parseUnifiedDiff(unifiedDiff: string): ParsedUnifiedDiff {
   const originalLines: string[] = [];
   const modifiedLines: string[] = [];
   let inHunk = false;
   let hasHunks = false;
 
-  for (const rawLine of unifiedDiff.split('\n')) {
-    const line = rawLine.replace(/\r$/, '');
+  const rawLines = unifiedDiff.split('\n');
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const line = (rawLines[index] ?? '').replace(/\r$/, '');
 
     if (line.startsWith('@@')) {
       inHunk = true;
       hasHunks = true;
       continue;
     }
-
     if (!inHunk) {
       // Skip the `diff --git` / `index` / `---` / `+++` preamble.
       continue;
     }
 
-    if (isDiffHeaderLine(line)) {
-      // A new file's preamble inside a multi-file diff — leave hunk mode until
-      // the next `@@`.
+    const { kind, content } = classifyHunkLine(line, index === rawLines.length - 1);
+    if (kind === 'end-hunk') {
       inHunk = false;
-      continue;
-    }
-
-    // `\ No newline at end of file` is metadata, not content.
-    if (line.startsWith('\\')) {
-      continue;
-    }
-
-    // A zero-length line is the artifact of the diff's trailing newline (the
-    // final element of `split('\n')`), never a real hunk line: git always emits
-    // context/added/removed lines with a 1-char ` `/`+`/`-` prefix. Skipping it
-    // prevents a spurious trailing blank line on both reconstructed sides.
-    if (line.length === 0) {
-      continue;
-    }
-
-    const marker = line[0];
-    const content = line.slice(1);
-    if (marker === '+') {
+    } else if (kind === 'addition') {
       modifiedLines.push(content);
-    } else if (marker === '-') {
+    } else if (kind === 'deletion') {
       originalLines.push(content);
-    } else {
-      // Context line (leading space) or an empty line within the hunk: present
-      // on both sides.
+    } else if (kind === 'context') {
       originalLines.push(content);
       modifiedLines.push(content);
     }
+    // 'skip' → nothing.
   }
 
   return {

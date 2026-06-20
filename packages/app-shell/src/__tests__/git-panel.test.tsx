@@ -219,6 +219,71 @@ describe('GitPanel', () => {
     expect(diff).toHaveAttribute('data-modified', 'const a = 2;');
   });
 
+  it('requests an untracked file diff with untracked:true (whole-file additions)', async () => {
+    const user = userEvent.setup();
+    const NEW_FILE_DIFF = [
+      'diff --git a/new.ts b/new.ts',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/new.ts',
+      '@@ -0,0 +1,1 @@',
+      '+brand new line',
+      '',
+    ].join('\n');
+    const bridge = installBridge({
+      diff: vi.fn(async () =>
+        ok({ path: 'new.ts', staged: false, truncated: false, unifiedDiff: NEW_FILE_DIFF })
+      ),
+    });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.click(screen.getByRole('button', { name: 'new.ts' }));
+
+    expect(bridge.diff).toHaveBeenCalledWith('root-1', {
+      path: 'new.ts',
+      staged: false,
+      untracked: true,
+    });
+    const diff = await screen.findByTestId('diff-view-stub');
+    expect(diff).toHaveAttribute('data-modified', 'brand new line');
+    expect(diff).toHaveAttribute('data-original', '');
+  });
+
+  it('shows a distinct error state (not "no textual changes") when the diff fails to load', async () => {
+    const user = userEvent.setup();
+    installBridge({
+      diff: vi.fn(async (): Promise<GitResult<never>> => ({ ok: false, error: 'diff boom' })),
+    });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.click(screen.getByRole('button', { name: 'staged.ts' }));
+
+    expect(await screen.findByTestId('git-panel-diff-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('git-panel-no-textual-diff')).not.toBeInTheDocument();
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Diff failed', variant: 'destructive' })
+    );
+  });
+
+  it('enables Push for a branch with NO upstream (so a new branch can set it)', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({
+      status: vi.fn(async () => ok(makeStatus({ upstream: null, ahead: null, behind: null }))),
+    });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    const pushButton = screen.getByRole('button', { name: 'Push to upstream' });
+    expect(pushButton).toBeEnabled();
+    // Pull stays disabled (nothing to pull without an upstream).
+    expect(screen.getByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
+
+    await user.click(pushButton);
+    expect(bridge.push).toHaveBeenCalledWith('root-1');
+  });
+
   it('surfaces a commit error as a toast and does not clear the box', async () => {
     const user = userEvent.setup();
     installBridge({
