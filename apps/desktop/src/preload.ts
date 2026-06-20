@@ -77,6 +77,12 @@ const GIT_COMMIT_CHANNEL = 'git:commit' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
+const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
+const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
+const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
+const TERMINAL_DESTROY_CHANNEL = 'terminal:destroy' as const;
+const TERMINAL_DATA_EVENT = 'terminal:data' as const;
+const TERMINAL_EXIT_EVENT = 'terminal:exit' as const;
 
 import type {
   ApplyManagedCacheBatchArgs,
@@ -1035,5 +1041,45 @@ if (shouldExposeBridge('git')) {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
     push: (rootId: string) => ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId),
     pull: (rootId: string) => ipcRenderer.invoke(GIT_PULL_CHANNEL, rootId),
+  });
+}
+
+// Terminal bridge (desktop-only): a PTY backend for a future TerminalPanel.
+// `create` pins the shell cwd to a validated workspace `rootId` (main resolves
+// + containment-checks it, no shell-string injection in the spawn). Output and
+// exit are pushed one-way to THIS renderer over `terminal:data` / `terminal:exit`;
+// `onData`/`onExit` register a listener and return an unsubscribe fn. Web never
+// constructs this bridge (no preload), so consumers must capability-check
+// `window.terminal`. The xterm UI lands in the next PR.
+if (shouldExposeBridge('terminal')) {
+  contextBridge.exposeInMainWorld('terminal', {
+    create: (params: { rootId: string; cols?: number; rows?: number }) =>
+      ipcRenderer.invoke(TERMINAL_CREATE_CHANNEL, params),
+    write: (params: { terminalId: string; data: string }) =>
+      ipcRenderer.invoke(TERMINAL_WRITE_CHANNEL, params),
+    resize: (params: { terminalId: string; cols: number; rows: number }) =>
+      ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, params),
+    destroy: (params: { terminalId: string }) =>
+      ipcRenderer.invoke(TERMINAL_DESTROY_CHANNEL, params),
+    onData: (callback: (event: { terminalId: string; data: string }) => void) => {
+      const listener = (_event: unknown, payload: { terminalId: string; data: string }) =>
+        callback(payload);
+      ipcRenderer.on(TERMINAL_DATA_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(TERMINAL_DATA_EVENT, listener);
+      };
+    },
+    onExit: (
+      callback: (event: { terminalId: string; exitCode: number; signal: number | null }) => void
+    ) => {
+      const listener = (
+        _event: unknown,
+        payload: { terminalId: string; exitCode: number; signal: number | null }
+      ) => callback(payload);
+      ipcRenderer.on(TERMINAL_EXIT_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(TERMINAL_EXIT_EVENT, listener);
+      };
+    },
   });
 }

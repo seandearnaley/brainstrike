@@ -16,6 +16,7 @@ export type DesktopIpcDomain =
   | 'runtime'
   | 'shell'
   | 'storage'
+  | 'terminal'
   | 'tools';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';

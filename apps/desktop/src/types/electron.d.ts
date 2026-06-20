@@ -49,6 +49,12 @@ import type {
   GitResult,
   GitStatus,
 } from '../assistant-server/git-service';
+import type {
+  TerminalCreateResult,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalResult,
+} from '../terminal-ipc-handlers';
 
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -313,6 +319,30 @@ declare global {
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
       clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
+    };
+    /**
+     * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
+     * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
+     * validated workspace `rootId` (main resolves + containment-checks it). pty
+     * output/exit are pushed one-way to THIS renderer; `onData`/`onExit` register
+     * a listener and return an unsubscribe fn. Invoke calls resolve to a
+     * structured `TerminalResult` (never throw across IPC).
+     */
+    terminal?: {
+      create: (params: {
+        rootId: string;
+        cols?: number;
+        rows?: number;
+      }) => Promise<TerminalResult<TerminalCreateResult>>;
+      write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
+      resize: (params: {
+        terminalId: string;
+        cols: number;
+        rows: number;
+      }) => Promise<TerminalResult>;
+      destroy: (params: { terminalId: string }) => Promise<TerminalResult>;
+      onData: (callback: (event: TerminalDataEvent) => void) => () => void;
+      onExit: (callback: (event: TerminalExitEvent) => void) => () => void;
     };
     tools: {
       execute: (
