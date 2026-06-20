@@ -43,6 +43,7 @@ import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace
 import { CommandPaletteHost } from './command-palette-host';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
@@ -280,6 +281,11 @@ function ContextExplorerSurface({
           rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
           rightPanelContent={resolvedPanelContent}
         >
+          {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
+              file-open seam (IdeFileEditorContext, registered by the tab host).
+              This subtree is always mounted (the explorer route is only toggled
+              hidden), so ⌘P works from any tab. */}
+          <QuickOpenHost />
           {contextExplorerPageContent}
         </IdeLayout>
       </PanelLayoutProvider>

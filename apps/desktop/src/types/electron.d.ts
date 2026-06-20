@@ -312,6 +312,9 @@ declare global {
       }>;
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
+    quickOpen?: {
+      onOpen: (callback: () => void) => () => void;
+    };
     secrets: {
       saveKey: (
         provider: string,
