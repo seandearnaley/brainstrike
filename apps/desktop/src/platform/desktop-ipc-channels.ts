@@ -10,6 +10,11 @@ export const DESKTOP_IPC_CHANNELS = {
   clipboard: {
     writeText: 'clipboard:write-text',
   },
+  commandPalette: {
+    // One-way main→renderer push: the app menu's Cmd+K accelerator triggers
+    // this on the FOCUSED window so the renderer opens the ⌘K palette.
+    open: 'command-palette:open',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',

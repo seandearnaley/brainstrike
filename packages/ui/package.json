@@ -9,6 +9,7 @@
     "@assistant-ui/react-markdown": "^0.12.9",
     "@assistant-ui/styles": "^0.3.7",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/commands": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/types": "workspace:*",
