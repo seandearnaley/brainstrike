@@ -108,6 +108,9 @@
       "@brainstrike/context-actions": [
         "packages/context-actions/src"
       ],
+      "@brainstrike/commands": [
+        "packages/commands/src"
+      ],
       "@brainstrike/pipeline": [
         "packages/pipeline/src"
       ],
@@ -242,6 +245,9 @@
     },
     {
       "path": "./packages/context-actions"
+    },
+    {
+      "path": "./packages/commands"
     },
     {
       "path": "./packages/pipeline"
