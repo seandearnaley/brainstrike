@@ -428,6 +428,100 @@ describe('LlmHostRuntime', () => {
     expect(disposeMock).toHaveBeenCalled();
   });
 
+  it('resets the engine on an ONNX Runtime SafeInt integer overflow (large-prompt fault)', async () => {
+    // Prefilling a large prompt can exhaust GPU memory; ONNX Runtime surfaces
+    // it as an OrtRun SafeInt integer overflow whose message contains NO "gpu"
+    // substring. It still poisons the session, so it MUST trigger a reset —
+    // otherwise every subsequent local generation fails until the host restarts.
+    generateMock.mockRejectedValue(
+      new Error(
+        'failed to call OrtRun(). ERROR_CODE: 1, ERROR_MESSAGE: /onnxruntime/core/common/safeint.h:17 SafeIntExceptionHandler<onnxruntime::OnnxRuntimeException>::SafeIntOnOverflow() Integer overflow'
+      )
+    );
+    disposeMock.mockResolvedValue(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-ort-overflow',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-ort-overflow',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          requestId: 'req-ort-overflow',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('local model engine was reset'),
+          }),
+        })
+      );
+    });
+    expect(disposeMock).toHaveBeenCalled();
+  });
+
+  it('resets the engine on an ONNX Runtime std::bad_alloc (out-of-memory) fault', async () => {
+    // The same GPU OOM can surface as std::bad_alloc — also without a "gpu"
+    // substring — and must reset the engine rather than poison it.
+    generateMock.mockRejectedValue(
+      new Error('failed to call OrtRun(). ERROR_CODE: 6, ERROR_MESSAGE: std::bad_alloc')
+    );
+    disposeMock.mockResolvedValue(undefined);
+
+    render(<LlmHostRuntime />);
+    const requestListener = onRequestCallback;
+    if (!requestListener) {
+      throw new Error('Expected llm host request listener to be registered.');
+    }
+
+    await act(async () => {
+      requestListener({
+        type: 'request',
+        channel: 'llm',
+        requestId: 'req-bad-alloc',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'generate',
+          clientRequestId: 'client-bad-alloc',
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          messages: [{ role: 'user', content: 'hello' }],
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          requestId: 'req-bad-alloc',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('local model engine was reset'),
+          }),
+        })
+      );
+    });
+    expect(disposeMock).toHaveBeenCalled();
+  });
+
   it('reports an error (keyed to the envelope) for requests that fail validation', async () => {
     render(<LlmHostRuntime />);
 

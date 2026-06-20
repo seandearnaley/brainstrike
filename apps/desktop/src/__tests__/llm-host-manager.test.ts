@@ -628,6 +628,98 @@ describe('LlmHostManager', () => {
     expect(requester.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
   });
 
+  it('resets the host WINDOW when a generation fails with a persistent engine fault (device wedge)', async () => {
+    // GPU-memory exhaustion wedges the whole WebGPU device, not just the ORT
+    // session, and a transformers.js tensor-disposal leak means the renderer's
+    // backend.dispose() cannot free it — only recreating the host window (a
+    // fresh device) recovers. The renderer flags engineReset on its error
+    // report; the manager must escalate to a host-window reset() so the NEXT
+    // generation runs on a clean device instead of failing forever.
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const resetSpy = vi.spyOn(manager, 'reset').mockResolvedValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      runtimeKind: 'llm-host',
+      state: 'running',
+    });
+    const requester = createRequester(801);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'engine-fault',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.waitFor(() => {
+      expect(manager.pendingRequests.has('801:engine-fault')).toBe(true);
+    });
+
+    manager.acceptResponseReport(71, {
+      type: 'error',
+      channel: 'llm-error',
+      requestId: '801:engine-fault',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        errorMessage:
+          'failed to call OrtRun() — the local model engine was reset; the next message will reload the model.',
+        errorDetails: { engineReset: true, stage: 'generate-response' },
+      },
+    });
+
+    await expect(observedRejection).resolves.toBeInstanceOf(Error);
+    await vi.waitFor(() => {
+      expect(resetSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does NOT reset the host window for an ordinary (non-engine) request failure', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const resetSpy = vi.spyOn(manager, 'reset').mockResolvedValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      runtimeKind: 'llm-host',
+      state: 'running',
+    });
+    const requester = createRequester(802);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'plain-failure',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.waitFor(() => {
+      expect(manager.pendingRequests.has('802:plain-failure')).toBe(true);
+    });
+
+    manager.acceptResponseReport(71, {
+      type: 'error',
+      channel: 'llm-error',
+      requestId: '802:plain-failure',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        errorMessage: 'Tool arguments failed validation.',
+        errorDetails: { stage: 'generate-response' },
+      },
+    });
+
+    await expect(observedRejection).resolves.toBeInstanceOf(Error);
+    await Promise.resolve();
+    expect(resetSpy).not.toHaveBeenCalled();
+  });
+
   describe('main-process client API', () => {
     it('sends envelopes that pass the REAL host-side request validation', async () => {
       // The hidden host runtime rejects payloads without clientRequestId; a
