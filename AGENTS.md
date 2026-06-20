@@ -474,6 +474,29 @@ Flow:
      engine and RETRIES the generation ONCE, announced via a 'stage' progress
      report + logs (never silent). A fault that survives the retry reports the
      visible "engine was reset" error. Aborts never trigger recovery.
+     `ENGINE_FAULT_PATTERN` also matches the ONNX-Runtime GPU-memory-exhaustion
+     markers that carry NO "gpu" substring (`ortrun`/`bad_alloc`/`safeint`/
+     `integer overflow`): prefilling a prompt larger than the device's WebGPU
+     memory aborts ORT with one of those, and without matching them a single
+     overflowed tool turn poisons local chat for the whole session.
+   - Device-wedge escalation (engineReset flag): disposing the ORT session is
+     NOT enough for a GPU-memory fault — it wedges the whole WebGPU DEVICE, and a
+     transformers.js tensor-disposal leak (huggingface/transformers.js#860)
+     keeps the leaked buffers alive, so the next generation reloads into a dead
+     device. The renderer sets `LlmHostErrorDetails.engineReset` on the recovery
+     error report; `LlmHostManager` escalates to a debounced host-window
+     `reset()` (a fresh device) so the NEXT message recovers automatically. Only
+     persistent faults (dispose+retry already failed) flag it, so it is not
+     over-aggressive. Proof: llm-host-runtime.test.tsx + llm-host-manager.test.ts.
+   - GPU prompt ceiling: the q4f16 Gemma 4 E2B WebGPU runtime OOMs at prompts in
+     the low thousands of tokens (≈3-4K on a typical device — far below the
+     architectural ~128K). Gemma 4 E2B is therefore declared at the RUNTIME
+     budget `contextWindow: 8192` / `maxOutputTokens: 2048` in
+     packages/assistant-contract/src/provider-registry.ts (NOT the architectural
+     window) so the context-budget machinery + meter keep assembled prompts in
+     the working zone; the engineReset escalation handles the residual
+     device-dependent overflow. A leaner local system-prompt/tool-schema
+     footprint is the deeper follow-up for reliable local tool-calling.
    - Loading badge smoothing (use-local-model-loading.ts): parallel per-file
      progress reports are folded into a mean aggregate with a stable
      "(completed/total)" message and the laggard file as the label, throttled
