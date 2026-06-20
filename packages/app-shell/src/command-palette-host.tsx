@@ -55,11 +55,16 @@ function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
     [db]
   );
 
-  const newThread = useCallback(async () => {
+  // Bound only when the repository exists, so the closure captures a non-null
+  // repository (no in-body null guard needed). When `db`/`repository` is null
+  // this is null and the handler is omitted below.
+  const newThread = useMemo<(() => Promise<void>) | null>(() => {
     if (!repository) {
-      throw new Error('Assistant memory database is not ready.');
+      return null;
     }
-    await createThread(repository, WORKSPACE_MEMORY_RESOURCE_ID);
+    return async () => {
+      await createThread(repository, WORKSPACE_MEMORY_RESOURCE_ID);
+    };
   }, [repository, createThread]);
 
   const openSettings = useCallback(() => {
@@ -80,15 +85,16 @@ function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
 
   return useMemo<GlobalCommandHandlers>(
     () => ({
-      // newThread is gated by the registry's isAvailable only when its handler
-      // exists; we always supply it but it throws (→ failure outcome) when the
-      // DB is not ready, so the command surfaces the real reason rather than
-      // silently doing nothing.
-      ...(repository ? { newThread } : {}),
+      // When the assistant memory DB / repository is not ready, newThread is
+      // null and is OMITTED here. createGlobalCommands' isAvailable
+      // (`newThread !== undefined`) then HIDES `thread.new` — it is never a
+      // faked no-op (the no-silent-fallbacks contract). Once the DB is ready a
+      // re-render supplies the handler and the command appears.
+      ...(newThread ? { newThread } : {}),
       openSettings,
       toggleTheme,
     }),
-    [repository, newThread, openSettings, toggleTheme]
+    [newThread, openSettings, toggleTheme]
   );
 }
 

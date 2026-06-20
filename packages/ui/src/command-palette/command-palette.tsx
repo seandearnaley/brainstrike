@@ -42,12 +42,28 @@ interface GroupedCommands {
 /**
  * Derives the grouped, ordered command sections from the filtered list DURING
  * RENDER (no effect/setState — react-doctor `no-adjust-state-on-prop-change`).
+ * Single pass over the commands: bucket each into its group, then emit the
+ * non-empty buckets in the stable GROUP_ORDER (preserving per-group order).
  */
 function groupCommands(commands: readonly Command[]): readonly GroupedCommands[] {
-  return GROUP_ORDER.map((group) => ({
-    group,
-    commands: commands.filter((command) => (command.group ?? DEFAULT_GROUP) === group),
-  })).filter((section) => section.commands.length > 0);
+  const buckets = new Map<CommandGroup, Command[]>();
+  for (const command of commands) {
+    const group = command.group ?? DEFAULT_GROUP;
+    const existing = buckets.get(group);
+    if (existing) {
+      existing.push(command);
+    } else {
+      buckets.set(group, [command]);
+    }
+  }
+  const sections: GroupedCommands[] = [];
+  for (const group of GROUP_ORDER) {
+    const grouped = buckets.get(group);
+    if (grouped && grouped.length > 0) {
+      sections.push({ group, commands: grouped });
+    }
+  }
+  return sections;
 }
 
 /**

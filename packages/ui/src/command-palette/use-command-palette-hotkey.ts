@@ -1,31 +1,47 @@
 import * as React from 'react';
 
 /**
- * Returns true when the keystroke originates from a text-entry surface
- * (input/textarea/contenteditable). The global ⌘K listener ignores those so
- * the shortcut never hijacks typing — mirrors the guard in
- * `collection-browser/search-mode-bar.tsx` and `tree-table/use-tree-keyboard.ts`.
+ * True on macOS, where the command-palette accelerator is ⌘K (metaKey). Mirrors
+ * the existing platform check in `file-explorer-ui` `revealLabel()` —
+ * `navigator.platform` startsWith 'mac' — since the codebase has no shared
+ * platform util. SSR-safe (no `navigator` ⇒ treated as non-mac).
  */
-function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') {
     return false;
   }
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-    return true;
+  return navigator.platform.toLowerCase().startsWith('mac');
+}
+
+/**
+ * True when the event is the platform command-palette accelerator:
+ *  - macOS: ⌘K (metaKey, NOT ctrlKey — so the native Ctrl+K "kill-to-end-of-line"
+ *    binding in text inputs is never hijacked),
+ *  - Windows/Linux: Ctrl+K.
+ * The matched modifier must be the platform one (we reject the cross-modifier so
+ * macOS Ctrl+K and Windows ⌘K do not open the palette).
+ */
+function isCommandPaletteAccelerator(event: KeyboardEvent): boolean {
+  if (event.key.toLowerCase() !== 'k') {
+    return false;
   }
-  return target.isContentEditable;
+  return isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 }
 
 export interface CommandPaletteHotkeyOptions {
-  /** Invoked when ⌘K (or Ctrl+K) fires outside a text-entry surface. */
+  /** Invoked when the platform ⌘K / Ctrl+K accelerator fires. */
   readonly onOpen: () => void;
 }
 
 /**
- * Binds a document-level ⌘K / Ctrl+K listener that opens the command palette on
- * web AND desktop. The listener:
- *  - ignores the keystroke while a text input / textarea / contenteditable is
- *    focused (so it never swallows a literal "k"),
+ * Binds a document-level command-palette accelerator (⌘K on macOS, Ctrl+K on
+ * Windows/Linux) that opens the palette on web AND desktop. The listener:
+ *  - matches ONLY the platform accelerator (a non-character meta-chord), so it
+ *    is safe to fire even when a text input/textarea/contenteditable is focused
+ *    — this matches the desktop app-menu Cmd+K accelerator exactly (no web vs
+ *    desktop divergence) and standard command-palette UX (VS Code / Linear),
+ *  - does NOT match macOS Ctrl+K, leaving the native kill-to-end-of-line binding
+ *    intact,
  *  - respects `event.defaultPrevented` (a nearer handler already claimed it),
  *  - `preventDefault()`s and calls `onOpen()` otherwise,
  *  - removes itself on unmount.
@@ -43,13 +59,7 @@ export function useCommandPaletteHotkey({ onOpen }: CommandPaletteHotkeyOptions)
       if (event.defaultPrevented) {
         return;
       }
-      if (!(event.metaKey || event.ctrlKey)) {
-        return;
-      }
-      if (event.key.toLowerCase() !== 'k') {
-        return;
-      }
-      if (isTextEntryTarget(event.target)) {
+      if (!isCommandPaletteAccelerator(event)) {
         return;
       }
       event.preventDefault();
