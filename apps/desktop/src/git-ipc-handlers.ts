@@ -21,8 +21,6 @@
  * silently swallowed.
  */
 import { type ExecFileException, execFile } from 'node:child_process';
-import fsPromises from 'node:fs/promises';
-import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   createGitService,
@@ -35,8 +33,11 @@ import {
   loadWorkspaceRootsFromDatabase,
   type WorkspaceRootsQueryable,
 } from './assistant-server/workspace-roots';
+import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('GitIpc');
+
+export type { WorkspaceRootResolver } from './workspace-root-cwd';
 
 /**
  * Adapt Node's `execFile` to the {@link GitCommandRunner} contract.
@@ -119,12 +120,6 @@ export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeout
   });
 };
 
-/** Resolves the active path-backed workspace roots for cwd validation. */
-export interface WorkspaceRootResolver {
-  /** Returns the known roots as `{ rootId, path, displayName }`. */
-  listRoots(): Promise<readonly { displayName: string; path: string; rootId: string }[]>;
-}
-
 /**
  * Build a {@link WorkspaceRootResolver} backed by the DB `roots` table. Mirrors
  * the assistant-server's `enrichRuntimeDataWithWorkspaceRoots` seam so the git
@@ -139,51 +134,6 @@ export function createDatabaseRootResolver(
       return await loadWorkspaceRootsFromDatabase(db);
     },
   };
-}
-
-/**
- * Resolve a renderer-supplied `rootId` to a canonical, containment-checked
- * absolute path. Rejects any id that does not match a known root (no arbitrary
- * cwd) and any root whose path no longer resolves on disk.
- */
-async function resolveRootCwd(
-  resolver: WorkspaceRootResolver,
-  rootId: unknown
-): Promise<GitResult<string>> {
-  if (typeof rootId !== 'string' || rootId.trim().length === 0) {
-    return { ok: false, error: 'git requires a non-empty rootId string' };
-  }
-  const trimmed = rootId.trim();
-  let roots: readonly { displayName: string; path: string; rootId: string }[];
-  try {
-    roots = await resolver.listRoots();
-  } catch (error) {
-    logger.error('Failed to load workspace roots for git domain', { error });
-    return { ok: false, error: 'Workspace roots are unavailable.' };
-  }
-  const match = roots.find((root) => root.rootId === trimmed);
-  if (!match) {
-    return { ok: false, error: `No open folder matches root id "${trimmed}".` };
-  }
-  if (!path.isAbsolute(match.path)) {
-    // Web / FSA roots have no real filesystem path → git is not addressable.
-    return { ok: false, error: 'The selected folder has no local filesystem path.' };
-  }
-  try {
-    // Canonicalize the DB-known root to its real path (resolving any symlinks),
-    // and use THAT as the pinned cwd. We run git AT the root itself — there is no
-    // user-supplied subpath to widen here, so the containment guarantee is simply
-    // "cwd === realpath(a root the user opened)". Per-path containment (for the
-    // `path` args of diff/stage/unstage) is enforced separately in the service.
-    const canonicalRoot = await fsPromises.realpath(match.path);
-    return { ok: true, value: canonicalRoot };
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return { ok: false, error: 'The selected folder no longer exists on disk.' };
-    }
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
 }
 
 export interface GitIpcHandlersOptions {
@@ -202,7 +152,7 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
     rootId: unknown,
     op: (service: ReturnType<typeof createGitService>) => Promise<GitResult<T>>
   ): Promise<GitResult<T>> {
-    const cwd = await resolveRootCwd(resolver, rootId);
+    const cwd = await resolveRootCwd(resolver, rootId, 'git', logger);
     if (!cwd.ok) {
       return cwd;
     }

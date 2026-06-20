@@ -65,6 +65,7 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { LlmHostManager } from './llm-host-manager';
 import {
@@ -81,6 +82,7 @@ import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
@@ -650,6 +652,7 @@ let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -729,6 +732,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         // Reap any shell command the assistant left running FIRST so no orphaned
         // subprocess (vitest/build) keeps eating CPU/battery after the app exits.
         disposeLiveChildProcesses();
+        // Reap any live terminal pty so no interactive shell survives the app.
+        disposeAllTerminals();
         if (stopAssistantServer) {
           await stopAssistantServer();
           stopAssistantServer = null;
@@ -855,6 +860,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
         return Promise.resolve();
       },
     },
+    // Reap any live terminal pty so a factory reset is a true fresh start with
+    // no orphaned interactive shell surviving the wipe.
+    {
+      name: 'terminals',
+      stop: () => {
+        disposeAllTerminals();
+        return Promise.resolve();
+      },
+    },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
   userDataPath: app.getPath('userData'),
@@ -949,6 +963,7 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterTerminalIpcHandlers = registerTerminalIpc();
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1505,6 +1520,11 @@ app.on('will-quit', () => {
   if (unregisterGitIpcHandlers) {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
+  }
+  if (unregisterTerminalIpcHandlers) {
+    // Disposer also reaps every live pty (no orphaned shell survives quit).
+    unregisterTerminalIpcHandlers();
+    unregisterTerminalIpcHandlers = null;
   }
   removeLogBufferListener();
 });
