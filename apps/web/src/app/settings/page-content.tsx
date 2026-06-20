@@ -4,6 +4,7 @@ import {
   type NativeToolDefaultMetadata,
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
+import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
@@ -179,6 +180,7 @@ export default function SettingsPageContent() {
       createAppearanceSettingsCategory(),
       createSearchIndexingSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
+      createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
       {
         id: 'models',

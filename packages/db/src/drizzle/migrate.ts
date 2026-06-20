@@ -36,6 +36,7 @@ import { migration043JobQueueEmbeddingSetId } from '../migrations/043-job-queue-
 import { migration044DimensionIndexSuspensions } from '../migrations/044-dimension-index-suspensions.js';
 import { migration045DimensionIndexMaintenance } from '../migrations/045-dimension-index-maintenance.js';
 import { migration046AssistantRunUsage } from '../migrations/046-assistant-run-usage.js';
+import { migration047RunUsageRootId } from '../migrations/047-run-usage-root-id.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -174,6 +175,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-044-dimension-index-suspensions', migration044DimensionIndexSuspensions),
   customMigration('custom-045-dimension-index-maintenance', migration045DimensionIndexMaintenance),
   customMigration('custom-046-assistant-run-usage', migration046AssistantRunUsage),
+  customMigration('custom-047-run-usage-root-id', migration047RunUsageRootId),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

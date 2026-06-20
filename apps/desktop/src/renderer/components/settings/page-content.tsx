@@ -3,6 +3,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
+import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
@@ -301,6 +302,7 @@ export default function SettingsPageContent() {
       createAppearanceSettingsCategory(),
       createSearchIndexingSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
+      createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
       createApiKeysSettingsCategory(),
       {

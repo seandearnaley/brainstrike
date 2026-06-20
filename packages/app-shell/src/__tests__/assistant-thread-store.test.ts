@@ -51,6 +51,7 @@ function createRepository(
     })),
     createThreadRun: vi.fn(),
     getThreadCumulativeUsage: vi.fn(async () => null),
+    getCrossRootUsage: vi.fn(async () => []),
     recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
     listLatestThreadRuns: vi.fn(async () => []),
