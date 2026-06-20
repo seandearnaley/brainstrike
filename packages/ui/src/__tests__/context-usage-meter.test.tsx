@@ -132,7 +132,7 @@ describe('ContextUsageMeter', () => {
   });
 });
 
-describe('ContextUsageMeter OM tri-segment', () => {
+describe('ContextUsageMeter OM informational stats', () => {
   beforeEach(() => {
     resetContextUsageStore();
     mockMessages = [];
@@ -144,43 +144,50 @@ describe('ContextUsageMeter OM tri-segment', () => {
     effectiveInputBudget: 126_000,
   };
 
-  it('does not render the OM segment bar when omSegment is absent (desktop pre-load / no prop)', () => {
+  it('does not render any OM line when omSegment is absent (desktop pre-load / no prop)', () => {
     render(<ContextUsageMeter {...props} />);
-    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-note')).not.toBeInTheDocument();
   });
 
-  it('renders the three segments + compaction saved stat for an active OM row', () => {
+  it('renders OM as INFORMATIONAL stats (observed tokens + compaction), NOT a budget segment', () => {
     const omSegment: OmMeterState = {
-      kind: 'segments',
-      chatTokens: 6000,
+      kind: 'stats',
       observationTokens: 20_000,
-      freeTokens: 100_000,
-      overBudget: false,
       compactionSavedTokens: 30_000,
     };
     render(<ContextUsageMeter {...props} omSegment={omSegment} />);
-    const bar = screen.getByTestId('context-usage-om-segments');
-    expect(bar).toBeInTheDocument();
-    // Compaction-benefit overlay (≈30K saved).
+    const stats = screen.getByTestId('context-usage-om-stats');
+    expect(stats).toBeInTheDocument();
+    // Informational observed-token stat.
+    expect(screen.getByTestId('context-usage-om-observed')).toHaveTextContent(/observed/i);
+    expect(screen.getByTestId('context-usage-om-observed')).toHaveTextContent(/20/);
+    // Compaction-benefit stat.
     expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/saved/i);
     expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/30/);
+    // FIX 2: there is NO budget segment bar and NO over-budget marker for OM.
+    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
+    expect(stats).not.toHaveTextContent(/over budget/i);
+    expect(stats).not.toHaveTextContent(/free/i);
   });
 
-  it('shows an honest over-budget state (never hides negative free)', () => {
-    const omSegment: OmMeterState = {
-      kind: 'segments',
-      chatTokens: 90_000,
-      observationTokens: 50_000,
-      freeTokens: -14_000,
-      overBudget: true,
-      compactionSavedTokens: 5000,
-    };
-    render(<ContextUsageMeter {...props} omSegment={omSegment} />);
-    expect(screen.getByTestId('context-usage-om-segments')).toHaveAttribute(
-      'data-over-budget',
-      'true'
+  it('omits the compaction stat when nothing has been compacted, still shows observed', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        omSegment={{ kind: 'stats', observationTokens: 4000, compactionSavedTokens: 0 }}
+      />
     );
-    expect(screen.getByTestId('context-usage-om-segments')).toHaveTextContent(/over budget/i);
+    expect(screen.getByTestId('context-usage-om-observed')).toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-compaction')).not.toBeInTheDocument();
+  });
+
+  it('FIX 1: loading state stays QUIET (no note, no stats, no empty flash)', () => {
+    render(<ContextUsageMeter {...props} omSegment={{ kind: 'loading' }} />);
+    expect(screen.queryByTestId('context-usage-om-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
+    // The chat-vs-budget meter itself still renders.
+    expect(screen.getByTestId('context-usage-meter')).toBeInTheDocument();
   });
 
   it('renders "OM inactive" (never "0 saved") when OM is disabled', () => {
@@ -188,20 +195,20 @@ describe('ContextUsageMeter OM tri-segment', () => {
     const note = screen.getByTestId('context-usage-om-note');
     expect(note).toHaveTextContent(/inactive/i);
     expect(note).not.toHaveTextContent(/saved/i);
-    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
   it('renders the web "available on desktop" note for chat-only, never zeros', () => {
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'chat-only' }} />);
     const note = screen.getByTestId('context-usage-om-note');
     expect(note).toHaveTextContent(/desktop/i);
-    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
   it('renders an honest empty state when no OM row exists yet', () => {
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'empty' }} />);
     expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(/no observations yet/i);
-    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
   it('renders an honest error state for a malformed OM row (never a fabricated 0)', () => {
@@ -209,7 +216,7 @@ describe('ContextUsageMeter OM tri-segment', () => {
     const note = screen.getByTestId('context-usage-om-note');
     expect(note).toHaveTextContent(/unavailable/i);
     expect(note).not.toHaveTextContent(/^0 /);
-    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 });
 

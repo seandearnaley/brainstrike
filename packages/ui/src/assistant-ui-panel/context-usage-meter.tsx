@@ -42,27 +42,31 @@ function costLabel(cost: CostEstimate): string {
 }
 
 /**
- * Resolved tri-segment (chat / observation / free) meter state for the active
- * thread's observational memory (OM). Produced by the app-shell resolver
- * (assistant-om-segment.ts) and rendered here. Each non-`segments` variant is an
- * HONEST state — never a fabricated 0:
- *   chat-only → web (no durable OM persistence); segments collapse to chat.
+ * Resolved observational-memory (OM) state for the active thread. Produced by the
+ * app-shell resolver (assistant-om-segment.ts) and rendered as INFORMATIONAL
+ * stats next to the chat-vs-budget bar — the observation is NOT a budget segment
+ * (it is retrievalMode-dependent and, when injected, already counted in chat
+ * usage, so summing it into the budget would double-count / false-trip
+ * over-budget; see the resolver doc). Each variant is an HONEST state — never a
+ * fabricated 0:
+ *   chat-only → web (no durable OM persistence); OM stats hidden.
  *   inactive  → OM disabled in settings.
+ *   loading   → live query fetching (initial / thread switch); stays quiet.
  *   empty     → no OM row yet (first turn).
- *   error     → malformed OM row (strict parse failed upstream).
- *   segments  → live values; `overBudget` shows a negative `freeTokens` honestly.
+ *   error     → malformed OM row / live-query error (strict parse failed upstream).
+ *   stats     → live informational values (observed tokens + compaction saved).
  */
 export type OmMeterState =
   | { readonly kind: 'chat-only' }
   | { readonly kind: 'inactive' }
+  | { readonly kind: 'loading' }
   | { readonly kind: 'empty' }
   | { readonly kind: 'error'; readonly reason: string }
   | {
-      readonly kind: 'segments';
-      readonly chatTokens: number;
+      readonly kind: 'stats';
+      /** observationTokenCount — what OM is currently holding for this thread. */
       readonly observationTokens: number;
-      readonly freeTokens: number;
-      readonly overBudget: boolean;
+      /** totalTokensObserved − observationTokenCount, clamped ≥ 0 (compacted away). */
       readonly compactionSavedTokens: number;
     };
 
@@ -80,9 +84,12 @@ export interface ContextUsageMeterProps {
   /** Heuristic token estimate to display before exact usage is recorded. */
   estimatedTokens?: number | undefined;
   /**
-   * Resolved OM tri-segment state for the active thread. Absent → the OM bar is
-   * not rendered (desktop before the first resolve). Desktop-only: on web the
-   * resolver supplies `{ kind: 'chat-only' }` so the segments collapse honestly.
+   * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
+   * below the chat-vs-budget bar (observed tokens + compaction saved) — NOT a
+   * budget segment. Absent → no OM line (desktop before the first resolve).
+   * Desktop-only: on web the resolver supplies `{ kind: 'chat-only' }` so the
+   * stats are hidden honestly. Prop name kept as `omSegment` for call-site
+   * stability across the panel layers.
    */
   omSegment?: OmMeterState | undefined;
   /** Thread key — MUST match the key used by recordUsage writers (same as threadKey prop on AssistantUiPanel). Falls back to 'active'. */
@@ -107,7 +114,11 @@ function formatCompact(count: number): string {
   return formatTokenCount(count).replace(' tokens', '');
 }
 
-/** Short note + testid for the non-`segments` OM states (honest, never a 0). */
+/**
+ * Short note + testid for the non-`stats` OM states (honest, never a 0). Returns
+ * null for `loading` so the OM line stays quiet during the initial fetch / a
+ * thread switch instead of flashing the empty state.
+ */
 function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } | null {
   switch (state.kind) {
     case 'chat-only':
@@ -119,95 +130,38 @@ function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } 
     case 'error':
       return { text: 'Observations unavailable', tone: 'error' };
     default:
+      // 'loading' and 'stats' are handled by OmMeterSection, not as a note.
       return null;
   }
 }
 
-interface OmSegmentBarProps {
-  effectiveInputBudget: number;
-  state: Extract<OmMeterState, { kind: 'segments' }>;
-}
-
-/**
- * Unified chat / observation / free segmented bar denominated against the SAME
- * effectiveInputBudget as the last-turn bar. Widths use the budget as the
- * denominator so the three segments and the free remainder tell one story. When
- * over budget the bar fills to 100% (chat+observation clamp) and the free
- * segment is replaced by an honest "over budget" marker — the negative free is
- * surfaced in text, never hidden.
- */
-const OmSegmentBar: FC<OmSegmentBarProps> = ({ effectiveInputBudget, state }) => {
-  const chatPct = Math.max(0, Math.min(100, (state.chatTokens / effectiveInputBudget) * 100));
-  const observationPct = Math.max(
-    0,
-    Math.min(100 - chatPct, (state.observationTokens / effectiveInputBudget) * 100)
-  );
-  const freePct = Math.max(0, 100 - chatPct - observationPct);
-
-  return (
-    <div
-      className="mt-1.5"
-      data-over-budget={state.overBudget ? 'true' : 'false'}
-      data-testid="context-usage-om-segments"
-    >
-      <div className="flex h-1 overflow-hidden rounded-full bg-border/50">
-        <div className="h-full bg-muted-foreground/50" style={{ width: `${chatPct}%` }} />
-        <div className="h-full bg-sky-500/60" style={{ width: `${observationPct}%` }} />
-        <div
-          className={cn('h-full', state.overBudget ? 'bg-destructive/50' : 'bg-emerald-500/30')}
-          style={{ width: `${freePct}%` }}
-        />
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground/80">
-        <span className="tabular-nums">
-          <span className="mr-1 inline-block size-1.5 rounded-full bg-muted-foreground/50 align-middle" />
-          chat {formatCompact(state.chatTokens)}
-        </span>
-        <span className="tabular-nums">
-          <span className="mr-1 inline-block size-1.5 rounded-full bg-sky-500/60 align-middle" />
-          obs {formatCompact(state.observationTokens)}
-        </span>
-        {state.overBudget ? (
-          <span className="text-destructive tabular-nums">
-            over budget {formatCompact(Math.abs(state.freeTokens))}
-          </span>
-        ) : (
-          <span className="tabular-nums">
-            <span className="mr-1 inline-block size-1.5 rounded-full bg-emerald-500/40 align-middle" />
-            free {formatCompact(state.freeTokens)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-};
-
-OmSegmentBar.displayName = 'OmSegmentBar';
-
 interface OmMeterSectionProps {
-  effectiveInputBudget: number;
   state: OmMeterState;
 }
 
 /**
- * Renders the OM portion of the meter: the tri-segment bar + compaction stat for
- * an active row, or an honest one-line note for every other state (never zeros).
- * Extracted so ContextUsageMeter stays under the cognitive-complexity budget.
+ * Renders the OM portion of the meter as INFORMATIONAL stats (observed tokens +
+ * compaction saved) for the `stats` state, or an honest one-line note for every
+ * other state (never zeros). The observation is deliberately NOT drawn as a
+ * budget segment — it does not consume this turn's input budget (see OmMeterState
+ * doc). Extracted so ContextUsageMeter stays under the cognitive-complexity budget.
  */
-const OmMeterSection: FC<OmMeterSectionProps> = ({ effectiveInputBudget, state }) => {
-  if (state.kind === 'segments') {
+const OmMeterSection: FC<OmMeterSectionProps> = ({ state }) => {
+  if (state.kind === 'stats') {
     return (
-      <>
-        <OmSegmentBar effectiveInputBudget={effectiveInputBudget} state={state} />
+      <div
+        className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground/70"
+        data-testid="context-usage-om-stats"
+      >
+        <span className="tabular-nums" data-testid="context-usage-om-observed">
+          OM context: ~{formatCompact(state.observationTokens)} tokens observed
+        </span>
         {state.compactionSavedTokens > 0 && (
-          <p
-            className="mt-1 text-[11px] text-muted-foreground/70"
-            data-testid="context-usage-om-compaction"
-          >
+          <span className="tabular-nums" data-testid="context-usage-om-compaction">
             Reflection saved ~{formatCompact(state.compactionSavedTokens)} tokens
-          </p>
+          </span>
         )}
-      </>
+      </div>
     );
   }
 
@@ -325,12 +279,12 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
         />
       </div>
 
-      {/* OM tri-segment bar (chat / observation / free) + compaction stat, or an
-          honest note for the non-segment states. Desktop-only: web supplies
-          { kind: 'chat-only' } so the bar collapses to a note, never zeros. */}
-      {omSegment && (
-        <OmMeterSection effectiveInputBudget={effectiveInputBudget} state={omSegment} />
-      )}
+      {/* OM informational stats (observed tokens + compaction saved), or an
+          honest note for the other states. NOT a budget segment — the
+          observation does not consume this turn's input budget. Desktop-only:
+          web supplies { kind: 'chat-only' } so the stats are hidden, never
+          zeros. */}
+      {omSegment && <OmMeterSection state={omSegment} />}
 
       {/* Cumulative durable usage + cost. Only shown when hydrated from the DB
           (desktop). Cost renders via formatUsdCost, or the literal "cost

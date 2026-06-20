@@ -47,50 +47,46 @@ describe('parseObservationalMemoryRow', () => {
 });
 
 describe('resolveOmMeterState', () => {
-  const budget = 100_000;
+  function input(
+    overrides: Partial<Parameters<typeof resolveOmMeterState>[0]> = {}
+  ): Parameters<typeof resolveOmMeterState>[0] {
+    return {
+      hasDurableCapability: true,
+      omEnabled: true,
+      loading: false,
+      row: rawRow(),
+      ...overrides,
+    };
+  }
 
   it('web (no durable capability) → chat-only, never zeros', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: false,
-      omEnabled: true,
-      chatTokens: 3000,
-      effectiveInputBudget: budget,
-      row: rawRow(),
+    expect(resolveOmMeterState(input({ hasDurableCapability: false }))).toEqual<OmMeterState>({
+      kind: 'chat-only',
     });
-    expect(state).toEqual<OmMeterState>({ kind: 'chat-only' });
   });
 
   it('OM disabled → inactive (explicit, never "0 saved")', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: false,
-      chatTokens: 3000,
-      effectiveInputBudget: budget,
-      row: rawRow(),
+    expect(resolveOmMeterState(input({ omEnabled: false }))).toEqual<OmMeterState>({
+      kind: 'inactive',
     });
-    expect(state).toEqual<OmMeterState>({ kind: 'inactive' });
   });
 
-  it('no OM row yet → empty state (not a throw, not zeros)', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 3000,
-      effectiveInputBudget: budget,
-      row: null,
+  it('loading + no row yet → loading (NOT the empty flash)', () => {
+    expect(resolveOmMeterState(input({ loading: true, row: null }))).toEqual<OmMeterState>({
+      kind: 'loading',
     });
-    expect(state).toEqual<OmMeterState>({ kind: 'empty' });
+  });
+
+  it('not loading + no OM row → empty state (not a throw, not zeros)', () => {
+    expect(resolveOmMeterState(input({ loading: false, row: null }))).toEqual<OmMeterState>({
+      kind: 'empty',
+    });
   });
 
   it('live-query error → error state (honest unavailable, never 0)', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 3000,
-      effectiveInputBudget: budget,
-      row: null,
-      queryError: new Error('subscription failed'),
-    });
+    const state = resolveOmMeterState(
+      input({ row: null, queryError: new Error('subscription failed') })
+    );
     expect(state.kind).toBe('error');
     if (state.kind === 'error') {
       expect(state.reason).toMatch(/subscription failed/);
@@ -98,78 +94,64 @@ describe('resolveOmMeterState', () => {
   });
 
   it('malformed row → error state (never fabricated 0)', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 3000,
-      effectiveInputBudget: budget,
-      row: { observationTokenCount: 'broken' },
-    });
+    const state = resolveOmMeterState(input({ row: { observationTokenCount: 'broken' } }));
     expect(state.kind).toBe('error');
   });
 
-  it('computes the three segments + compaction saved tokens', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 3000,
-      effectiveInputBudget: budget,
-      row: rawRow({ observationTokenCount: 5000, totalTokensObserved: 12_000 }),
-    });
+  it('active row → informational stats (observed tokens + compaction saved)', () => {
+    const state = resolveOmMeterState(
+      input({ row: rawRow({ observationTokenCount: 5000, totalTokensObserved: 12_000 }) })
+    );
     expect(state).toEqual<OmMeterState>({
-      kind: 'segments',
-      chatTokens: 3000,
+      kind: 'stats',
       observationTokens: 5000,
-      // free = 100000 - (3000 + 5000)
-      freeTokens: 92_000,
-      overBudget: false,
       // 12000 - 5000
       compactionSavedTokens: 7000,
     });
   });
 
-  it('over budget → honest negative-free display, never hidden', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 80_000,
-      effectiveInputBudget: budget,
-      row: rawRow({ observationTokenCount: 40_000, totalTokensObserved: 50_000 }),
+  it('observation is NOT a budget segment: the result carries NO free/overBudget/budget fields', () => {
+    const state = resolveOmMeterState(
+      input({ row: rawRow({ observationTokenCount: 40_000, totalTokensObserved: 50_000 }) })
+    );
+    expect(state.kind).toBe('stats');
+    // The discriminated state must not leak any budget arithmetic — proving the
+    // observation can never be summed into the input budget or trip over-budget.
+    expect(state).not.toHaveProperty('freeTokens');
+    expect(state).not.toHaveProperty('overBudget');
+    expect(state).not.toHaveProperty('chatTokens');
+  });
+
+  it('the resolver input has no budget/chat fields (structurally cannot double-count)', () => {
+    // A large observation that, under the old tri-segment model, would have
+    // tripped a false over-budget now just reports the observed count — the
+    // resolver has no budget to compare against.
+    const state = resolveOmMeterState(
+      input({ row: rawRow({ observationTokenCount: 999_999, totalTokensObserved: 999_999 }) })
+    );
+    expect(state).toEqual<OmMeterState>({
+      kind: 'stats',
+      observationTokens: 999_999,
+      compactionSavedTokens: 0,
     });
-    expect(state.kind).toBe('segments');
-    if (state.kind === 'segments') {
-      expect(state.overBudget).toBe(true);
-      // free is the honest negative (80000 + 40000 = 120000 > 100000)
-      expect(state.freeTokens).toBe(-20_000);
-    }
   });
 
   it('compaction saved is 0 when nothing has been compacted yet (active row, equal totals)', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 1000,
-      effectiveInputBudget: budget,
-      row: rawRow({ observationTokenCount: 4000, totalTokensObserved: 4000 }),
-    });
-    expect(state.kind).toBe('segments');
-    if (state.kind === 'segments') {
-      // totalTokensObserved === observationTokenCount → 0 compacted (active OM,
-      // distinct from the "inactive" state where the stat is suppressed entirely).
+    const state = resolveOmMeterState(
+      input({ row: rawRow({ observationTokenCount: 4000, totalTokensObserved: 4000 }) })
+    );
+    expect(state.kind).toBe('stats');
+    if (state.kind === 'stats') {
       expect(state.compactionSavedTokens).toBe(0);
     }
   });
 
   it('never reports negative compaction savings (clamps a transient totals dip to 0)', () => {
-    const state = resolveOmMeterState({
-      hasDurableCapability: true,
-      omEnabled: true,
-      chatTokens: 1000,
-      effectiveInputBudget: budget,
-      row: rawRow({ observationTokenCount: 6000, totalTokensObserved: 4000 }),
-    });
-    expect(state.kind).toBe('segments');
-    if (state.kind === 'segments') {
+    const state = resolveOmMeterState(
+      input({ row: rawRow({ observationTokenCount: 6000, totalTokensObserved: 4000 }) })
+    );
+    expect(state.kind).toBe('stats');
+    if (state.kind === 'stats') {
       expect(state.compactionSavedTokens).toBe(0);
     }
   });

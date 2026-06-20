@@ -1,24 +1,36 @@
 /**
- * Observational-memory (OM) tri-segment meter derivation.
+ * Observational-memory (OM) informational stats derivation for the context meter.
  *
- * The context meter (packages/ui/src/assistant-ui-panel/context-usage-meter.tsx)
- * shows a unified segmented bar — chat / observation / free — against the single
- * `effectiveInputBudget`, plus a "reflection saved ~Nk" compaction stat. The OM
- * segment + compaction numerator are read RAW off the `mastra_observational_memory`
- * row for the active thread (see assistant-om-segment-row.ts + the projection
- * drift guard in packages/db/__tests__/mastra-om-schema-projection.test.ts).
+ * IMPORTANT — the OM observation is NOT a slice of this turn's input budget.
+ * An earlier "tri-segment" model (chat + observation + free vs ONE
+ * effectiveInputBudget) was arithmetically incoherent and was removed:
+ *   - With the default `retrievalMode: 'off'`, the observation is NOT injected
+ *     into the prompt (packages/agent/src/pglite-mastra-memory/memory-factory.ts
+ *     only wires `retrieval` for 'messages'/'vector'), so observationTokenCount
+ *     does NOT consume the input budget — painting it as a budget segment is false.
+ *   - When retrieval IS on, the injected observation is ALREADY counted inside the
+ *     last turn's inputTokens (= the meter's chat usage), so chat + observation
+ *     would DOUBLE-COUNT it and could trip a false "over budget".
+ * So the observation is INFORMATIONAL — "what OM is holding for this thread" —
+ * surfaced as two stats next to the (unchanged) chat-vs-budget bar:
+ *   1. OM context: ~Nk tokens observed   (observationTokenCount)
+ *   2. Reflection saved ~Nk tokens        (totalTokensObserved − observationTokenCount)
+ * The resolver therefore takes NO budget/chat input — it structurally CANNOT feed
+ * the budget math.
  *
- * This module is the PURE derivation: row + flags + budget → a discriminated
- * OmMeterState. It is deliberately framework-free so the math, the capability
- * split, and the honest empty/error/inactive states are unit-testable without a
- * DB or React.
+ * The two token columns are read RAW off `mastra_observational_memory` (see
+ * use-om-segment-row.ts + the projection drift guard in
+ * packages/db/__tests__/mastra-om-schema-projection.test.ts). This module is the
+ * PURE derivation: row + flags → a discriminated OmMeterState, unit-testable
+ * without a DB or React.
  *
  * No-silent-fallbacks contract (the bots flagged this exact pattern on 5.1/5.2):
- *   - web (no durable capability) → 'chat-only' (segments collapse to chat) — NOT zeros.
+ *   - web (no durable capability) → 'chat-only' (OM stats hidden) — NOT zeros.
  *   - OM disabled                 → 'inactive'  (explicit) — NOT "0 saved".
+ *   - loading (initial / thread switch) → 'loading' — keeps the OM stats quiet,
+ *     never flashes the honest-empty state before the row arrives.
  *   - no OM row yet               → 'empty'     — NOT a throw, NOT zeros.
  *   - malformed OM row            → 'error'     (strict parser throws, caught here) — NEVER fabricated 0.
- *   - over budget                 → honest negative `freeTokens` + `overBudget` — NEVER hidden.
  */
 import type { OmMeterState } from '@brainstrike/ui/assistant-ui-panel';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
@@ -65,16 +77,18 @@ function parseNonNegativeInteger(value: unknown, field: string): number {
 }
 
 export interface OmMeterInput {
-  /** Last-turn chat tokens (inputTokens + outputTokens) from the session usage store. */
-  readonly chatTokens: number;
-  /** Single budget denominator (deriveEffectiveInputBudget) — reused, never forked. */
-  readonly effectiveInputBudget: number;
   /**
    * Durable assistant usage capability — desktop-only OM persistence signal.
    * MUST be `hasDurableAssistantUsageCapability()`, NOT raw PGlite presence
    * (web is local-first and HAS a PGlite handle but no durable OM rows).
    */
   readonly hasDurableCapability: boolean;
+  /**
+   * True while the OM live query is fetching (initial load / thread switch) and
+   * no row has been delivered yet. Kept separate from `row === null` so the meter
+   * does NOT flash the honest-empty state before the first row arrives.
+   */
+  readonly loading: boolean;
   /** Whether observational memory is enabled in settings (observationalMemory.enabled). */
   readonly omEnabled: boolean;
   /**
@@ -87,9 +101,11 @@ export interface OmMeterInput {
 }
 
 /**
- * Resolve the tri-segment meter state from the active thread's OM row + flags.
- * Order matters: capability first (web fallback), then OM-enabled, then row
- * presence, then strict parse — each branch is an HONEST state, never a 0.
+ * Resolve the OM meter state from the active thread's OM row + flags. Order
+ * matters: capability first (web fallback), then OM-enabled, then query error,
+ * then loading (quiet, no empty flash), then row presence, then strict parse —
+ * each branch is an HONEST state, never a fabricated 0. Note: NO budget or chat
+ * input — the observation is informational and cannot feed the budget math.
  */
 export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
   if (!input.hasDurableCapability) {
@@ -102,7 +118,9 @@ export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
     return { kind: 'error', reason: getErrorMessage(input.queryError) };
   }
   if (input.row === null || input.row === undefined) {
-    return { kind: 'empty' };
+    // Loading is distinct from "no row" so a thread switch (loading + null row)
+    // keeps the OM stats quiet instead of flashing "no observations yet".
+    return input.loading ? { kind: 'loading' } : { kind: 'empty' };
   }
 
   let parsed: ObservationalMemoryMeterRow;
@@ -112,17 +130,12 @@ export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
     return { kind: 'error', reason: getErrorMessage(error) };
   }
 
-  const observationTokens = parsed.observationTokenCount;
-  const used = input.chatTokens + observationTokens;
-  const freeTokens = input.effectiveInputBudget - used;
-  const compactionSavedTokens = Math.max(0, parsed.totalTokensObserved - observationTokens);
-
   return {
-    kind: 'segments',
-    chatTokens: input.chatTokens,
-    observationTokens,
-    freeTokens,
-    overBudget: freeTokens < 0,
-    compactionSavedTokens,
+    kind: 'stats',
+    observationTokens: parsed.observationTokenCount,
+    // totalTokensObserved − observationTokenCount, clamped ≥ 0 (tokens compacted
+    // away by reflection). 0 here means "active OM, nothing compacted yet" —
+    // distinct from the suppressed-stat 'inactive' state.
+    compactionSavedTokens: Math.max(0, parsed.totalTokensObserved - parsed.observationTokenCount),
   };
 }
