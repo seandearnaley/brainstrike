@@ -146,12 +146,20 @@ export interface RootLayoutContentProps {
   readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
+  /**
+   * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
+   * when the `window.terminal` bridge is present; web never constructs it
+   * (capability gating, not an isElectron check). When absent, no Terminal nav
+   * item is rendered.
+   */
+  readonly terminalPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/settings': 'settings',
   '/prompts': 'prompts',
   '/git': 'git',
+  '/terminal': 'terminal',
 };
 
 function resolveActiveTabForPath(path: string): PanelTab {
@@ -328,6 +336,7 @@ export function RootLayoutContent({
   settingsPageContent,
   promptsPageContent,
   gitPageContent,
+  terminalPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -429,6 +438,18 @@ export function RootLayoutContent({
                 data-testid="git-route"
               >
                 {gitPageContent}
+              </div>
+            ) : null}
+            {/* The terminal route stays MOUNTED once first opened (it is only
+                toggled hidden) so switching tabs never kills the running shell —
+                the pty is pinned to its cwd for the session's lifetime. */}
+            {terminalPageContent && mountedTabs.has('terminal') ? (
+              <div
+                aria-hidden={activeTab !== 'terminal'}
+                className={activeTab === 'terminal' ? 'h-full' : 'hidden h-full'}
+                data-testid="terminal-route"
+              >
+                {terminalPageContent}
               </div>
             ) : null}
           </EmbeddingRuntimeProvider>
