@@ -534,7 +534,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         // generation; a prompt that still exceeds a given device's GPU is caught
         // by the engine-fault reset in llm-host-runtime (recovers + reports
         // instead of poisoning the session). NOTE: this is RUNTIME-only metadata
-        // (no DB model-catalog migration); the deeper fix for reliable local
+        // (no DB model-catalog migration). The DB catalog row (migration
+        // 028-gemma-local-llm.ts) still carries the DESCRIPTIVE
+        // capabilities.contextWindow: 131072, which is intentionally NOT
+        // consulted for budgeting — this static registry value is the sole
+        // budget source for the built-in 'local' provider — so the two
+        // diverging is harmless, not a bug. The deeper fix for reliable local
         // tool-calling is a leaner local system-prompt/tool-schema footprint.
         contextWindow: 8192,
         maxOutputTokens: 2048,
