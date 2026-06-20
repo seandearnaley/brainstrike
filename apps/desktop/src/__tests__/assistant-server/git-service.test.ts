@@ -305,6 +305,26 @@ describe('git service — diff', () => {
     // Neither rejected path ever reached git.
     expect(calls).toBe(0);
   });
+
+  it('UNTRACKED: shows whole-file additions via --no-index (not an empty diff)', async () => {
+    const repo = await makeRepo();
+    // A new, untracked file: a plain `git diff` reports nothing for it.
+    await writeFile(repo, 'fresh.txt', 'alpha\nbeta\n');
+
+    const plain = await serviceFor(repo).diff({ path: 'fresh.txt' });
+    expect(plain.ok).toBe(true);
+    if (plain.ok) {
+      expect(plain.value.unifiedDiff).toBe('');
+    }
+
+    const untracked = await serviceFor(repo).diff({ path: 'fresh.txt', untracked: true });
+    expect(untracked.ok).toBe(true);
+    if (untracked.ok) {
+      // --no-index renders the file content as additions; exit 1 is success here.
+      expect(untracked.value.unifiedDiff).toContain('+alpha');
+      expect(untracked.value.unifiedDiff).toContain('+beta');
+    }
+  });
 });
 
 describe('git service — git not installed', () => {
@@ -476,5 +496,61 @@ describe('git service — aheadBehind', () => {
     expect(result.value.ahead).toBe(1);
     expect(result.value.behind).toBe(0);
     expect(result.value.upstream).toContain('origin/');
+  });
+});
+
+describe('git service — push', () => {
+  it('sets the upstream on the first push of a branch with no upstream', async () => {
+    const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+    const remoteReal = await fsPromises.realpath(remote);
+    createdRoots.push(remoteReal);
+    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'x\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    // origin exists but the branch has NO upstream yet → a bare `git push` would
+    // fail; the service must fall back to `push -u origin HEAD`.
+    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
+
+    const before = await serviceFor(repo).aheadBehind();
+    expect(before.ok && before.value.hasUpstream).toBe(false);
+
+    const pushed = await serviceFor(repo).push();
+    expect(pushed.ok).toBe(true);
+
+    // The upstream is now configured → ahead/behind resolves against it.
+    const after = await serviceFor(repo).aheadBehind();
+    expect(after.ok).toBe(true);
+    if (after.ok) {
+      expect(after.value.hasUpstream).toBe(true);
+      expect(after.value.upstream).toContain('origin/');
+    }
+  });
+
+  it('pushes normally when an upstream already exists', async () => {
+    const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+    const remoteReal = await fsPromises.realpath(remote);
+    createdRoots.push(remoteReal);
+    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'x\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
+    await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+
+    // A second local commit, then push through the service with the upstream set.
+    await writeFile(repo, 'b.txt', 'y\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
+
+    const pushed = await serviceFor(repo).push();
+    expect(pushed.ok).toBe(true);
+
+    const after = await serviceFor(repo).aheadBehind();
+    expect(after.ok && after.value.ahead).toBe(0);
   });
 });

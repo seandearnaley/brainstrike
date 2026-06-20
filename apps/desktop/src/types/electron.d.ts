@@ -189,7 +189,7 @@ declare global {
       status: (rootId: string) => Promise<GitResult<GitStatus>>;
       diff: (
         rootId: string,
-        params?: { path?: string; staged?: boolean }
+        params?: { path?: string; staged?: boolean; untracked?: boolean }
       ) => Promise<GitResult<GitDiff>>;
       stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
       unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;

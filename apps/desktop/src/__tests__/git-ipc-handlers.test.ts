@@ -184,12 +184,51 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     });
 
     const result = await handlers.push('r1');
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.args).toEqual(['push']);
+    // Push now first PROBES the upstream (`rev-parse @{upstream}`); the recording
+    // runner returns exit 128 for that probe → "no upstream" → the service falls
+    // back to `push -u origin HEAD` to set the upstream on the first push.
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.args).toEqual([
+      'rev-parse',
+      '--abbrev-ref',
+      '--symbolic-full-name',
+      '@{upstream}',
+    ]);
+    expect(calls[1]?.args).toEqual(['push', '-u', 'origin', 'HEAD']);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/could not read Username|terminal prompts disabled/);
     }
+  });
+
+  it('uses a bare `git push` when the branch already has an upstream', async () => {
+    const dir = await makeDir();
+    // Per-call responses: the upstream probe succeeds, then the push succeeds.
+    const responses = [
+      { exitCode: 0, stdout: 'origin/main\n', stderr: '', timedOut: false },
+      { exitCode: 0, stdout: 'Everything up-to-date\n', stderr: '', timedOut: false },
+    ];
+    let index = 0;
+    const calls: { args: readonly string[]; cwd: string }[] = [];
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
+      run: ({ args, cwd }) => {
+        calls.push({ args, cwd });
+        const response = responses[index] ?? responses.at(-1);
+        index += 1;
+        return Promise.resolve({
+          exitCode: response?.exitCode ?? 0,
+          stdout: response?.stdout ?? '',
+          stderr: response?.stderr ?? '',
+          timedOut: false,
+        });
+      },
+    });
+
+    const result = await handlers.push('r1');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.args).toEqual(['push']);
+    expect(result.ok).toBe(true);
   });
 
   it('builds the pull command and returns the output on success', async () => {

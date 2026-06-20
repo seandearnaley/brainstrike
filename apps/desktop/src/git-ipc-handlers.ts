@@ -217,8 +217,13 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
 
   return {
     status: (rootId: unknown) => withService(rootId, (service) => service.status()),
-    diff: (rootId: unknown, params: { path?: string; staged?: boolean } = {}) =>
-      withService(rootId, (service) => service.diff({ path: params.path, staged: params.staged })),
+    diff: (
+      rootId: unknown,
+      params: { path?: string; staged?: boolean; untracked?: boolean } = {}
+    ) =>
+      withService(rootId, (service) =>
+        service.diff({ path: params.path, staged: params.staged, untracked: params.untracked })
+      ),
     stage: (rootId: unknown, params: { path?: string } = {}) =>
       withService(rootId, (service) => service.stage({ path: params.path })),
     unstage: (rootId: unknown, params: { path?: string } = {}) =>

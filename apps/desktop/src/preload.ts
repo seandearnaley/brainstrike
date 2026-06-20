@@ -1024,7 +1024,7 @@ if (shouldExposeBridge('platform')) {
 if (shouldExposeBridge('git')) {
   contextBridge.exposeInMainWorld('git', {
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
-    diff: (rootId: string, params?: { path?: string; staged?: boolean }) =>
+    diff: (rootId: string, params?: { path?: string; staged?: boolean; untracked?: boolean }) =>
       ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
     stage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
