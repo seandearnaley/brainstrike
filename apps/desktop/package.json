@@ -12,6 +12,11 @@
       "public/**/*",
       "package.json"
     ],
+    "npmRebuild": true,
+    "asarUnpack": [
+      "**/node_modules/node-pty/build/**",
+      "**/node_modules/node-pty/prebuilds/**"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dmg",
@@ -52,6 +57,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "electron-store": "^11.0.2",
     "lucide-react": "^1.8.0",
+    "node-pty": "^1.1.0",
     "oxc-parser": "^0.131.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -143,6 +149,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
     "pack": "pnpm build && electron-builder --dir",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "start": "pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism",

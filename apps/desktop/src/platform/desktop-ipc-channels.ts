@@ -102,6 +102,16 @@ export const DESKTOP_IPC_CHANNELS = {
     removeItem: 'storage:removeItem',
     setItem: 'storage:setItem',
   },
+  terminal: {
+    create: 'terminal:create',
+    write: 'terminal:write',
+    resize: 'terminal:resize',
+    destroy: 'terminal:destroy',
+    // One-way main→renderer pushes (pty output / exit). Not ipcMain.handle
+    // channels — see terminal-ipc-handlers.ts.
+    data: 'terminal:data',
+    exit: 'terminal:exit',
+  },
   preferences: {
     layoutLoad: 'layout:load',
     layoutSave: 'layout:save',
