@@ -59,6 +59,7 @@ const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
+const QUICK_OPEN_OPEN_EVENT = 'quick-open:open' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -855,6 +856,19 @@ contextBridge.exposeInMainWorld('commandPalette', {
     ipcRenderer.on(COMMAND_PALETTE_OPEN_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(COMMAND_PALETTE_OPEN_EVENT, listener);
+    };
+  },
+});
+
+// ⌘P quick-open: the app menu's Cmd+P accelerator pushes this event to the
+// focused window so the renderer (visible-UI root) opens the quick-open finder.
+// Mirrors the commandPalette one-way main→renderer bridge.
+contextBridge.exposeInMainWorld('quickOpen', {
+  onOpen: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(QUICK_OPEN_OPEN_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(QUICK_OPEN_OPEN_EVENT, listener);
     };
   },
 });
