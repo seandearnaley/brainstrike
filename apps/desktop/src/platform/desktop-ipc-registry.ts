@@ -8,6 +8,7 @@ export type DesktopIpcDomain =
   | 'diagnostics'
   | 'embeddings'
   | 'files'
+  | 'git'
   | 'llm-host'
   | 'logging'
   | 'mcp'
