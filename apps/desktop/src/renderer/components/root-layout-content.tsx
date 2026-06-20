@@ -8,17 +8,27 @@ import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
+// Capability check from the dependency-light `availability` subpath (NOT
+// `/terminal-panel`, which also re-exports TerminalPanel + @xterm/*) so the
+// startup check does not defeat the lazy code-split in terminal-page-content.tsx.
+import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/utils/logger';
-import { GitBranch } from 'lucide-react';
+import { GitBranch, SquareTerminal } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
 import SettingsPageContent from './settings/page-content';
+import TerminalPageContent from './terminal-page-content';
 
 const GIT_NAVIGATION_ITEM: NavigationItem = { name: 'Git', icon: GitBranch, path: '/git' };
+const TERMINAL_NAVIGATION_ITEM: NavigationItem = {
+  name: 'Terminal',
+  icon: SquareTerminal,
+  path: '/terminal',
+};
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -73,13 +83,19 @@ export default function RootLayoutContent() {
   // bridge is present (no isElectron check). The bridge exists before React
   // mounts, so this is stable for the window's lifetime — resolve it once.
   const gitAvailable = useMemo(() => isGitBridgeAvailable(), []);
-  const navigationConfig = useMemo<NavigationItem[]>(
-    () =>
-      gitAvailable
-        ? [...(navigationItems as NavigationItem[]), GIT_NAVIGATION_ITEM]
-        : (navigationItems as NavigationItem[]),
-    [gitAvailable]
-  );
+  // Capability gate: only surface the Terminal tab when the desktop
+  // `window.terminal` pty bridge is present (no isElectron check). Resolved once.
+  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  const navigationConfig = useMemo<NavigationItem[]>(() => {
+    const items = [...(navigationItems as NavigationItem[])];
+    if (gitAvailable) {
+      items.push(GIT_NAVIGATION_ITEM);
+    }
+    if (terminalAvailable) {
+      items.push(TERMINAL_NAVIGATION_ITEM);
+    }
+    return items;
+  }, [gitAvailable, terminalAvailable]);
   const loadEmbeddingQueue = useCallback(
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
@@ -94,6 +110,7 @@ export default function RootLayoutContent() {
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
+    ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
