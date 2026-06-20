@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildReferencedFilesContextMessage,
   injectReferencedFilesContext,
+  MAX_REFERENCED_FILES_TOTAL_CHARS,
   type WorkspaceFileReader,
 } from '../../assistant-server/referenced-files-context';
 
@@ -87,6 +88,61 @@ describe('buildReferencedFilesContextMessage', () => {
     const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     expect(body).toContain('// content of a.ts');
     expect(body).toContain('// content of b.ts');
+  });
+
+  it('caps the TOTAL injected size and appends an honest "N omitted" note', async () => {
+    // Each file's content is ~8K chars (under the per-file 12K cap, so no
+    // per-file truncation), but many of them together would blow the aggregate
+    // budget. The builder must STOP injecting once the total budget is exhausted
+    // and tell the model how many it skipped (never silently drop them).
+    const bigBody = 'x'.repeat(8000);
+    reader = vi.fn(async (args: { rootPath: string; requestedPath: string }) => ({
+      path: args.requestedPath,
+      size: bigBody.length,
+      content: bigBody,
+    }));
+    const mentions = Array.from({ length: 20 }, (_unused, index) =>
+      directive(ROOT_ID, `big-${index}.ts`, `big-${index}.ts`)
+    ).join(' ');
+
+    const result = await buildReferencedFilesContextMessage(mentions, runtimeWithRoot(), reader);
+    const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+
+    // Total injected stays within the aggregate budget (with reasonable framing
+    // overhead headroom — the fences/headers/note add a bounded constant).
+    expect(body.length).toBeLessThanOrEqual(MAX_REFERENCED_FILES_TOTAL_CHARS + 2000);
+    // At least one file was injected, and at least one was omitted with a note.
+    expect(body).toContain('big-0.ts');
+    expect(body.toLowerCase()).toContain('omitted to stay within the context budget');
+    // The reader is not called for files past the budget cutoff.
+    expect((reader as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThan(20);
+  });
+
+  it('wraps content in a fence LONGER than any backtick run inside it (no early break)', async () => {
+    // A referenced file that contains a ``` fence (markdown / fenced code in a
+    // comment) must not terminate the wrapping fence early — the wrapper fence
+    // must be longer than the longest backtick run in the body.
+    const fenced = ['# Heading', '```ts', 'const a = 1;', '```', 'after'].join('\n');
+    reader = vi.fn(async (args: { rootPath: string; requestedPath: string }) => ({
+      path: args.requestedPath,
+      size: fenced.length,
+      content: fenced,
+    }));
+
+    const result = await buildReferencedFilesContextMessage(
+      `review ${directive(ROOT_ID, 'doc.md', 'doc.md')}`,
+      runtimeWithRoot(),
+      reader
+    );
+    const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+
+    // The body's longest backtick run is 3, so the wrapper must use >=4 backticks.
+    expect(body).toContain('````');
+    // The inner ``` fence survives intact (full file content round-trips).
+    expect(body).toContain('```ts\nconst a = 1;\n```');
+    // The whole file is present.
+    expect(body).toContain('# Heading');
+    expect(body).toContain('after');
   });
 });
 

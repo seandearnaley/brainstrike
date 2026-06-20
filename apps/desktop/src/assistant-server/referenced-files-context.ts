@@ -14,6 +14,17 @@ const logger = createLogger('AssistantReferencedFiles');
 const MAX_REFERENCED_FILE_CHARS = 12_000;
 
 /**
+ * Aggregate ceiling on the TOTAL file content injected for a single turn, across
+ * ALL `@file` references. The per-file cap alone (12K) does not bound the total:
+ * mentioning 20 files would inject ~240K chars and blow the model's input budget
+ * (and contradict the tool-output budget discipline in CLAUDE.md). Once this
+ * budget is exhausted, the remaining files are NOT injected — an honest "N
+ * omitted to stay within the context budget" note is appended instead (never a
+ * silent drop). ~4 files of full-size content, or more partial ones.
+ */
+export const MAX_REFERENCED_FILES_TOTAL_CHARS = 48_000;
+
+/**
  * Reads a workspace text file (containment + size + binary guarded). Injected so
  * the context builder is unit-testable without disk; the live wiring passes the
  * real `readWorkspaceTextFile` from assistant-tools.
@@ -38,6 +49,31 @@ function truncateForContext(content: string): { text: string; truncated: boolean
 }
 
 /**
+ * Wrap file content in a code fence that CANNOT be broken by backticks inside
+ * the body. CommonMark lets a fence be closed only by a backtick run at least as
+ * long as the opening run, so we open with one MORE backtick than the longest
+ * run found in the body (min 3). Mirrors the edit tool's fence-escape rigor: a
+ * referenced markdown/doc file that itself contains ``` no longer terminates the
+ * wrapper early (which would make the model read the tail as prose, not content).
+ */
+function fenceContent(body: string): string {
+  let longestRun = 0;
+  let currentRun = 0;
+  for (const char of body) {
+    if (char === '`') {
+      currentRun += 1;
+      if (currentRun > longestRun) {
+        longestRun = currentRun;
+      }
+    } else {
+      currentRun = 0;
+    }
+  }
+  const fence = '`'.repeat(Math.max(3, longestRun + 1));
+  return `${fence}\n${body}\n${fence}`;
+}
+
+/**
  * Build a single `system`-role context message carrying the content of every
  * file referenced (via `:file[…]{name=…}` directives) in the current turn's
  * text, or `null` when none are referenced.
@@ -47,6 +83,16 @@ function truncateForContext(content: string): { text: string; truncated: boolean
  * outside the root), is surfaced as an explicit "could not read" note INSIDE the
  * context block — the model is told the reference was unresolvable rather than
  * the file being silently omitted.
+ *
+ * Aggregate budget: each injected file keeps its per-file 12K cap, AND the TOTAL
+ * injected content is bounded by {@link MAX_REFERENCED_FILES_TOTAL_CHARS}. When
+ * the budget is exhausted, the remaining files are NOT read/injected — an honest
+ * "N more referenced file(s) omitted to stay within the context budget" note is
+ * appended instead. (Unresolvable-reference notes are tiny and always emitted.)
+ *
+ * NOTE: a directive id whose workspace path contains `}` is truncated by the
+ * `{name=…}` directive regex; such an exotic path simply fails containment and
+ * surfaces the honest "could not read" note rather than reading the wrong file.
  */
 export async function buildReferencedFilesContextMessage(
   text: string,
@@ -65,6 +111,8 @@ export async function buildReferencedFilesContextMessage(
     'The user referenced the following workspace files with @file mentions. Their current content is provided below for this turn.',
   ];
 
+  let injectedChars = 0;
+  let omittedForBudget = 0;
   for (const mention of mentions) {
     const root = rootById.get(mention.rootId);
     if (!root) {
@@ -77,13 +125,20 @@ export async function buildReferencedFilesContextMessage(
       );
       continue;
     }
+    // Stop reading once the aggregate budget is spent — count the rest as omitted
+    // rather than reading (and discarding) files we can't inject.
+    if (injectedChars >= MAX_REFERENCED_FILES_TOTAL_CHARS) {
+      omittedForBudget += 1;
+      continue;
+    }
     try {
       const file = await readFile({ rootPath: root.path, requestedPath: mention.path });
       const { text: body, truncated } = truncateForContext(file.content);
       const suffix = truncated
         ? `\n[Truncated to the first ${MAX_REFERENCED_FILE_CHARS} characters.]`
         : '';
-      sections.push(`### ${file.path}\n\`\`\`\n${body}\n\`\`\`${suffix}`);
+      injectedChars += body.length;
+      sections.push(`### ${file.path}\n${fenceContent(body)}${suffix}`);
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'unknown error';
       logger.warn('Referenced file could not be read', {
@@ -93,6 +148,17 @@ export async function buildReferencedFilesContextMessage(
       });
       sections.push(`### ${mention.path}\n[Could not read: ${detail}]`);
     }
+  }
+
+  if (omittedForBudget > 0) {
+    logger.warn('Referenced files omitted to stay within the context budget', {
+      omitted: omittedForBudget,
+      totalChars: injectedChars,
+    });
+    const plural = omittedForBudget === 1 ? 'file' : 'files';
+    sections.push(
+      `[${omittedForBudget} more referenced ${plural} omitted to stay within the context budget.]`
+    );
   }
 
   return {
