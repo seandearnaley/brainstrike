@@ -207,20 +207,20 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     expect(liveTerminalCountForTest()).toBe(1);
 
     // Drive the shell: print a unique marker, then read it from the data stream.
-    const writeResult = handlers.write({ terminalId, data: 'echo HELLO_PTY_MARKER\r' });
+    const writeResult = handlers.write({ terminalId, data: 'echo HELLO_PTY_MARKER\r' }, owner.id);
     expect(writeResult.ok).toBe(true);
 
     const sawMarker = await waitFor(() => owner.aggregatedData.includes('HELLO_PTY_MARKER'));
     expect(sawMarker).toBe(true);
 
     // Resize must not crash.
-    const resizeResult = handlers.resize({ terminalId, cols: 120, rows: 40 });
+    const resizeResult = handlers.resize({ terminalId, cols: 120, rows: 40 }, owner.id);
     expect(resizeResult.ok).toBe(true);
 
     // Capture the shell pid via the registry-free route: ask the shell to print
     // its own pid, then assert that pid is dead after destroy.
     owner.dataEvents.length = 0;
-    handlers.write({ terminalId, data: 'echo PID=$$\r' });
+    handlers.write({ terminalId, data: 'echo PID=$$\r' }, owner.id);
     await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
     const match = owner.aggregatedData.match(/PID=(\d+)/);
     expect(match).not.toBeNull();
@@ -229,11 +229,48 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     expect(isPidAlive(shellPid)).toBe(true);
 
     // Destroy → the pty (and its shell pid) must be gone.
-    const destroyResult = handlers.destroy({ terminalId });
+    const destroyResult = handlers.destroy({ terminalId }, owner.id);
     expect(destroyResult.ok).toBe(true);
     expect(liveTerminalCountForTest()).toBe(0);
 
     const dead = await waitFor(() => !isPidAlive(shellPid));
+    expect(dead).toBe(true);
+  });
+
+  it('reaps a disowned/nohup background child on destroy (no orphan)', async () => {
+    // Regression: tree-kill walks descendants by parent-pid, so a child that is
+    // disowned/nohup'd and re-parents to PID 1 when the shell dies escapes a
+    // leader-first kill. killTerminalTree runs the tree-kill walk (shell still
+    // alive) + a process-group kill to close that gap. Probe is deterministic.
+    const dir = await makeDir();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+    });
+    const owner = new FakeWebContents(5);
+
+    const created = await handlers.create(castOwner(owner), { rootId: 'root-id' });
+    if (!created.ok) {
+      throw new Error(`create failed: ${created.error}`);
+    }
+    const { terminalId } = created.value;
+
+    // Start a nohup'd background sleep, disown it, and print its pid. nohup makes
+    // it ignore SIGHUP (so node-pty's leader SIGHUP can't reap it); disown +
+    // job control put it in its OWN process group — the orphan the reviewer found.
+    handlers.write(
+      { terminalId, data: 'nohup sleep 600 >/dev/null 2>&1 & C=$!; disown $C; echo CHILD=$C\r' },
+      owner.id
+    );
+    await waitFor(() => /CHILD=\d+/.test(owner.aggregatedData));
+    const childPid = Number(owner.aggregatedData.match(/CHILD=(\d+)/)?.[1]);
+    expect(Number.isInteger(childPid)).toBe(true);
+    expect(isPidAlive(childPid)).toBe(true);
+
+    const destroyResult = handlers.destroy({ terminalId }, owner.id);
+    expect(destroyResult.ok).toBe(true);
+
+    // The disowned child must be dead — this was the orphan before the fix.
+    const dead = await waitFor(() => !isPidAlive(childPid), 6000);
     expect(dead).toBe(true);
   });
 
@@ -253,7 +290,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
 
     // Ask the shell to exit; the onExit handler should push terminal:exit and
     // drop the registry entry.
-    handlers.write({ terminalId, data: 'exit\r' });
+    handlers.write({ terminalId, data: 'exit\r' }, owner.id);
 
     const exited = await waitFor(() => owner.exitEvents.length > 0);
     expect(exited).toBe(true);
@@ -266,14 +303,14 @@ describe('terminal IPC handlers — structured errors', () => {
   it('returns a structured error writing/resizing/destroying an unknown terminal', () => {
     const handlers = createTerminalIpcHandlers({ resolver: fakeResolver([]) });
 
-    const write = handlers.write({ terminalId: 'ghost', data: 'x' });
+    const write = handlers.write({ terminalId: 'ghost', data: 'x' }, 1);
     expect(write.ok).toBe(false);
     if (!write.ok) {
       expect(write.error).toMatch(/No live terminal/);
     }
-    const resize = handlers.resize({ terminalId: 'ghost', cols: 10, rows: 10 });
+    const resize = handlers.resize({ terminalId: 'ghost', cols: 10, rows: 10 }, 1);
     expect(resize.ok).toBe(false);
-    const destroy = handlers.destroy({ terminalId: 'ghost' });
+    const destroy = handlers.destroy({ terminalId: 'ghost' }, 1);
     expect(destroy.ok).toBe(false);
   });
 
@@ -289,13 +326,46 @@ describe('terminal IPC handlers — structured errors', () => {
       throw new Error(`create failed: ${created.error}`);
     }
     const { terminalId } = created.value;
-    handlers.destroy({ terminalId });
+    handlers.destroy({ terminalId }, owner.id);
 
-    const write = handlers.write({ terminalId, data: 'echo nope\r' });
+    const write = handlers.write({ terminalId, data: 'echo nope\r' }, owner.id);
     expect(write.ok).toBe(false);
     if (!write.ok) {
       expect(write.error).toMatch(/No live terminal/);
     }
+  });
+
+  it('rejects write/resize/destroy from a non-owner renderer (cross-renderer isolation)', async () => {
+    const dir = await makeDir();
+    const handlers = createTerminalIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'root', path: dir, rootId: 'root-id' }]),
+    });
+    const owner = new FakeWebContents(100);
+    const attacker = new FakeWebContents(200);
+
+    const created = await handlers.create(castOwner(owner), { rootId: 'root-id' });
+    if (!created.ok) {
+      throw new Error(`create failed: ${created.error}`);
+    }
+    const { terminalId } = created.value;
+
+    // The attacker knows the id but does not own the terminal → all rejected,
+    // with the SAME error as an unknown id (no existence oracle).
+    const write = handlers.write({ terminalId, data: 'echo pwned\r' }, attacker.id);
+    expect(write.ok).toBe(false);
+    if (!write.ok) {
+      expect(write.error).toMatch(/No live terminal/);
+    }
+    const resize = handlers.resize({ terminalId, cols: 10, rows: 10 }, attacker.id);
+    expect(resize.ok).toBe(false);
+    const destroy = handlers.destroy({ terminalId }, attacker.id);
+    expect(destroy.ok).toBe(false);
+
+    // The terminal is untouched and the OWNER can still drive + destroy it.
+    expect(liveTerminalCountForTest()).toBe(1);
+    expect(handlers.write({ terminalId, data: 'echo ok\r' }, owner.id).ok).toBe(true);
+    expect(handlers.destroy({ terminalId }, owner.id).ok).toBe(true);
+    expect(liveTerminalCountForTest()).toBe(0);
   });
 
   it('surfaces a spawn failure as a structured error (no throw across IPC)', async () => {
@@ -340,7 +410,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
       [ownerA, a],
       [ownerB, b],
     ] as const) {
-      handlers.write({ terminalId: created.value.terminalId, data: 'echo PID=$$\r' });
+      handlers.write({ terminalId: created.value.terminalId, data: 'echo PID=$$\r' }, owner.id);
       await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
       const pid = Number(owner.aggregatedData.match(/PID=(\d+)/)?.[1]);
       expect(Number.isInteger(pid)).toBe(true);
@@ -369,7 +439,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
     if (!created.ok) {
       throw new Error('create failed');
     }
-    handlers.write({ terminalId: created.value.terminalId, data: 'echo PID=$$\r' });
+    handlers.write({ terminalId: created.value.terminalId, data: 'echo PID=$$\r' }, owner.id);
     await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
     const pid = Number(owner.aggregatedData.match(/PID=(\d+)/)?.[1]);
     expect(liveTerminalCountForTest()).toBe(1);

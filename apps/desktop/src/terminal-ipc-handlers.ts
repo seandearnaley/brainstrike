@@ -19,7 +19,12 @@
  *    `terminal:destroy` and {@link disposeAllTerminals} (wired into graceful
  *    shutdown AND factory reset, mirroring the shell tool's
  *    `disposeLiveChildProcesses`) kill every pty so no shell survives the app /
- *    a workspace reset. `tree-kill` reaps the whole process tree as a backstop.
+ *    a workspace reset. Reaping is order-critical: {@link killTerminalTree}
+ *    runs the `tree-kill` descendant walk (while the leader is still alive) and
+ *    a POSIX process-group kill, so a child the shell backgrounded in the same
+ *    session — including a `disown`'d / `nohup`'d job in its OWN process group —
+ *    is reaped. A deliberately daemonized (`setsid`, own session) child escapes
+ *    by ancestry, as it does in ANY terminal emulator (iTerm/VSCode included).
  *
  * 3. EVENT STREAM. pty stdout/stderr is pushed to the OWNING renderer via a
  *    one-way `terminal:data` event ({@link DESKTOP_IPC_CHANNELS.terminal.data});
@@ -50,11 +55,15 @@ const DEFAULT_ROWS = 24;
 /** Hard ceiling on viewport dimensions so a bad value cannot allocate absurd buffers. */
 const MAX_DIMENSION = 5000;
 /**
- * Max bytes of pty output buffered for a SINGLE event push. node-pty already
+ * Max UTF-16 code units in a SINGLE `terminal:data` event push. node-pty already
  * chunks output; this only bounds a pathological single chunk so one runaway
- * line cannot blow the IPC message. Larger chunks are split across events.
+ * line cannot blow the IPC message. Larger chunks are split across events; the
+ * renderer reassembles by plain concatenation, which is LOSSLESS (a surrogate
+ * pair split across two events is restored on join). A per-chunk xterm.write()
+ * consumer could momentarily render a replacement char on a >256k-unit split,
+ * but the buffered text is always correct — flagged for the xterm PR.
  */
-const MAX_EVENT_CHUNK_BYTES = 256 * 1024;
+const MAX_EVENT_CHUNK_CHARS = 256 * 1024;
 
 /** A successful result carries a value; a failure carries a human-readable error. */
 export type TerminalResult<T = void> =
@@ -119,6 +128,15 @@ interface LiveTerminal {
  */
 const liveTerminals = new Map<string, LiveTerminal>();
 
+/**
+ * WebContents we have already attached a `'destroyed'` reaper to. Tracked so a
+ * renderer that opens MANY terminals registers ONE listener (not one per
+ * terminal) — otherwise >10 terminals in a window trips Node's default
+ * MaxListenersExceededWarning and fires N redundant reaps on destroy. A WeakSet
+ * lets the entry vanish when the WebContents is GC'd.
+ */
+const reaperAttachedOwners = new WeakSet<WebContents>();
+
 let terminalSequence = 0;
 
 /** Generate a process-unique, non-guessable terminal id. */
@@ -150,25 +168,69 @@ function clampDimension(value: number | undefined, fallback: number): number {
 }
 
 /**
- * Forcefully reap a pty's process tree. node-pty's `kill()` signals the shell;
- * `tree-kill` is the cross-platform backstop that walks + signals the whole
- * descendant tree so a child the shell forked cannot be orphaned. A kill failure
- * is logged, never swallowed (no-silent-fallbacks). An "already dead" race after
- * the shell exited is expected and not logged.
+ * Forcefully reap a pty's process tree, ORDER-CRITICAL to close the
+ * disowned/nohup'd background-child gap.
+ *
+ * Why the order matters: a pty shell has a controlling tty, so JOB CONTROL is
+ * on and every background job (`sleep 600 & disown`, `nohup … &`) runs in its
+ * OWN process group — NOT the shell's. So `process.kill(-shellPid, …)` (the
+ * shell tool's mechanism) does NOT reach them, and once the shell exits the
+ * child re-parents to PID 1, so `tree-kill`'s parent-pid walk also misses it.
+ * The probe is deterministic: such a child orphans destroy()/dispose() if we
+ * kill the leader first.
+ *
+ * The mechanism that DOES reap it: run `tree-kill` (the ps-tree descendant
+ * walk) FIRST, while the shell is still alive — at that moment the background
+ * job is still parented to the shell, so the walk finds and SIGKILLs it. ONLY
+ * AFTER that walk completes do we (1) `process.kill(-pid)` as a POSIX
+ * process-group backstop for any same-group straggler (the shell tool's
+ * recipe) and (2) `entry.process.kill()` the node-pty leader. Killing the
+ * leader before the walk would re-parent the child and re-open the gap.
+ *
+ * Out of scope (POSIX, escapes EVERY terminal emulator incl. iTerm/VSCode): a
+ * deliberately daemonized child that calls `setsid` to start its OWN session
+ * detaches from the shell's tree AND session and cannot be reaped by ancestry.
+ *
+ * `dispose` is fire-and-forget (the public callers stay synchronous); ordering
+ * is preserved INSIDE the tree-kill callback. Failures are logged, never
+ * swallowed (no-silent-fallbacks); an "already dead" race is expected and quiet.
  */
 function killTerminalTree(entry: LiveTerminal): void {
-  try {
-    entry.process.kill();
-  } catch (error) {
-    // ESRCH-equivalent: the process already exited. node-pty throws a generic
-    // Error here, so we cannot discriminate; tree-kill below is the real reaper.
-    logger.debug('pty.kill threw (process may already be gone)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  // 1) Descendant walk FIRST, while the leader is still alive, so a
+  //    separate-process-group background job is still a descendant by ppid.
   treeKill(entry.pid, 'SIGKILL', (error) => {
     if (error && !/no such process/i.test(error.message)) {
       logger.warn('tree-kill failed for terminal', { pid: entry.pid, error: error.message });
+    }
+    // 2) POSIX process-group backstop for same-group children (covers anything
+    //    that DID stay in the shell's group). Windows has no process groups and
+    //    relies entirely on the tree-kill walk above.
+    if (process.platform !== 'win32') {
+      try {
+        process.kill(-entry.pid, 'SIGKILL');
+      } catch (groupError) {
+        const code = (groupError as NodeJS.ErrnoException).code;
+        // Both are EXPECTED here because the tree-kill walk above usually
+        // already reaped the group:
+        //  - ESRCH: the group is gone.
+        //  - EPERM: the leader is a just-SIGKILLed zombie, so the kernel rejects
+        //    a group signal through it. The leader is always our own child, so a
+        //    genuine permission failure is impossible — this is the post-reap
+        //    race, not a real denial. Any OTHER code is unexpected → warn (no
+        //    silent fallback).
+        if (code !== 'ESRCH' && code !== 'EPERM') {
+          logger.warn('Process-group kill failed for terminal', { pid: entry.pid, code });
+        }
+      }
+    }
+    // 3) Finally the node-pty leader itself (SIGHUP). A throw here means the
+    //    shell already exited — expected, logged at debug only.
+    try {
+      entry.process.kill();
+    } catch (killError) {
+      logger.debug('pty.kill threw (process may already be gone)', {
+        error: killError instanceof Error ? killError.message : String(killError),
+      });
     }
   });
 }
@@ -189,9 +251,15 @@ export interface TerminalIpcHandlers {
     owner: WebContents,
     params: TerminalCreateParams
   ): Promise<TerminalResult<TerminalCreateResult>>;
-  destroy(params: TerminalDestroyParams): TerminalResult;
-  resize(params: TerminalResizeParams): TerminalResult;
-  write(params: TerminalWriteParams): TerminalResult;
+  /**
+   * `requesterId` is the calling renderer's `WebContents.id` (from
+   * `event.sender`). write/resize/destroy reject when it does not match the
+   * terminal's owner, so one renderer cannot drive (or kill) another's shell by
+   * guessing its id — the hidden host renderers also hold the bridge.
+   */
+  destroy(params: TerminalDestroyParams, requesterId: number): TerminalResult;
+  resize(params: TerminalResizeParams, requesterId: number): TerminalResult;
+  write(params: TerminalWriteParams, requesterId: number): TerminalResult;
 }
 
 export function createTerminalIpcHandlers({
@@ -251,22 +319,28 @@ export function createTerminalIpcHandlers({
     liveTerminals.set(terminalId, entry);
 
     // If the owning renderer is destroyed (window closed / navigated away mid
-    // root-switch), reap every pty it owns so no shell is orphaned. `once` so
-    // the listener self-removes; idempotent with destroy()/onExit() (the map
-    // delete makes the second teardown a no-op).
-    owner.once('destroyed', () => {
-      disposeTerminalsForWebContents(owner.id);
-    });
+    // root-switch), reap every pty it owns so no shell is orphaned. Attach the
+    // reaper ONCE per WebContents (not once per terminal — see
+    // reaperAttachedOwners) so opening many terminals can't trip the listener
+    // cap or fire N redundant reaps. Idempotent with destroy()/onExit() (the
+    // map delete makes a later teardown a no-op).
+    if (!reaperAttachedOwners.has(owner)) {
+      reaperAttachedOwners.add(owner);
+      owner.once('destroyed', () => {
+        reaperAttachedOwners.delete(owner);
+        disposeTerminalsForWebContents(owner.id);
+      });
+    }
 
     ptyProcess.onData((chunk: string) => {
       // Split a pathological single chunk so one runaway line cannot blow the
       // IPC message; normal chunks pass through whole.
-      if (chunk.length <= MAX_EVENT_CHUNK_BYTES) {
+      if (chunk.length <= MAX_EVENT_CHUNK_CHARS) {
         sendData(entry, terminalId, chunk);
         return;
       }
-      for (let offset = 0; offset < chunk.length; offset += MAX_EVENT_CHUNK_BYTES) {
-        sendData(entry, terminalId, chunk.slice(offset, offset + MAX_EVENT_CHUNK_BYTES));
+      for (let offset = 0; offset < chunk.length; offset += MAX_EVENT_CHUNK_CHARS) {
+        sendData(entry, terminalId, chunk.slice(offset, offset + MAX_EVENT_CHUNK_CHARS));
       }
     });
 
@@ -286,10 +360,35 @@ export function createTerminalIpcHandlers({
     return { ok: true, value: { terminalId, cwd: cwd.value } };
   }
 
-  function write(params: TerminalWriteParams): TerminalResult {
-    const entry = liveTerminals.get(params?.terminalId);
+  /**
+   * Look up a live terminal AND enforce that `requesterId` (the calling
+   * renderer) owns it. A non-owner — or an unknown id — gets the SAME
+   * "No live terminal" error (no ownership-leak oracle that confirms an id
+   * exists for another renderer). The owner mismatch is logged.
+   */
+  function resolveOwnedTerminal(
+    terminalId: string | undefined,
+    requesterId: number
+  ): LiveTerminal | { error: string } {
+    const entry = liveTerminals.get(terminalId ?? '');
     if (!entry) {
-      return { ok: false, error: `No live terminal "${params?.terminalId}".` };
+      return { error: `No live terminal "${terminalId}".` };
+    }
+    if (entry.ownerId !== requesterId) {
+      logger.warn('Rejected terminal op from non-owner renderer', {
+        terminalId,
+        ownerId: entry.ownerId,
+        requesterId,
+      });
+      return { error: `No live terminal "${terminalId}".` };
+    }
+    return entry;
+  }
+
+  function write(params: TerminalWriteParams, requesterId: number): TerminalResult {
+    const entry = resolveOwnedTerminal(params?.terminalId, requesterId);
+    if ('error' in entry) {
+      return { ok: false, error: entry.error };
     }
     if (typeof params.data !== 'string') {
       return { ok: false, error: 'terminal:write requires a string data payload.' };
@@ -304,10 +403,10 @@ export function createTerminalIpcHandlers({
     }
   }
 
-  function resize(params: TerminalResizeParams): TerminalResult {
-    const entry = liveTerminals.get(params?.terminalId);
-    if (!entry) {
-      return { ok: false, error: `No live terminal "${params?.terminalId}".` };
+  function resize(params: TerminalResizeParams, requesterId: number): TerminalResult {
+    const entry = resolveOwnedTerminal(params?.terminalId, requesterId);
+    if ('error' in entry) {
+      return { ok: false, error: entry.error };
     }
     const cols = clampDimension(params?.cols, DEFAULT_COLS);
     const rows = clampDimension(params?.rows, DEFAULT_ROWS);
@@ -321,10 +420,10 @@ export function createTerminalIpcHandlers({
     }
   }
 
-  function destroy(params: TerminalDestroyParams): TerminalResult {
-    const entry = liveTerminals.get(params?.terminalId);
-    if (!entry) {
-      return { ok: false, error: `No live terminal "${params?.terminalId}".` };
+  function destroy(params: TerminalDestroyParams, requesterId: number): TerminalResult {
+    const entry = resolveOwnedTerminal(params?.terminalId, requesterId);
+    if ('error' in entry) {
+      return { ok: false, error: entry.error };
     }
     // Remove from the registry FIRST so the onExit handler (which also deletes)
     // is a no-op and cannot double-fire teardown.
@@ -395,17 +494,20 @@ export function registerTerminalIpcHandlers(handlers: TerminalIpcHandlers): () =
   registry.registerInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.write,
-    (_event, params: TerminalWriteParams) => handlers.write(params)
+    (event: IpcMainInvokeEvent, params: TerminalWriteParams) =>
+      handlers.write(params, event.sender.id)
   );
   registry.registerInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.resize,
-    (_event, params: TerminalResizeParams) => handlers.resize(params)
+    (event: IpcMainInvokeEvent, params: TerminalResizeParams) =>
+      handlers.resize(params, event.sender.id)
   );
   registry.registerInvoke(
     'terminal',
     DESKTOP_IPC_CHANNELS.terminal.destroy,
-    (_event, params: TerminalDestroyParams) => handlers.destroy(params)
+    (event: IpcMainInvokeEvent, params: TerminalDestroyParams) =>
+      handlers.destroy(params, event.sender.id)
   );
 
   return () => {

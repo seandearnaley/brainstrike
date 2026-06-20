@@ -14,7 +14,6 @@
     ],
     "npmRebuild": true,
     "asarUnpack": [
-      "**/node_modules/node-pty/build/**",
       "**/node_modules/node-pty/prebuilds/**"
     ],
     "mac": {
@@ -149,7 +148,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
     "pack": "pnpm build && electron-builder --dir",
-    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
+    "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
     "start": "pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism",
