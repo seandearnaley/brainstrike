@@ -246,15 +246,16 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
 
 /**
  * Guidance for the shell execution tool. Emitted only when the tool is
- * registered (which happens only when the user has enabled permission
- * enforcement), so an unavailable verb is never advertised. The wording is
- * honest: there is NO sandbox and no interactive approval prompt yet.
+ * available (the permission policy did not deny it), so an unavailable verb is
+ * never advertised. The wording is honest: there is NO sandbox, and by default
+ * (execute resolves to 'ask') the call suspends for the user's per-call approval
+ * before the command runs.
  */
 function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
     return '';
   }
-  return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox: it can read or change anything the user can, and it runs immediately when you call it (there is no approval prompt). The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asked for that exact action.`;
+  return `To run a command — tests, builds, linters, git status/diff, package managers — use ${names.executeCommand}. It runs an ARBITRARY shell command on the user's machine with NO sandbox: it can read or change anything the user can. By default the call SUSPENDS for the user's per-call approval before the command runs (they approve to run it or decline to skip it); the user may instead let it run unprompted or deny it entirely. The command starts in the workspace root; the whole process tree is killed on timeout and its output is bounded (pipe through "| tail -n N" for long logs). Prefer non-destructive, read-only commands; NEVER run destructive ones (rm -rf, git push --force, git reset --hard) unless the user explicitly asked for that exact action.`;
 }
 
 /**
