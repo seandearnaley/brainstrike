@@ -22,8 +22,11 @@ Blockers cleared since the audit (merged to `feat/coding-agent`):
 - **P5** Root `display_name` byte-cap (SQL `SUBSTR` + mapper) — **#1286**.
 - **P5** OM negative-token rejection test (DB-CHECK premise was wrong; the parser already guards) — **#1286**.
 - **P4** Git untracked-diff symlink containment — **#1287** + **#1288** (refined after a Codex review: validate the parent chain, allow safe leaf symlinks which git renders as `120000` link-text, not content).
+- **P4** Git diff state keyed by `activeRootId` (cross-root stale diff) — **#1290**.
+- **Infra** Web E2E GREEN on `feat/coding-agent` — **#1292**: (a) node-pty (desktop-only native) can't compile in the toolchain-less Playwright container → scope the 3 containerized installs `--filter '!@brainstrike/desktop'`; (b) the BUILT web renderer's `#root` stayed empty from a circular chunk-init TDZ (`defineContextAction` split from its module-init callers) → co-locate the context-action system into one chunk. **This CORRECTS the audit's "Infra `NODE_ENV` define" item — that was a MISDIAGNOSIS**: React already builds production and the Radix Title/Description warning is unconditional, so the real ⌘K/⌘P fix was DialogTitle/Description on the cmdk dialogs (**#1291**), not a NODE_ENV define. `task_dd059475` dismissed.
+- **P1** Web per-call tool-approval resume (501 → real resume) + "ask" tools SUSPEND instead of silently omitting — **#1293** (in-process in-memory PGlite Mastra store in the Vite Node server; both turn + resume routed through `buildWebAssistantStream`; real-PGlite integration test + flipped route/middleware unit tests). **The two P1 approval TEST-gap items in the audit are STALE**: `assistant-tool-approval-notice.test.tsx` already covers approve/decline→mutation, and `mastra-tool-approval-suspend.spec.ts` already proves real-loop suspend→approve→execute→continue.
 
-**Open blockers remaining: ~22 of 29.** Next up: Infra `NODE_ENV` define (`task_dd059475`, delicate — function-form vite config), P3 Windows execute-cwd containment (needs Windows CI to verify escapes), P4 git-diff `rootId` keying + terminal/git E2E, P1 web approval-resume (501), then **P7 subagents** (the big build). P8/OAuth parked behind the legal gate.
+**Open blockers remaining: ~16 of 29.** Next up: P3 Windows execute-cwd containment (needs Windows CI to verify escapes), P4 terminal/git E2E (zero coverage), P2 web FS-Access write, then **P7 subagents** (the big build, not started). P8/OAuth parked behind the legal gate.
 
 ## 1. Definition of Done
 
@@ -31,7 +34,7 @@ Phases 1-8 are **DONE** when every item in **§2 Blockers (`mustFixBeforeDone`)*
 
 **Current high-level status:**
 - **P0** (event-seam ADR + pricing): DONE.
-- **P1** (permissions engine, allow/ask/deny, enforce-on-by-default, YOLO, session grants, per-call approval suspend/resume): DONE on desktop; **NOT DONE on web** (approval resume returns HTTP 501; "ask" silently degrades to omit). Approval-UI test coverage missing.
+- **P1** (permissions engine, allow/ask/deny, enforce-on-by-default, YOLO, session grants, per-call approval suspend/resume): DONE on desktop AND web (**#1293** — web resume + ask-suspend via an in-process PGlite Mastra store in the Vite Node server; dev/preview-only). Approval-UI + real-loop resume coverage already present (`assistant-tool-approval-notice.test.tsx` + `mastra-tool-approval-suspend.spec.ts`).
 - **P2** (edit tools, fuzzy string_replace, re-index-on-edit, path containment): DONE on desktop; **web FS-Access write NOT implemented** despite phase description claiming it. Schema/byte-cap drift + write-symlink test gaps.
 - **P3** (shell/glob/grep superset, web_search): DONE; regex-validation, Windows-cwd containment test, live-grep cap, stale tool description gaps.
 - **P4** (diff/terminal/git, desktop-only): DONE; git untracked `--no-index` symlink containment bypass, diff-state-not-keyed-to-root bug, zero E2E coverage.
