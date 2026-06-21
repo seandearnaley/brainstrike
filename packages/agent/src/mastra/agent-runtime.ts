@@ -1492,6 +1492,37 @@ export async function streamMastraAgent(
   });
 }
 
+/**
+ * Derive the native tool map + selected model from the runtime when the caller
+ * did not set them explicitly on the options.
+ *
+ * The initial-turn path does this in `toAiSdkStyleStream` (message-utils.ts):
+ * `runtime.mastraTools -> options.tools` and `runtime.model -> options.model`.
+ * The approval RESUME (`streamMastraToolApprovalAction`) calls
+ * `initializeMastraRuntime` DIRECTLY, so without this it rebuilds the Agent with
+ * an EMPTY native tool map — the model then sees only Mastra's memory tools (e.g.
+ * `updateWorkingMemory`) and reports the approved tool "missing" (the desktop
+ * write-on-approval bug) — and would silently fall back to the provider's DEFAULT
+ * model instead of the user's selected one. `mcpConfig` needs no threading here:
+ * `createMastraAgentRuntime` already falls back to `sanitizedRuntime.mcpConfig`.
+ */
+function withRuntimeDerivedStreamOptions(
+  options: MastraAgentRuntimeOptions
+): MastraAgentRuntimeOptions {
+  const runtimeData = options.runtime;
+  if (!runtimeData) {
+    return options;
+  }
+  const derived: MastraAgentRuntimeOptions = { ...options };
+  if (derived.tools === undefined && runtimeData.mastraTools) {
+    derived.tools = runtimeData.mastraTools;
+  }
+  if (derived.model === undefined && runtimeData.model) {
+    derived.model = runtimeData.model;
+  }
+  return derived;
+}
+
 export async function streamMastraToolApprovalAction(
   action: AssistantToolApprovalAction,
   options: MastraAgentRuntimeOptions = {}
@@ -1506,7 +1537,12 @@ export async function streamMastraToolApprovalAction(
 
   const runtimeData = options.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
-  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+  // Thread runtime.mastraTools/model into the options so the rebuilt Agent keeps
+  // the native tools on resume (see withRuntimeDerivedStreamOptions).
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    withRuntimeDerivedStreamOptions(options),
+    runtimeResolution
+  );
 
   return createToolApprovalIteratorFromRuntime({
     action,
