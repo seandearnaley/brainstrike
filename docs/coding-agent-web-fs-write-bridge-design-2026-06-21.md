@@ -69,10 +69,33 @@ Resume is `agent.resume(runId, resumeData)` (the GENERAL resume, distinct from
   `streamMastraToolApprovalAction`) so the browser's resume POST threads the
   write result as `resumeData`.
 
-The mechanism is now fully verified; no Mastra-capability unknown remains. The
-remaining work is the build (the tool + the resume seam + the browser write-UI
-handler + permission arming at Approve + tests) — a large, security-sensitive
-effort, but on a confirmed foundation.
+The mechanism is now fully verified; no Mastra-capability unknown remains.
+
+### Build progress
+- ✅ **Step 1** (`8bf960fd7`): `WebFileSystemAdapter.writeFileByPath` — the renderer-side executor.
+- ✅ **Step 2** (`434b2a670`): the **resume seam** — `streamMastraToolSuspendResume`
+  wraps `agent.resumeStream(resumeData, {runId, toolCallId})`; PROVEN by a
+  live-loop spec (`mastra-tool-suspend-resume.spec.ts`, real agent + real PGlite):
+  a tool that `suspend()`s with the request resumes with the result and returns
+  it; a `{ok:false}` resume makes it throw (tool.failed, no silent success). This
+  was the riskiest part — the mechanism the design workflow got wrong, now
+  verified working in our runtime.
+
+### Remaining (browser-facing + web wiring — the UI half)
+- The web write **tool** (`suspendSchema`/`resumeSchema`, suspends with the
+  request; the renderer does the write) + multi-registry plumbing + register it
+  on the web stream via `runtime.mastraTools`.
+- Make the `'tool-call-suspended'` dispatch (agent-runtime.ts:936) emit a
+  RESUMABLE chunk (suspendPayload + resumeSchema + runId/toolCallId, NOT the
+  current `resumeSupported:false`/failed shape) — co-design the chunk shape WITH
+  the browser handler so it isn't built in isolation.
+- The browser **write-approval UI** handler: reads the suspend chunk → Approve
+  click (the FSA readwrite gesture) → `writeFileByPath` → POST resume with
+  `resumeData = {ok, bytesWritten}`. Decline → `{ok:false}`.
+- The web **resume route**: POST → `streamMastraToolSuspendResume`.
+- Permission arming at the Approve gesture + tests (web-route integration +
+  real-Chrome Playwright). This half is UI-involving and benefits from manual CDT
+  verification per the standing directive.
 
 ---
 
