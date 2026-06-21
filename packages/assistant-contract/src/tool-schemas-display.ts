@@ -122,7 +122,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.stringReplaceWorkspaceFile': {
     toolId: 'brainstrike.stringReplaceWorkspaceFile',
     description:
-      'Surgically edit an existing workspace file: find one old_str block and replace it with new_str. Matching is fuzzy (exact, then whitespace-tolerant, then close-match) but a single line that matches multiple locations, or no sufficiently close match, is REFUSED rather than guessed. Use an empty new_str to delete the block. Workspace-scoped and edit-risk (requires approval).',
+      'Surgically edit an existing workspace file: find one oldStr block and replace it with newStr. Matching is fuzzy (exact, then whitespace-tolerant, then close-match) but a single line that matches multiple locations, or no sufficiently close match, is REFUSED rather than guessed. Use an empty newStr to delete the block. Workspace-scoped and edit-risk (requires approval).',
     parameters: [
       {
         name: 'path',

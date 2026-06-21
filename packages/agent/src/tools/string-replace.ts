@@ -183,7 +183,7 @@ function findNormalizedWindows(
 /**
  * Phase 2: whitespace-normalized match (only difference is whitespace).
  *
- * AMBIGUITY GUARD: if the normalized old_str matches MORE THAN ONE location, the
+ * AMBIGUITY GUARD: if the normalized oldStr matches MORE THAN ONE location, the
  * edit is ambiguous and silently editing the first would corrupt code — THROW
  * 'ambiguous' (consistent with the exact and single-line fuzzy guards), demanding
  * surrounding context. Applies the edit only when exactly one window matches.
@@ -212,7 +212,7 @@ function tryWhitespaceNormalizedMatch(
     const matchLines = windows.map((window) => window.start + 1).join(', ');
     throw new StringReplaceError(
       'ambiguous',
-      `old_str matches ${windows.length} locations after whitespace normalization (near lines ${matchLines}), but only one block can be edited. Add surrounding lines to old_str so it uniquely identifies one location, then retry.`
+      `oldStr matches ${windows.length} locations after whitespace normalization (near lines ${matchLines}), but only one block can be edited. Add surrounding lines to oldStr so it uniquely identifies one location, then retry.`
     );
   }
 
@@ -261,7 +261,7 @@ function tryFuzzyMatch(
   });
   const oldLines = oldLinesOriginal.map(removeWhitespace);
   // The first normalized old line, used throughout the per-line matcher. Empty
-  // when old_str collapsed to nothing (caught by the not-found throw below).
+  // when oldStr collapsed to nothing (caught by the not-found throw below).
   const firstOldLine = oldLines[0] ?? '';
 
   const fileLines = splitToEscapedLines(fileContent);
@@ -279,9 +279,9 @@ function tryFuzzyMatch(
   if (isSingleLineReplacement && matchLineNumbers.length > 1) {
     throw new StringReplaceError(
       'ambiguous',
-      `The single-line old_str matches ${matchLineNumbers.length} locations (lines ${matchLineNumbers.join(
+      `The single-line oldStr matches ${matchLineNumbers.length} locations (lines ${matchLineNumbers.join(
         ', '
-      )}). Add surrounding lines to old_str so it uniquely identifies one location, then retry.`
+      )}). Add surrounding lines to oldStr so it uniquely identifies one location, then retry.`
     );
   }
 
@@ -359,7 +359,7 @@ function tryFuzzyMatch(
         if (isMatch || fewLinesAreLeft) {
           matchingLineCount += 1;
         } else {
-          const message = `old_str matching diverged after ${matchingLineCount} matching lines.\nExpected line from old_str: \`${oldLinesOriginal[matchIndex]}\` (line ${matchIndex + 1} in old_str), found line: \`${fileLines[index + matchIndex]}\` (line ${index + 1 + matchIndex} in file). ${remainingLines - 1} lines remained to compare but they were not checked due to this line not matching.\n\nHere are the lines that did match up until the old_str diverged:\n\n${oldLinesOriginal.slice(0, matchIndex).join('\n')}\n\nHere are the remaining lines you would've had to provide for the old_str to match:\n\n${fileLines
+          const message = `oldStr matching diverged after ${matchingLineCount} matching lines.\nExpected line from oldStr: \`${oldLinesOriginal[matchIndex]}\` (line ${matchIndex + 1} in oldStr), found line: \`${fileLines[index + matchIndex]}\` (line ${index + 1 + matchIndex} in file). ${remainingLines - 1} lines remained to compare but they were not checked due to this line not matching.\n\nHere are the lines that did match up until the oldStr diverged:\n\n${oldLinesOriginal.slice(0, matchIndex).join('\n')}\n\nHere are the remaining lines you would've had to provide for the oldStr to match:\n\n${fileLines
             .slice(index + matchIndex, index + matchIndex + remainingLines)
             .join('\n')}`;
           if (matchingLineCount > divergenceAfterX) {
@@ -377,7 +377,7 @@ function tryFuzzyMatch(
     }
   }
 
-  // Pure deletion of a single line / blank old_str (mastra-code file-editor.ts:402-411).
+  // Pure deletion of a single line / blank oldStr (mastra-code file-editor.ts:402-411).
   if (bestMatch.start === -1 && (isSingleLineReplacement || oldStr === '\n') && newStr === '') {
     // mastra-code only takes this branch with an explicit start_line; we have no
     // start_line in our surface, so a deletion still needs a located match. Fall
@@ -387,12 +387,12 @@ function tryFuzzyMatch(
   if (bestMatch.start === -1) {
     // NO sufficiently close match — REFUSE (mastra-code returns a string here; we
     // throw per no-silent-fallbacks). Surface the diverged diagnostic if a fuzzy
-    // match drifted, so the model can adjust its next old_str.
+    // match drifted, so the model can adjust its next oldStr.
     throw new StringReplaceError(
       'not_found',
-      `No sufficiently close match for old_str was found. Nothing was changed.${
+      `No sufficiently close match for oldStr was found. Nothing was changed.${
         divergedMessage ? `\n\n${divergedMessage}` : ''
-      }\n\nRe-read the file and provide an old_str that matches the current content exactly.`
+      }\n\nRe-read the file and provide an oldStr that matches the current content exactly.`
     );
   }
 
@@ -436,13 +436,13 @@ function tryFuzzyMatch(
  * that can match nothing when whitespace differs) can return content identical
  * to the input. Reporting replaced=true on an unchanged file is a silent failure
  * — the model believes its edit landed when it did not. Throw instead so the
- * caller re-reads and supplies a matching old_str (no silent fallbacks).
+ * caller re-reads and supplies a matching oldStr (no silent fallbacks).
  */
 function assertChanged(result: StringReplaceResult, fileContent: string): StringReplaceResult {
   if (result.newContent === fileContent) {
     throw new StringReplaceError(
       'not_found',
-      'old_str was located but the replacement produced no change (the matched text did not align well enough to edit). Re-read the file and provide an old_str that matches the current content exactly.'
+      'oldStr was located but the replacement produced no change (the matched text did not align well enough to edit). Re-read the file and provide an oldStr that matches the current content exactly.'
     );
   }
   return result;
@@ -467,18 +467,18 @@ export function applyStringReplace(args: {
   if (oldStr === newStr) {
     throw new StringReplaceError(
       'no_op',
-      'old_str and new_str are identical, so the edit would change nothing.'
+      'oldStr and newStr are identical, so the edit would change nothing.'
     );
   }
   if (oldStr.length === 0) {
     throw new StringReplaceError(
       'not_found',
-      'old_str is empty. Provide the exact block of text to replace.'
+      'oldStr is empty. Provide the exact block of text to replace.'
     );
   }
 
-  // EXACT AMBIGUITY GUARD (applies to ANY old_str, single OR multi-line). The
-  // tool's contract is to replace exactly ONE block. If old_str appears exactly
+  // EXACT AMBIGUITY GUARD (applies to ANY oldStr, single OR multi-line). The
+  // tool's contract is to replace exactly ONE block. If oldStr appears exactly
   // more than once, the edit is ambiguous and applying it to every match (or
   // guessing one) would silently corrupt code — the precise failure the model is
   // promised never happens. Refuse here (no silent fallbacks) and demand
@@ -488,7 +488,7 @@ export function applyStringReplace(args: {
   if (exactOccurrences > 1) {
     throw new StringReplaceError(
       'ambiguous',
-      `old_str matches ${exactOccurrences} locations exactly, but only one block can be edited. Add surrounding lines to old_str so it uniquely identifies one location, then retry.`
+      `oldStr matches ${exactOccurrences} locations exactly, but only one block can be edited. Add surrounding lines to oldStr so it uniquely identifies one location, then retry.`
     );
   }
 

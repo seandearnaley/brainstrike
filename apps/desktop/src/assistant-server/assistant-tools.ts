@@ -2009,7 +2009,7 @@ export function buildDesktopAssistantTools(
     [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
       id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
       description:
-        'Surgically edit an existing workspace file: replace one old_str block with new_str. Read the file first, then pass an old_str with enough surrounding context to identify ONE location (a single line matching several places is refused), and the new_str (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
+        'Surgically edit an existing workspace file: replace one oldStr block with newStr. Read the file first, then pass an oldStr with enough surrounding context to identify ONE location (a single line matching several places is refused), and the newStr (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
       inputSchema: StringReplaceWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);

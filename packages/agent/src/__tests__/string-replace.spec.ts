@@ -5,7 +5,7 @@
  * Proves each cascade branch applies correctly (exact, whitespace-normalized,
  * Levenshtein-fuzzy), and — critically — that the two SAFETY refusals THROW
  * rather than guessing (no silent fallbacks):
- *   - a single-line old_str matching MULTIPLE lines → StringReplaceError('ambiguous')
+ *   - a single-line oldStr matching MULTIPLE lines → StringReplaceError('ambiguous')
  *   - no sufficiently close match → StringReplaceError('not_found'), surfacing the
  *     "diverged after N lines" diagnostic when a fuzzy match drifted.
  */
@@ -37,7 +37,7 @@ describe('applyStringReplace — exact match', () => {
 
 describe('applyStringReplace — whitespace-normalized match', () => {
   it('matches when only indentation/whitespace differs from the file', () => {
-    // File uses a tab + trailing spaces; old_str uses plain spaces.
+    // File uses a tab + trailing spaces; oldStr uses plain spaces.
     const fileContent = ['function f() {', '\treturn   1 ;', '}'].join('\n');
     const result = applyStringReplace({
       fileContent,
@@ -54,15 +54,15 @@ describe('applyStringReplace — whitespace-normalized match', () => {
 });
 
 describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-location-edit fix)', () => {
-  // Regression: the exact guard counts EXACT occurrences, so an old_str that
+  // Regression: the exact guard counts EXACT occurrences, so an oldStr that
   // matches only AFTER whitespace normalization sees 0 and the guard never
   // fires. The whitespace-normalized branch then picked the FIRST window
   // silently — a wrong-location edit when the normalized block occurs more than
   // once. The branch now counts normalize-matching windows and refuses >1,
   // consistent with the exact and single-line fuzzy guards.
 
-  it('THROWS ambiguous when old_str matches >1 location ONLY after whitespace normalization (writes nothing)', () => {
-    // Two identical statements, one tab-indented and one space-indented; old_str
+  it('THROWS ambiguous when oldStr matches >1 location ONLY after whitespace normalization (writes nothing)', () => {
+    // Two identical statements, one tab-indented and one space-indented; oldStr
     // uses a DOUBLE space so it is not an exact substring of either line (the
     // exact guard sees 0), yet normalizes equal to BOTH.
     const fileContent = ['function f() {', '\treturn x;', '    return x;', '}'].join('\n');
@@ -82,7 +82,7 @@ describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-lo
   });
 
   it('applies the edit when exactly ONE location matches after whitespace normalization', () => {
-    // Only the tab-indented statement matches the double-spaced old_str's
+    // Only the tab-indented statement matches the double-spaced oldStr's
     // normalized form; the other line is genuinely different.
     const fileContent = ['function f() {', '\treturn x;', '    return other;', '}'].join('\n');
     const result = applyStringReplace({
@@ -100,7 +100,7 @@ describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-lo
 
 describe('applyStringReplace — Levenshtein-fuzzy match', () => {
   it('applies a close (non-exact) multi-line match within tolerance', () => {
-    // old_str has a tiny typo on the second line ("return" vs "return") that
+    // oldStr has a tiny typo on the second line ("return" vs "return") that
     // exceeds exact + whitespace matching but is within the <5% Levenshtein
     // tolerance, so the fuzzy branch should still locate and replace the block.
     const fileContent = ['const config = {', '  enabled: true,', '  retries: 3,', '};'].join('\n');
@@ -116,7 +116,7 @@ describe('applyStringReplace — Levenshtein-fuzzy match', () => {
 });
 
 describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
-  it('THROWS ambiguous when a single-line old_str matches multiple lines (no write)', () => {
+  it('THROWS ambiguous when a single-line oldStr matches multiple lines (no write)', () => {
     const fileContent = ['count++;', 'doThing();', 'count++;', 'doOther();', 'count++;'].join('\n');
     let thrown: unknown;
     try {
@@ -143,7 +143,7 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     expect(result.newContent).not.toContain('uniqueMarker();');
   });
 
-  it('THROWS not_found when old_str has no sufficiently close match', () => {
+  it('THROWS not_found when oldStr has no sufficiently close match', () => {
     const fileContent = 'alpha\nbeta\ngamma';
     let thrown: unknown;
     try {
@@ -189,7 +189,7 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     expect(typed.message).toContain('diverged after');
   });
 
-  it('THROWS no_op when old_str equals new_str', () => {
+  it('THROWS no_op when oldStr equals newStr', () => {
     let thrown: unknown;
     try {
       applyStringReplace({ fileContent: 'a\nb\nc', oldStr: 'b', newStr: 'b' });
