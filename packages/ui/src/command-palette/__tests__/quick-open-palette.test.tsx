@@ -30,6 +30,25 @@ describe('QuickOpenPalette', () => {
     vi.clearAllMocks();
   });
 
+  it('renders an accessible DialogTitle + Description (Radix requires them, unconditionally)', async () => {
+    render(
+      <QuickOpenPalette
+        files={[]}
+        onOpenChange={() => {}}
+        onQueryChange={() => {}}
+        onSelect={() => {}}
+        open
+        query=""
+      />
+    );
+    // The Radix DialogTitle renders an <h2> (role heading); cmdk also renders a
+    // <label> with the same text, so query the heading specifically. These
+    // visually-hidden nodes satisfy @radix-ui/react-dialog's unconditional
+    // accessibility warning (caught live via CDT, not in jsdom).
+    expect(await screen.findByRole('heading', { name: 'Quick open file' })).toBeTruthy();
+    expect(screen.getByText('Search for a file by name and press Enter to open it.')).toBeTruthy();
+  });
+
   it('renders the file rows as a listbox with name, path and root label', async () => {
     const files: QuickOpenFileItem[] = [
       makeFile({ id: 'a', name: 'readme.md', path: 'docs/readme.md', rootLabel: 'Alpha' }),

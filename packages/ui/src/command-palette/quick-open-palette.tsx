@@ -1,3 +1,4 @@
+import { Description as DialogDescription, Title as DialogTitle } from '@radix-ui/react-dialog';
 import { Command as Cmdk } from 'cmdk';
 import { FileIcon } from 'lucide-react';
 import * as React from 'react';
@@ -82,12 +83,14 @@ export function QuickOpenPalette({
       overlayClassName="fixed inset-0 z-[59] bg-black/50"
       shouldFilter={false}
     >
-      <span className="sr-only" id="quick-open-description">
+      {/* Satisfy @radix-ui/react-dialog's unconditional Title/Description
+          requirement (cmdk wraps the same Dialog instance) — visually hidden. */}
+      <DialogTitle className="sr-only">Quick open file</DialogTitle>
+      <DialogDescription className="sr-only">
         Search for a file by name and press Enter to open it.
-      </span>
+      </DialogDescription>
       <div className="flex items-center border-b px-3" data-cmdk-input-wrapper="">
         <Cmdk.Input
-          aria-describedby="quick-open-description"
           className={cn(
             'flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none',
             'placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50'
