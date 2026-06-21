@@ -367,33 +367,35 @@ function resolveContainedPathArg(rawPath: string | undefined): GitResult<string 
 /**
  * SECURITY: the untracked diff path is handed to `git diff --no-index`, which
  * reads the filesystem directly. `resolveContainedPathArg` only validates
- * LEXICAL containment (relative, no `..`), so a symlink inside the opened folder
- * — or a symlinked ancestor directory — pointing OUTSIDE would let git read an
- * arbitrary out-of-root file. Resolve the REAL path (following every symlink)
- * and reject anything whose real location escapes the opened folder. Tracked
- * diffs don't need this: they go through git's index, which never follows
- * filesystem symlinks.
+ * LEXICAL containment (relative, no `..`). The real escape is a symlinked
+ * ANCESTOR directory: `git diff --no-index -- /dev/null sym-dir/file` resolves
+ * THROUGH the symlink and renders the out-of-root file's CONTENT (mode 100644).
+ *
+ * So validate the PARENT chain's real path — but DO NOT dereference the final
+ * component. A leaf symlink is safe and legitimate to review: git renders it as
+ * a `120000` addition whose body is the link TEXT, never the target's content,
+ * and `git status` lists such untracked symlinks. Dereferencing the leaf would
+ * wrongly reject valid symlink additions (and throw on a dangling target).
+ * Tracked diffs don't need this: they go through git's index, which never
+ * follows filesystem symlinks.
  */
 async function assertUntrackedDiffPathContained(
   cwd: string,
   pathArg: string
 ): Promise<GitResult<null>> {
-  const absolute = path.resolve(cwd, pathArg);
+  const parent = path.dirname(path.resolve(cwd, pathArg));
   try {
-    const [realRoot, realTarget] = await Promise.all([realpath(cwd), realpath(absolute)]);
-    const relative = path.relative(realRoot, realTarget);
-    if (
-      relative.length === 0 ||
-      relative === '..' ||
-      relative.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relative)
-    ) {
+    const [realRoot, realParent] = await Promise.all([realpath(cwd), realpath(parent)]);
+    // The parent must be the opened root itself ('' relative) or a descendant of
+    // it. A `..`/absolute relative means a symlinked ancestor escaped the root.
+    const relative = path.relative(realRoot, realParent);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       return { ok: false, error: `path "${pathArg}" resolves outside the opened folder` };
     }
     return { ok: true, value: null };
   } catch {
-    // realpath throws if the path (or an ancestor) does not exist; we cannot
-    // prove containment, so refuse rather than risk an escape.
+    // realpath throws if the parent directory does not exist; we cannot prove
+    // containment, so refuse rather than risk an escape.
     return { ok: false, error: `path "${pathArg}" could not be resolved inside the opened folder` };
   }
 }
