@@ -365,6 +365,27 @@ describe('git service — diff', () => {
       expect(result.value.unifiedDiff).not.toContain('TOP-SECRET');
     }
   });
+
+  it('UNTRACKED: ALLOWS a leaf symlink to a DIRECTORY — git yields an EMPTY diff, never the dir contents', async () => {
+    const repo = await makeRepo();
+    // A leaf symlink whose target is a DIRECTORY (vs the file case above, which
+    // renders a 120000 link-text addition). git lstat's the leaf, so
+    // `--no-index -- /dev/null dir-link` errors ("Could not access
+    // 'dir-link/null'") and produces an EMPTY diff — the directory's contents are
+    // never read. Containment ALLOWS it (parent is contained); the security
+    // property is that NO out-of-root content reaches the diff.
+    const outside = await makeNonRepoDir();
+    await fsPromises.writeFile(path.join(outside, 'secret.txt'), 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
+    await fsPromises.symlink(outside, path.join(repo, 'dir-link'));
+
+    const result = await serviceFor(repo).diff({ path: 'dir-link', untracked: true });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Empty, NOT a trivially-passing "no secret" check on a populated diff.
+      expect(result.value.unifiedDiff).toBe('');
+    }
+  });
 });
 
 describe('git service — git not installed', () => {

@@ -58,6 +58,26 @@ describe('buildReferencedFilesContextMessage', () => {
     expect(body).toContain('// content of src/app.ts');
   });
 
+  it('qualifies headings with the root so same-path files across roots are distinct', async () => {
+    const runtime = {
+      provider: 'anthropic',
+      workspaceRoots: [
+        { rootId: '/abs/alpha', displayName: 'alpha', path: '/abs/alpha' },
+        { rootId: '/abs/beta', displayName: 'beta', path: '/abs/beta' },
+      ],
+    } as RuntimeData;
+    const text = `${directive('/abs/alpha', 'src/index.ts', 'index.ts')} and ${directive(
+      '/abs/beta',
+      'src/index.ts',
+      'index.ts'
+    )}`;
+    const result = await buildReferencedFilesContextMessage(text, runtime, reader);
+    const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+    // Both roots have `src/index.ts`; the headings must NOT collide.
+    expect(body).toContain('### alpha/src/index.ts');
+    expect(body).toContain('### beta/src/index.ts');
+  });
+
   it('injects a clear unresolvable note (never silent) when the root id is unknown', async () => {
     const text = `See ${directive('unknown-root', 'src/x.ts', 'x.ts')}.`;
     const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
