@@ -78,6 +78,8 @@ interface ScopedPendingRemoval {
 
 type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
+const SLASH_CHAR_CODE = 47;
+
 function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
   return {
     invalidationTargets: [],
@@ -102,7 +104,7 @@ function joinRootRelativePath(rootPath: string, relativePath: string): string {
 
 function getPathName(path: string): string {
   let end = path.length;
-  while (end > 0 && path.charCodeAt(end - 1) === 47) {
+  while (end > 0 && path.charCodeAt(end - 1) === SLASH_CHAR_CODE) {
     end -= 1;
   }
   if (end === 0) {
@@ -116,7 +118,7 @@ function countRelativePathSegments(path: string): number {
   let count = 0;
   let inSegment = false;
   for (let index = 0; index < path.length; index += 1) {
-    if (path.charCodeAt(index) === 47) {
+    if (path.charCodeAt(index) === SLASH_CHAR_CODE) {
       inSegment = false;
       continue;
     }
@@ -207,17 +209,18 @@ function toSyntheticFileNode(args: {
   rootPath: string;
 }): IFileNode {
   const absolutePath = joinRootRelativePath(args.rootPath, args.relativePath);
+  const fileName = getPathName(args.relativePath);
   return {
     // Watcher batches can synthesize many file nodes; scan once instead of
     // allocating split/filter arrays for every changed path.
     depth: countRelativePathSegments(args.relativePath),
     handle: {
       kind: 'file',
-      name: getPathName(args.relativePath),
+      name: fileName,
       path: absolutePath,
       platform: args.rootHandle.platform,
     } as unknown as IFileNode['handle'],
-    name: getPathName(args.relativePath),
+    name: fileName,
     path: absolutePath,
     rootFolderId: args.rootPath,
     selectionState: 'unchecked',
