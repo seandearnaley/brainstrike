@@ -708,7 +708,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.executeCommand': {
     toolId: 'brainstrike.executeCommand',
     description:
-      "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. Permission gating is available but OFF unless the user has enabled enforcement (there is no interactive approval prompt yet). The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
+      "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. By default the call suspends for the user's per-call approval before running (execute resolves to 'ask'); the user can let it run unprompted or deny it entirely. The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
     parameters: [
       {
         name: 'command',

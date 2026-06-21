@@ -118,6 +118,33 @@ describe('tool schemas', () => {
     );
   });
 
+  it('executeCommand description reflects the per-call approval flow (no stale "no approval prompt" text)', () => {
+    const display = getToolSchemaDisplay('brainstrike.executeCommand');
+    expect(display).toBeDefined();
+    const desc = (display?.description ?? '').toLowerCase();
+    // The approval flow shipped — the description must not claim otherwise.
+    expect(desc).not.toContain('no interactive approval prompt');
+    expect(desc).not.toContain('gating is available but off');
+    expect(desc).toContain('approval');
+  });
+
+  it('rejects an invalid regex grepSearch pattern at parse when isRegex=true (fail-fast)', () => {
+    // A regex-special string is fine as PLAIN text (isRegex omitted/false).
+    expect(validateToolInput('brainstrike.grepSearch', { pattern: 'a(b' }).ok).toBe(true);
+    // A valid regex with isRegex=true is accepted.
+    expect(
+      validateToolInput('brainstrike.grepSearch', { pattern: 'foo.*bar', isRegex: true }).ok
+    ).toBe(true);
+    // An INVALID regex with isRegex=true is rejected at parse — not deferred to execution
+    // (fail-fast / no silent fallback).
+    expect(validateToolInput('brainstrike.grepSearch', { pattern: 'a(b', isRegex: true }).ok).toBe(
+      false
+    );
+    expect(
+      validateToolInput('brainstrike.grepSearch', { pattern: '[z-a]', isRegex: true }).ok
+    ).toBe(false);
+  });
+
   it('validates webSearch input and rejects unknown fields (strict)', () => {
     expect(validateToolInput('brainstrike.webSearch', { query: 'react useEffect' }).ok).toBe(true);
     expect(
