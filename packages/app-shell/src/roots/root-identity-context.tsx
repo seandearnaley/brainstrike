@@ -70,8 +70,20 @@ export function RootIdentityProvider({
 
 /**
  * Reads the root-identity translator, or `null` when no provider is mounted
- * (e.g. a surface outside the workspace sync provider). Consumers MUST handle
- * the null case honestly rather than assuming DB id === adapter id.
+ * (e.g. the assistant panel, which renders as a SIBLING of the workspace-sync
+ * subtree that owns the provider). Consumers MUST handle the null case honestly
+ * rather than BLINDLY assuming DB id === adapter id.
+ *
+ * "Honestly" permits a VERIFIED-membership fallback: a DB root_id may be used as
+ * the adapter id when it is itself a currently-mounted adapter root (present in
+ * the live `activeRootIds`/`rootDescriptors` set). That never invents a mapping —
+ * it is exact wherever `reconcileRoots` established identity (roots.id == adapter
+ * rootId, the common case) and drops what it can't resolve. KNOWN LIMITATION: a
+ * MOUNTED root whose adapter id was path-matched to a different pre-existing
+ * roots.id (so roots.id != adapter rootId) cannot be resolved by the fallback —
+ * only by this authoritative provider. Such a drop is logged once per id (see
+ * `use-file-mentions.ts`); the durable fix is to mount this provider around the
+ * consuming subtree too.
  */
 export function useOptionalRootIdentity(): RootIdentity | null {
   return useContext(RootIdentityContext);

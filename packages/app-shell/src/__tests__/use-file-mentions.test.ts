@@ -22,11 +22,17 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 }));
 
 let adapterByDbRootId = new Map<string, string>();
+// When true, the RootIdentityProvider is ABSENT (mirrors the assistant panel,
+// which renders as a sibling of the workspace-sync subtree that owns it).
+let rootIdentityAbsent = false;
 vi.mock('../roots/root-identity-context', () => ({
-  useOptionalRootIdentity: () => ({
-    resolveAdapterRootId: (dbRootId: string): string | null =>
-      adapterByDbRootId.get(dbRootId) ?? null,
-  }),
+  useOptionalRootIdentity: () =>
+    rootIdentityAbsent
+      ? null
+      : {
+          resolveAdapterRootId: (dbRootId: string): string | null =>
+            adapterByDbRootId.get(dbRootId) ?? null,
+        },
 }));
 
 import { useFileMentions } from '../use-file-mentions';
@@ -67,6 +73,7 @@ afterEach(() => {
   vi.useRealTimers();
   usePGliteLiveQueryMock.mockReset();
   adapterByDbRootId = new Map();
+  rootIdentityAbsent = false;
   setRoots([], {});
 });
 
@@ -168,5 +175,40 @@ describe('useFileMentions', () => {
 
     const { result } = renderSettled('a');
     expect(result.current.fileMentions[0]?.rootLabel).toBe('Renamed');
+  });
+
+  // The assistant panel renders OUTSIDE the workspace-sync subtree, so the
+  // root-identity translator is absent there. Without a verified-membership
+  // fallback every row is dropped and the "@" picker is permanently empty even
+  // though the live query returns matches (the live-debugged root cause).
+  it('resolves rows via VERIFIED membership when the root-identity provider is ABSENT', () => {
+    rootIdentityAbsent = true;
+    // reconcileRoots makes roots.id === adapter rootId on desktop, so the DB
+    // root_id is itself a currently-mounted adapter root.
+    setRoots(['root-uuid'], {
+      'root-uuid': { rootId: 'root-uuid', displayName: 'Repo', path: '/abs/repo' },
+    });
+    mockRows([
+      { id: 'f', path: 'src/app.ts', name: 'app.ts', root_id: 'root-uuid', display_name: 'Repo' },
+    ]);
+
+    const { result } = renderSettled('app');
+    expect(result.current.fileMentions).toEqual([
+      { id: 'root-uuid::src/app.ts', label: 'app.ts', path: 'src/app.ts', rootLabel: 'Repo' },
+    ]);
+  });
+
+  it('drops a row whose root_id is NOT a mounted adapter root when the provider is ABSENT (no invented mapping)', () => {
+    rootIdentityAbsent = true;
+    setRoots(['mounted-uuid'], {
+      'mounted-uuid': { rootId: 'mounted-uuid', displayName: 'Repo', path: '/abs/repo' },
+    });
+    mockRows([
+      // A divergent legacy DB id that matches no mounted adapter root → dropped.
+      { id: 'g', path: 'x.ts', name: 'x.ts', root_id: 'unmounted-uuid', display_name: 'Other' },
+    ]);
+
+    const { result } = renderSettled('x');
+    expect(result.current.fileMentions).toEqual([]);
   });
 });

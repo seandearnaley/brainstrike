@@ -3,6 +3,7 @@ import type { ChatModelAdapter } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ReactElement, useCallback, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Keep @assistant-ui/react REAL (per CLAUDE.md: real AssistantRuntimeProvider,
@@ -125,5 +126,42 @@ describe('composer @file mentions', () => {
     const popover = await screen.findByRole('listbox', { name: 'File mentions' });
     expect(within(popover).getByText('src/app.ts')).toBeInTheDocument();
     expect(within(popover).getAllByText('workspace').length).toBeGreaterThan(0);
+  });
+
+  // Mirrors the REAL app: the panel starts with NO fileMentions; typing "@" relays
+  // the query out (onFileMentionQueryChange), app-shell loads matches ASYNC, and
+  // feeds them back as a new `fileMentions` prop — which must rebuild the adapter
+  // and populate the open popover. The other tests pass fileMentions PRE-loaded,
+  // so they never exercise this dynamic relay-back (the path that breaks live).
+  it('populates the open popover when fileMentions arrive ASYNC after the query is typed', async () => {
+    function DynamicHarness(): ReactElement {
+      const [files, setFiles] = useState<readonly FileMention[]>([]);
+      const handleQuery = useCallback((q: string) => {
+        // Simulate app-shell's debounced DB load: resolve matches on a later tick.
+        if (q.trim().length === 0) {
+          setFiles([]);
+          return;
+        }
+        queueMicrotask(() => {
+          setFiles(FILE_MENTIONS.filter((f) => f.label.includes(q.trim())));
+        });
+      }, []);
+      return (
+        <AssistantUiPanel
+          fileMentions={files}
+          onFileMentionQueryChange={handleQuery}
+          pickerModels={[]}
+          pickerProviders={[]}
+        />
+      );
+    }
+
+    render(<DynamicHarness />);
+    const user = await typeAt();
+    await user.keyboard('app');
+
+    // The popover is open immediately (empty), then must fill once async files land.
+    const popover = await screen.findByRole('listbox', { name: 'File mentions' });
+    await waitFor(() => expect(within(popover).getByText('app.ts')).toBeInTheDocument());
   });
 });
