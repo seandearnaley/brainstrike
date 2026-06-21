@@ -101,8 +101,32 @@ function joinRootRelativePath(rootPath: string, relativePath: string): string {
 }
 
 function getPathName(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments.at(-1) ?? path;
+  let end = path.length;
+  while (end > 0 && path.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  if (end === 0) {
+    return path;
+  }
+  const separatorIndex = path.lastIndexOf('/', end - 1);
+  return path.slice(separatorIndex + 1, end);
+}
+
+function countRelativePathSegments(path: string): number {
+  let count = 0;
+  let inSegment = false;
+  for (let index = 0; index < path.length; index += 1) {
+    if (path.charCodeAt(index) === 47) {
+      inSegment = false;
+      continue;
+    }
+    if (inSegment) {
+      continue;
+    }
+    count += 1;
+    inSegment = true;
+  }
+  return count;
 }
 
 function getParentRelativePath(relativePath: string): string | null {
@@ -184,7 +208,9 @@ function toSyntheticFileNode(args: {
 }): IFileNode {
   const absolutePath = joinRootRelativePath(args.rootPath, args.relativePath);
   return {
-    depth: args.relativePath.split('/').filter(Boolean).length,
+    // Watcher batches can synthesize many file nodes; scan once instead of
+    // allocating split/filter arrays for every changed path.
+    depth: countRelativePathSegments(args.relativePath),
     handle: {
       kind: 'file',
       name: getPathName(args.relativePath),
@@ -765,3 +791,8 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
   }
   return await collectPreparedFullChanges(args);
 }
+
+export const __workspaceCollectionSyncScanInternalsForTests = {
+  countRelativePathSegments,
+  getPathName,
+};
