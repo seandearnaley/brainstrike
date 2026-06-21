@@ -63,7 +63,10 @@ describe('desktop vite config alias contract', () => {
       for (const config of [desktop, web]) {
         expect(config).toContain(`@brainstrike/${pkg}`);
         expect(config).toContain(`../../packages/${pkg}/src`);
-        expect(config).not.toContain(`@brainstrike/${pkg}/dist`);
+        // Assert the REAL dist replacement string is absent — `@brainstrike/<pkg>/dist`
+        // never appears regardless (aliases are written as `../../packages/<pkg>/<x>`),
+        // so that form was a no-op. The path form is the actual regression guard.
+        expect(config).not.toContain(`../../packages/${pkg}/dist`);
       }
     }
   });
