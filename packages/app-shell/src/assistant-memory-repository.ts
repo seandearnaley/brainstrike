@@ -565,7 +565,15 @@ const MAX_ROOT_DISPLAY_NAME_CHARS = 512;
 
 function boundedNullableString(value: unknown, maxChars: number): string | null {
   const text = nullableString(value);
-  return text === null ? null : text.slice(0, maxChars);
+  if (text === null) {
+    return text;
+  }
+  // Slice by code POINTS, not UTF-16 code units, so this actually mirrors the
+  // SQL `SUBSTR(..., 1, N)` (which counts characters): a name ending in a
+  // surrogate-pair grapheme (e.g. an emoji) at the boundary never leaves a lone
+  // surrogate. `[...text]` iterates code points.
+  const codePoints = [...text];
+  return codePoints.length <= maxChars ? text : codePoints.slice(0, maxChars).join('');
 }
 
 const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);

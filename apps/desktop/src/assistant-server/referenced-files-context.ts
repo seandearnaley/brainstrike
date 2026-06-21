@@ -138,7 +138,10 @@ export async function buildReferencedFilesContextMessage(
         ? `\n[Truncated to the first ${MAX_REFERENCED_FILE_CHARS} characters.]`
         : '';
       injectedChars += body.length;
-      sections.push(`### ${file.path}\n${fenceContent(body)}${suffix}`);
+      // Qualify the heading with the root so two roots that share a relative path
+      // (e.g. both have `src/index.ts`) produce DISTINCT headings, not ambiguous
+      // identical ones.
+      sections.push(`### ${root.displayName}/${file.path}\n${fenceContent(body)}${suffix}`);
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'unknown error';
       logger.warn('Referenced file could not be read', {
