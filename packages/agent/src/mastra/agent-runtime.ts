@@ -1599,7 +1599,12 @@ export async function streamMastraToolSuspendResume(
 
   const runtimeData = options.runtime;
   const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
-  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+  // Thread runtime.mastraTools/model into the options so the rebuilt Agent keeps
+  // the native tools on resume (see withRuntimeDerivedStreamOptions).
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    withRuntimeDerivedStreamOptions(options),
+    runtimeResolution
+  );
 
   return createToolSuspendResumeIteratorFromRuntime({
     action,
