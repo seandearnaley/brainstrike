@@ -55,12 +55,16 @@ interface AgentStreamFailure {
 }
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
-import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import {
+  buildDesktopAssistantTools,
+  readWorkspaceTextFile,
+} from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
+import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
@@ -1138,6 +1142,12 @@ async function initializeAgentStream(
         },
       };
     }
+    // @file context-insert: resolve any `:file[…]{name=…}` directives in the
+    // current turn's user message into a prepended `system` context message
+    // carrying the referenced files' content. Uses the same containment/size/
+    // binary-guarded reader as the read tools; unresolvable references surface a
+    // visible note rather than being silently dropped. Skipped on the approval-
+    // resume path (no new user turn to scan).
     const stream = toolApprovalAction
       ? await streamMastraToolApprovalAction(toolApprovalAction, {
           ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
@@ -1145,7 +1155,7 @@ async function initializeAgentStream(
           runtime,
         })
       : await toAiSdkStyleStream(
-          messages,
+          await injectReferencedFilesContext(messages, runtime, readWorkspaceTextFile),
           runtime,
           memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}
         );

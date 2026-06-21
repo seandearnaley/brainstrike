@@ -442,18 +442,32 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
   usePGliteDatabase: vi.fn(() => mockDb),
-  // The OM segment live query (useObservationalMemoryRow) — inert in these tests
-  // (no rows, not loading, no error) so the meter resolves to an empty/chat-only
-  // state without a real subscription.
+  // The OM segment live query (useObservationalMemoryRow) and the "@" file
+  // mention query (useFileMentions) — inert in these tests (no rows, not
+  // loading) so neither runs a real subscription.
   usePGliteLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
+  // Quick-open / file-mention shared query constants (useFileMentions).
+  QUICK_OPEN_MAX_LIMIT: 50,
+  QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => {
+  // Stable references for the "@" file-mention selectors (useFileMentions reads
+  // these via useFileExplorerStoreSelector). A fresh `[]`/`{}` per getState()
+  // call would make the selector return a new value every render → re-render
+  // churn that re-runs subscription effects (broke the root-tree
+  // unsubscribe-once assertion).
+  const stableActiveRootIds: string[] = [];
+  const stableRootDescriptors: Record<string, unknown> = {};
   const getState = () => ({
     tokenBudget: fileExplorerMocks.tokenBudget,
     currentFolderId: fileExplorerMocks.currentFolderId,
     rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
     includeProjectTree: fileExplorerMocks.includeProjectTree,
+    // "@" file-mention gating (useFileMentions) reads these; empty in these
+    // tests so the mention query yields no candidates.
+    activeRootIds: stableActiveRootIds,
+    rootDescriptors: stableRootDescriptors,
     setTokenBudget: fileExplorerMocks.setTokenBudget,
     setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
     setSelectedFiles: fileExplorerMocks.setSelectedFiles,

@@ -1,6 +1,15 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  decodeFileMentionId,
+  encodeFileMentionId,
+  FILE_MENTION_DIRECTIVE_TYPE,
+  type FileMentionDirective,
+  type ParsedFileMention,
+  parseFileMentionDirectives,
+  serializeFileMentionDirective,
+} from '@brainstrike/assistant-contract';
+export {
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,

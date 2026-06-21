@@ -39,6 +39,7 @@ import {
   SquareIcon,
 } from 'lucide-react';
 import {
+  type ComponentProps,
   type FC,
   type ReactNode,
   useCallback,
@@ -76,6 +77,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
+import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
@@ -84,6 +86,7 @@ import {
 } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
+import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import {
@@ -259,6 +262,17 @@ export interface AssistantUiPanelProps {
   disabledReason?: string;
   /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
   effectiveInputBudget?: number | undefined;
+  /**
+   * Workspace files projected into the composer's "@" mention menu. Like
+   * `slashCommands`, the panel is presentational: app-shell loads matches from
+   * the file index for the active mention query (reported via
+   * `onFileMentionQueryChange`) and feeds the resolved candidates here.
+   * Selecting one inserts a `:file[…]{name=…}` directive the server resolves to
+   * the file's content. The "@" feature is mounted only when
+   * `onFileMentionQueryChange` is provided (capability/seam gating lives in the
+   * app — web omits it).
+   */
+  fileMentions?: readonly FileMention[];
   historyAdapter?: ThreadHistoryAdapter;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   /**
@@ -270,6 +284,11 @@ export interface AssistantUiPanelProps {
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
+  /**
+   * Reports the active "@" mention query so the app can load matching files into
+   * `fileMentions`. Presence of this callback gates the "@" feature on.
+   */
+  onFileMentionQueryChange?: (query: string) => void;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -582,6 +601,10 @@ const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 // adapter/icon-map derivations downstream (react-doctor: empty default prop).
 const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 
+// Stable empty default for the optional fileMentions prop (same memoization
+// rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
+const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
+
 /**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
  * slash-enabled and plain composer paths share it — only the optional
@@ -590,8 +613,9 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
  */
 const ComposerInputRow: FC<{
   isComposerDisabled: boolean;
+  mentionPopover?: ReactNode;
   slashPopover?: ReactNode;
-}> = ({ isComposerDisabled, slashPopover }) => (
+}> = ({ isComposerDisabled, mentionPopover, slashPopover }) => (
   <div className="bs-composer-input-frame">
     <ComposerPrimitive.Input
       aria-label="Message input"
@@ -602,6 +626,7 @@ const ComposerInputRow: FC<{
       rows={1}
     />
     {slashPopover}
+    {mentionPopover}
     <div className="bs-composer-primary-actions">
       <ThreadPrimitive.If running={false}>
         <ComposerPrimitive.Send
@@ -626,6 +651,50 @@ const ComposerInputRow: FC<{
     </div>
   </div>
 );
+
+type SlashCommandAdapter = ComponentProps<
+  typeof ComposerPrimitive.Unstable_SlashCommandRoot
+>['adapter'];
+type FileMentionAdapter = ComponentProps<typeof ComposerPrimitive.Unstable_MentionRoot>['adapter'];
+
+/**
+ * Wraps the composer input row with the "/" slash root and/or the "@" mention
+ * root, mounting each ONLY when its adapter is present. The roots nest (mention
+ * inside slash) so both trigger detectors run against the same composer text
+ * without conflicting — "/" opens the slash menu, "@" opens the file menu. When
+ * neither is present the bare input row renders, so the trigger chars do nothing
+ * special (never an empty menu).
+ */
+const ComposerInputWithTriggers: FC<{
+  isComposerDisabled: boolean;
+  slashAdapter?: SlashCommandAdapter;
+  slashPopover?: ReactNode;
+  fileMentionAdapter?: FileMentionAdapter;
+  mentionPopover?: ReactNode;
+}> = ({ isComposerDisabled, slashAdapter, slashPopover, fileMentionAdapter, mentionPopover }) => {
+  let row: ReactNode = (
+    <ComposerInputRow
+      isComposerDisabled={isComposerDisabled}
+      {...(slashPopover ? { slashPopover } : {})}
+      {...(mentionPopover ? { mentionPopover } : {})}
+    />
+  );
+  if (fileMentionAdapter) {
+    row = (
+      <ComposerPrimitive.Unstable_MentionRoot adapter={fileMentionAdapter}>
+        {row}
+      </ComposerPrimitive.Unstable_MentionRoot>
+    );
+  }
+  if (slashAdapter) {
+    row = (
+      <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
+        {row}
+      </ComposerPrimitive.Unstable_SlashCommandRoot>
+    );
+  }
+  return <>{row}</>;
+};
 
 const ThreadHistoryControl: FC<{
   controlsId: string;
@@ -673,9 +742,11 @@ interface ChatThreadProps {
   disabled: boolean;
   disabledReason: string | undefined;
   effectiveInputBudget?: number | undefined;
+  fileMentions: readonly FileMention[];
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -728,6 +799,8 @@ const LocalRuntimeChat: FC<
   modelId,
   onLoadingStateChange,
   slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
   toolMenu,
   requestData,
   prepareRequestData,
@@ -798,10 +871,12 @@ const LocalRuntimeChat: FC<
           cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
+          fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
           omSegment={omSegment}
+          onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -869,6 +944,8 @@ const DataStreamRuntimeChat: FC<
   prepareLocalModel,
   modelName,
   slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
   toolMenu,
   threadKey,
 }) => {
@@ -936,10 +1013,12 @@ const DataStreamRuntimeChat: FC<
           cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
+          fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
           omSegment={omSegment}
+          onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -983,6 +1062,8 @@ const ChatThreadUI: FC<{
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   slashCommands: readonly SlashCommand[];
+  fileMentions: readonly FileMention[];
+  onFileMentionQueryChange: ((query: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }> = ({
@@ -1004,6 +1085,8 @@ const ChatThreadUI: FC<{
   disabledReason,
   localLoadingState,
   slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
   threadKey,
   toolMenu,
 }) => {
@@ -1027,6 +1110,23 @@ const ChatThreadUI: FC<{
   );
   const slashAdapter = useSlashCommandAdapter(slashAdapterOptions);
   const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
+
+  // "@" file-mention menu: mounted only when app-shell wires the query seam
+  // (web omits it — capability/seam gating lives in the app, not here). The
+  // adapter is synchronous; app-shell loads matches for the reported query and
+  // feeds them back as `fileMentions`, which rebuilds the adapter.
+  const hasFileMentions = Boolean(onFileMentionQueryChange);
+  const fileMentionAdapter = useMemo(
+    () =>
+      onFileMentionQueryChange
+        ? buildFileMentionAdapter(fileMentions, onFileMentionQueryChange)
+        : null,
+    [fileMentions, onFileMentionQueryChange]
+  );
+  const fileMentionById = useMemo(
+    () => new Map(fileMentions.map((file) => [file.id, file])),
+    [fileMentions]
+  );
 
   return (
     <ThreadPrimitive.Root
@@ -1117,22 +1217,25 @@ const ChatThreadUI: FC<{
           data-disabled={isComposerDisabled ? '' : undefined}
           onSubmitCapture={onThreadRunStart}
         >
-          {/* The composer input row. When slash commands exist it is wrapped in
-              the "/" slash root (trigger detection reads the composer text, and
-              the popover renders after the Input); when there are none the row
-              renders bare, so typing "/" does nothing special — "no commands"
-              means "no slash feature," never an empty menu. Send / Cancel are
-              unchanged either way. */}
-          {hasSlashCommands ? (
-            <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
-              <ComposerInputRow
-                isComposerDisabled={isComposerDisabled}
-                slashPopover={<ComposerTriggerPopover iconMap={slashIconMap} />}
-              />
-            </ComposerPrimitive.Unstable_SlashCommandRoot>
-          ) : (
-            <ComposerInputRow isComposerDisabled={isComposerDisabled} />
-          )}
+          {/* The composer input row, optionally wrapped by the "/" slash root
+              and/or the "@" mention root. Each root owns its own trigger ("/"
+              vs "@") and renders its popover after the Input; both read the same
+              composer text and coexist (different trigger chars). A feature is
+              mounted ONLY when its seam is present — an unmounted root means the
+              trigger char does nothing special (never an empty menu). The roots
+              nest (mention inside slash); Send / Cancel are unchanged. */}
+          <ComposerInputWithTriggers
+            isComposerDisabled={isComposerDisabled}
+            {...(hasSlashCommands
+              ? { slashAdapter, slashPopover: <ComposerTriggerPopover iconMap={slashIconMap} /> }
+              : {})}
+            {...(hasFileMentions && fileMentionAdapter
+              ? {
+                  fileMentionAdapter,
+                  mentionPopover: <ComposerMentionPopover fileById={fileMentionById} />,
+                }
+              : {})}
+          />
           {hasGroupedProviders && (
             <ProviderModelHeader
               groups={providerGroups}
@@ -1174,6 +1277,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onThreadRunStart,
   onUsage,
   slashCommands = EMPTY_SLASH_COMMANDS,
+  fileMentions = EMPTY_FILE_MENTIONS,
+  onFileMentionQueryChange,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1256,6 +1361,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             {...(onUsage ? { onUsage } : {})}
+            fileMentions={fileMentions}
+            onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
             prepareRequestData={prepareRequestData}
@@ -1288,6 +1395,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             onThreadRunStart={onThreadRunStart}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
+            fileMentions={fileMentions}
+            onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
             prepareRequestData={prepareRequestData}

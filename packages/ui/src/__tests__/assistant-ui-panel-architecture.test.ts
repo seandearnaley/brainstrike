@@ -33,7 +33,15 @@ describe('assistant UI panel architecture', () => {
     // so Vite dev's Fast Refresh recognizes it as a hook (a bare `unstable_use…`
     // call corrupts the hook signature and crashes the dev server — see
     // fast-refresh-hook-aliasing.test.ts).
-    expect(source.split('\n').length).toBeLessThanOrEqual(1610);
+    // Bumped 1610 → 1720 for the "@" file-mention prop plumbing (Phase 6.4):
+    // fileMentions + onFileMentionQueryChange thread the SAME 5 layers as
+    // slashCommands, ChatThreadUI derives the mention adapter + id→file map, and
+    // a `ComposerInputWithTriggers` helper nests the slash + mention roots around
+    // the shared ComposerInputRow (each mounted only when its seam is present).
+    // The mention popover UI + adapter builder live in their own modules
+    // (composer-mention-popover.tsx, file-mentions.ts); the directive
+    // serialize/parse contract lives in @brainstrike/assistant-contract.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1720);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
