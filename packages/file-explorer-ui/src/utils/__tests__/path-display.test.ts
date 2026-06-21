@@ -19,6 +19,7 @@ describe('formatTrailingPathSegments', () => {
   it('truncates to the trailing two segments with an ellipsis prefix', () => {
     expect(formatTrailingPathSegments('a/b/c/d')).toBe('.../c/d');
     expect(formatTrailingPathSegments('/Users/me/project/src/file.ts')).toBe('.../src/file.ts');
+    expect(formatTrailingPathSegments('/Users/me/project/src/')).toBe('.../project/src/');
   });
 
   it('handles empty input', () => {
