@@ -50,6 +50,9 @@ const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
   '../mastra/agent-runtime'
 );
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
+// The DESKTOP initial-turn path: maps runtime.mastraTools -> options.tools. The
+// regression test below uses it so the wiring matches production exactly.
+const { toAiSdkStyleStream } = await import('../message-utils');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
@@ -399,6 +402,101 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       .map((chunk) => chunk.value)
       .join('');
     expect(finalText).toContain('Here is the file.');
+
+    await database.close();
+  });
+
+  it('DESKTOP wiring: native tools carried on runtime.mastraTools survive the approval RESUME', async () => {
+    // The regression this guards (the desktop "I hit Approve and it did not take"
+    // bug): the desktop carries native tools on `runtime.mastraTools` (NOT
+    // `options.tools`). The initial turn goes through `toAiSdkStyleStream`, which
+    // threads `runtime.mastraTools -> options.tools`; the approval RESUME called
+    // `streamMastraToolApprovalAction` DIRECTLY and never threaded them, so the
+    // rebuilt Agent had an EMPTY native tool map — the model saw only Mastra's
+    // memory tool (`updateWorkingMemory`) and the approved write tool could not
+    // execute. The other tests in this file pass tools via `options.tools` on the
+    // resume, which masked the gap. This one mirrors production exactly.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const writeExecute = vi.fn((inputData: { path: string; content: string }) =>
+      Promise.resolve({ ok: true, path: inputData.path })
+    );
+    const writeTool = createTool({
+      id: 'write_tool',
+      description: 'An edit-risk write tool gated to ask.',
+      inputSchema: z.object({ path: z.string(), content: z.string() }),
+      outputSchema: z.object({ ok: z.boolean(), path: z.string() }),
+      execute: writeExecute,
+    });
+    const thread = { threadId: 'thread-desktop-1', resourceId: 'resource-desktop-1' } as const;
+    // edit gated to ask, exactly like writeWorkspaceFile on the desktop.
+    const policy = {
+      policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' },
+      yolo: false,
+      riskByTool: { write_tool: 'edit' },
+    } as const;
+    // Tools ride on runtime.mastraTools (desktop wiring); options.tools is UNSET
+    // on the resume below — the precise condition that triggered the bug.
+    const runtime = {
+      provider: 'openai',
+      apiKey: 'test-key',
+      permissionPolicy: policy,
+      memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+      mastraTools: { write_tool: writeTool },
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      toolName: 'write_tool',
+      toolCallId: 'call-desktop-write-1',
+      input: JSON.stringify({ path: 'brainblog/hello.txt', content: 'hello Sean' }),
+      finalText: 'Created brainblog/hello.txt.',
+    });
+
+    // ── Phase 1: initial turn via the DESKTOP path → SUSPENDS for approval ──
+    const suspendIterator = await toAiSdkStyleStream(
+      [{ id: 'u-desk-1', role: 'user', parts: [{ type: 'text', text: 'write hello.txt' }] }],
+      runtime,
+      { memory, storage }
+    );
+    const suspendChunks = await drainYielding(suspendIterator);
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+    expect(approval?.toolName).toBe('write_tool');
+    expect(approval?.riskCategory).toBe('edit');
+    expect(writeExecute).not.toHaveBeenCalled();
+
+    // ── Phase 2: APPROVE via the DESKTOP resume path. Tools come ONLY from
+    //    runtime.mastraTools — options.tools is intentionally absent. ──
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: approval?.runId ?? '',
+        toolCallId: approval?.toolCallId ?? '',
+        toolName: 'write_tool',
+      },
+      {
+        memory,
+        storage,
+        requireToolApproval: true,
+        runtime,
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+
+    // The approved tool actually EXECUTED on resume (it was present in the rebuilt
+    // Agent's tool map) and the run reached a terminal finish.
+    expect(writeExecute).toHaveBeenCalledTimes(1);
+    expect(writeExecute.mock.calls[0]?.[0]).toMatchObject({
+      path: 'brainblog/hello.txt',
+      content: 'hello Sean',
+    });
+    const resumeRunEventKinds = resumeChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(resumeRunEventKinds).toContain('tool.completed');
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();
   });
