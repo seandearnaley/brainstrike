@@ -25,12 +25,15 @@ describe('parseObservationalMemoryRow', () => {
     expect(() => parseObservationalMemoryRow('nope')).toThrow();
   });
 
-  it('THROWS when observationTokenCount is missing or non-integer', () => {
+  it('THROWS when observationTokenCount is missing, non-integer, or negative', () => {
     expect(() =>
       parseObservationalMemoryRow(rawRow({ observationTokenCount: undefined }))
     ).toThrow();
     expect(() => parseObservationalMemoryRow(rawRow({ observationTokenCount: 1.5 }))).toThrow();
     expect(() => parseObservationalMemoryRow(rawRow({ observationTokenCount: 'x' }))).toThrow();
+    // @mastra/memory's OM table has no DB-level (col >= 0) CHECK, so the parser is
+    // the only guard against a negative token count silently reaching the meter.
+    expect(() => parseObservationalMemoryRow(rawRow({ observationTokenCount: -1 }))).toThrow();
   });
 
   it('THROWS when totalTokensObserved is missing or negative', () => {
