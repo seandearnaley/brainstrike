@@ -216,7 +216,7 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
       ? ` Prefer ${names.stringReplaceWorkspaceFile} over ${names.writeWorkspaceFile} when changing part of an existing file.`
       : '';
     clauses.push(
-      `To make a surgical edit to an existing file, use ${names.stringReplaceWorkspaceFile}: read the file first, then pass an old_str block of WHOLE LINES with enough surrounding context to identify exactly ONE location, plus the new_str to replace it with (empty new_str deletes the block). A block that matches more than once is REFUSED (add context and retry), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings. It also REFUSES not-found matches instead of guessing, so re-read and adjust old_str if it reports one.${preferClause}`
+      `To make a surgical edit to an existing file, use ${names.stringReplaceWorkspaceFile}: read the file first, then pass an oldStr block of WHOLE LINES with enough surrounding context to identify exactly ONE location, plus the newStr to replace it with (empty newStr deletes the block). A block that matches more than once is REFUSED (add context and retry), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings. It also REFUSES not-found matches instead of guessing, so re-read and adjust oldStr if it reports one.${preferClause}`
     );
   }
   if (clauses.length === 0) {

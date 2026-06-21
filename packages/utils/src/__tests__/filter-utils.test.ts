@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPathFilterMatcher, processFilter } from '../filter-utils';
+import { assertSafeRegexSource, createPathFilterMatcher, processFilter } from '../filter-utils';
 
 describe('filter-utils', () => {
   describe('processFilter', () => {
@@ -90,6 +90,25 @@ describe('filter-utils', () => {
 
       expect(matcher.shouldIncludeFile('/.devcontainer/devcontainer.json')).toBe(true);
       expect(matcher.shouldIncludeFile('/src/app.ts')).toBe(false);
+    });
+  });
+
+  describe('assertSafeRegexSource (ReDoS guard)', () => {
+    it('rejects catastrophic-backtracking patterns before they compile/run', () => {
+      // Nested quantifier — the classic ReDoS shape.
+      expect(() => assertSafeRegexSource('(a+)+$')).toThrow(/catastrophic backtracking/);
+      // Alternation under a quantifier.
+      expect(() => assertSafeRegexSource('(a|aa)+')).toThrow(/catastrophic backtracking/);
+    });
+
+    it('rejects over-long patterns', () => {
+      expect(() => assertSafeRegexSource('a'.repeat(300))).toThrow(/maximum supported length/);
+    });
+
+    it('accepts ordinary safe patterns', () => {
+      expect(() => assertSafeRegexSource('foo.*bar')).not.toThrow();
+      expect(() => assertSafeRegexSource('TODO|FIXME')).not.toThrow();
+      expect(() => assertSafeRegexSource('\\bword\\b')).not.toThrow();
     });
   });
 });

@@ -12,6 +12,7 @@
  *     (path, line) dedupe across overlapping chunks, and bounded output.
  */
 
+import { assertSafeRegexSource } from '@brainstrike/utils';
 import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 import { escapeLikeLiteral, extractTrigramLiteral } from './grep-pattern.js';
 
@@ -89,6 +90,13 @@ function buildLiteralMatcher(pattern: string, caseSensitive: boolean): LineMatch
 }
 
 function buildRegexMatcher(pattern: string, caseSensitive: boolean): LineMatcher {
+  // ReDoS guard BEFORE compiling: this matcher runs the caller/model-supplied
+  // regex per-line across up to maxLiveCandidateFiles whole files, so a
+  // catastrophic-backtracking pattern would freeze the host. Reuse the shared
+  // length + dangerous-shape guard (throws with a clear message; no silent
+  // fallback). Covers both the indexed path and the desktop live-grep pass,
+  // which share this matcher.
+  assertSafeRegexSource(pattern);
   let regex: RegExp;
   try {
     // Never include 'g': the same regex instance is called per-line, and
