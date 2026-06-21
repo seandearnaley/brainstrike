@@ -37,8 +37,11 @@ type DiffState =
   | { kind: 'failed' };
 
 /** A resolved async diff outcome (loaded/failed) tagged with the request key
- *  (path:staged) it belongs to, so a stale resolution for a previously-selected
- *  file is never shown for the current selection. */
+ *  (rootId:path:staged:untracked) it belongs to, so a stale resolution for a
+ *  previously-selected file — OR a previously-active ROOT — is never shown for
+ *  the current selection. The rootId is part of the key because the selection
+ *  persists across a focus-root switch and two roots can share a relative path,
+ *  so without it the old root's diff would render for the new root mid-load. */
 interface ResolvedDiff {
   readonly key: string;
   readonly state: Extract<DiffState, { kind: 'loaded' | 'failed' }>;
@@ -220,7 +223,10 @@ function DiffPane({
  * diff via the bridge into a discriminated {@link DiffState}. Keeps {@link GitPanel}
  * within its cognitive-complexity budget and isolates the load effect.
  */
-function useSelectedDiff(loadDiff: ReturnType<typeof useGitPanel>['loadDiff']): {
+function useSelectedDiff(
+  loadDiff: ReturnType<typeof useGitPanel>['loadDiff'],
+  activeRootId: string | null
+): {
   selected: SelectedFile | null;
   handleSelect: (file: GitStatusFile, staged: boolean) => void;
   diffState: DiffState;
@@ -248,8 +254,13 @@ function useSelectedDiff(loadDiff: ReturnType<typeof useGitPanel>['loadDiff']): 
   const selectedPath = selected?.path ?? null;
   const selectedStaged = selected?.staged ?? false;
   const selectedUntracked = selected?.untracked ?? false;
+  // The activeRootId is part of the key: the selection survives a focus-root
+  // switch and two roots can share a relative path, so without it a stale diff
+  // from the previous root would render for the new root's same-path selection.
   const requestKey =
-    selectedPath === null ? null : `${selectedPath}:${selectedStaged}:${selectedUntracked}`;
+    selectedPath === null
+      ? null
+      : `${activeRootId ?? ''}:${selectedPath}:${selectedStaged}:${selectedUntracked}`;
 
   useEffect(() => {
     if (selectedPath === null || requestKey === null) {
@@ -325,7 +336,7 @@ export function GitPanel(): ReactElement {
   } = useGitPanel();
 
   const [commitMessage, setCommitMessage] = useState('');
-  const { selected, handleSelect, diffState, parsedDiff } = useSelectedDiff(loadDiff);
+  const { selected, handleSelect, diffState, parsedDiff } = useSelectedDiff(loadDiff, activeRootId);
 
   const buckets = useMemo(() => partitionFiles(status?.files ?? []), [status?.files]);
 

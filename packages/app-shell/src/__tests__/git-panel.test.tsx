@@ -219,6 +219,82 @@ describe('GitPanel', () => {
     expect(diff).toHaveAttribute('data-modified', 'const a = 2;');
   });
 
+  it('never shows the previous root diff after a focus-root switch (diff state is rootId-keyed)', async () => {
+    const user = userEvent.setup();
+    let releaseRoot2: () => void = () => {
+      /* set below */
+    };
+    const root2Gate = new Promise<void>((resolve) => {
+      releaseRoot2 = resolve;
+    });
+    const diffFor = (rootId: string): string =>
+      [
+        'diff --git a/staged.ts b/staged.ts',
+        '--- a/staged.ts',
+        '+++ b/staged.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        `+${rootId}-CONTENT`,
+        '',
+      ].join('\n');
+    installBridge({
+      diff: vi.fn(
+        async (
+          rootId: string,
+          params?: { path?: string; staged?: boolean; untracked?: boolean }
+        ) => {
+          // Hold root-2's diff so we can observe the window after the switch but
+          // before the new root's diff resolves — exactly where a stale diff leaks.
+          if (rootId === 'root-2') {
+            await root2Gate;
+          }
+          return ok({
+            path: params?.path ?? 'staged.ts',
+            staged: params?.staged ?? false,
+            truncated: false,
+            unifiedDiff: diffFor(rootId),
+          });
+        }
+      ),
+    });
+
+    const { rerender } = render(<GitPanel />);
+    await screen.findByTestId('git-panel');
+
+    // Root-1: select staged.ts → its diff renders.
+    await user.click(screen.getByRole('button', { name: 'staged.ts' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('diff-view-stub')).toHaveAttribute(
+        'data-modified',
+        'root-1-CONTENT'
+      )
+    );
+
+    // Switch the focus root to root-2 (the selection persists, and both roots
+    // have a `staged.ts`). Root-2's diff is held pending.
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'repo2',
+      path: '/abs/repo2',
+      platform: 'electron',
+      rootId: 'root-2',
+    };
+    rerender(<GitPanel />);
+
+    // Without rootId in the diff key, root-1's resolved diff would still match the
+    // (same path/staged) request and render for root-2. It must NOT — the pane
+    // shows loading until root-2's own diff lands.
+    await waitFor(() => expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument());
+
+    releaseRoot2();
+    await waitFor(() =>
+      expect(screen.getByTestId('diff-view-stub')).toHaveAttribute(
+        'data-modified',
+        'root-2-CONTENT'
+      )
+    );
+  });
+
   it('requests an untracked file diff with untracked:true (whole-file additions)', async () => {
     const user = userEvent.setup();
     const NEW_FILE_DIFF = [
