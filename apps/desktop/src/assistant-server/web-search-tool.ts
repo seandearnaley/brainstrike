@@ -205,7 +205,7 @@ export async function runWebSearch(
 
   const apiKey = await resolveApiKey();
   if (!apiKey) {
-    logger.info('webSearch requested without a configured Tavily key', { query });
+    logger.info('webSearch requested without a configured Tavily key');
     return {
       available: false,
       query,
@@ -241,8 +241,8 @@ export async function runWebSearch(
 
     if (!response.ok) {
       const errorText = `Tavily search failed with HTTP ${response.status}.`;
-      // Never include the API key or response auth headers in logs.
-      logger.error('webSearch Tavily response not ok', { status: response.status, query });
+      // Never include the API key, response auth headers, or query text in logs.
+      logger.error('webSearch Tavily response not ok', { status: response.status });
       return {
         available: true,
         query,
@@ -262,7 +262,7 @@ export async function runWebSearch(
     const errorText = aborted
       ? `Tavily search timed out after ${timeoutMs}ms.`
       : 'Tavily search failed due to a network error.';
-    logger.error('webSearch failed', { error, query, aborted });
+    logger.error('webSearch failed', { error, aborted });
     return {
       available: true,
       query,
