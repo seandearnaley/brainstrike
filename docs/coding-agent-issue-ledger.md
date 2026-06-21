@@ -12,6 +12,19 @@
 > Branch: `feat/coding-agent` · HEAD `dc06a8611` (39 commits ahead of `main`) · Audit date 2026-06-20
 > Source: 79 verified-real findings + 16 recently-resolved, deduped across 6 audit dimensions (P1-approval, P2-edit-security, P3-search-shell, P4-diff-terminal-git, P5-om-cost, P6-slash, P7-subagents, P8-notifications/hooks/oauth, infra/CI, web-desktop-parity, tests/live-loop).
 
+## 0. Burn-down progress (live)
+
+Blockers cleared since the audit (merged to `feat/coding-agent`):
+
+- **P3** Regex grep patterns validated at schema parse (fail-fast) — **#1285**.
+- **P2** `executeCommand` description honesty — fixed all **4** stale copies (model-facing `default-instructions.ts` + `tool-schemas-display.ts` + `tool-descriptions.ts` + comment), not just the flagged one — **#1285**.
+- **P5** Durable-usage capability shape-guard (non-string `bridge.url`) — **#1286**.
+- **P5** Root `display_name` byte-cap (SQL `SUBSTR` + mapper) — **#1286**.
+- **P5** OM negative-token rejection test (DB-CHECK premise was wrong; the parser already guards) — **#1286**.
+- **P4** Git untracked-diff symlink containment — **#1287** + **#1288** (refined after a Codex review: validate the parent chain, allow safe leaf symlinks which git renders as `120000` link-text, not content).
+
+**Open blockers remaining: ~22 of 29.** Next up: Infra `NODE_ENV` define (`task_dd059475`, delicate — function-form vite config), P3 Windows execute-cwd containment (needs Windows CI to verify escapes), P4 git-diff `rootId` keying + terminal/git E2E, P1 web approval-resume (501), then **P7 subagents** (the big build). P8/OAuth parked behind the legal gate.
+
 ## 1. Definition of Done
 
 Phases 1-8 are **DONE** when every item in **§2 Blockers (`mustFixBeforeDone`)** is resolved, verified by real **LIVE-loop** tests (per the AGENTS.md invariant — mocked tests once stayed green while real Mastra tool calling broke), and with security-critical edit/shell/diff paths proven path-contained by executing escape attempts, not just reading code.
