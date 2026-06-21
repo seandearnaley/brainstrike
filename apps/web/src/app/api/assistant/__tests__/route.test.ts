@@ -36,6 +36,13 @@ vi.mock('../../../../server/assistant-config', async () => {
   };
 });
 
+// The route now builds its stream (normal turn OR approval resume) through this
+// seam, which owns the in-process workflow storage. Mock it so the unit test
+// never spins up a real PGlite store.
+vi.mock('../../../../server/web-mastra-storage', () => ({
+  buildWebAssistantStream: vi.fn(),
+}));
+
 import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
 import {
   assistantDataStreamSessions,
@@ -45,6 +52,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { resolveAssistantProviderConfig } from '../../../../server/assistant-config';
+import { buildWebAssistantStream } from '../../../../server/web-mastra-storage';
 import { POST } from '../route';
 
 describe('assistant route', () => {
@@ -114,7 +122,7 @@ describe('assistant route', () => {
       error: 'invalid_json',
       message: 'Request body must be valid JSON.',
     });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
   it('returns 400 when request body has no non-empty prompt', async () => {
@@ -139,7 +147,7 @@ describe('assistant route', () => {
     expect(res.status).toBe(400);
     const payload = await res.json();
     expect(payload).toEqual({ error: 'empty_prompt' });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
@@ -169,7 +177,7 @@ describe('assistant route', () => {
       error: 'request_body_too_large',
       message: `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`,
     });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
   it('returns 502 when stream initialization fails', async () => {
@@ -177,7 +185,7 @@ describe('assistant route', () => {
       enabled: true,
       apiKey: 'test-key',
     });
-    vi.mocked(toAiSdkStyleStream).mockRejectedValue(new Error('boom'));
+    vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
 
     const req = new Request('http://localhost/api/assistant', {
       method: 'POST',
@@ -193,34 +201,6 @@ describe('assistant route', () => {
     const payload = await res.json();
     expect(payload).toMatchObject({ error: 'agent_stream_init_failed' });
     expect(payload.message).toBe('Assistant stream initialization failed');
-  });
-
-  it('rejects tool approval resume actions on the web assistant route', async () => {
-    const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [] }],
-        runConfig: {
-          custom: {
-            [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
-              action: 'approve',
-              runId: 'run-approval-1',
-              toolCallId: 'tool-call-1',
-              toolName: 'workspace.writeFile',
-            },
-          },
-        },
-      }),
-    });
-
-    const res = await POST(req);
-    expect(res.status).toBe(501);
-    await expect(res.json()).resolves.toMatchObject({
-      error: 'tool_approval_resume_unsupported',
-    });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
-    expect(assistantDataStreamSessions.create).not.toHaveBeenCalled();
   });
 
   it('rejects malformed tool approval actions on the web assistant route', async () => {
@@ -245,7 +225,7 @@ describe('assistant route', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: 'invalid_tool_approval_action',
     });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
   });
 
   it('creates a new session when provider is enabled', async () => {
@@ -260,7 +240,7 @@ describe('assistant route', () => {
       },
     };
 
-    vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
     vi.mocked(assistantDataStreamSessions.create).mockImplementation(
       () =>
         ({
@@ -279,10 +259,94 @@ describe('assistant route', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
-    // convertAssistantUiMessages runs real (not mocked) — verify via toAiSdkStyleStream receiving converted messages
-    expect(toAiSdkStyleStream).toHaveBeenCalledWith(
-      expect.any(Array),
-      expect.objectContaining({ apiKey: 'test-key' })
+    // A normal turn builds the stream with converted messages + the apiKey
+    // runtime, and NO toolApprovalAction (that path is the resume below).
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentMessages: expect.any(Array),
+        runtime: expect.objectContaining({ apiKey: 'test-key' }),
+      })
+    );
+    expect(vi.mocked(buildWebAssistantStream).mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolApprovalAction'
+    );
+  });
+
+  it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      enabled: true,
+      apiKey: 'test-key',
+    });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'resumed' } as StreamChunk;
+      },
+    };
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
+      () =>
+        ({
+          createResponse: () => new Response('resumed', { status: 200 }),
+        }) as unknown as AssistantDataStreamSession
+    );
+
+    const approvalAction = {
+      action: 'approve',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+      toolName: 'workspace.writeFile',
+    };
+    const req = new Request('http://localhost/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ id: '1', role: 'user', parts: [] }],
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('resumed');
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({ toolApprovalAction: approvalAction })
+    );
+    expect(assistantDataStreamSessions.create).toHaveBeenCalledWith(stream);
+  });
+
+  it('declines a tool approval action through workflow storage', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      enabled: true,
+      apiKey: 'test-key',
+    });
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(
+      (async function* stream() {})() as AsyncIterable<StreamChunk>
+    );
+    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
+      () =>
+        ({
+          createResponse: () => new Response('declined', { status: 200 }),
+        }) as unknown as AssistantDataStreamSession
+    );
+
+    const approvalAction = {
+      action: 'decline',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+      toolName: 'workspace.writeFile',
+    };
+    const req = new Request('http://localhost/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({ toolApprovalAction: approvalAction })
     );
   });
 });

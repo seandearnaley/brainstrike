@@ -16,6 +16,7 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@electric-sql/pglite": "0.5.1",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
     "@monaco-editor/react": "^4.7.0",
