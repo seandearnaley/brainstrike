@@ -26,7 +26,9 @@ Blockers cleared since the audit (merged to `feat/coding-agent`):
 - **Infra** Web E2E GREEN on `feat/coding-agent` — **#1292**: (a) node-pty (desktop-only native) can't compile in the toolchain-less Playwright container → scope the 3 containerized installs `--filter '!@brainstrike/desktop'`; (b) the BUILT web renderer's `#root` stayed empty from a circular chunk-init TDZ (`defineContextAction` split from its module-init callers) → co-locate the context-action system into one chunk. **This CORRECTS the audit's "Infra `NODE_ENV` define" item — that was a MISDIAGNOSIS**: React already builds production and the Radix Title/Description warning is unconditional, so the real ⌘K/⌘P fix was DialogTitle/Description on the cmdk dialogs (**#1291**), not a NODE_ENV define. `task_dd059475` dismissed.
 - **P1** Web per-call tool-approval resume (501 → real resume) + "ask" tools SUSPEND instead of silently omitting — **#1293** (in-process in-memory PGlite Mastra store in the Vite Node server; both turn + resume routed through `buildWebAssistantStream`; real-PGlite integration test + flipped route/middleware unit tests). **The two P1 approval TEST-gap items in the audit are STALE**: `assistant-tool-approval-notice.test.tsx` already covers approve/decline→mutation, and `mastra-tool-approval-suspend.spec.ts` already proves real-loop suspend→approve→execute→continue.
 
-**Open blockers remaining: ~16 of 29.** Next up: P3 Windows execute-cwd containment (needs Windows CI to verify escapes), P4 terminal/git E2E (zero coverage), P2 web FS-Access write, then **P7 subagents** (the big build, not started). P8/OAuth parked behind the legal gate.
+**Open blockers remaining: ~15 of 29.** Next up: P3 Windows execute-cwd containment (needs Windows CI to verify escapes), P2 web FS-Access write, then **P7 subagents** (the big build, not started). P8/OAuth parked behind the legal gate.
+
+**P4 terminal/git E2E — DONE (#1294):** `git-panel.desktop.test.ts` (7: clean/unstaged/stage-unstage/diff/commit/push-to-bare-remote/not-a-repo) + `terminal-panel.desktop.test.ts` (4: spawn+cwd/output/exit-overlay/restart) drive the BUILT app against real on-disk roots (real `git` binary + real node-pty). 11 pass locally. Deferred (noted inline): pull, no-root states (unreachable via nav — unit-covered), orphan-pty cleanup (unit-covered, observed reaping on teardown), resize (no DOM surface); cross-root diff race is unit-covered (#1290).
 
 ## 1. Definition of Done
 
@@ -103,9 +105,10 @@ Action: For untracked diffs, `lstat`+`readlink` the resolved absolute path and r
 Evidence: `git-panel.tsx:42-45,251-269,282` — `ResolvedDiff.key` is `path:staged:untracked` only (no rootId); switching root mid-load can match same-path diff across roots, bypassing root-scoped containment.
 Action: Add `rootId` to `ResolvedDiff`, include `activeRootId` in the request key and gating check.
 
-**[P1][test-gap] Zero E2E coverage for terminal and git panels.**
+**[P1][test-gap] Zero E2E coverage for terminal and git panels. — RESOLVED (#1294).**
 Evidence: `apps/desktop/e2e` has no `*.desktop.test.ts` for git/terminal (only unit/component + IPC-handler tests); `preload-runtime-contract.test.ts` covers channel constants, not flows.
 Action: Add `git-panel.desktop.test.ts` (status/diff/stage/unstage/commit/push/pull in a temp repo, multi-root switch during diff load) and `terminal-panel.desktop.test.ts` (create/write/output/resize/exit, orphan cleanup on window close).
+RESOLVED: both suites added (11 tests, real git binary + real node-pty, against the built app). pull / no-root / orphan-count / resize deferred with inline notes (unit-covered); cross-root diff race is unit-covered (#1290).
 
 ### P5 — OM Meter & Token / Cost
 
