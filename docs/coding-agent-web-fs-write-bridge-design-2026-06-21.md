@@ -102,6 +102,26 @@ Verified against `apps/web/src/server/`:
 - Route: `apps/web/src/app/api/assistant/route.ts` + `assistant-stream-helpers.ts`
   (served via the Vite middleware, NOT Next).
 
+### CDT test approach (✅ validated live, 2026-06-21)
+Validated by driving the running web app (`vite --port 8080`) via the chrome-devtools
+MCP (`new_page`/`take_snapshot`/`evaluate_script`/`list_console_messages`):
+- **OPFS is the automated writable root.** `navigator.storage.getDirectory()` is
+  available; a real FSA round-trip works in-browser — nested-dir walk
+  (`getDirectoryHandle({create:true})`), `queryPermission({mode:'readwrite'})` →
+  **`granted`** (NO native prompt — OPFS handles are always granted), `createWritable`
+  → write → `close`, read-back verified. This is the EXACT path
+  `WebFileSystemAdapter.writeFileByPath` runs, so the bridge's renderer write is
+  CDT-testable with NO native picker and NO permission dialog.
+- **The dev-fixture adapter (`dev-fixture-adapter.ts`) is READ-ONLY** (no
+  `writeFileByPath`), so `__BRAINSTRIKE_LOAD_FIXTURE__` injects a non-writable root —
+  do NOT use it for the write test; inject an OPFS-backed root instead.
+- **No provider API key is configured in a fresh web instance** (localStorage has
+  threads/prefs/model-registry, no secrets) → a MODEL-DRIVEN full test (assistant
+  decides to call the write tool) needs a web key configured in Settings. The bridge
+  MECHANICS (suspend chunk → browser sink → OPFS write → resume) are CDT-testable
+  WITHOUT a model by driving the sink directly; the model's tool-call decision is the
+  same path already proven on desktop (#1295 live smoke test).
+
 ### Remaining (browser-facing + web wiring — the UI half)
 - The web write **tool** (`suspendSchema`/`resumeSchema`, suspends with the
   request; the renderer does the write) + multi-registry plumbing + register it on
