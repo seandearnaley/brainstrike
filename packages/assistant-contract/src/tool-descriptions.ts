@@ -28,5 +28,5 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.webSearch':
     'Search the web via Tavily for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily). Requires a Tavily API key in Settings; returns a clear "unavailable" message (not an error) when no key is configured',
   'brainstrike.executeCommand':
-    'Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. Permission gating is available but OFF unless the user has enabled enforcement. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs',
+    "Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. By default the call suspends for the user's per-call approval before running; the user can let it run unprompted or deny it. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs",
 };

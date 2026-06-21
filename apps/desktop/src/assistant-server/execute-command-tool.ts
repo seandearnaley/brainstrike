@@ -473,11 +473,12 @@ function buildResult(args: {
  * Execute an arbitrary shell command in the workspace. THE highest-risk tool:
  * there is NO sandbox. Containment that actually exists here: the cwd is pinned
  * inside a workspace root, output is bounded, and the detached process-group
- * teardown guarantees no orphaned subprocess. The tool is only REGISTERED when
- * the user has turned on permission enforcement (see buildDesktopAssistantTools)
- * — there is no interactive approval prompt yet (Mastra v1 'ask' omits the tool;
- * the real approve-then-run UX lands in a later PR). So this function assumes
- * the caller has already decided the command may run.
+ * teardown guarantees no orphaned subprocess. The tool is registered like every
+ * native tool and gated by the permission engine: with enforce-on-by-default,
+ * 'execute' resolves to 'ask', so the run SUSPENDS for per-call approval before
+ * this function is invoked (approve → run, decline → skip); allow/yolo runs it
+ * unprompted, deny omits the tool. So this function assumes the caller (the
+ * permission gate + approval flow) has already decided the command may run.
  */
 export async function runExecuteCommand(
   input: ExecuteCommandInput,

@@ -515,7 +515,27 @@ export const GrepSearchInputSchema = z
         'Skip this many files/matches to continue a truncated result instead of re-querying'
       ),
   })
-  .strict();
+  .strict()
+  // Fail-fast: when the caller asks for regex matching, reject an invalid pattern
+  // at parse rather than deferring the failure to execution (no silent fallback).
+  .refine(
+    (value) => {
+      if (value.isRegex !== true) {
+        return true;
+      }
+      try {
+        // Compilation is what validates the syntax; flags don't affect validity here.
+        new RegExp(value.pattern);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    {
+      message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
+      path: ['pattern'],
+    }
+  );
 
 export type GrepSearchInput = z.infer<typeof GrepSearchInputSchema>;
 
