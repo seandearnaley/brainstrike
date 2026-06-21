@@ -153,7 +153,9 @@ export interface CrossRootUsageRow {
 export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
   SELECT
     u.root_id AS "rootId",
-    r.display_name AS "rootDisplayName",
+    -- Bound the rendered root name: an arbitrarily long display_name must not
+    -- blow up the cost panel. SUBSTR on a NULL (LEFT JOIN miss) stays NULL.
+    SUBSTR(r.display_name, 1, 512) AS "rootDisplayName",
     u.provider AS provider,
     u.model AS model,
     SUM(u.input_tokens)::bigint AS "inputTokens",
@@ -175,7 +177,8 @@ export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
 export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsageRow {
   return {
     rootId: nullableString(row['rootId']),
-    rootDisplayName: nullableString(row['rootDisplayName']),
+    // Defense for any non-SQL caller (the shared SQL already SUBSTRs to 512).
+    rootDisplayName: boundedNullableString(row['rootDisplayName'], MAX_ROOT_DISPLAY_NAME_CHARS),
     provider: requireString(row['provider'], 'provider'),
     model: requireString(row['model'], 'model'),
     inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
@@ -555,6 +558,14 @@ function getRowValue(row: Record<string, unknown>, camelKey: string, snakeKey: s
 
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+/** Char cap for a rendered root display name (mirrors the SUBSTR in the SQL). */
+const MAX_ROOT_DISPLAY_NAME_CHARS = 512;
+
+function boundedNullableString(value: unknown, maxChars: number): string | null {
+  const text = nullableString(value);
+  return text === null ? null : text.slice(0, maxChars);
 }
 
 const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);

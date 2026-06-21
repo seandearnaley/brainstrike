@@ -22,5 +22,12 @@ export function hasDurableAssistantUsageCapability(): boolean {
   }
   const bridge = (window as unknown as { assistant?: { getUrl?: unknown; url?: unknown } })
     .assistant;
-  return Boolean(bridge && (bridge.url || bridge.getUrl));
+  // Gate on the SHAPE of the capability, not a truthy proxy: a non-empty string
+  // `url` or a callable `getUrl`. A truthy-but-wrong value (e.g. `url: {}`) would
+  // otherwise pass here and throw downstream when the URL is actually used.
+  return Boolean(
+    bridge &&
+      ((typeof bridge.url === 'string' && bridge.url.length > 0) ||
+        typeof bridge.getUrl === 'function')
+  );
 }
