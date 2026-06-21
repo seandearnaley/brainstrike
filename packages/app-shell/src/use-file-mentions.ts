@@ -77,9 +77,26 @@ export function useFileMentions(query: string): UseFileMentionsResult {
       if (row.root_id === null) {
         continue;
       }
-      // Gate by the active adapter roots (translate DB id → adapter id). No
-      // translator (provider absent) or an unmounted root ⇒ omit.
-      const adapterRootId = rootIdentity?.resolveAdapterRootId(row.root_id) ?? null;
+      // Resolve the DB root_id to the file-explorer adapter rootId, then gate by
+      // the currently-mounted roots.
+      //
+      // The RootIdentityProvider is the authoritative translator for the case
+      // where the two identities DIVERGE (legacy / web same-named FSA roots).
+      // But it is only mounted inside the workspace-sync subtree (⌘P quick-open
+      // lives there); the assistant panel renders as a SIBLING of that subtree,
+      // so here the translator is typically ABSENT.
+      //
+      // When absent, fall back to treating the DB root_id AS the adapter id —
+      // but ONLY when it is itself a currently-mounted adapter root (verified
+      // against the live `activeRootIds` set). This never invents a mapping: it
+      // is exact wherever `reconcileRoots` established identity (roots.id ==
+      // adapter rootId — all desktop roots, and @file is desktop-only), and a
+      // divergent legacy id that matches no mounted root is dropped honestly.
+      const adapterRootId = rootIdentity
+        ? rootIdentity.resolveAdapterRootId(row.root_id)
+        : activeRootIdSet.has(row.root_id)
+          ? row.root_id
+          : null;
       if (adapterRootId === null || !activeRootIdSet.has(adapterRootId)) {
         continue;
       }
