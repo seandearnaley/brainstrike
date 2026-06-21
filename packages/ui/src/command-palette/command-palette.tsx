@@ -1,5 +1,6 @@
 import type { Command, CommandContext, CommandGroup } from '@brainstrike/commands';
 import { createLogger } from '@brainstrike/utils/logger';
+import { Description as DialogDescription, Title as DialogTitle } from '@radix-ui/react-dialog';
 import { Command as Cmdk } from 'cmdk';
 import * as React from 'react';
 import { cn } from '../lib/utils';
@@ -143,12 +144,16 @@ export function CommandPalette({
       overlayClassName="fixed inset-0 z-[59] bg-black/50"
       shouldFilter={false}
     >
-      <span className="sr-only" id="command-palette-description">
+      {/* cmdk's Command.Dialog wraps @radix-ui/react-dialog's Content (same
+          module instance as ours), which unconditionally requires a Title +
+          Description for accessibility — these visually-hidden ones satisfy that
+          and silence the runtime warning while keeping the palette labelled. */}
+      <DialogTitle className="sr-only">Command palette</DialogTitle>
+      <DialogDescription className="sr-only">
         Search for a command and press Enter to run it.
-      </span>
+      </DialogDescription>
       <div className="flex items-center border-b px-3" data-cmdk-input-wrapper="">
         <Cmdk.Input
-          aria-describedby="command-palette-description"
           className={cn(
             'flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none',
             'placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50'
