@@ -456,6 +456,13 @@ async function collectRipgrepCandidates(args: {
   caseSensitive: boolean;
   /** Remaining global candidate budget — STOP resolving once this is reached. */
   maxCandidates: number;
+  /**
+   * Optional exact-path allowlist (workspace-relative). When set, ONLY requested
+   * paths are resolved + counted toward the cap, so a huge prefilter match set
+   * can never crowd the requested files out of the budget (which previously
+   * dropped requested files and reported a false `truncated`).
+   */
+  filePathAllow: ReadonlySet<string> | null;
 }): Promise<{ candidates: LiveCandidate[]; prefilterTruncated: boolean; capHit: boolean }> {
   const run = await runRipgrep({
     ripgrepPath: args.ripgrepPath,
@@ -467,6 +474,13 @@ async function collectRipgrepCandidates(args: {
   const candidates: LiveCandidate[] = [];
   let capHit = false;
   for (const relativePath of run.candidatePaths) {
+    // When an exact-path allowlist is requested, skip non-requested paths BEFORE
+    // they consume the cap — otherwise a huge prefilter match set fills the
+    // budget with irrelevant files and the requested ones are dropped (the
+    // allowlist used to be applied only AFTER the cap).
+    if (args.filePathAllow && !args.filePathAllow.has(relativePath)) {
+      continue;
+    }
     // Bound the realpath+stat syscall burst by the SAME cap as the reads: a very
     // common literal in a huge repo can make rg emit tens of thousands of
     // candidate paths, so stop resolving once the budget is spent (surfaced via
@@ -559,8 +573,10 @@ async function gatherRootCandidates(args: {
   prefilterLiteral: string | null;
   caseSensitive: boolean;
   state: CandidateGatherState;
+  /** Exact-path allowlist threaded into the rg cap (see collectRipgrepCandidates). */
+  filePathAllow: ReadonlySet<string> | null;
 }): Promise<void> {
-  const { root, ripgrepPath, prefilterLiteral, caseSensitive, state } = args;
+  const { root, ripgrepPath, prefilterLiteral, caseSensitive, state, filePathAllow } = args;
   let canonicalRootPath: string;
   try {
     canonicalRootPath = await fsPromises.realpath(root.path);
@@ -584,6 +600,7 @@ async function gatherRootCandidates(args: {
         caseSensitive,
         // Remaining global budget so per-root resolve never overshoots the cap.
         maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
+        filePathAllow,
       });
       state.candidates.push(...candidates);
       state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
@@ -647,6 +664,7 @@ export async function runLiveGrep(
       prefilterLiteral,
       caseSensitive: options.caseSensitive,
       state,
+      filePathAllow,
     });
   }
 

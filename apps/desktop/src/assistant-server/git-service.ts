@@ -584,14 +584,23 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           return { ok: false, error: describeFailure(run_) };
         }
         // Resolve the new commit hash + branch without re-parsing porcelain noise.
+        // The commit landed; a failed hash rev-parse is a REAL error, not a blank
+        // hash returned as success (no-silent-fallbacks, per this file's header).
         const hashRun = await invoke(['rev-parse', '--short', 'HEAD']);
+        if (hashRun.exitCode !== 0) {
+          return {
+            ok: false,
+            error: `commit created but resolving its hash failed: ${describeFailure(hashRun)}`,
+          };
+        }
+        // Branch is best-effort metadata: a detached HEAD legitimately resolves to
+        // `HEAD` → null; only an exit-0 result is trusted as a real branch name.
         const branchRun = await invoke(['rev-parse', '--abbrev-ref', 'HEAD']);
-        const commit = hashRun.exitCode === 0 ? hashRun.stdout.trim() : '';
         const branchName = branchRun.exitCode === 0 ? branchRun.stdout.trim() : '';
         return {
           ok: true,
           value: {
-            commit,
+            commit: hashRun.stdout.trim(),
             branch: branchName.length > 0 && branchName !== 'HEAD' ? branchName : null,
           },
         };

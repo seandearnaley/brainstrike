@@ -53,6 +53,23 @@ describe('default assistant instructions', () => {
     expect(localWithGlob).toContain('brainstrike_globWorkspace');
   });
 
+  it('names the EXACT stringReplace schema fields in the edit instruction (oldStr/newStr)', () => {
+    // Regression: the model-facing edit instruction must use the real STRICT
+    // schema field names. It previously said `old_str`/`new_str` (snake_case)
+    // while StringReplaceWorkspaceFileInputSchema accepts `oldStr`/`newStr`, so
+    // the model's tool call was rejected for unknown/missing fields — silently
+    // breaking edits. Guard the field names so they can never drift again.
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([
+        ['brainstrike_stringReplaceWorkspaceFile', 'brainstrike.stringReplaceWorkspaceFile'],
+      ])
+    );
+    expect(instructions).toContain('oldStr');
+    expect(instructions).toContain('newStr');
+    expect(instructions).not.toContain('old_str');
+    expect(instructions).not.toContain('new_str');
+  });
+
   it('keeps the built-in local instruction set compact and tool-name-aware', () => {
     const toolNameMap = new Map<string, string>([
       ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
