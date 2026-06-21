@@ -84,8 +84,6 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const runtime: RuntimeData = { ...(data ?? {}), apiKey: provider.apiKey };
-
   // Only a normal turn carries user messages; the approval-resume path has none.
   let agentMessages: AgentMessage[] = [];
   if (!toolApprovalAction) {
@@ -97,9 +95,12 @@ export async function POST(req: Request): Promise<Response> {
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
+    // The seam resolves the TRUSTED permission policy from `data` (strips any
+    // client-supplied policy) so ask tools actually suspend on a normal turn.
     agentStream = await buildWebAssistantStream({
       agentMessages,
-      runtime,
+      data,
+      apiKey: provider.apiKey,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {

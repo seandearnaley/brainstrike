@@ -137,9 +137,13 @@ export async function handleAssistantEndpoint(
     const rawMessages = Array.isArray(body?.messages)
       ? (body.messages as AssistantUiMessage[])
       : [];
+    // The seam resolves the TRUSTED permission policy from `data` (strips any
+    // client-supplied policy) so ask tools actually suspend on a normal turn.
     agentStream = await buildWebAssistantStream({
       agentMessages: toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages),
-      runtime: { ...(data ?? {}), apiKey: provider.apiKey, signal: abortController.signal },
+      data,
+      apiKey: provider.apiKey,
+      signal: abortController.signal,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {

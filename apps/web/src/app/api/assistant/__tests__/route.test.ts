@@ -259,12 +259,13 @@ describe('assistant route', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
-    // A normal turn builds the stream with converted messages + the apiKey
-    // runtime, and NO toolApprovalAction (that path is the resume below).
+    // A normal turn builds the stream with converted messages + the apiKey and
+    // raw `data` (the seam resolves the trusted runtime/policy), and NO
+    // toolApprovalAction (that path is the resume below).
     expect(buildWebAssistantStream).toHaveBeenCalledWith(
       expect.objectContaining({
         agentMessages: expect.any(Array),
-        runtime: expect.objectContaining({ apiKey: 'test-key' }),
+        apiKey: 'test-key',
       })
     );
     expect(vi.mocked(buildWebAssistantStream).mock.calls[0]?.[0]).not.toHaveProperty(

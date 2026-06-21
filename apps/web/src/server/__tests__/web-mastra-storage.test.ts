@@ -13,8 +13,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getWebMastraStorage, resetWebMastraStorageForTests } from '../web-mastra-storage';
 
 describe('getWebMastraStorage (real in-memory PGlite)', () => {
-  beforeEach(() => {
-    resetWebMastraStorageForTests();
+  beforeEach(async () => {
+    await resetWebMastraStorageForTests();
   });
 
   it('builds a real workflow-capable Mastra store (the suspend/resume backing)', async () => {
@@ -37,9 +37,10 @@ describe('getWebMastraStorage (real in-memory PGlite)', () => {
     expect(second).toBe(first);
   });
 
-  it('rebuilds a fresh store after reset (the cache is resettable, never wedged)', async () => {
+  it('rebuilds a fresh store after reset (the cache is resettable, closes the old engine)', async () => {
     const first = await getWebMastraStorage();
-    resetWebMastraStorageForTests();
+    // reset closes the underlying PGlite (no leaked engine) and clears the cache.
+    await resetWebMastraStorageForTests();
     const second = await getWebMastraStorage();
     expect(second).not.toBe(first);
   });
