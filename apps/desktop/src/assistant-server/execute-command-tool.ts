@@ -447,8 +447,18 @@ function buildResult(args: {
     stderrBudget = contentBudget;
   }
 
-  const fittedStdout = fitTailToCharBudget(stdoutLines, stdoutBudget);
-  const fittedStderr = fitTailToCharBudget(stderrLines, stderrBudget);
+  // An ABSENT stream is `''`, which `.split('\n')` turns into `['']` (one empty
+  // line, length 1 — NOT `[]`). Fitting that under the stream's 0 budget would
+  // count the empty line as dropped and report truncated:true — a false "output
+  // was truncated" on the COMMON case (a silent command, or output on only one
+  // stream). Only fit streams that actually have content; an absent stream is
+  // never truncated.
+  const fittedStdout = hasStdout
+    ? fitTailToCharBudget(stdoutLines, stdoutBudget)
+    : { text: '', truncated: false };
+  const fittedStderr = hasStderr
+    ? fitTailToCharBudget(stderrLines, stderrBudget)
+    : { text: '', truncated: false };
   const truncated = fittedStdout.truncated || fittedStderr.truncated;
 
   return {

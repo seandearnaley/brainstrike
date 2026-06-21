@@ -101,6 +101,44 @@ describe('runExecuteCommand — happy path', () => {
   });
 });
 
+describe('runExecuteCommand — truncated flag (no false positive on empty streams)', () => {
+  // Regression: an EMPTY stream is `''`, and `''.split('\n')` is `['']` (length
+  // 1, one empty line) — NOT `[]`. Under the absent stream's 0 budget,
+  // fitTailToCharBudget treated that single empty line as a dropped line and
+  // reported truncated:true. That flipped the overall result to truncated + a
+  // bogus "Output was truncated… re-run piping through | tail" hint on the COMMON
+  // case (any command writing to only one stream, or a silent command), pushing
+  // the model into needless re-runs. An absent stream must never be "truncated".
+
+  it('reports truncated=false when only stdout has output (empty stderr)', async () => {
+    const root = await makeWorkspace();
+    const result = await runExecuteCommand({ command: 'echo hi' }, singleRoot(root));
+    expect(result.stdout).toContain('hi');
+    expect(result.stderr).toBe('');
+    expect(result.truncated).toBe(false);
+    expect(result.hint).toBeUndefined();
+  });
+
+  it('reports truncated=false for a silent command (both streams empty)', async () => {
+    const root = await makeWorkspace();
+    const result = await runExecuteCommand({ command: 'exit 0' }, singleRoot(root));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('');
+    expect(result.truncated).toBe(false);
+    expect(result.hint).toBeUndefined();
+  });
+
+  it('still reports truncated=true when stdout genuinely exceeds the budget', async () => {
+    const root = await makeWorkspace();
+    // ~50k numbered lines vastly exceeds the per-stream char budget.
+    const result = await runExecuteCommand({ command: 'seq 1 50000' }, singleRoot(root));
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(true);
+    expect(result.hint).toBeTruthy();
+  });
+});
+
 describe('runExecuteCommand — non-zero exit (surfaced, not swallowed)', () => {
   it('surfaces a non-zero exit code', async () => {
     const root = await makeWorkspace();
