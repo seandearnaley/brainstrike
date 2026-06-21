@@ -325,6 +325,28 @@ describe('git service — diff', () => {
       expect(untracked.value.unifiedDiff).toContain('+beta');
     }
   });
+
+  it('UNTRACKED: REFUSES a path that symlinks outside the opened folder (containment bypass)', async () => {
+    const repo = await makeRepo();
+    // A secret file OUTSIDE the opened folder.
+    const outside = await makeNonRepoDir();
+    const secret = path.join(outside, 'secret.txt');
+    await fsPromises.writeFile(secret, 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
+    // A symlink INSIDE the repo pointing at the outside secret. Lexically the
+    // path "evil-link" is contained (relative, no ".."), so the lexical check
+    // passes — only a symlink-aware (realpath) containment check can reject it.
+    // `git diff --no-index` reads the filesystem, so without this guard it would
+    // diff the out-of-root target.
+    await fsPromises.symlink(secret, path.join(repo, 'evil-link'));
+
+    const result = await serviceFor(repo).diff({ path: 'evil-link', untracked: true });
+
+    // Refused with a containment error — the out-of-root secret never reaches git.
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/opened folder|symlink/i);
+    }
+  });
 });
 
 describe('git service — git not installed', () => {
