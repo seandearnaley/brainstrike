@@ -5,6 +5,77 @@
 > against the branch. **Step 1 (the adapter primitive) is DONE (#PR, commit
 > `8bf960fd7`); steps 2–9 below are the bridge build.**
 
+## ⚠️ VERIFICATION CORRECTION (2026-06-21, before building step 2)
+
+Building the bridge began with verifying the design's crux. The verification
+**overturned the design workflow's core mechanism** — record this before any build:
+
+1. **Tools CANNOT emit stream/data parts.** A Mastra tool's `execute` returns a
+   result; there is no run-event/stream-writer in the tool context (grep found
+   none). So the design's "the Node write tool emits a `fs-write-request` data
+   part" is **impossible**. The ONLY way a tool gets the browser to act is to
+   **SUSPEND** (`packages/agent/src/mastra/agent-runtime.ts:783` `makeApprovalRequiredChunks`).
+2. **The suspend chunk already carries what the browser needs:** the
+   `tool-approval-required` chunk includes `args` (→ the write request `{path,content}`)
+   AND `resumeSchema` (agent-runtime.ts:824-825). So the browser CAN read the
+   request from the suspend and perform the FSA write.
+3. **But the RESUME currently carries NO result back.** `streamMastraToolApprovalAction`
+   → `approveToolCall(options)` passes only `runId` + `toolCallId` + loop options
+   (agent-runtime.ts:1400-1417) — **no `resumeData`**. brainstrike reads
+   `resumeSchema` (to show the browser) but never PROVIDES `resumeData` on resume.
+
+**Corrected mechanism (replaces "SSE-out + POST-back / pending-Map"):** the web
+write tool is `'edit'`-risk → permission gate marks it `'ask'` → it SUSPENDS with
+`args={path,content}` + a result `resumeSchema`. The browser reads the args from
+the `tool-approval-required` chunk, arms readwrite permission (Approve = user
+gesture), performs `WebFileSystemAdapter.writeFileByPath`, and resumes with
+**`resumeData = {ok, bytesWritten, created, error}`**. The tool's `execute`, on
+resume, reads `resumeData` and returns it (or throws on `!ok`). No separate
+pending-Map, no `/api/fs-write` endpoint — it rides the existing approval-resume
+channel. This makes step 1's `writeFileByPath` the renderer-side executor, exactly
+as built.
+
+**RESOLVED (Mastra docs, context7 `/mastra-ai/mastra`):** Mastra natively supports
+the round-trip via a tool's own `suspendSchema`/`resumeSchema` — NOT via
+`approveToolCall` (which is the separate approve/decline path). The canonical shape:
+
+```ts
+createTool({
+  inputSchema: z.object({ path: z.string(), content: z.string() }),
+  suspendSchema: z.object({ path: z.string(), content: z.string(), byteLength: z.number() }),
+  resumeSchema: z.object({ ok: z.boolean(), bytesWritten: z.number().optional(),
+                           created: z.boolean().optional(), error: z.string().optional() }),
+  execute: async (inputData, context) => {
+    const { suspend, resumeData } = context?.agent ?? {};
+    if (!resumeData) {              // first call: hand the write to the renderer
+      // (byte-cap check here too — Node side)
+      return suspend?.({ path: inputData.path, content: inputData.content, byteLength });
+    }
+    if (!resumeData.ok) throw new Error(resumeData.error ?? 'web fs write failed'); // no silent success
+    return { ok: true, bytesWritten: resumeData.bytesWritten, created: resumeData.created };
+  },
+});
+```
+
+Resume is `agent.resume(runId, resumeData)` (the GENERAL resume, distinct from
+`approveToolCall`). So the corrected build:
+- The web write tool uses `suspendSchema`/`resumeSchema` (above), NOT `requireApproval`.
+- The suspend chunk reaches the browser (same routing as the approval chunk —
+  it carries `args`/suspend payload); the browser shows a **write-approval UI**
+  whose Approve click is BOTH the FSA `readwrite` user-gesture AND the trigger to
+  perform `writeFileByPath` + `agent.resume(runId, {ok,bytesWritten})`. Decline →
+  `agent.resume(runId, {ok:false, error:'declined'})` → tool throws.
+- A NEW web resume seam wraps `agent.resume(runId, resumeData)` (peer of
+  `streamMastraToolApprovalAction`) so the browser's resume POST threads the
+  write result as `resumeData`.
+
+The mechanism is now fully verified; no Mastra-capability unknown remains. The
+remaining work is the build (the tool + the resume seam + the browser write-UI
+handler + permission arming at Approve + tests) — a large, security-sensitive
+effort, but on a confirmed foundation.
+
+---
+
 ## The problem
 The web assistant loop runs in the Vite dev/preview **middleware (Node)** —
 `apps/web/src/assistant-stream-helpers.ts` (`handleAssistantEndpoint`) +
