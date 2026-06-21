@@ -357,4 +357,22 @@ export interface FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void;
+  /**
+   * Write UTF-8 `content` to a file at an absolute path, creating the file (and
+   * any missing parent directories) if needed.
+   *
+   * On WEB this walks the cached root `FileSystemDirectoryHandle` with
+   * `{ create: true }` and writes via `FileSystemWritableFileStream`
+   * (`createWritable`), after upgrading the root handle to `readwrite`
+   * permission. The browser sandbox (the granted DirectoryHandle) IS the
+   * containment boundary — an FSA handle cannot escape its granted root by
+   * design, so no `O_NOFOLLOW`/lstat dance is needed. Content is byte-capped at
+   * the platform write maximum.
+   *
+   * Implementations MUST throw a typed error (e.g. `AccessError`) on a missing
+   * root handle, a denied `readwrite` permission, or an over-cap payload — never
+   * silently no-op (callers surface the failure). Electron leaves this undefined
+   * (desktop writes go through the Node assistant tools, not this adapter).
+   */
+  writeFileByPath?(absolutePath: string, content: string): Promise<void>;
 }

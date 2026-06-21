@@ -40,9 +40,15 @@ declare global {
   }
 
   interface FileSystemFileHandle extends FileSystemHandle {
+    createWritable(options?: { keepExistingData?: boolean }): Promise<FileSystemWritableFileStream>;
     getFile(): Promise<File>;
     readonly kind: 'file';
     readonly name: string;
+  }
+
+  interface FileSystemWritableFileStream {
+    close(): Promise<void>;
+    write(data: string | BufferSource | Blob): Promise<void>;
   }
 
   interface FileSystemHandle {
@@ -195,6 +201,8 @@ export interface WebFileSystemAdapterOptions {
 }
 
 export class WebFileSystemAdapter implements FileSystemAdapter {
+  // Desktop-parity write cap (mirrors apps/desktop MAX_WRITE_WORKSPACE_FILE_BYTES).
+  private static readonly MAX_WRITE_FILE_BYTES = 2_000_000;
   public readonly platform = 'web' as const;
   private readonly handleCache: HandleCache;
   private lastRootFolderId: string | null = null;
@@ -609,6 +617,89 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       rootFolderId,
       _internal: fileHandle,
     });
+  }
+
+  /**
+   * Write UTF-8 `content` to `path`, creating the file + any missing parent dirs.
+   * Mirrors `resolveFileHandleByPath`'s root-walk, but with `{ create: true }` and
+   * a `readwrite` permission upgrade, then writes via `createWritable()`. The
+   * granted DirectoryHandle is the containment boundary (FSA handles cannot escape
+   * their root), so no path-traversal guard is needed. Throws on a missing root,
+   * a denied permission, or an over-cap payload — never a silent no-op.
+   */
+  async writeFileByPath(path: string, content: string): Promise<void> {
+    const byteLength = new TextEncoder().encode(content).byteLength;
+    if (byteLength > WebFileSystemAdapter.MAX_WRITE_FILE_BYTES) {
+      throw new AccessError(
+        `File content (${byteLength} bytes) exceeds the ${WebFileSystemAdapter.MAX_WRITE_FILE_BYTES}-byte write limit`,
+        path,
+        'write'
+      );
+    }
+
+    const rootFolderId = this.resolveRootFolderId(path);
+    if (!rootFolderId) {
+      throw new AccessError('Root directory handle is not available', path, 'write');
+    }
+    const rootHandle = await this.handleCache.getRootHandle(rootFolderId);
+    if (!rootHandle) {
+      throw new AccessError('Root directory handle is not available', path, 'write');
+    }
+    await this.ensureReadwritePermission(rootHandle, path);
+
+    const normalizedSegments = extractPathSegments(path);
+    const relativeSegments =
+      normalizedSegments[0] === rootFolderId ? normalizedSegments.slice(1) : normalizedSegments;
+    if (relativeSegments.length === 0) {
+      throw new AccessError('Path does not reference a file', path, 'write');
+    }
+
+    let currentDirectoryHandle = rootHandle;
+    for (const segment of relativeSegments.slice(0, -1)) {
+      currentDirectoryHandle = await currentDirectoryHandle.getDirectoryHandle(segment, {
+        create: true,
+      });
+    }
+    const fileName = relativeSegments.at(-1);
+    if (!fileName) {
+      throw new AccessError('Path does not reference a file', path, 'write');
+    }
+    const fileHandle = await currentDirectoryHandle.getFileHandle(fileName, { create: true });
+
+    const writable = await fileHandle.createWritable();
+    try {
+      await writable.write(content);
+    } finally {
+      // Always close the stream — an un-closed writable leaves a lock/partial file.
+      await writable.close();
+    }
+    this.cacheFileHandleForPath(path, fileHandle);
+  }
+
+  /**
+   * Upgrade the root DirectoryHandle to `readwrite` before `createWritable()`.
+   * The FSA picker grants read-only by default. `requestPermission()` only
+   * succeeds inside a user gesture, so for the assistant write bridge the
+   * readwrite grant must already be armed by a prior gesture; a `prompt`/`denied`
+   * outcome here surfaces as a typed error rather than a silent no-op.
+   */
+  private async ensureReadwritePermission(
+    rootHandle: FileSystemDirectoryHandle,
+    path: string
+  ): Promise<void> {
+    const descriptor = { mode: 'readwrite' as const };
+    const queried = (await rootHandle.queryPermission?.(descriptor)) ?? 'prompt';
+    if (queried === 'granted') {
+      return;
+    }
+    const requested = (await rootHandle.requestPermission?.(descriptor)) ?? 'denied';
+    if (requested !== 'granted') {
+      throw new AccessError(
+        'Write permission (readwrite) was not granted for the workspace root',
+        path,
+        'write'
+      );
+    }
   }
 
   /**

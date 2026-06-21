@@ -1585,4 +1585,114 @@ describe('multi-root API', () => {
       expect(internals.lastRootFolderId).toBe(descriptor.rootId);
     });
   });
+
+  describe('writeFileByPath', () => {
+    function makeWriteHandles(permission = 'granted') {
+      const writable = {
+        write: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        createWritable: vi.fn().mockResolvedValue(writable),
+      };
+      const nestedDirHandle = {
+        kind: 'directory',
+        name: 'nested',
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
+      };
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        queryPermission: vi.fn().mockResolvedValue(permission),
+        requestPermission: vi.fn().mockResolvedValue(permission),
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
+      };
+      return { writable, fileHandle, nestedDirHandle, rootDirHandle };
+    }
+
+    function makeAdapter(rootDirHandle: unknown) {
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle as never),
+        storeFileHandle: vi.fn().mockResolvedValue(undefined),
+      });
+      return { adapter: new WebFileSystemAdapter({ handleCache }), handleCache };
+    }
+
+    it('writes via createWritable, creating parent dirs + file with {create:true}', async () => {
+      const { writable, fileHandle, nestedDirHandle, rootDirHandle } = makeWriteHandles();
+      const { adapter, handleCache } = makeAdapter(rootDirHandle);
+
+      await adapter.writeFileByPath('root/nested/file.txt', 'new content');
+
+      expect(rootDirHandle.getDirectoryHandle).toHaveBeenCalledWith('nested', { create: true });
+      expect(nestedDirHandle.getFileHandle).toHaveBeenCalledWith('file.txt', { create: true });
+      expect(fileHandle.createWritable).toHaveBeenCalledTimes(1);
+      expect(writable.write).toHaveBeenCalledWith('new content');
+      expect(writable.close).toHaveBeenCalledTimes(1);
+      expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
+        'root',
+        'root/nested/file.txt',
+        fileHandle
+      );
+    });
+
+    it('upgrades the root handle to readwrite (already granted → no prompt)', async () => {
+      const { rootDirHandle } = makeWriteHandles('granted');
+      const { adapter } = makeAdapter(rootDirHandle);
+      await adapter.writeFileByPath('root/nested/file.txt', 'x');
+      expect(rootDirHandle.queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+      expect(rootDirHandle.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('requests readwrite when the query returns prompt', async () => {
+      const { rootDirHandle } = makeWriteHandles();
+      rootDirHandle.queryPermission.mockResolvedValue('prompt');
+      rootDirHandle.requestPermission.mockResolvedValue('granted');
+      const { adapter } = makeAdapter(rootDirHandle);
+      await adapter.writeFileByPath('root/nested/file.txt', 'x');
+      expect(rootDirHandle.requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+    });
+
+    it('throws when readwrite permission is denied (no silent no-op)', async () => {
+      const { rootDirHandle, fileHandle } = makeWriteHandles();
+      rootDirHandle.queryPermission.mockResolvedValue('prompt');
+      rootDirHandle.requestPermission.mockResolvedValue('denied');
+      const { adapter } = makeAdapter(rootDirHandle);
+      await expect(adapter.writeFileByPath('root/nested/file.txt', 'x')).rejects.toThrow(
+        /permission/i
+      );
+      expect(fileHandle.createWritable).not.toHaveBeenCalled();
+    });
+
+    it('throws when the root handle is unavailable', async () => {
+      const handleCache = createHandleCache({ getRootHandle: vi.fn().mockResolvedValue(null) });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+      await expect(adapter.writeFileByPath('root/nested/file.txt', 'x')).rejects.toThrow(
+        /not available/i
+      );
+    });
+
+    it('rejects content over the 2MB byte cap before touching any handle', async () => {
+      const { fileHandle, rootDirHandle } = makeWriteHandles();
+      const { adapter, handleCache } = makeAdapter(rootDirHandle);
+      const tooBig = 'a'.repeat(2_000_001);
+      await expect(adapter.writeFileByPath('root/nested/file.txt', tooBig)).rejects.toThrow(
+        /exceeds/i
+      );
+      expect(handleCache.getRootHandle).not.toHaveBeenCalled();
+      expect(fileHandle.createWritable).not.toHaveBeenCalled();
+    });
+
+    it('always closes the writable, even when write throws', async () => {
+      const { writable, rootDirHandle } = makeWriteHandles();
+      writable.write.mockRejectedValue(new Error('disk full'));
+      const { adapter } = makeAdapter(rootDirHandle);
+      await expect(adapter.writeFileByPath('root/nested/file.txt', 'x')).rejects.toThrow(
+        'disk full'
+      );
+      expect(writable.close).toHaveBeenCalledTimes(1);
+    });
+  });
 });
