@@ -72,27 +72,50 @@ Resume is `agent.resume(runId, resumeData)` (the GENERAL resume, distinct from
 The mechanism is now fully verified; no Mastra-capability unknown remains.
 
 ### Build progress
-- ✅ **Step 1** (`8bf960fd7`): `WebFileSystemAdapter.writeFileByPath` — the renderer-side executor.
-- ✅ **Step 2** (`434b2a670`): the **resume seam** — `streamMastraToolSuspendResume`
+- ✅ **Step 1** (`520efba86`): `WebFileSystemAdapter.writeFileByPath` — the renderer-side executor.
+- ✅ **Step 2** (`19e02e909`): the **resume seam** — `streamMastraToolSuspendResume`
   wraps `agent.resumeStream(resumeData, {runId, toolCallId})`; PROVEN by a
   live-loop spec (`mastra-tool-suspend-resume.spec.ts`, real agent + real PGlite):
   a tool that `suspend()`s with the request resumes with the result and returns
   it; a `{ok:false}` resume makes it throw (tool.failed, no silent success). This
   was the riskiest part — the mechanism the design workflow got wrong, now
   verified working in our runtime.
+- ✅ **Rebased onto the updated integration branch** (+`1986b62bb`): the branch now
+  sits on top of #1295 (the `withRuntimeDerivedStreamOptions` resume-tools helper)
+  + #1296 + main. The seam's `streamMastraToolSuspendResume` now also applies that
+  helper, so the web write tool's `suspend()`-resume rebuilds the Agent WITH the
+  native tools + selected model — the same empty-tool-map bug #1295 fixed for the
+  approval-resume path is pre-empted here.
+
+### Web-path verification (✅ done — design is viable on the CURRENT web path)
+Verified against `apps/web/src/server/`:
+- **Web HAS Mastra workflow storage.** `web-mastra-storage.ts` lazily builds ONE
+  in-process PGlite store (vector + pg_trgm extensions; dev/preview, in-memory),
+  and `buildWebAssistantStream` already routes the initial turn through
+  `toAiSdkStyleStream({storage})` and the approval resume through
+  `streamMastraToolApprovalAction({storage})`. So `Boolean(storage)` is true →
+  `'ask'`/`suspend()` tools are NOT fail-safe-omitted on web. **No storage
+  prerequisite — the suspend/resume mechanism works on web today.**
+- **Web registers NO native tools yet.** `web-assistant-runtime.ts` resolves the
+  runtime + permission policy but never sets `runtime.mastraTools`. So the ONLY
+  thing missing is registering the web write tool — exactly P2's job.
+- Route: `apps/web/src/app/api/assistant/route.ts` + `assistant-stream-helpers.ts`
+  (served via the Vite middleware, NOT Next).
 
 ### Remaining (browser-facing + web wiring — the UI half)
 - The web write **tool** (`suspendSchema`/`resumeSchema`, suspends with the
-  request; the renderer does the write) + multi-registry plumbing + register it
-  on the web stream via `runtime.mastraTools`.
+  request; the renderer does the write) + multi-registry plumbing + register it on
+  `runtime.mastraTools` in `web-assistant-runtime.ts` (where mastraTools is
+  currently unset).
 - Make the `'tool-call-suspended'` dispatch (agent-runtime.ts:936) emit a
   RESUMABLE chunk (suspendPayload + resumeSchema + runId/toolCallId, NOT the
   current `resumeSupported:false`/failed shape) — co-design the chunk shape WITH
   the browser handler so it isn't built in isolation.
+- A THIRD branch in `buildWebAssistantStream` (peer of the approval-resume branch)
+  that handles a suspend-resume action → `streamMastraToolSuspendResume({storage})`.
 - The browser **write-approval UI** handler: reads the suspend chunk → Approve
   click (the FSA readwrite gesture) → `writeFileByPath` → POST resume with
   `resumeData = {ok, bytesWritten}`. Decline → `{ok:false}`.
-- The web **resume route**: POST → `streamMastraToolSuspendResume`.
 - Permission arming at the Approve gesture + tests (web-route integration +
   real-Chrome Playwright). This half is UI-involving and benefits from manual CDT
   verification per the standing directive.
