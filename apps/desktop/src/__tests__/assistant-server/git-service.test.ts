@@ -326,25 +326,43 @@ describe('git service — diff', () => {
     }
   });
 
-  it('UNTRACKED: REFUSES a path that symlinks outside the opened folder (containment bypass)', async () => {
+  it('UNTRACKED: REFUSES a path through a symlinked ANCESTOR directory (content escape)', async () => {
+    const repo = await makeRepo();
+    // A secret file OUTSIDE the opened folder.
+    const outside = await makeNonRepoDir();
+    await fsPromises.writeFile(path.join(outside, 'secret.txt'), 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
+    // A symlinked DIRECTORY inside the repo pointing at the outside folder.
+    // `git diff --no-index -- /dev/null evil-dir/secret.txt` resolves THROUGH the
+    // symlink and would render the out-of-root file's CONTENT (mode 100644).
+    await fsPromises.symlink(outside, path.join(repo, 'evil-dir'));
+
+    const result = await serviceFor(repo).diff({ path: 'evil-dir/secret.txt', untracked: true });
+
+    // Refused with a containment error — the out-of-root content never reaches git.
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/opened folder/i);
+    }
+  });
+
+  it('UNTRACKED: ALLOWS a leaf symlink under a contained parent (git renders 120000 link text, not target content)', async () => {
     const repo = await makeRepo();
     // A secret file OUTSIDE the opened folder.
     const outside = await makeNonRepoDir();
     const secret = path.join(outside, 'secret.txt');
     await fsPromises.writeFile(secret, 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
-    // A symlink INSIDE the repo pointing at the outside secret. Lexically the
-    // path "evil-link" is contained (relative, no ".."), so the lexical check
-    // passes — only a symlink-aware (realpath) containment check can reject it.
-    // `git diff --no-index` reads the filesystem, so without this guard it would
-    // diff the out-of-root target.
-    await fsPromises.symlink(secret, path.join(repo, 'evil-link'));
+    // A leaf symlink directly in the repo. git renders this as a `120000`
+    // addition whose body is the link TEXT — it never reads the target content —
+    // so it is a legitimate untracked symlink the Git panel should be able to
+    // review. The containment check must NOT dereference the leaf.
+    await fsPromises.symlink(secret, path.join(repo, 'leaf-link'));
 
-    const result = await serviceFor(repo).diff({ path: 'evil-link', untracked: true });
+    const result = await serviceFor(repo).diff({ path: 'leaf-link', untracked: true });
 
-    // Refused with a containment error — the out-of-root secret never reaches git.
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/opened folder|symlink/i);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // The diff shows the symlink (mode 120000 / link text), NEVER the secret.
+      expect(result.value.unifiedDiff).not.toContain('TOP-SECRET');
     }
   });
 });
