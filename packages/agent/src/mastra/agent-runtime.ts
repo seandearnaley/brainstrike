@@ -1498,13 +1498,14 @@ export async function streamMastraAgent(
  *
  * The initial-turn path does this in `toAiSdkStyleStream` (message-utils.ts):
  * `runtime.mastraTools -> options.tools` and `runtime.model -> options.model`.
- * The approval RESUME (`streamMastraToolApprovalAction`) calls
- * `initializeMastraRuntime` DIRECTLY, so without this it rebuilds the Agent with
- * an EMPTY native tool map — the model then sees only Mastra's memory tools (e.g.
- * `updateWorkingMemory`) and reports the approved tool "missing" (the desktop
- * write-on-approval bug) — and would silently fall back to the provider's DEFAULT
- * model instead of the user's selected one. `mcpConfig` needs no threading here:
- * `createMastraAgentRuntime` already falls back to `sanitizedRuntime.mcpConfig`.
+ * The resume paths (`streamMastraToolApprovalAction` /
+ * `streamMastraToolSuspendResume`) call `initializeMastraRuntime` DIRECTLY, so
+ * without this they rebuild the Agent with an EMPTY native tool map — the model
+ * then sees only Mastra's memory tools (e.g. `updateWorkingMemory`) and reports
+ * the approved tool "missing" (the desktop write-on-approval bug) — and would
+ * silently fall back to the provider's DEFAULT model instead of the user's
+ * selected one. `mcpConfig` needs no threading here: `createMastraAgentRuntime`
+ * already falls back to `sanitizedRuntime.mcpConfig`.
  */
 function withRuntimeDerivedStreamOptions(
   options: MastraAgentRuntimeOptions
@@ -1521,6 +1522,17 @@ function withRuntimeDerivedStreamOptions(
     derived.model = runtimeData.model;
   }
   return derived;
+}
+
+/**
+ * Resume action for a `suspend()`-based tool suspension (distinct from the
+ * approve/decline `AssistantToolApprovalAction`). `resumeData` is the value the
+ * suspended tool's `execute` reads as `context.agent.resumeData` and returns on.
+ */
+export interface MastraToolSuspendResumeAction {
+  readonly resumeData: unknown;
+  readonly runId: string;
+  readonly toolCallId?: string;
 }
 
 export async function streamMastraToolApprovalAction(
@@ -1554,4 +1566,86 @@ export async function streamMastraToolApprovalAction(
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
+}
+
+/**
+ * Resume a tool that SUSPENDED via Mastra's own `suspend()` (a tool declaring
+ * `suspendSchema`/`resumeSchema`), as opposed to the permission-gate
+ * `requireApproval` path (see `streamMastraToolApprovalAction`). The suspended
+ * tool's `execute` reads `context.agent.resumeData` and returns its result —
+ * so `resumeData` here IS the value the tool resolves on.
+ *
+ * This is the server seam for the WEB file-write bridge: the web write tool
+ * suspends with the `{path,content}` request; the renderer performs the FSA
+ * write and resumes with `{ok, bytesWritten, created, error}` as `resumeData`;
+ * the tool returns it (or throws on `!ok`). Uses `agent.resumeStream` (the
+ * streaming resume) so the continuation streams like a normal turn.
+ */
+export async function streamMastraToolSuspendResume(
+  action: MastraToolSuspendResumeAction,
+  options: MastraAgentRuntimeOptions = {}
+): Promise<StreamIterator> {
+  assertNoUnsupportedDirectStreamOptions(options);
+  if (!action.runId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool suspend resume requires runId',
+    });
+  }
+  if (!options.storage) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'Mastra workflow storage is required to resume a suspended tool call.',
+    });
+  }
+
+  const runtimeData = options.runtime;
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
+
+  return createToolSuspendResumeIteratorFromRuntime({
+    action,
+    runtime,
+    ...(runtimeData ? { runtimeData } : {}),
+    ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+  });
+}
+
+async function createToolSuspendResumeIteratorFromRuntime({
+  runtime,
+  runtimeData,
+  action,
+  sanitizedNameMap,
+}: {
+  runtime: MastraAgentRuntime;
+  runtimeData?: RuntimeData;
+  action: MastraToolSuspendResumeAction;
+  sanitizedNameMap?: Map<string, string>;
+}): Promise<StreamIterator> {
+  try {
+    // Mastra's streaming resume for a `suspend()`-based suspension. `resumeData`
+    // is delivered to the suspended tool's `execute` as `context.agent.resumeData`.
+    const streamResult = await runtime.agent.resumeStream(action.resumeData, {
+      runId: action.runId,
+      ...(action.toolCallId ? { toolCallId: action.toolCallId } : {}),
+    });
+
+    logger.info('mastra tool suspend resume stream started', {
+      code: 'mastra_agent_tool_suspend_resume_started',
+      runId: action.runId,
+      ...(action.toolCallId ? { toolCallId: action.toolCallId } : {}),
+    });
+
+    const fullStream = resolveFullStream(streamResult);
+    if (!fullStream) {
+      throw createMastraAgentError('mastra_agent_stream_failure', { detail: 'empty_stream' });
+    }
+
+    return streamChunksFromMastra({
+      runtime,
+      stream: fullStream,
+      ...(runtimeData ? { runtimeData } : {}),
+      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+    });
+  } catch (err) {
+    return await handleStreamFailure(err, runtime);
+  }
 }

@@ -71,8 +71,10 @@ export {
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
+  type MastraToolSuspendResumeAction,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolSuspendResume,
 } from './mastra/agent-runtime';
 export {
   createMastraAgentError,
