@@ -78,8 +78,12 @@ export function RootIdentityProvider({
  * the adapter id when it is itself a currently-mounted adapter root (present in
  * the live `activeRootIds`/`rootDescriptors` set). That never invents a mapping —
  * it is exact wherever `reconcileRoots` established identity (roots.id == adapter
- * rootId, i.e. every desktop root) and drops a divergent legacy id that matches
- * no mounted root. See `use-file-mentions.ts` for the canonical fallback.
+ * rootId, the common case) and drops what it can't resolve. KNOWN LIMITATION: a
+ * MOUNTED root whose adapter id was path-matched to a different pre-existing
+ * roots.id (so roots.id != adapter rootId) cannot be resolved by the fallback —
+ * only by this authoritative provider. Such a drop is logged once per id (see
+ * `use-file-mentions.ts`); the durable fix is to mount this provider around the
+ * consuming subtree too.
  */
 export function useOptionalRootIdentity(): RootIdentity | null {
   return useContext(RootIdentityContext);

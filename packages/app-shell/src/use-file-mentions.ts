@@ -8,11 +8,61 @@ import {
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useState } from 'react';
-import { useOptionalRootIdentity } from './roots/root-identity-context';
+import { type RootIdentity, useOptionalRootIdentity } from './roots/root-identity-context';
+
+const logger = createLogger('useFileMentions');
 
 /** Honest label for a file whose root has no display name (legacy NULL root). */
 const WORKSPACE_FALLBACK_LABEL = 'Workspace';
+
+// Module-level dedupe so a dropped DB root_id only warns ONCE across the app's
+// lifetime (not once per render / per "@" keystroke). Mirrors the provider
+// path's `warnedUnmappedDbRoots` (root-identity-context.tsx) so the
+// no-translator fallback honours the same no-silent-drop contract.
+const warnedFallbackDropRootIds = new Set<string>();
+
+/**
+ * Resolve a DB `root_id` to the file-explorer adapter rootId (or `null` when it
+ * cannot be resolved / the root is unmounted).
+ *
+ * The RootIdentityProvider is the authoritative translator for the case where
+ * the two identities DIVERGE (legacy / web same-named FSA roots, and desktop
+ * roots whose adapter id was path-matched to a pre-existing roots.id by
+ * `reconcileRoots`). It is only mounted inside the workspace-sync subtree (⌘P
+ * quick-open lives there); the assistant panel renders as a SIBLING of it, so
+ * the translator is typically ABSENT here.
+ *
+ * When absent, fall back to treating the DB root_id AS the adapter id — but ONLY
+ * when it is itself a currently-mounted adapter root (verified membership, never
+ * an invented mapping). Exact wherever `reconcileRoots` established identity
+ * (roots.id == adapter rootId, the common case; @file is desktop-only). KNOWN
+ * LIMITATION: a MOUNTED root whose roots.id != adapter rootId (path-matched)
+ * can't be resolved without the provider — logged once per id so the drop is
+ * observable, never a silent empty popover. Durable fix: mount the provider
+ * around the assistant subtree too (tracked follow-up).
+ */
+function resolveMentionAdapterRootId(
+  rootIdentity: RootIdentity | null,
+  dbRootId: string,
+  activeRootIdSet: ReadonlySet<string>
+): string | null {
+  if (rootIdentity) {
+    return rootIdentity.resolveAdapterRootId(dbRootId);
+  }
+  if (activeRootIdSet.has(dbRootId)) {
+    return dbRootId;
+  }
+  if (!warnedFallbackDropRootIds.has(dbRootId)) {
+    warnedFallbackDropRootIds.add(dbRootId);
+    logger.warn(
+      'file-mention dropped: no root-identity provider and the DB root_id is not a mounted adapter root',
+      { dbRootId }
+    );
+  }
+  return null;
+}
 
 /**
  * Debounce window for the "@" mention query. Each distinct query spins up a new
@@ -77,26 +127,10 @@ export function useFileMentions(query: string): UseFileMentionsResult {
       if (row.root_id === null) {
         continue;
       }
-      // Resolve the DB root_id to the file-explorer adapter rootId, then gate by
-      // the currently-mounted roots.
-      //
-      // The RootIdentityProvider is the authoritative translator for the case
-      // where the two identities DIVERGE (legacy / web same-named FSA roots).
-      // But it is only mounted inside the workspace-sync subtree (⌘P quick-open
-      // lives there); the assistant panel renders as a SIBLING of that subtree,
-      // so here the translator is typically ABSENT.
-      //
-      // When absent, fall back to treating the DB root_id AS the adapter id —
-      // but ONLY when it is itself a currently-mounted adapter root (verified
-      // against the live `activeRootIds` set). This never invents a mapping: it
-      // is exact wherever `reconcileRoots` established identity (roots.id ==
-      // adapter rootId — all desktop roots, and @file is desktop-only), and a
-      // divergent legacy id that matches no mounted root is dropped honestly.
-      const adapterRootId = rootIdentity
-        ? rootIdentity.resolveAdapterRootId(row.root_id)
-        : activeRootIdSet.has(row.root_id)
-          ? row.root_id
-          : null;
+      // Translate DB root_id → adapter rootId (provider-authoritative, with a
+      // verified-membership fallback when the provider is absent — see
+      // resolveMentionAdapterRootId), then gate by the currently-mounted roots.
+      const adapterRootId = resolveMentionAdapterRootId(rootIdentity, row.root_id, activeRootIdSet);
       if (adapterRootId === null || !activeRootIdSet.has(adapterRootId)) {
         continue;
       }
