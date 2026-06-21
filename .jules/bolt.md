@@ -90,3 +90,7 @@
 ## 2026-06-13 - Ancestor path chains avoid recursive spread
 **Learning:** `packages/utils/src/path-ancestors.ts` builds ancestor directory chains for recursive selection count updates. The recursive `[...buildAncestorDirectoryChain(parent)]` path measured roughly 43-56ms for a 4,000-deep chain after warmup on Node 24.16.0 and throws `RangeError: Maximum call stack size exceeded` at 12,000 nested directories; the iterative parent walk measured roughly 37-44ms for the 4,000-deep case and completed the 12,000-deep case in ~101ms.
 **Action:** Keep ancestor chain construction iterative and avoid reintroducing recursive spread copies in path ancestor utilities.
+
+## 2026-06-21 - Progress path labels scan from the tail
+**Learning:** `packages/file-explorer-ui/src/utils/path-display.ts` formats scanning/restoration/loading progress paths on every active path update. The old `path.split('/').slice(-2).join('/')` route allocated a segment array per path and incorrectly truncated absolute two-segment paths such as `/a/b`; a backward slash scan measured 780.87ms -> 438.10ms over 100k representative paths x 60 on Node 24.16.0 while preserving two real segments.
+**Action:** Keep compact progress labels on backward scanning when only the final path segments are needed; do not reintroduce full `split('/')` segment materialization in active progress rendering.

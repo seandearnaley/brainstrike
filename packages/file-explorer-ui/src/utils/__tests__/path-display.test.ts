@@ -12,6 +12,7 @@ import {
 describe('formatTrailingPathSegments', () => {
   it('returns the path unchanged when it has 2 or fewer segments', () => {
     expect(formatTrailingPathSegments('a/b')).toBe('a/b');
+    expect(formatTrailingPathSegments('/a/b')).toBe('/a/b');
     expect(formatTrailingPathSegments('only-one')).toBe('only-one');
   });
 
