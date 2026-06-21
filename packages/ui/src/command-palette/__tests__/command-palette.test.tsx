@@ -41,6 +41,16 @@ describe('CommandPalette', () => {
     vi.clearAllMocks();
   });
 
+  it('renders an accessible DialogTitle + Description (Radix requires them, unconditionally)', async () => {
+    render(<CommandPalette commands={[]} context={EMPTY_CONTEXT} onOpenChange={() => {}} open />);
+    // The Radix DialogTitle renders an <h2> (role heading); cmdk also renders a
+    // <label> with the same text, so query the heading specifically. These
+    // visually-hidden nodes satisfy @radix-ui/react-dialog's unconditional
+    // accessibility warning (caught live via CDT, not in jsdom).
+    expect(await screen.findByRole('heading', { name: 'Command palette' })).toBeTruthy();
+    expect(screen.getByText('Search for a command and press Enter to run it.')).toBeTruthy();
+  });
+
   it('renders available commands grouped, with a listbox and aria-selected', async () => {
     const commands: Command[] = [
       makeCommand({ id: 'nav.settings', label: 'Open Settings', group: 'navigate' }),
