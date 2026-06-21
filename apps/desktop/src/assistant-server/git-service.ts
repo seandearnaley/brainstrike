@@ -372,12 +372,17 @@ function resolveContainedPathArg(rawPath: string | undefined): GitResult<string 
  * THROUGH the symlink and renders the out-of-root file's CONTENT (mode 100644).
  *
  * So validate the PARENT chain's real path — but DO NOT dereference the final
- * component. A leaf symlink is safe and legitimate to review: git renders it as
- * a `120000` addition whose body is the link TEXT, never the target's content,
- * and `git status` lists such untracked symlinks. Dereferencing the leaf would
- * wrongly reject valid symlink additions (and throw on a dangling target).
- * Tracked diffs don't need this: they go through git's index, which never
- * follows filesystem symlinks.
+ * component. A leaf symlink is safe and legitimate to review: git `lstat`s the
+ * final operand, so it renders the symlink as a `120000` addition whose body is
+ * the link TEXT (the target PATH, e.g. `../outside/secret.txt`), never the
+ * target's content. That path text is a benign, intentional disclosure — it is
+ * already present in the user's own working tree — NOT a regression, so a reader
+ * seeing an out-of-root path in an untracked-symlink diff should not mistake it
+ * for a leak. This holds whether the leaf symlink points at a file OR a
+ * directory (both hit git's `lstat → S_IFLNK → no-recurse` branch). `git status`
+ * lists such untracked symlinks. Dereferencing the leaf would wrongly reject
+ * valid symlink additions (and throw on a dangling target). Tracked diffs don't
+ * need this: they go through git's index, which never follows fs symlinks.
  */
 async function assertUntrackedDiffPathContained(
   cwd: string,

@@ -365,6 +365,23 @@ describe('git service — diff', () => {
       expect(result.value.unifiedDiff).not.toContain('TOP-SECRET');
     }
   });
+
+  it('UNTRACKED: ALLOWS a leaf symlink to a DIRECTORY (lstat-rendered as 120000, never recursed)', async () => {
+    const repo = await makeRepo();
+    // A leaf symlink whose target is a DIRECTORY (vs the file case above). git
+    // lstat's the final operand → renders a 120000 link-text addition and never
+    // recurses into the directory's contents, so it is equally safe to review.
+    const outside = await makeNonRepoDir();
+    await fsPromises.writeFile(path.join(outside, 'secret.txt'), 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
+    await fsPromises.symlink(outside, path.join(repo, 'dir-link'));
+
+    const result = await serviceFor(repo).diff({ path: 'dir-link', untracked: true });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.unifiedDiff).not.toContain('TOP-SECRET');
+    }
+  });
 });
 
 describe('git service — git not installed', () => {

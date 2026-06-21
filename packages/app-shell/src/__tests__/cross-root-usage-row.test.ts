@@ -35,4 +35,14 @@ describe('mapCrossRootUsageRow', () => {
       512
     );
   });
+
+  it('bounds by code points, never splitting a surrogate pair at the boundary', () => {
+    // Each emoji is a surrogate PAIR in UTF-16; a naive `.slice(0, 512)` would
+    // cut mid-pair and leave a lone surrogate. Code-point slicing keeps 512 whole
+    // emoji (mirrors the SQL SUBSTR's character semantics).
+    const emoji = '😀'.repeat(600);
+    const name = mapCrossRootUsageRow(baseRow({ rootDisplayName: emoji })).rootDisplayName ?? '';
+    expect([...name]).toHaveLength(512);
+    expect(name).toBe('😀'.repeat(512));
+  });
 });
