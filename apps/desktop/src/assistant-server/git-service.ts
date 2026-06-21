@@ -18,6 +18,7 @@
  * The caller (the IPC handler) is responsible for resolving + containment-
  * checking the `cwd` against a known workspace root before calling in here.
  */
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 export const GIT_DEFAULT_TIMEOUT_MS = 30_000;
@@ -363,6 +364,40 @@ function resolveContainedPathArg(rawPath: string | undefined): GitResult<string 
   return { ok: true, value: normalized };
 }
 
+/**
+ * SECURITY: the untracked diff path is handed to `git diff --no-index`, which
+ * reads the filesystem directly. `resolveContainedPathArg` only validates
+ * LEXICAL containment (relative, no `..`), so a symlink inside the opened folder
+ * — or a symlinked ancestor directory — pointing OUTSIDE would let git read an
+ * arbitrary out-of-root file. Resolve the REAL path (following every symlink)
+ * and reject anything whose real location escapes the opened folder. Tracked
+ * diffs don't need this: they go through git's index, which never follows
+ * filesystem symlinks.
+ */
+async function assertUntrackedDiffPathContained(
+  cwd: string,
+  pathArg: string
+): Promise<GitResult<null>> {
+  const absolute = path.resolve(cwd, pathArg);
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(cwd), realpath(absolute)]);
+    const relative = path.relative(realRoot, realTarget);
+    if (
+      relative.length === 0 ||
+      relative === '..' ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      return { ok: false, error: `path "${pathArg}" resolves outside the opened folder` };
+    }
+    return { ok: true, value: null };
+  } catch {
+    // realpath throws if the path (or an ancestor) does not exist; we cannot
+    // prove containment, so refuse rather than risk an escape.
+    return { ok: false, error: `path "${pathArg}" could not be resolved inside the opened folder` };
+  }
+}
+
 export interface GitServiceOptions {
   readonly cwd: string;
   readonly run: GitCommandRunner;
@@ -448,6 +483,12 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
 
         const args: string[] = ['diff'];
         if (untracked && pathArg !== null) {
+          // SECURITY: --no-index reads the filesystem, so a symlinked path could
+          // escape the opened folder. Verify real-path containment before git.
+          const containment = await assertUntrackedDiffPathContained(cwd, pathArg);
+          if (!containment.ok) {
+            return containment;
+          }
           // Whole-file additions for a new, untracked file.
           args.push('--no-index', '--', '/dev/null', pathArg);
         } else {
