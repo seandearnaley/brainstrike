@@ -7,23 +7,29 @@
  * bridge + xterm UI. Output is read from xterm's `.xterm-rows` text spans
  * (GPU-agnostic — no canvas assertions).
  *
- * Root setup matches git-panel.desktop.test.ts: seed `rootsList` into
- * `electronAPI.storage`, then reload.
+ * Isolation: each test gets its OWN temp root dir (tracked + removed in
+ * `afterAll`). Root setup matches git-panel.desktop.test.ts.
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
-const TERMINAL_DIR = mkdtempSync(path.join(tmpdir(), 'bst-terminal-'));
-writeFileSync(path.join(TERMINAL_DIR, '.keep'), '');
+const tempDirs: string[] = [];
+function freshRootDir(label: string): string {
+  const dir = mkdtempSync(path.join(tmpdir(), `bst-terminal-${label}-`));
+  writeFileSync(path.join(dir, '.keep'), '');
+  tempDirs.push(dir);
+  return dir;
+}
+
 const ROOT_ID = 'p4-terminal-panel-root-00000000-0000-4000-8000-000000000011';
 
-async function seedRoot(page: Page, rootPath: string, rootId: string): Promise<void> {
+async function seedRoot(page: Page, rootPath: string): Promise<void> {
   await page.evaluate(
-    async ({ rootPath: p, rootId: id }) => {
+    async ({ rootPath: p, rootId }) => {
       const storage = (
         globalThis as typeof globalThis & {
           electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
@@ -35,10 +41,10 @@ async function seedRoot(page: Page, rootPath: string, rootId: string): Promise<v
       await storage.setItem('lastFolderPath', p);
       await storage.setItem(
         'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId: id }])
+        JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId }])
       );
     },
-    { rootPath, rootId }
+    { rootPath, rootId: ROOT_ID }
   );
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'p4-terminal-seed-root');
@@ -54,10 +60,17 @@ async function openTerminalPanel(page: Page): Promise<void> {
   await expect(page.getByText(/Loading Terminal/i)).toHaveCount(0, { timeout: 20_000 });
 }
 
-async function waitForShellReady(page: Page): Promise<void> {
-  // The PTY spawns async; the header shows the literal 'Terminal' placeholder
-  // until state.kind === 'ready' swaps in the cwd, and xterm paints its rows.
-  await page.locator('[data-testid="terminal-host"] .xterm-rows').waitFor({ timeout: 30_000 });
+// Wait for the PTY to be READY before typing — NOT just for xterm to mount. The
+// header shows the literal 'Terminal' placeholder until `bridge.create(...)`
+// resolves to `state.kind === 'ready'` (which carries the cwd) and the
+// `term.onData` keystroke→PTY handler is registered in that same continuation.
+// xterm's `.xterm-rows` exist from `term.open()` — BEFORE that handler — so
+// keying on the cwd (not the rows) closes the "typed before the PTY accepted
+// input" race the codex review flagged.
+async function waitForShellReady(page: Page, cwdDir: string): Promise<void> {
+  await expect(page.getByTestId('terminal-panel')).toContainText(path.basename(cwdDir), {
+    timeout: 30_000,
+  });
 }
 
 async function runInShell(page: Page, command: string): Promise<void> {
@@ -65,24 +78,29 @@ async function runInShell(page: Page, command: string): Promise<void> {
   await page.keyboard.type(`${command}\r`);
 }
 
+test.afterAll(() => {
+  for (const dir of tempDirs) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test.describe('Terminal panel (desktop)', () => {
   test('@smoke spawns a shell and shows the root cwd in the header', async ({ window: page }) => {
     test.setTimeout(90_000);
-    await seedRoot(page, TERMINAL_DIR, ROOT_ID);
+    const dir = freshRootDir('smoke');
+    await seedRoot(page, dir);
     await openTerminalPanel(page);
-    await waitForShellReady(page);
     // The header swaps the 'Terminal' placeholder for the resolved cwd; the temp
     // dir's basename survives realpath (e.g. /var → /private/var on macOS).
-    await expect(page.getByTestId('terminal-panel')).toContainText(path.basename(TERMINAL_DIR), {
-      timeout: 20_000,
-    });
+    await waitForShellReady(page, dir);
   });
 
   test('runs a command and renders its output in the xterm surface', async ({ window: page }) => {
     test.setTimeout(90_000);
-    await seedRoot(page, TERMINAL_DIR, ROOT_ID);
+    const dir = freshRootDir('output');
+    await seedRoot(page, dir);
     await openTerminalPanel(page);
-    await waitForShellReady(page);
+    await waitForShellReady(page, dir);
 
     await runInShell(page, 'echo brainstrike-e2e-marker');
     await expect(page.locator('.xterm-rows')).toContainText('brainstrike-e2e-marker', {
@@ -94,9 +112,10 @@ test.describe('Terminal panel (desktop)', () => {
     window: page,
   }) => {
     test.setTimeout(90_000);
-    await seedRoot(page, TERMINAL_DIR, ROOT_ID);
+    const dir = freshRootDir('exit');
+    await seedRoot(page, dir);
     await openTerminalPanel(page);
-    await waitForShellReady(page);
+    await waitForShellReady(page, dir);
 
     await runInShell(page, 'exit');
     await expect(page.getByTestId('terminal-panel-exited')).toBeVisible({ timeout: 20_000 });
@@ -105,16 +124,17 @@ test.describe('Terminal panel (desktop)', () => {
 
   test('restart after exit spawns a fresh, working shell', async ({ window: page }) => {
     test.setTimeout(120_000);
-    await seedRoot(page, TERMINAL_DIR, ROOT_ID);
+    const dir = freshRootDir('restart');
+    await seedRoot(page, dir);
     await openTerminalPanel(page);
-    await waitForShellReady(page);
+    await waitForShellReady(page, dir);
 
     await runInShell(page, 'exit');
     await expect(page.getByTestId('terminal-panel-exited')).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole('button', { name: 'Restart terminal' }).click();
     await expect(page.getByTestId('terminal-panel-exited')).toHaveCount(0, { timeout: 20_000 });
-    await waitForShellReady(page);
+    await waitForShellReady(page, dir);
 
     await runInShell(page, 'echo after-restart-marker');
     await expect(page.locator('.xterm-rows')).toContainText('after-restart-marker', {
