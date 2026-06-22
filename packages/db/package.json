@@ -9,6 +9,8 @@
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "0.5.1",
     "@electric-sql/pglite-pgvector": "0.0.2",
+    "@tursodatabase/database": "^0.6.1",
+    "@tursodatabase/sync": "^0.6.1",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
@@ -87,6 +89,7 @@
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:watch": "vitest",
+    "turso:capability-spike": "tsx scripts/turso-capability-spike.mts",
     "type-check": "tsc --noEmit"
   },
   "type": "module",
