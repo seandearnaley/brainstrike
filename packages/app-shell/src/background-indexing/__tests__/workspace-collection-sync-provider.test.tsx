@@ -380,6 +380,7 @@ vi.mock('../../roots/use-roots-reconciliation', () => ({
   useRootsReconciliation: () => ({
     registerRoot: registerRootMock,
     resolveDbRootId: resolveDbRootIdMock,
+    dbRootIdByAdapterRootId: new Map<string, string>(),
   }),
 }));
 

@@ -108,6 +108,10 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
 
 vi.mock('../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
+  // The "@file" context injector resolves referenced files through this reader.
+  // None of these tests send a file directive, so it is never invoked — but it
+  // must exist on the mock so the server's named import resolves.
+  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
 }));
 
 vi.mock('../db-main', () => ({

@@ -40,8 +40,10 @@ import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
+import { CommandPaletteHost } from './command-palette-host';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
@@ -134,17 +136,32 @@ export interface RootLayoutContentProps {
    * This loader is the single source of truth for app-wide database tooling:
    * RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel.
    */
+  /**
+   * Optional Git surface (desktop-only). Supplied by the desktop wrapper when
+   * the `window.git` bridge is present; web never constructs it (capability
+   * gating, not an isElectron check). When absent, no Git nav item is rendered.
+   */
+  readonly gitPageContent?: ReactNode;
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
   readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
+  /**
+   * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
+   * when the `window.terminal` bridge is present; web never constructs it
+   * (capability gating, not an isElectron check). When absent, no Terminal nav
+   * item is rendered.
+   */
+  readonly terminalPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/settings': 'settings',
   '/prompts': 'prompts',
+  '/git': 'git',
+  '/terminal': 'terminal',
 };
 
 function resolveActiveTabForPath(path: string): PanelTab {
@@ -264,6 +281,11 @@ function ContextExplorerSurface({
           rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
           rightPanelContent={resolvedPanelContent}
         >
+          {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
+              file-open seam (IdeFileEditorContext, registered by the tab host).
+              This subtree is always mounted (the explorer route is only toggled
+              hidden), so ⌘P works from any tab. */}
+          <QuickOpenHost />
           {contextExplorerPageContent}
         </IdeLayout>
       </PanelLayoutProvider>
@@ -320,6 +342,8 @@ export function RootLayoutContent({
   contextExplorerPanelContent,
   settingsPageContent,
   promptsPageContent,
+  gitPageContent,
+  terminalPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -377,6 +401,10 @@ export function RootLayoutContent({
           work can continue across route switches. They remain inert on non-explorer routes
           unless a feature explicitly opts into them. */}
       <ActionRegistryProvider registry={actionRegistry}>
+        {/* The ⌘K command palette mounts once at the visible-UI root. Only the
+            visible renderer mounts RootLayoutContent, so hidden hosts never
+            instantiate it (structural gating — no role check needed here). */}
+        <CommandPaletteHost />
         <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
           <EmbeddingRuntimeProvider>
             <IndexingActivityCoordinator />
@@ -412,6 +440,27 @@ export function RootLayoutContent({
                 data-testid="settings-route"
               >
                 {settingsPageContent}
+              </div>
+            ) : null}
+            {gitPageContent && mountedTabs.has('git') ? (
+              <div
+                aria-hidden={activeTab !== 'git'}
+                className={activeTab === 'git' ? 'h-full' : 'hidden h-full'}
+                data-testid="git-route"
+              >
+                {gitPageContent}
+              </div>
+            ) : null}
+            {/* The terminal route stays MOUNTED once first opened (it is only
+                toggled hidden) so switching tabs never kills the running shell —
+                the pty is pinned to its cwd for the session's lifetime. */}
+            {terminalPageContent && mountedTabs.has('terminal') ? (
+              <div
+                aria-hidden={activeTab !== 'terminal'}
+                className={activeTab === 'terminal' ? 'h-full' : 'hidden h-full'}
+                data-testid="terminal-route"
+              >
+                {terminalPageContent}
               </div>
             ) : null}
           </EmbeddingRuntimeProvider>

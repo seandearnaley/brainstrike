@@ -14,6 +14,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -61,6 +64,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -88,6 +94,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -126,6 +135,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => []),
@@ -156,6 +168,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -223,6 +238,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -285,6 +303,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -370,6 +391,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -431,6 +455,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -498,6 +525,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listLatestThreadRuns: vi.fn(),
@@ -552,6 +582,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
         appendThreadRunEvent: vi.fn(),
         createThread: vi.fn(),
         createThreadRun: vi.fn(),
+        getThreadCumulativeUsage: vi.fn(async () => null),
+        getCrossRootUsage: vi.fn(async () => []),
+        recordRunUsage: vi.fn(),
         deleteThread: vi.fn(),
         listThreads: vi.fn(),
         listLatestThreadRuns: vi.fn(),
@@ -662,6 +695,9 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
+      getThreadCumulativeUsage: vi.fn(async () => null),
+      getCrossRootUsage: vi.fn(async () => []),
+      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
@@ -1241,6 +1277,81 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('bootstraps the run-usage table and inserts a usage row', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.recordRunUsage({
+      threadId: 'thread-1',
+      runId: 'run-1',
+      resourceId: '/tmp/workspace-a',
+      rootId: 'root-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 120,
+      outputTokens: 45,
+    });
+
+    expect(db.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_usage')
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_run_usage'),
+      expect.arrayContaining([
+        'thread-1',
+        'run-1',
+        '/tmp/workspace-a',
+        'gpt-5.2',
+        'openai',
+        120,
+        45,
+        'root-a',
+      ])
+    );
+  });
+
+  it('persists a null root_id when no root is focused (honest unattributed)', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.recordRunUsage({
+      threadId: 'thread-1',
+      runId: 'run-1',
+      resourceId: '/tmp/workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+
+    const insert = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_run_usage')
+    );
+    // root_id is the 10th positional param; absent rootId persists as null.
+    expect(insert?.[1]?.[9]).toBeNull();
+  });
+
+  it('rejects negative token counts before persistence (no silent coercion)', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.recordRunUsage({
+        threadId: 'thread-1',
+        runId: 'run-1',
+        resourceId: '/tmp/workspace-a',
+        model: 'gpt-5.2',
+        provider: 'openai',
+        inputTokens: -1,
+        outputTokens: 0,
+      })
+    ).rejects.toThrow();
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_run_usage'),
+      expect.anything()
+    );
+  });
+
   it('persists compact redacted assistant run event summaries', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -1648,6 +1759,208 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       color: 'rose',
       source: 'brainstrike',
     });
+  });
+
+  it('records run usage and aggregates cumulative tokens per model in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-cumulative');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    // Same thread, three runs across TWO models — cost must be attributable
+    // per model, so the read API returns per-model subtotals.
+    await repository.recordRunUsage({
+      threadId: 'thread-cost',
+      runId: 'run-1',
+      resourceId: 'workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 1000,
+      outputTokens: 200,
+    });
+    await repository.recordRunUsage({
+      threadId: 'thread-cost',
+      runId: 'run-2',
+      resourceId: 'workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 500,
+      outputTokens: 100,
+    });
+    await repository.recordRunUsage({
+      threadId: 'thread-cost',
+      runId: 'run-3',
+      resourceId: 'workspace-a',
+      model: 'claude-opus-4-8',
+      provider: 'anthropic',
+      inputTokens: 2000,
+      outputTokens: 300,
+    });
+    // A different thread must not bleed into the aggregate.
+    await repository.recordRunUsage({
+      threadId: 'other-thread',
+      runId: 'run-x',
+      resourceId: 'workspace-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 9999,
+      outputTokens: 9999,
+    });
+
+    const usage = await repository.getThreadCumulativeUsage('thread-cost');
+    expect(usage).not.toBeNull();
+    expect(usage?.totalInputTokens).toBe(3500);
+    expect(usage?.totalOutputTokens).toBe(600);
+
+    // Per-model subtotals so the UI can compute cost against each model's price.
+    const byModel = new Map(
+      (usage?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
+    );
+    expect(byModel.get('openai:gpt-5.2')).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.2',
+      inputTokens: 1500,
+      outputTokens: 300,
+    });
+    expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
+      provider: 'anthropic',
+      model: 'claude-opus-4-8',
+      inputTokens: 2000,
+      outputTokens: 300,
+    });
+  });
+
+  it('returns null cumulative usage for a thread with no recorded runs', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-empty');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    await expect(repository.getThreadCumulativeUsage('never-seen')).resolves.toBeNull();
+  });
+
+  it('aggregates cross-root usage per (root, model), including a null root bucket', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    // The aggregation LEFT JOINs roots for display names (production has the
+    // roots table from migration 039). Seed it: root-a is named, root-b is
+    // deliberately absent so the join MISS surfaces a null name (not a crash).
+    await db.query(
+      `CREATE TABLE IF NOT EXISTS roots (
+        id text PRIMARY KEY,
+        kind text,
+        display_name text NOT NULL,
+        path text,
+        status text,
+        created_at timestamptz,
+        last_verified_at timestamptz
+      )`
+    );
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path)
+       VALUES ('root-a', 'path', 'project-alpha', '/tmp/project-alpha')`
+    );
+
+    // Workspace 'workspace-a': two roots + an unattributed (null-root) turn,
+    // across two threads and two models. The aggregate must group by
+    // (root, provider, model) and never bleed in a different workspace.
+    await repository.recordRunUsage({
+      threadId: 'thread-1',
+      runId: 'run-1',
+      resourceId: 'workspace-a',
+      rootId: 'root-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 1000,
+      outputTokens: 200,
+    });
+    await repository.recordRunUsage({
+      threadId: 'thread-2',
+      runId: 'run-2',
+      resourceId: 'workspace-a',
+      rootId: 'root-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 500,
+      outputTokens: 100,
+    });
+    await repository.recordRunUsage({
+      threadId: 'thread-1',
+      runId: 'run-3',
+      resourceId: 'workspace-a',
+      rootId: 'root-b',
+      model: 'claude-opus-4-8',
+      provider: 'anthropic',
+      inputTokens: 2000,
+      outputTokens: 300,
+    });
+    // No focused root → unattributed bucket (null root_id), honest not fake.
+    await repository.recordRunUsage({
+      threadId: 'thread-3',
+      runId: 'run-4',
+      resourceId: 'workspace-a',
+      rootId: null,
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 50,
+      outputTokens: 10,
+    });
+    // A different workspace must not contribute to workspace-a's aggregate.
+    await repository.recordRunUsage({
+      threadId: 'thread-x',
+      runId: 'run-x',
+      resourceId: 'workspace-b',
+      rootId: 'root-a',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      inputTokens: 9999,
+      outputTokens: 9999,
+    });
+
+    const rows = await repository.getCrossRootUsage('workspace-a');
+
+    // NULLS FIRST, then by root id / provider / model — deterministic ordering.
+    // root-a resolves its display name; root-b (no roots row) and the null
+    // bucket carry a null name — never a fabricated one.
+    expect(rows).toEqual([
+      {
+        rootId: null,
+        rootDisplayName: null,
+        provider: 'openai',
+        model: 'gpt-5.2',
+        inputTokens: 50,
+        outputTokens: 10,
+      },
+      {
+        rootId: 'root-a',
+        rootDisplayName: 'project-alpha',
+        provider: 'openai',
+        model: 'gpt-5.2',
+        inputTokens: 1500,
+        outputTokens: 300,
+      },
+      {
+        rootId: 'root-b',
+        rootDisplayName: null,
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        inputTokens: 2000,
+        outputTokens: 300,
+      },
+    ]);
+  });
+
+  it('returns an empty cross-root usage list for a workspace with no usage', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage-empty');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    // roots exists in production (migration 039); the aggregation joins it.
+    await db.query(
+      'CREATE TABLE IF NOT EXISTS roots (id text PRIMARY KEY, display_name text NOT NULL)'
+    );
+
+    await expect(repository.getCrossRootUsage('never-seen')).resolves.toEqual([]);
   });
 });
 

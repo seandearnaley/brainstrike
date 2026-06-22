@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "node"],
+    "skipLibCheck": true,
+    "strictNullChecks": true
+  },
+  "references": [{ "path": "../context-actions" }],
+  "include": ["src/**/*", "**/*.test.*"],
+  "exclude": ["dist", "node_modules"]
+}

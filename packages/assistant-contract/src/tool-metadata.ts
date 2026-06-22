@@ -1,4 +1,17 @@
 export {
+  DEFAULT_PERMISSION_POLICIES,
+  InvalidPermissionPolicyError,
+  isPermissionDecision,
+  PERMISSION_DECISIONS,
+  type PermissionDecision,
+  type PermissionDecisionInput,
+  type PermissionPolicies,
+  type PermissionToolGateSnapshot,
+  type PerToolPermissionOverrides,
+  resolvePermissionDecision,
+} from './permission-policy.js';
+export {
+  buildNativeToolRiskMap,
   compareByLoadPriority,
   getCategoryInfo,
   getNativeToolDefaults,
@@ -15,6 +28,12 @@ export {
   type ToolSource,
 } from './tool-categories.js';
 export { TOOL_DESCRIPTIONS } from './tool-descriptions.js';
+export {
+  resolveToolRiskCategory,
+  type ToolRiskCategory,
+  type ToolRiskMetadata,
+  UndeterminableToolRiskError,
+} from './tool-risk.js';
 export {
   generateExampleInput,
   getToolSchemaDisplay,

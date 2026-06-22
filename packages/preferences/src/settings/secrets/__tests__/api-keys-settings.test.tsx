@@ -219,4 +219,44 @@ describe('ApiKeysSettings', () => {
       expect(screen.getByTestId('provider-key-hint').textContent).toContain('Gemini API key');
     });
   });
+
+  it('saves the Tavily web-search key under the tavily secret id', async () => {
+    render(<ApiKeysSettings />);
+    const beforeVersion = useSecretsStore.getState().secretsVersion;
+
+    fireEvent.change(screen.getByTestId('tavily-api-key'), { target: { value: '  tvly-abc  ' } });
+    fireEvent.click(screen.getByTestId('save-tavily-key'));
+
+    await waitFor(() => {
+      expect(window.secrets?.saveKey).toHaveBeenCalledWith('tavily', 'tvly-abc');
+    });
+    await waitFor(() => {
+      expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion + 1);
+    });
+    expect((screen.getByTestId('tavily-api-key') as HTMLInputElement).value).toBe('');
+  });
+
+  it('deletes the Tavily key under the tavily secret id', async () => {
+    render(<ApiKeysSettings />);
+
+    fireEvent.click(screen.getByTestId('delete-tavily-key'));
+
+    await waitFor(() => {
+      expect(window.secrets?.deleteKey).toHaveBeenCalledWith('tavily');
+    });
+  });
+
+  it('reflects a configured Tavily key in its status line', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      listStored: vi.fn().mockResolvedValue(['openai', 'tavily']),
+    });
+
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tavily-key-status').textContent).toContain('Configured');
+    });
+  });
 });

@@ -62,6 +62,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-activity';
+import { RootIdentityProvider } from '../roots/root-identity-context';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { boundBackgroundPermitWait } from './background-permit-wait';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
@@ -1102,7 +1103,7 @@ export function WorkspaceCollectionSyncProvider({
   // Errors are logged and swallowed — must never block boot.
   // The returned callbacks are ref-stable: identity does not change when the
   // reconciliation map resolves, so the service useMemo is not reconstructed.
-  const { registerRoot, resolveDbRootId } = useRootsReconciliation({
+  const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId } = useRootsReconciliation({
     adapter: fileSystemAdapter,
     db,
   });
@@ -2725,5 +2726,9 @@ export function WorkspaceCollectionSyncProvider({
   // 0-changes coverage check can re-enqueue any missing embedding work.
   useResyncOnReturnToVisibility(triggerSync);
 
-  return <>{children}</>;
+  return (
+    <RootIdentityProvider dbRootIdByAdapterRootId={dbRootIdByAdapterRootId}>
+      {children}
+    </RootIdentityProvider>
+  );
 }

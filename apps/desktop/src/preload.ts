@@ -58,6 +58,8 @@ const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
+const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
+const QUICK_OPEN_OPEN_EVENT = 'quick-open:open' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -69,6 +71,20 @@ const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapsh
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const GIT_STATUS_CHANNEL = 'git:status' as const;
+const GIT_DIFF_CHANNEL = 'git:diff' as const;
+const GIT_STAGE_CHANNEL = 'git:stage' as const;
+const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
+const GIT_COMMIT_CHANNEL = 'git:commit' as const;
+const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
+const GIT_PUSH_CHANNEL = 'git:push' as const;
+const GIT_PULL_CHANNEL = 'git:pull' as const;
+const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
+const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
+const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
+const TERMINAL_DESTROY_CHANNEL = 'terminal:destroy' as const;
+const TERMINAL_DATA_EVENT = 'terminal:data' as const;
+const TERMINAL_EXIT_EVENT = 'terminal:exit' as const;
 
 import type {
   ApplyManagedCacheBatchArgs,
@@ -831,6 +847,32 @@ contextBridge.exposeInMainWorld('power', {
   },
 });
 
+// ⌘K command palette: the app menu's Cmd+K accelerator pushes this event to the
+// focused window so the renderer (visible-UI root) can open the palette. Mirrors
+// the other one-way main→renderer `on*` bridges (e.g. power.onPowerState).
+contextBridge.exposeInMainWorld('commandPalette', {
+  onOpen: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(COMMAND_PALETTE_OPEN_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(COMMAND_PALETTE_OPEN_EVENT, listener);
+    };
+  },
+});
+
+// ⌘P quick-open: the app menu's Cmd+P accelerator pushes this event to the
+// focused window so the renderer (visible-UI root) opens the quick-open finder.
+// Mirrors the commandPalette one-way main→renderer bridge.
+contextBridge.exposeInMainWorld('quickOpen', {
+  onOpen: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(QUICK_OPEN_OPEN_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(QUICK_OPEN_OPEN_EVENT, listener);
+    };
+  },
+});
+
 contextBridge.exposeInMainWorld('embeddingHost', {
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
@@ -1004,5 +1046,68 @@ if (shouldExposeBridge('platform')) {
     openPath: (absolutePath: string) => ipcRenderer.invoke(SHELL_OPEN_PATH_CHANNEL, absolutePath),
     showItemInFolder: (absolutePath: string) =>
       ipcRenderer.invoke(SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL, absolutePath),
+  });
+}
+
+// Git bridge (desktop-only): typed git operations on a workspace root. Every
+// call passes the durable `rootId` (DB roots.id) — main resolves + containment-
+// checks it to an absolute cwd and runs git via execFile (no shell). Web never
+// constructs this bridge (there is no preload), so `window.git` is simply
+// absent there; consumers must capability-check `window.git` rather than
+// `isElectron()`. The Git panel UI lands in a later PR.
+if (shouldExposeBridge('git')) {
+  contextBridge.exposeInMainWorld('git', {
+    status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    diff: (rootId: string, params?: { path?: string; staged?: boolean; untracked?: boolean }) =>
+      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
+    stage: (rootId: string, params?: { path?: string }) =>
+      ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
+    unstage: (rootId: string, params?: { path?: string }) =>
+      ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+    commit: (rootId: string, params: { message: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
+    aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
+    push: (rootId: string) => ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId),
+    pull: (rootId: string) => ipcRenderer.invoke(GIT_PULL_CHANNEL, rootId),
+  });
+}
+
+// Terminal bridge (desktop-only): a PTY backend for a future TerminalPanel.
+// `create` pins the shell cwd to a validated workspace `rootId` (main resolves
+// + containment-checks it, no shell-string injection in the spawn). Output and
+// exit are pushed one-way to THIS renderer over `terminal:data` / `terminal:exit`;
+// `onData`/`onExit` register a listener and return an unsubscribe fn. Web never
+// constructs this bridge (no preload), so consumers must capability-check
+// `window.terminal`. The xterm UI lands in the next PR.
+if (shouldExposeBridge('terminal')) {
+  contextBridge.exposeInMainWorld('terminal', {
+    create: (params: { rootId: string; cols?: number; rows?: number }) =>
+      ipcRenderer.invoke(TERMINAL_CREATE_CHANNEL, params),
+    write: (params: { terminalId: string; data: string }) =>
+      ipcRenderer.invoke(TERMINAL_WRITE_CHANNEL, params),
+    resize: (params: { terminalId: string; cols: number; rows: number }) =>
+      ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, params),
+    destroy: (params: { terminalId: string }) =>
+      ipcRenderer.invoke(TERMINAL_DESTROY_CHANNEL, params),
+    onData: (callback: (event: { terminalId: string; data: string }) => void) => {
+      const listener = (_event: unknown, payload: { terminalId: string; data: string }) =>
+        callback(payload);
+      ipcRenderer.on(TERMINAL_DATA_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(TERMINAL_DATA_EVENT, listener);
+      };
+    },
+    onExit: (
+      callback: (event: { terminalId: string; exitCode: number; signal: number | null }) => void
+    ) => {
+      const listener = (
+        _event: unknown,
+        payload: { terminalId: string; exitCode: number; signal: number | null }
+      ) => callback(payload);
+      ipcRenderer.on(TERMINAL_EXIT_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(TERMINAL_EXIT_EVENT, listener);
+      };
+    },
   });
 }

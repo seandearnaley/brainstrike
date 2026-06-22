@@ -44,7 +44,15 @@ function testRegex(regex: RegExp, path: string): boolean {
   return regex.test(path);
 }
 
-function createSafeRegex(pattern: string): RegExp {
+/**
+ * Reject a caller/model-supplied regex SOURCE that is over-long or matches a
+ * known catastrophic-backtracking (ReDoS) shape, BEFORE it is compiled or run.
+ * Throws with a clear message (no silent fallback). Shared by the glob
+ * path-filter below AND the grep authoritative matcher (grep-search-service) so
+ * the same guard protects every place a caller pattern becomes a live `RegExp`
+ * that is then run per-line across many whole files.
+ */
+export function assertSafeRegexSource(pattern: string): void {
   if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
     throw new Error(
       `Regex pattern exceeds maximum supported length (${MAX_REGEX_PATTERN_LENGTH}): ${pattern}`
@@ -53,9 +61,13 @@ function createSafeRegex(pattern: string): RegExp {
 
   for (const dangerousPattern of DANGEROUS_REGEX_PATTERNS) {
     if (dangerousPattern.test(pattern)) {
-      throw new Error(`Unsafe regex pattern rejected: ${pattern}`);
+      throw new Error(`Unsafe regex pattern rejected (catastrophic backtracking risk): ${pattern}`);
     }
   }
+}
+
+function createSafeRegex(pattern: string): RegExp {
+  assertSafeRegexSource(pattern);
 
   try {
     return new RegExp(pattern);

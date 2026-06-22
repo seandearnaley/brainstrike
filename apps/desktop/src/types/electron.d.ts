@@ -41,6 +41,20 @@ import type {
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
+import type {
+  GitAheadBehind,
+  GitCommitResult,
+  GitDiff,
+  GitPushPullResult,
+  GitResult,
+  GitStatus,
+} from '../assistant-server/git-service';
+import type {
+  TerminalCreateResult,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalResult,
+} from '../terminal-ipc-handlers';
 
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -77,6 +91,9 @@ declare global {
       onStatus: (callback: (status: ChunkingHostStatus) => void) => () => void;
       onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
       onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
+    };
+    commandPalette?: {
+      onOpen: (callback: () => void) => () => void;
     };
     desktopDiagnostics?: {
       getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
@@ -169,6 +186,26 @@ declare global {
         callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
       ) => () => void;
       reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
+    };
+    /**
+     * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
+     * capability-check `window.git` rather than `isElectron()`. Every call takes
+     * the durable workspace `rootId`; main resolves + containment-checks it to an
+     * absolute cwd and runs git via execFile (no shell). Each method resolves to
+     * a structured `GitResult` (never throws across IPC).
+     */
+    git?: {
+      status: (rootId: string) => Promise<GitResult<GitStatus>>;
+      diff: (
+        rootId: string,
+        params?: { path?: string; staged?: boolean; untracked?: boolean }
+      ) => Promise<GitResult<GitDiff>>;
+      stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
+      unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
+      commit: (rootId: string, params: { message: string }) => Promise<GitResult<GitCommitResult>>;
+      aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
+      push: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+      pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
     };
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
@@ -275,6 +312,9 @@ declare global {
       }>;
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
+    quickOpen?: {
+      onOpen: (callback: () => void) => () => void;
+    };
     secrets: {
       saveKey: (
         provider: string,
@@ -285,6 +325,30 @@ declare global {
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
       clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
+    };
+    /**
+     * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
+     * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
+     * validated workspace `rootId` (main resolves + containment-checks it). pty
+     * output/exit are pushed one-way to THIS renderer; `onData`/`onExit` register
+     * a listener and return an unsubscribe fn. Invoke calls resolve to a
+     * structured `TerminalResult` (never throw across IPC).
+     */
+    terminal?: {
+      create: (params: {
+        rootId: string;
+        cols?: number;
+        rows?: number;
+      }) => Promise<TerminalResult<TerminalCreateResult>>;
+      write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
+      resize: (params: {
+        terminalId: string;
+        cols: number;
+        rows: number;
+      }) => Promise<TerminalResult>;
+      destroy: (params: { terminalId: string }) => Promise<TerminalResult>;
+      onData: (callback: (event: TerminalDataEvent) => void) => () => void;
+      onExit: (callback: (event: TerminalExitEvent) => void) => () => void;
     };
     tools: {
       execute: (

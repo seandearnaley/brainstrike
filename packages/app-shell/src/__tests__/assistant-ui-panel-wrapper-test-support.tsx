@@ -442,14 +442,32 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
   usePGliteDatabase: vi.fn(() => mockDb),
+  // The OM segment live query (useObservationalMemoryRow) and the "@" file
+  // mention query (useFileMentions) — inert in these tests (no rows, not
+  // loading) so neither runs a real subscription.
+  usePGliteLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
+  // Quick-open / file-mention shared query constants (useFileMentions).
+  QUICK_OPEN_MAX_LIMIT: 50,
+  QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => {
+  // Stable references for the "@" file-mention selectors (useFileMentions reads
+  // these via useFileExplorerStoreSelector). A fresh `[]`/`{}` per getState()
+  // call would make the selector return a new value every render → re-render
+  // churn that re-runs subscription effects (broke the root-tree
+  // unsubscribe-once assertion).
+  const stableActiveRootIds: string[] = [];
+  const stableRootDescriptors: Record<string, unknown> = {};
   const getState = () => ({
     tokenBudget: fileExplorerMocks.tokenBudget,
     currentFolderId: fileExplorerMocks.currentFolderId,
     rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
     includeProjectTree: fileExplorerMocks.includeProjectTree,
+    // "@" file-mention gating (useFileMentions) reads these; empty in these
+    // tests so the mention query yields no candidates.
+    activeRootIds: stableActiveRootIds,
+    rootDescriptors: stableRootDescriptors,
     setTokenBudget: fileExplorerMocks.setTokenBudget,
     setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
     setSelectedFiles: fileExplorerMocks.setSelectedFiles,
@@ -619,6 +637,14 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
     PROVIDER_MODELS,
   };
 });
+
+// The "/" slash-command projection depends on the theme/toast/command-registry
+// seam (covered by its own unit tests). The wrapper suite focuses on
+// provider/model/transport logic, so stub the hook to an empty list — it needs
+// no ThemeProvider/ToastProvider here.
+vi.mock('../use-assistant-slash-commands', () => ({
+  useAssistantSlashCommands: () => [],
+}));
 
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
@@ -869,6 +895,16 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       </div>
     );
   },
+  // The wrapper reads the usage store both as a hook (selector at render time)
+  // and via getState() inside the usage callback. The mock supports both: the
+  // selector receives an empty usage map and getState exposes recordUsage.
+  useContextUsageStore: Object.assign(
+    (selector: (state: { usageByThread: Record<string, unknown> }) => unknown) =>
+      selector({ usageByThread: {} }),
+    {
+      getState: () => ({ recordUsage: () => {} }),
+    }
+  ),
 }));
 
 // Reset enabled models to defaults before each test

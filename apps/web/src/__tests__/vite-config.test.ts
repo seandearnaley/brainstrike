@@ -63,4 +63,22 @@ describe('web vite config alias contract', () => {
       /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[browserWorkerProcessExitCodePlugin\(\)\]/
     );
   });
+
+  it('co-locates the context-action/command system into one chunk (guards the built-renderer init TDZ)', () => {
+    // defineContextAction/defineCommand are pure identity helpers called at
+    // MODULE-INIT by feature */context-actions modules. If rolldown splits a
+    // helper from its eager callers, the built renderer hits a circular
+    // chunk-init TDZ ("k is not a function") and #root stays empty (dev is
+    // unaffected). The single 'context-action-system' chunk removes that hazard.
+    // Removing this silently re-breaks the built web app's boot — keep it pinned.
+    const config = readWebViteConfig();
+
+    expect(config).toContain('function isContextActionSystemModule(');
+    expect(config).toContain("return 'context-action-system';");
+    // The namer must run the co-location check BEFORE vendor chunking.
+    const coLocationIndex = config.indexOf('isContextActionSystemModule(moduleId)');
+    const vendorFallbackIndex = config.indexOf('resolveVendorChunk(moduleId) ?? null');
+    expect(coLocationIndex).toBeGreaterThanOrEqual(0);
+    expect(vendorFallbackIndex).toBeGreaterThan(coLocationIndex);
+  });
 });

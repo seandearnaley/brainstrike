@@ -10,6 +10,16 @@ export const DESKTOP_IPC_CHANNELS = {
   clipboard: {
     writeText: 'clipboard:write-text',
   },
+  commandPalette: {
+    // One-way main→renderer push: the app menu's Cmd+K accelerator triggers
+    // this on the FOCUSED window so the renderer opens the ⌘K palette.
+    open: 'command-palette:open',
+  },
+  quickOpen: {
+    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
+    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
+    open: 'quick-open:open',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',
@@ -31,6 +41,16 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
+  },
+  git: {
+    aheadBehind: 'git:aheadBehind',
+    commit: 'git:commit',
+    diff: 'git:diff',
+    pull: 'git:pull',
+    push: 'git:push',
+    stage: 'git:stage',
+    status: 'git:status',
+    unstage: 'git:unstage',
   },
   files: {
     addRoot: 'fs:addRoot',
@@ -91,6 +111,16 @@ export const DESKTOP_IPC_CHANNELS = {
     getItem: 'storage:getItem',
     removeItem: 'storage:removeItem',
     setItem: 'storage:setItem',
+  },
+  terminal: {
+    create: 'terminal:create',
+    write: 'terminal:write',
+    resize: 'terminal:resize',
+    destroy: 'terminal:destroy',
+    // One-way main→renderer pushes (pty output / exit). Not ipcMain.handle
+    // channels — see terminal-ipc-handlers.ts.
+    data: 'terminal:data',
+    exit: 'terminal:exit',
   },
   preferences: {
     layoutLoad: 'layout:load',

@@ -10,6 +10,8 @@ export {
 } from './grep-pattern.js';
 // Grep Search Service
 export {
+  collectGrepMatchesInContent,
+  createGrepLineMatcher,
   createGrepSearchService,
   GREP_DEFAULT_CANDIDATE_LIMIT,
   GREP_DEFAULT_CONTEXT_LINES,
@@ -19,6 +21,7 @@ export {
   type GrepSearchRepository,
   type GrepSearchResult,
   GrepSearchService,
+  type LineMatcher,
 } from './grep-search-service.js';
 // Hybrid Search Service
 export {
@@ -31,6 +34,13 @@ export {
   type HybridSearchResult,
   HybridSearchService,
 } from './hybrid-search-service.js';
+// Quick-open (⌘P) file-name search
+export {
+  clampQuickOpenLimit,
+  QUICK_OPEN_MAX_LIMIT,
+  QUICK_OPEN_NAME_SEARCH_SQL,
+  type QuickOpenFileRow,
+} from './quick-open-query.js';
 // RRF Algorithm
 export {
   // Core RRF functions

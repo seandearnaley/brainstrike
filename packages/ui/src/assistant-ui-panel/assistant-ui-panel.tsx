@@ -14,6 +14,12 @@ import {
   useAuiState,
   useLocalRuntime,
   useMessagePartReasoning,
+  // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
+  // it as a hook. Its detection keys on the `use` prefix; an `unstable_use…` call
+  // site is missed, so React's real hook count (this hook calls useMemo) exceeds the
+  // Fast Refresh signature and throws "Rendered fewer hooks" -- crashing ChatThreadUI
+  // + looping the error boundary in dev. Dev-only; prod/tests (no Fast Refresh) were fine.
+  unstable_useSlashCommandAdapter as useSlashCommandAdapter,
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -33,6 +39,7 @@ import {
   SquareIcon,
 } from 'lucide-react';
 import {
+  type ComponentProps,
   type FC,
   type ReactNode,
   useCallback,
@@ -70,11 +77,23 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
-import { ThreadContextMeter } from './context-usage-meter';
+import { ComposerMentionPopover } from './composer-mention-popover';
+import { ComposerTriggerPopover } from './composer-trigger-popover';
+import {
+  type CumulativeUsageDisplay,
+  type OmMeterState,
+  ThreadContextMeter,
+} from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
+import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import {
+  buildSlashCommandIconMap,
+  type SlashCommand,
+  toSlashCommandAdapterOptions,
+} from './slash-commands';
 import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
 import { collectToolDurations } from './tool-durations';
@@ -237,10 +256,23 @@ export interface AssistantUiPanelProps {
   ) => Promise<void> | void;
   /** Full model context window size. Passed to the context meter. */
   contextWindow?: number | undefined;
+  /** Durable cumulative usage (tokens + cost) for the active thread. Desktop-only. */
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   disabled?: boolean;
   disabledReason?: string;
   /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
   effectiveInputBudget?: number | undefined;
+  /**
+   * Workspace files projected into the composer's "@" mention menu. Like
+   * `slashCommands`, the panel is presentational: app-shell loads matches from
+   * the file index for the active mention query (reported via
+   * `onFileMentionQueryChange`) and feeds the resolved candidates here.
+   * Selecting one inserts a `:file[…]{name=…}` directive the server resolves to
+   * the file's content. The "@" feature is mounted only when
+   * `onFileMentionQueryChange` is provided (capability/seam gating lives in the
+   * app — web omits it).
+   */
+  fileMentions?: readonly FileMention[];
   historyAdapter?: ThreadHistoryAdapter;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   /**
@@ -251,6 +283,12 @@ export interface AssistantUiPanelProps {
    * runtime (web, or desktop without the llm-host bridge).
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
+  omSegment?: OmMeterState | undefined;
+  /**
+   * Reports the active "@" mention query so the app can load matching files into
+   * `fileMentions`. Presence of this callback gates the "@" feature on.
+   */
+  onFileMentionQueryChange?: (query: string) => void;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -272,6 +310,14 @@ export interface AssistantUiPanelProps {
   requestData?: Record<string, unknown>;
   selectedModel?: string;
   selectedProvider?: string;
+  /**
+   * App commands projected into the composer's "/" slash menu. The panel is
+   * presentational — it never builds the command registry. The app (app-shell)
+   * derives these from its command registry (capability-gated, danger group
+   * excluded) and pre-binds each `execute` to the command's `run(ctx)`. Defaults
+   * to `[]`, so callers/web with no commands simply show nothing.
+   */
+  slashCommands?: readonly SlashCommand[];
   threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
 }
@@ -550,6 +596,106 @@ const AssistantDataRendererRegistration: FC = () => {
 // Keep this in sync with the collapsed-history nth-last-child selector in overrides.css.
 const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 
+// Stable empty default for the optional slashCommands prop. A literal `[]`
+// default would create a new array each render, breaking memoization in the
+// adapter/icon-map derivations downstream (react-doctor: empty default prop).
+const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
+
+// Stable empty default for the optional fileMentions prop (same memoization
+// rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
+const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
+
+/**
+ * The composer input row (textarea + Send/Cancel), defined ONCE so both the
+ * slash-enabled and plain composer paths share it — only the optional
+ * `slashPopover` differs. Send / Cancel are unchanged regardless of the slash
+ * feature. When `slashPopover` is omitted the row renders without any "/" menu.
+ */
+const ComposerInputRow: FC<{
+  isComposerDisabled: boolean;
+  mentionPopover?: ReactNode;
+  slashPopover?: ReactNode;
+}> = ({ isComposerDisabled, mentionPopover, slashPopover }) => (
+  <div className="bs-composer-input-frame">
+    <ComposerPrimitive.Input
+      aria-label="Message input"
+      className="aui-composer-input"
+      disabled={isComposerDisabled}
+      id="assistant-input"
+      placeholder="Ask BrainStrike anything..."
+      rows={1}
+    />
+    {slashPopover}
+    {mentionPopover}
+    <div className="bs-composer-primary-actions">
+      <ThreadPrimitive.If running={false}>
+        <ComposerPrimitive.Send
+          aria-label="Send"
+          className="aui-button aui-button-primary aui-composer-send"
+          disabled={isComposerDisabled}
+          title="Send"
+        >
+          <ArrowUpIcon className="size-4" />
+        </ComposerPrimitive.Send>
+      </ThreadPrimitive.If>
+      <ThreadPrimitive.If running>
+        <ComposerPrimitive.Cancel
+          aria-label="Stop"
+          className="aui-button aui-button-primary aui-composer-cancel"
+          disabled={isComposerDisabled}
+          title="Stop"
+        >
+          <SquareIcon className="size-3.5 fill-current" />
+        </ComposerPrimitive.Cancel>
+      </ThreadPrimitive.If>
+    </div>
+  </div>
+);
+
+type SlashCommandAdapter = ComponentProps<
+  typeof ComposerPrimitive.Unstable_SlashCommandRoot
+>['adapter'];
+type FileMentionAdapter = ComponentProps<typeof ComposerPrimitive.Unstable_MentionRoot>['adapter'];
+
+/**
+ * Wraps the composer input row with the "/" slash root and/or the "@" mention
+ * root, mounting each ONLY when its adapter is present. The roots nest (mention
+ * inside slash) so both trigger detectors run against the same composer text
+ * without conflicting — "/" opens the slash menu, "@" opens the file menu. When
+ * neither is present the bare input row renders, so the trigger chars do nothing
+ * special (never an empty menu).
+ */
+const ComposerInputWithTriggers: FC<{
+  isComposerDisabled: boolean;
+  slashAdapter?: SlashCommandAdapter;
+  slashPopover?: ReactNode;
+  fileMentionAdapter?: FileMentionAdapter;
+  mentionPopover?: ReactNode;
+}> = ({ isComposerDisabled, slashAdapter, slashPopover, fileMentionAdapter, mentionPopover }) => {
+  let row: ReactNode = (
+    <ComposerInputRow
+      isComposerDisabled={isComposerDisabled}
+      {...(slashPopover ? { slashPopover } : {})}
+      {...(mentionPopover ? { mentionPopover } : {})}
+    />
+  );
+  if (fileMentionAdapter) {
+    row = (
+      <ComposerPrimitive.Unstable_MentionRoot adapter={fileMentionAdapter}>
+        {row}
+      </ComposerPrimitive.Unstable_MentionRoot>
+    );
+  }
+  if (slashAdapter) {
+    row = (
+      <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
+        {row}
+      </ComposerPrimitive.Unstable_SlashCommandRoot>
+    );
+  }
+  return <>{row}</>;
+};
+
 const ThreadHistoryControl: FC<{
   controlsId: string;
   expanded: boolean;
@@ -592,11 +738,15 @@ interface ChatThreadProps {
       ) => Promise<void> | void)
     | undefined;
   contextWindow?: number | undefined;
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
   effectiveInputBudget?: number | undefined;
+  fileMentions: readonly FileMention[];
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
+  omSegment?: OmMeterState | undefined;
+  onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -612,6 +762,7 @@ interface ChatThreadProps {
   requestData?: Record<string, unknown> | undefined;
   selectedModel: string | undefined;
   selectedProvider: string | undefined;
+  slashCommands: readonly SlashCommand[];
   toolMenu?: AssistantToolMenuConfig | undefined;
 }
 
@@ -627,6 +778,8 @@ const LocalRuntimeChat: FC<
   }
 > = ({
   contextWindow,
+  cumulativeUsage,
+  omSegment,
   effectiveInputBudget,
   providerGroups,
   pickerModels,
@@ -645,6 +798,9 @@ const LocalRuntimeChat: FC<
   loadLocalLlmBackend,
   modelId,
   onLoadingStateChange,
+  slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
   toolMenu,
   requestData,
   prepareRequestData,
@@ -712,11 +868,15 @@ const LocalRuntimeChat: FC<
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
           contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
+          fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
+          omSegment={omSegment}
+          onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -726,6 +886,7 @@ const LocalRuntimeChat: FC<
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          slashCommands={slashCommands}
           threadKey={threadKey}
           toolMenu={toolMenu}
         />
@@ -758,6 +919,8 @@ const DataStreamRuntimeChat: FC<
   }
 > = ({
   contextWindow,
+  cumulativeUsage,
+  omSegment,
   effectiveInputBudget,
   providerGroups,
   pickerModels,
@@ -780,6 +943,9 @@ const DataStreamRuntimeChat: FC<
   prepareRequestData,
   prepareLocalModel,
   modelName,
+  slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
   toolMenu,
   threadKey,
 }) => {
@@ -844,11 +1010,15 @@ const DataStreamRuntimeChat: FC<
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
           contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
+          fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
+          omSegment={omSegment}
+          onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
           onThreadRunStart={onThreadRunStart}
@@ -858,6 +1028,7 @@ const DataStreamRuntimeChat: FC<
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
+          slashCommands={slashCommands}
           threadKey={threadKey}
           toolMenu={toolMenu}
         />
@@ -872,6 +1043,8 @@ const DataStreamRuntimeChat: FC<
  */
 const ChatThreadUI: FC<{
   contextWindow?: number | undefined;
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
+  omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -888,10 +1061,15 @@ const ChatThreadUI: FC<{
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
+  slashCommands: readonly SlashCommand[];
+  fileMentions: readonly FileMention[];
+  onFileMentionQueryChange: ((query: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }> = ({
   contextWindow,
+  cumulativeUsage,
+  omSegment,
   effectiveInputBudget,
   providerGroups,
   hasGroupedProviders,
@@ -906,6 +1084,9 @@ const ChatThreadUI: FC<{
   isComposerDisabled,
   disabledReason,
   localLoadingState,
+  slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
   threadKey,
   toolMenu,
 }) => {
@@ -914,6 +1095,38 @@ const ChatThreadUI: FC<{
   const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
   const messagesRegionId = useId();
+
+  // Slash-command "/" menu: derive the library adapter + icon lookup from the
+  // app-passed commands during render (no setState-in-effect). The adapter hook
+  // is memoized on the command list and always runs (rules-of-hooks), but the
+  // slash root is only MOUNTED when there are commands — the installed
+  // @assistant-ui opens the popover whenever "/" is typed and an adapter is
+  // present, regardless of whether search() returns items, so mounting it with
+  // an empty list would surface an empty menu. "No commands" ⇒ no slash feature.
+  const hasSlashCommands = slashCommands.length > 0;
+  const slashAdapterOptions = useMemo(
+    () => toSlashCommandAdapterOptions(slashCommands),
+    [slashCommands]
+  );
+  const slashAdapter = useSlashCommandAdapter(slashAdapterOptions);
+  const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
+
+  // "@" file-mention menu: mounted only when app-shell wires the query seam
+  // (web omits it — capability/seam gating lives in the app, not here). The
+  // adapter is synchronous; app-shell loads matches for the reported query and
+  // feeds them back as `fileMentions`, which rebuilds the adapter.
+  const hasFileMentions = Boolean(onFileMentionQueryChange);
+  const fileMentionAdapter = useMemo(
+    () =>
+      onFileMentionQueryChange
+        ? buildFileMentionAdapter(fileMentions, onFileMentionQueryChange)
+        : null,
+    [fileMentions, onFileMentionQueryChange]
+  );
+  const fileMentionById = useMemo(
+    () => new Map(fileMentions.map((file) => [file.id, file])),
+    [fileMentions]
+  );
 
   return (
     <ThreadPrimitive.Root
@@ -992,7 +1205,9 @@ const ChatThreadUI: FC<{
       <div className="bs-composer-shell" data-testid="assistant-composer-shell">
         <ThreadContextMeter
           contextWindow={contextWindow}
+          cumulativeUsage={cumulativeUsage}
           effectiveInputBudget={effectiveInputBudget}
+          omSegment={omSegment}
           threadKey={threadKey}
         />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
@@ -1002,38 +1217,25 @@ const ChatThreadUI: FC<{
           data-disabled={isComposerDisabled ? '' : undefined}
           onSubmitCapture={onThreadRunStart}
         >
-          <div className="bs-composer-input-frame">
-            <ComposerPrimitive.Input
-              aria-label="Message input"
-              className="aui-composer-input"
-              disabled={isComposerDisabled}
-              id="assistant-input"
-              placeholder="Ask BrainStrike anything..."
-              rows={1}
-            />
-            <div className="bs-composer-primary-actions">
-              <ThreadPrimitive.If running={false}>
-                <ComposerPrimitive.Send
-                  aria-label="Send"
-                  className="aui-button aui-button-primary aui-composer-send"
-                  disabled={isComposerDisabled}
-                  title="Send"
-                >
-                  <ArrowUpIcon className="size-4" />
-                </ComposerPrimitive.Send>
-              </ThreadPrimitive.If>
-              <ThreadPrimitive.If running>
-                <ComposerPrimitive.Cancel
-                  aria-label="Stop"
-                  className="aui-button aui-button-primary aui-composer-cancel"
-                  disabled={isComposerDisabled}
-                  title="Stop"
-                >
-                  <SquareIcon className="size-3.5 fill-current" />
-                </ComposerPrimitive.Cancel>
-              </ThreadPrimitive.If>
-            </div>
-          </div>
+          {/* The composer input row, optionally wrapped by the "/" slash root
+              and/or the "@" mention root. Each root owns its own trigger ("/"
+              vs "@") and renders its popover after the Input; both read the same
+              composer text and coexist (different trigger chars). A feature is
+              mounted ONLY when its seam is present — an unmounted root means the
+              trigger char does nothing special (never an empty menu). The roots
+              nest (mention inside slash); Send / Cancel are unchanged. */}
+          <ComposerInputWithTriggers
+            isComposerDisabled={isComposerDisabled}
+            {...(hasSlashCommands
+              ? { slashAdapter, slashPopover: <ComposerTriggerPopover iconMap={slashIconMap} /> }
+              : {})}
+            {...(hasFileMentions && fileMentionAdapter
+              ? {
+                  fileMentionAdapter,
+                  mentionPopover: <ComposerMentionPopover fileById={fileMentionById} />,
+                }
+              : {})}
+          />
           {hasGroupedProviders && (
             <ProviderModelHeader
               groups={providerGroups}
@@ -1057,6 +1259,8 @@ const ChatThreadUI: FC<{
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
   contextWindow,
+  cumulativeUsage,
+  omSegment,
   completePreparedRequest,
   effectiveInputBudget,
   providerGroups,
@@ -1072,6 +1276,9 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onStreamActivity,
   onThreadRunStart,
   onUsage,
+  slashCommands = EMPTY_SLASH_COMMANDS,
+  fileMentions = EMPTY_FILE_MENTIONS,
+  onFileMentionQueryChange,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1139,6 +1346,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           <LocalRuntimeChat
             completePreparedRequest={completePreparedRequest}
             contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
             disabled={disabled}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
@@ -1146,12 +1354,15 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             loadLocalLlmBackend={loadLocalLlmBackend}
             localLoadingState={localLoadingState}
             modelId={modelName}
+            omSegment={omSegment}
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             {...(onUsage ? { onUsage } : {})}
+            fileMentions={fileMentions}
+            onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
             prepareRequestData={prepareRequestData}
@@ -1160,6 +1371,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
             threadKey={threadKey}
             toolMenu={toolMenu}
           />
@@ -1168,6 +1380,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             api={api}
             completePreparedRequest={completePreparedRequest}
             contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
             disabled={disabled}
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
@@ -1175,12 +1388,15 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
             localLoadingState={localLoadingState}
             modelName={modelName}
+            omSegment={omSegment}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
+            fileMentions={fileMentions}
+            onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
             prepareRequestData={prepareRequestData}
@@ -1189,6 +1405,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             requestData={requestData}
             selectedModel={selectedModel}
             selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
             threadKey={threadKey}
             toolMenu={toolMenu}
           />

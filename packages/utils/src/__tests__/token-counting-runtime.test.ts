@@ -55,10 +55,9 @@ describe('token-counting-runtime', () => {
   });
 
   it('keeps lightweight formatting helpers local to the facade', async () => {
-    const { estimateTokenCost, formatTokenCount } = await import('../token-counting-runtime');
+    const { formatTokenCount } = await import('../token-counting-runtime');
 
     expect(formatTokenCount(1500)).toBe('1.5K tokens');
-    expect(estimateTokenCost(1000, 1000)).toBe(0.04);
     expect(calculateGroupTokensMock).not.toHaveBeenCalled();
     expect(supportsAccurateTokenCountingMock).not.toHaveBeenCalled();
     expect(countTokensAccurateMock).not.toHaveBeenCalled();

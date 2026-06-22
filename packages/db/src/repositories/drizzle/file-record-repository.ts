@@ -16,7 +16,8 @@ import type {
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../../models/file-record.js';
-import { fileRecords } from '../../schema/index.js';
+import { fileRecords, roots } from '../../schema/index.js';
+import { clampQuickOpenLimit, type QuickOpenFileRow } from '../../search/quick-open-query.js';
 import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
@@ -216,6 +217,39 @@ export class DrizzleFileRecordRepository {
       .limit(1);
 
     return row ? this.fromRow(row) : null;
+  }
+
+  /**
+   * Substring name search for the ⌘P quick-open file finder (PR-6.3). Mirrors
+   * the shared `QUICK_OPEN_NAME_SEARCH_SQL` (used by the renderer's live query)
+   * so both paths return identical rows: a LEFT JOIN to `roots` for the display
+   * name (NULL for legacy `root_id IS NULL` rows — the UI labels those honestly,
+   * never guesses), ordered shortest-name-first then by path, bounded by a
+   * clamped limit (never an unbounded scan).
+   */
+  async findByNameSubstring(query: string, limit: number): Promise<QuickOpenFileRow[]> {
+    const boundedLimit = clampQuickOpenLimit(limit);
+    const rows = await this.db
+      .select({
+        id: fileRecords.id,
+        path: fileRecords.path,
+        name: fileRecords.name,
+        root_id: fileRecords.rootId,
+        display_name: roots.displayName,
+      })
+      .from(fileRecords)
+      .leftJoin(roots, eq(roots.id, fileRecords.rootId))
+      .where(sql`${fileRecords.name} ILIKE '%' || ${query} || '%'`)
+      .orderBy(sql`length(${fileRecords.name})`, fileRecords.path)
+      .limit(boundedLimit);
+
+    return rows.map((row) => ({
+      id: row.id,
+      path: row.path,
+      name: row.name,
+      root_id: row.root_id ?? null,
+      display_name: row.display_name ?? null,
+    }));
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {

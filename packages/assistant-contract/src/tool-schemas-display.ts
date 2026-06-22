@@ -89,6 +89,75 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       'File content payload with metadata, including truncation status and approximate token count',
   },
 
+  'brainstrike.writeWorkspaceFile': {
+    toolId: 'brainstrike.writeWorkspaceFile',
+    description:
+      'Write or create a file in the selected workspace root. Overwrites any existing content and creates missing parent directories. Workspace-scoped: the path can never escape the open folder. Requires approval (edit-risk).',
+    parameters: [
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Workspace-relative file path to write (parent directories are created)',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'content',
+        type: 'string',
+        description: 'Full UTF-8 file content to write, up to ~2 MB (overwrites any existing file)',
+        required: true,
+        maxLength: 8_000_000,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description: 'Folder name or id to write to when multiple folders are open (omit when one)',
+        required: false,
+      },
+    ],
+    returns:
+      'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
+  },
+
+  'brainstrike.stringReplaceWorkspaceFile': {
+    toolId: 'brainstrike.stringReplaceWorkspaceFile',
+    description:
+      'Surgically edit an existing workspace file: find one old_str block and replace it with new_str. Matching is fuzzy (exact, then whitespace-tolerant, then close-match) but a single line that matches multiple locations, or no sufficiently close match, is REFUSED rather than guessed. Use an empty new_str to delete the block. Workspace-scoped and edit-risk (requires approval).',
+    parameters: [
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Workspace-relative file path to edit (the file must already exist)',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'oldStr',
+        type: 'string',
+        description:
+          'Exact existing block to replace, with enough surrounding context to identify ONE location',
+        required: true,
+        minLength: 1,
+        maxLength: 8_000_000,
+      },
+      {
+        name: 'newStr',
+        type: 'string',
+        description: 'Replacement text (empty string deletes the matched block)',
+        required: true,
+        maxLength: 8_000_000,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description: 'Folder name or id to edit in when multiple folders are open (omit when one)',
+        required: false,
+      },
+    ],
+    returns:
+      'Edit result: the normalized workspace path, bytesWritten, matchType (which cascade branch matched), and replaced: true',
+  },
+
   'brainstrike.findWorkspaceSymbol': {
     toolId: 'brainstrike.findWorkspaceSymbol',
     description:
@@ -555,6 +624,128 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     ],
     returns:
       "'files' mode: matching file paths with per-file match counts. 'content' mode: path, 1-based line, line text, and context lines. Both self-bound to the tool output budget with totals, truncation flags, and a continuation hint",
+  },
+
+  'brainstrike.globWorkspace': {
+    toolId: 'brainstrike.globWorkspace',
+    description:
+      'Enumerate workspace files whose workspace-relative path matches a glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Walks the open folder(s) on disk, applying the same exclusions the workspace indexer uses (.git, node_modules, dist/build output, lockfiles, generated/minified artifacts). Read-only.',
+    parameters: [
+      {
+        name: 'pattern',
+        type: 'string',
+        description:
+          'Glob matched against workspace-relative paths. A bare pattern with no leading "**/" or "/" matches at any depth.',
+        required: true,
+        minLength: 1,
+        maxLength: 500,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional folder name or id to scope the walk to one open folder (omit to enumerate all; results are labelled with their root)',
+        required: false,
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Maximum matching paths to return',
+        required: false,
+        default: 200,
+        min: 1,
+        max: 1000,
+      },
+      {
+        name: 'offset',
+        type: 'number',
+        description: 'Skip this many matches to continue a truncated result',
+        required: false,
+        default: 0,
+        min: 0,
+        max: 100_000,
+      },
+      {
+        name: 'includeIgnored',
+        type: 'boolean',
+        description:
+          'Include files normally excluded (.git, node_modules, build output, lockfiles, generated/minified artifacts)',
+        required: false,
+        default: false,
+      },
+    ],
+    returns:
+      'Matching workspace-relative paths (each labelled with its root), self-bound to the tool output budget, with totals, a truncation flag, and a continuation hint',
+  },
+
+  'brainstrike.webSearch': {
+    toolId: 'brainstrike.webSearch',
+    description:
+      'Search the web via Tavily for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily): never include secrets or private workspace contents. Requires a Tavily API key configured in Settings; when no key is set the tool returns a clear "unavailable, add a key" message instead of failing the run.',
+    parameters: [
+      {
+        name: 'query',
+        type: 'string',
+        description: 'The web search query (sent to Tavily, an external service)',
+        required: true,
+        minLength: 2,
+        maxLength: 400,
+      },
+      {
+        name: 'maxResults',
+        type: 'number',
+        description: 'Maximum number of results to return',
+        required: false,
+        default: 5,
+        min: 1,
+        max: 10,
+      },
+    ],
+    returns:
+      'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+  },
+
+  'brainstrike.executeCommand': {
+    toolId: 'brainstrike.executeCommand',
+    description:
+      "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. By default the call suspends for the user's per-call approval before running (execute resolves to 'ask'); the user can let it run unprompted or deny it entirely. The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
+    parameters: [
+      {
+        name: 'command',
+        type: 'string',
+        description:
+          'The shell command line, passed verbatim to the shell as `-c command`. Arbitrary execution, no sandbox.',
+        required: true,
+        minLength: 1,
+        maxLength: 10_000,
+      },
+      {
+        name: 'root',
+        type: 'string',
+        description:
+          'Optional folder name or id to choose which open folder to start in (omit when only one is open)',
+        required: false,
+      },
+      {
+        name: 'cwd',
+        type: 'string',
+        description:
+          'Optional start directory (absolute or relative to the root) that MUST resolve inside an open folder. Defaults to the workspace root.',
+        required: false,
+      },
+      {
+        name: 'timeoutMs',
+        type: 'number',
+        description:
+          'Kill the whole process tree after this many milliseconds; the result reports timedOut: true',
+        required: false,
+        default: 120_000,
+        min: 1,
+        max: 600_000,
+      },
+    ],
+    returns:
+      'exitCode (null when killed by signal), the terminating signal, a budget-bounded tail of stdout and stderr (truncated flag + hint when trimmed), durationMs, timedOut, and the resolved cwd',
   },
 };
 

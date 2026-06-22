@@ -23,6 +23,7 @@ const baseArgs = {
   memoryResourceId: 'workspace-a',
   modelSettings: { maxOutputTokens: 512 },
   observationalMemorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+  permissionPolicyRequest: undefined,
   providerOptions: { openai: { reasoningEffort: 'medium' } },
   runtimeWorkspaceContext: null,
   selectedMemoryThreadId: 'thread-a',
