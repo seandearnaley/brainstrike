@@ -199,6 +199,46 @@ describe('Turso schema baseline', () => {
     });
   });
 
+  it('enforces final root and managed-cache identity uniqueness', async () => {
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('roots')).resolves.toEqual(
+      expect.arrayContaining(['idx_roots_path_identity'])
+    );
+    await expect(listIndexes('file_records')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_records_root_identity'])
+    );
+
+    await client.exec(
+      "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-path-1', 'path', 'Project', '/workspace/project')"
+    );
+    await expect(
+      client.exec(
+        "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-path-2', 'path', 'Project copy', '/workspace/project')"
+      )
+    ).rejects.toThrow();
+
+    await client.exec(
+      "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-fsa-1', 'fsa', 'Project', 'project')"
+    );
+    await expect(
+      client.exec(
+        "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-fsa-2', 'fsa', 'Project copy', 'project')"
+      )
+    ).resolves.toBeUndefined();
+
+    await client.exec(`
+      INSERT INTO file_records (id, name, path, root_id, size, embedding_set_id)
+      VALUES ('file-1', 'index.ts', 'src/index.ts', 'root-path-1', 1, 'workspace-index')
+    `);
+    await expect(
+      client.exec(`
+        INSERT INTO file_records (id, name, path, root_id, size, embedding_set_id)
+        VALUES ('file-2', 'index.ts', 'src/index.ts', 'root-path-1', 2, 'workspace-index')
+      `)
+    ).rejects.toThrow();
+  });
+
   it('includes seed parameters in the baseline checksum', () => {
     const sqlOnlyChecksum = computeTursoSchemaChecksum([
       ...TURSO_SCHEMA_BASELINE_DDL,

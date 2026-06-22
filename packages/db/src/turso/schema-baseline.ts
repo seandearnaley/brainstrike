@@ -24,7 +24,7 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
       last_verified_at TEXT
     )
   `,
-  'CREATE INDEX IF NOT EXISTS idx_roots_path ON roots (path)',
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_roots_path_identity ON roots (path) WHERE path IS NOT NULL AND kind = 'path'",
   `
     CREATE TABLE IF NOT EXISTS file_records (
       id TEXT PRIMARY KEY,
@@ -49,6 +49,7 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
   'CREATE INDEX IF NOT EXISTS idx_file_records_content_hash ON file_records (content_hash)',
   'CREATE INDEX IF NOT EXISTS idx_file_records_embedding_set_id ON file_records (embedding_set_id)',
   'CREATE INDEX IF NOT EXISTS idx_file_records_root_id ON file_records (root_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_file_records_root_identity ON file_records (embedding_set_id, root_id, path) WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL',
   `
     CREATE TABLE IF NOT EXISTS file_chunks (
       id TEXT PRIMARY KEY,
