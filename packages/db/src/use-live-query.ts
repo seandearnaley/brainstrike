@@ -52,6 +52,8 @@ export type UsePGliteLiveQueryOptions<T> = (IncrementalOptions | StandardOptions
   readonly select?: (rows: T[]) => T[];
 };
 
+export type UseBrainstrikeLiveQueryOptions<T> = UsePGliteLiveQueryOptions<T>;
+
 export interface LiveQueryHookResult<T> {
   readonly error: Error | null;
   readonly loading: boolean;
@@ -552,4 +554,10 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     }),
     [rows, loading, error, refresh]
   );
+}
+
+export function useBrainstrikeLiveQuery<T = Record<string, unknown>>(
+  options: UseBrainstrikeLiveQueryOptions<T>
+): LiveQueryHookResult<T> {
+  return usePGliteLiveQuery(options);
 }

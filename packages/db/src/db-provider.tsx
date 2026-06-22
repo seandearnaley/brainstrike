@@ -1519,6 +1519,10 @@ export function usePGliteDatabase(): DbHandle | null {
 }
 
 export function useBrainstrikeDatabase(): DbHandle | null {
+  return useBrainstrikeDbClient();
+}
+
+export function useBrainstrikeDbClient(): DbHandle | null {
   return usePGliteDatabase();
 }
 
@@ -1542,6 +1546,10 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
 }
 
 export function useOptionalBrainstrikeDatabase(): DbHandle | null {
+  return useOptionalBrainstrikeDbClient();
+}
+
+export function useOptionalBrainstrikeDbClient(): DbHandle | null {
   return useOptionalPGliteDatabase();
 }
 
