@@ -13,6 +13,7 @@ describe('path-display utilities', () => {
   describe('formatTrailingPathSegments', () => {
     it('keeps short paths and abbreviates longer paths to the final two segments', () => {
       expect(formatTrailingPathSegments('src/app.ts')).toBe('src/app.ts');
+      expect(formatTrailingPathSegments('/src/app.ts')).toBe('/src/app.ts');
       expect(formatTrailingPathSegments('packages/ui/src/button.tsx')).toBe('.../src/button.tsx');
     });
   });

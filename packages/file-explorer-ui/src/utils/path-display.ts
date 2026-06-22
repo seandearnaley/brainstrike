@@ -29,6 +29,7 @@ const DIRECTORY_GROUP_KEY_PREFIX = 'dg1';
 const DIRECTORY_GROUP_KEY_PREFIX_V2 = 'dg2';
 /** Short rootId suffix length used to disambiguate same-named roots. */
 const CANONICAL_ROOT_SUFFIX_CHARS = 8;
+const FORWARD_SLASH_CODE = 47;
 
 function normalizePathIdentity(inputPath: string): string {
   return stripTrailingSlashes(normalizeSeparators(inputPath));
@@ -117,8 +118,35 @@ function shortenSegment(segment: string, maxChars: number): string {
  * Used for compact progress indicators where horizontal space is tight.
  */
 export function formatTrailingPathSegments(path: string): string {
-  const parts = path.split('/');
-  return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : path;
+  let segmentCount = 0;
+  let inSegment = false;
+  let trailingStartIndex = 0;
+
+  // Progress updates call this for every active path; scan backward so we only
+  // slice the final two real segments instead of allocating every segment.
+  for (let i = path.length - 1; i >= 0; i -= 1) {
+    if (path.charCodeAt(i) === FORWARD_SLASH_CODE) {
+      if (inSegment) {
+        segmentCount += 1;
+        if (segmentCount === 2) {
+          trailingStartIndex = i + 1;
+        }
+        inSegment = false;
+      }
+      continue;
+    }
+
+    inSegment = true;
+  }
+
+  if (inSegment) {
+    segmentCount += 1;
+    if (segmentCount === 2) {
+      trailingStartIndex = 0;
+    }
+  }
+
+  return segmentCount > 2 ? `.../${path.slice(trailingStartIndex)}` : path;
 }
 
 export function splitFilePath(filePath: string): SplitFilePathResult {
