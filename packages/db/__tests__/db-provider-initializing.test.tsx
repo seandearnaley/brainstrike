@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { createPriorityDbHandle } from '../src/database-work-scheduler';
@@ -83,6 +83,7 @@ describe('DbProvider initializing state', () => {
 
   afterEach(async () => {
     clearWindowElectronDbBridge();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -158,6 +159,48 @@ describe('DbProvider initializing state', () => {
       },
       { timeout: 10_000 }
     );
+  });
+
+  it('late-mounted repository hooks initialize after provider-ready lazy mount', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const mockDb = createMockDb();
+    const createPGliteSpy = vi
+      .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+      .mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+    const observedRepositories: unknown[] = [];
+
+    function LateRepositoryConsumer() {
+      observedRepositories.push(useFileRecordRepository());
+      return null;
+    }
+
+    function Harness({ mountRepository }: { mountRepository: boolean }) {
+      useDbInitializationStatus();
+      return mountRepository ? <LateRepositoryConsumer /> : null;
+    }
+
+    const view = render(
+      <DbProvider dbPath="memory://">
+        <Harness mountRepository={false} />
+      </DbProvider>
+    );
+
+    await act(async () => {});
+    expect(createPGliteSpy).not.toHaveBeenCalled();
+
+    view.rerender(
+      <DbProvider dbPath="memory://">
+        <Harness mountRepository={true} />
+      </DbProvider>
+    );
+
+    await waitFor(() => {
+      expect(createPGliteSpy).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(observedRepositories.at(-1)).toBeTruthy();
+    });
   });
 
   it('reports direct PGlite bootstrap readiness after open, migration, and pgvector checks pass', async () => {
