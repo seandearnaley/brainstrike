@@ -27,7 +27,7 @@ export interface TursoProfileBootstrapOptions {
   readonly runtime?: ProfileBootstrapRuntime;
 }
 
-type TursoProfileDatabase = Pick<TursoDatabase, 'close' | 'exec'>;
+type TursoProfileDatabase = Pick<TursoDatabase, 'close' | 'pragma'>;
 
 type TursoProfileBootstrapCheckId =
   | 'primary-store.mvcc'
@@ -87,7 +87,8 @@ export async function runTursoProfileBootstrap(
     checks = setCheck(checks, 'store.open', 'passed');
 
     phase = 'probing-capabilities';
-    await db.exec("PRAGMA journal_mode = 'mvcc'");
+    const journalModeRows = await db.pragma("journal_mode = 'mvcc'", {});
+    assertTursoMvccJournalMode(journalModeRows);
     checks = setCheck(checks, 'primary-store.mvcc', 'passed');
     checks = setCheck(checks, 'search.ownership', 'passed', TURSO_SPLIT_SEARCH_OWNERSHIP.message);
 
@@ -169,6 +170,28 @@ function setCheck(
 
 function hasBlockingCheck(checks: readonly ProfileBootstrapCheck[]): boolean {
   return checks.some((check) => check.required && check.status !== 'passed');
+}
+
+function assertTursoMvccJournalMode(rows: readonly unknown[]): void {
+  const appliedJournalMode = readTursoJournalMode(rows);
+  if (appliedJournalMode !== 'mvcc') {
+    throw new Error(
+      `Turso journal_mode pragma returned ${formatJournalMode(appliedJournalMode)} instead of 'mvcc'.`
+    );
+  }
+}
+
+function readTursoJournalMode(rows: readonly unknown[]): string | null {
+  const [firstRow] = rows;
+  if (!firstRow || typeof firstRow !== 'object' || !('journal_mode' in firstRow)) {
+    return null;
+  }
+  const journalMode = (firstRow as { readonly journal_mode?: unknown }).journal_mode;
+  return typeof journalMode === 'string' ? journalMode.toLowerCase() : null;
+}
+
+function formatJournalMode(journalMode: string | null): string {
+  return journalMode === null ? 'no journal_mode row' : `'${journalMode}'`;
 }
 
 function getFailureAttribution(

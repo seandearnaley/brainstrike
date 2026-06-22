@@ -3,12 +3,13 @@ import { runTursoProfileBootstrap } from '../src/bootstrap/turso-profile-bootstr
 
 describe('Turso profile bootstrap', () => {
   it('opens the primary store in MVCC mode and declares split search ownership', async () => {
-    const execSql: string[] = [];
+    const pragmaSql: string[] = [];
     const close = vi.fn(async () => undefined);
     const database = {
       close,
-      exec: async (sql: string) => {
-        execSql.push(sql);
+      pragma: async (source: string) => {
+        pragmaSql.push(source);
+        return [{ journal_mode: 'mvcc' }];
       },
     };
 
@@ -22,7 +23,7 @@ describe('Turso profile bootstrap', () => {
       profileId: 'branch-turso',
     });
 
-    expect(execSql).toEqual(["PRAGMA journal_mode = 'mvcc'"]);
+    expect(pragmaSql).toEqual(["journal_mode = 'mvcc'"]);
     expect(close).toHaveBeenCalledTimes(1);
     expect(report.bootstrapReport).toMatchObject({
       phase: 'ready',
@@ -47,11 +48,44 @@ describe('Turso profile bootstrap', () => {
     expect(report.blockingIssues).toEqual([]);
   });
 
+  it('fails closed when MVCC mode returns a different applied journal mode', async () => {
+    const close = vi.fn(async () => undefined);
+    const database = {
+      close,
+      pragma: async () => [{ journal_mode: 'wal' }],
+    };
+
+    const report = await runTursoProfileBootstrap({
+      dbPath: '/tmp/brainstrike-turso/profile.db',
+      generatedAt: createClock(),
+      openDatabase: async () => database,
+      profileId: 'branch-turso',
+    });
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(report.bootstrapReport).toMatchObject({
+      failure: {
+        code: 'turso_profile_bootstrap_failed',
+        message: "Turso journal_mode pragma returned 'wal' instead of 'mvcc'.",
+        phase: 'probing-capabilities',
+      },
+      phase: 'failed',
+      ready: false,
+    });
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'primary-store.mvcc',
+        message: "Turso journal_mode pragma returned 'wal' instead of 'mvcc'.",
+        status: 'failed',
+      })
+    );
+  });
+
   it('fails closed when MVCC cannot be enabled', async () => {
     const close = vi.fn(async () => undefined);
     const database = {
       close,
-      exec: async () => {
+      pragma: async () => {
         throw new Error('failed to enable MVCC at /tmp/private/profile.db');
       },
     };
